@@ -939,7 +939,9 @@ function generationInputs(
     ? allMoreLikeForLane
     : thematicMoreLike.length >= YOUTUBE_RAIL_LIMIT
       ? thematicMoreLike
-      : exactChannelMoreLike.length >= YOUTUBE_RAIL_LIMIT
+      : thematicMoreLike.length > 0 && allMoreLikeForLane.length >= YOUTUBE_RAIL_LIMIT
+        ? allMoreLikeForLane
+        : exactChannelMoreLike.length >= YOUTUBE_RAIL_LIMIT
         ? exactChannelMoreLike
         : allMoreLikeForLane;
   const moreLikeContext = moreLikeForLane === exactChannelMoreLike

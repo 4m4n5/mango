@@ -1130,6 +1130,16 @@ test('More Like uses uploads playlists and publishes a same-channel plus themati
   assert.ok(more.length >= 4);
   assert.ok(more.some((item) => item.provenance === 'history_channel'));
   assert.ok(more.some((item) => item.provenance === 'history_topic'));
+  const publicMore = youtubeV2RecommendationRails({ shuffle_epoch: 0 })
+    .find((rail) => rail.rail_id === 'more_like')!;
+  assert.equal(publicMore.label, 'More Like');
+  const publicProvenance = publicMore.items.map((item) => (
+    more.find((entry) => entry.id === item.id)?.provenance
+  ));
+  assert.ok(publicProvenance.includes('history_channel'));
+  assert.ok(publicProvenance.includes('history_topic'));
+  assert.ok(Math.max(...[...new Set(publicMore.items.map((item) => item.channel_id))]
+    .map((creator) => publicMore.items.filter((item) => item.channel_id === creator).length)) <= 2);
 }));
 
 test('an all-query discovery failure retains the last-good generation and blocks publication', () => withTempState(async () => {
