@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
+  libraryDbPath,
   listProfileLibraryFeedback,
   listMeaningfullyWatchedLibraryItemIdsPage,
   listSavedLibraryItemIdsPage,
@@ -295,12 +296,68 @@ function householdBlockedIds(): Set<string> {
     .map((row) => row.id));
 }
 
+type YoutubeV2ExactExclusionSnapshot = {
+  db_path: string;
+  watched: ReadonlySet<string>;
+  saved: ReadonlySet<string>;
+  blocked: ReadonlySet<string>;
+  all: ReadonlySet<string>;
+  built_at: number;
+};
+
+let exactExclusionSnapshot: YoutubeV2ExactExclusionSnapshot | null = null;
+let exactExclusionBuildCount = 0;
+let exactExclusionInvalidationCount = 0;
+
+function loadYoutubeV2ExactExclusions(force = false): YoutubeV2ExactExclusionSnapshot {
+  const dbPath = libraryDbPath();
+  if (!force && exactExclusionSnapshot?.db_path === dbPath) return exactExclusionSnapshot;
+  const watched = allHouseholdHistoryIds();
+  const saved = householdSavedIds();
+  const blocked = householdBlockedIds();
+  exactExclusionSnapshot = {
+    db_path: dbPath,
+    watched,
+    saved,
+    blocked,
+    all: new Set([...watched, ...saved, ...blocked]),
+    built_at: Date.now(),
+  };
+  exactExclusionBuildCount += 1;
+  return exactExclusionSnapshot;
+}
+
+/**
+ * Exact exclusions can span thousands of durable Takeout rows. Home and X read
+ * this revision-fenced snapshot instead of paging the multi-gigabyte library
+ * database on every cached slate advance. Every relevant source mutation must
+ * invalidate before the next couch read; generation rebuilds force a refresh.
+ */
+export function invalidateYoutubeV2ExactExclusions(): void {
+  exactExclusionSnapshot = null;
+  exactExclusionInvalidationCount += 1;
+}
+
+export function primeYoutubeV2ExactExclusions(): void {
+  loadYoutubeV2ExactExclusions();
+}
+
+export function youtubeV2ExactExclusionCacheDiagnostics(): Record<string, unknown> {
+  const snapshot = exactExclusionSnapshot;
+  return {
+    ready: snapshot !== null && snapshot.db_path === libraryDbPath(),
+    watched_count: snapshot?.watched.size ?? 0,
+    saved_count: snapshot?.saved.size ?? 0,
+    blocked_count: snapshot?.blocked.size ?? 0,
+    total_count: snapshot?.all.size ?? 0,
+    built_at: snapshot?.built_at ?? null,
+    build_count: exactExclusionBuildCount,
+    invalidation_count: exactExclusionInvalidationCount,
+  };
+}
+
 export function youtubeV2ExactExcludedIds(): Set<string> {
-  return new Set([
-    ...allHouseholdHistoryIds(),
-    ...householdSavedIds(),
-    ...householdBlockedIds(),
-  ]);
+  return new Set(loadYoutubeV2ExactExclusions().all);
 }
 
 function authoritativeSubscriptions(): ReturnType<typeof listYoutubeV2Subscriptions> {
@@ -630,9 +687,9 @@ function stableSourceHash(
   watches: WatchAnchor[],
   subscriptions: ReturnType<typeof listYoutubeV2Subscriptions>,
   provenance: YoutubeV2CandidateProvenance[],
-  watchedIds: Set<string>,
-  savedIds: Set<string>,
-  blockedIds: Set<string>,
+  watchedIds: ReadonlySet<string>,
+  savedIds: ReadonlySet<string>,
+  blockedIds: ReadonlySet<string>,
   topicSeed: YoutubeV2TopicSeed | null,
   at: number,
 ): string {
@@ -967,9 +1024,10 @@ export function rebuildYoutubeV2Generation(options: { force?: boolean; at?: numb
   const watches = householdWatchAnchors(at);
   const subscriptions = authoritativeSubscriptions();
   const provenance = listYoutubeV2CandidateProvenance({ at, limit: V2_PROVENANCE_LIMIT });
-  const watchedIds = allHouseholdHistoryIds();
-  const savedIds = householdSavedIds();
-  const blockedIds = householdBlockedIds();
+  const exclusions = loadYoutubeV2ExactExclusions(true);
+  const watchedIds = exclusions.watched;
+  const savedIds = exclusions.saved;
+  const blockedIds = exclusions.blocked;
   const topicSeed = topicSeedFromSources(watches, subscriptions, provenance, at);
   const sourceHash = stableSourceHash(
     watches,
@@ -1301,6 +1359,7 @@ export function youtubeV2Diagnostics(): Record<string, unknown> {
       candidate_generations: [...new Set(activeProvenance.map((row) => row.source_generation))].sort(),
     },
     latest_takeout_import: takeout,
+    exact_exclusion_cache: youtubeV2ExactExclusionCacheDiagnostics(),
     subscription_acquisition: getYoutubeState<unknown>('youtube_v2_subscription_acquisition', null),
     history_metadata: getYoutubeState<unknown>('youtube_v2_history_metadata', null),
     history_acquisition: getYoutubeState<unknown>('youtube_v2_history_acquisition', null),

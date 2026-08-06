@@ -39,10 +39,12 @@ import {
   youtubeV2AcquisitionQueryBudget,
 } from './service.js';
 import {
+  invalidateYoutubeV2ExactExclusions,
   rebuildYoutubeV2Generation,
   youtubePublicPersonalizationPayload,
   youtubeRecommendationsV2Mode,
   youtubeV2HistoryItems,
+  youtubeV2ExactExclusionCacheDiagnostics,
   youtubeV2RecommendationRails,
   youtubeV2TopicSeed,
   weightedDailyHistorySeedId,
@@ -771,6 +773,7 @@ test('Home and X are latest-generation-only; ordinary reload epoch is stable', (
     source: 'youtube', type: 'youtube_video', id: savedAfterPublish.id,
     title: savedAfterPublish.title, tab: 'youtube', saved_at: 1,
   });
+  invalidateYoutubeV2ExactExclusions();
   const afterSaved = await service.rails() as { slate_sequence: number; rails: YoutubeRail[] };
   assert.equal(afterSaved.rails.some((rail) => rail.items.some((item) => item.id === savedAfterPublish.id)), false);
   upsertYoutubeItems([video('LateGeneric', 'Late generic cache mutation', 'late-channel')]);
@@ -814,6 +817,48 @@ test('five X presses perform no API, quota, or rank work and keep History and Sa
     [quotaAfter.quota_used_today, quotaAfter.search_calls_today, quotaAfter.api_calls_today],
     [quotaBefore.quota_used_today, quotaBefore.search_calls_today, quotaBefore.api_calls_today],
   );
+}));
+
+test('cached Home and X reuse exact exclusions until a source mutation invalidates them', () => withTempState(() => {
+  const seeded = seedV2();
+  rebuildYoutubeV2Generation({ force: true });
+  const initial = youtubeV2ExactExclusionCacheDiagnostics() as {
+    ready: boolean;
+    build_count: number;
+    total_count: number;
+  };
+  assert.equal(initial.ready, true);
+  for (let epoch = 0; epoch < 10; epoch += 1) {
+    youtubeV2RecommendationRails({ shuffle_epoch: epoch });
+  }
+  const reused = youtubeV2ExactExclusionCacheDiagnostics() as {
+    build_count: number;
+    total_count: number;
+  };
+  assert.equal(reused.build_count, initial.build_count);
+  assert.equal(reused.total_count, initial.total_count);
+
+  const candidate = latestYoutubeV2Generation()!.items.find((item) => (
+    item.rail_id === 'for_you'
+    && !seeded.history.some((history) => history.id === item.id)
+    && !seeded.saved.some((saved) => saved.id === item.id)
+  ))!;
+  saveLibraryItem({
+    profile_id: 'household', source: 'youtube', type: 'youtube_video', id: candidate.id,
+    title: candidate.title, poster: candidate.thumbnail, tab: 'youtube', saved_by: 'user',
+  });
+  invalidateYoutubeV2ExactExclusions();
+  assert.equal((youtubeV2ExactExclusionCacheDiagnostics() as { ready: boolean }).ready, false);
+  const afterMutation = youtubeV2RecommendationRails({ shuffle_epoch: 11 });
+  assert.equal(afterMutation.flatMap((rail) => rail.items).some((item) => item.id === candidate.id), false);
+  const rebuilt = youtubeV2ExactExclusionCacheDiagnostics() as {
+    ready: boolean;
+    build_count: number;
+    total_count: number;
+  };
+  assert.equal(rebuilt.ready, true);
+  assert.equal(rebuilt.build_count, initial.build_count + 1);
+  assert.equal(rebuilt.total_count, initial.total_count + 1);
 }));
 
 test('dormant personal watch, Saved, and Not-for-me rows have zero v2 influence and owner stays Household', () => withTempState(async () => {

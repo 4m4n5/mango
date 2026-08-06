@@ -54,6 +54,7 @@ import { recommendationOwnerForRollout } from '../recommendations/v2-mode.js';
 import {
   YOUTUBE_V2_CANDIDATE_TTL_MS,
   YOUTUBE_V2_LIVE_TTL_MS,
+  invalidateYoutubeV2ExactExclusions,
   rebuildYoutubeV2Generation,
   youtubeRecommendationsV2Mode,
   youtubeV2Diagnostics,
@@ -74,6 +75,8 @@ export {
   parseYoutubeTakeoutFile,
 } from './takeout.js';
 export {
+  invalidateYoutubeV2ExactExclusions,
+  primeYoutubeV2ExactExclusions,
   youtubePublicPersonalizationPayload,
   youtubeRecommendationsV2Mode,
 } from './v2.js';
@@ -1798,6 +1801,7 @@ export class YoutubeService {
         ? 'household'
         : activeViewerProfileId(),
     });
+    invalidateYoutubeV2ExactExclusions();
     // The active recommendation owner is the reversible source of truth. Candidate
     // counters deliberately remain untouched so Undo removes both the exact
     // veto and its decaying semantic contribution on the next read.

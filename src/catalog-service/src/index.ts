@@ -122,6 +122,8 @@ import { previewStoryEvidence } from './playability/list-source.js';
 import { searchCachedYoutubeItems } from './youtube/db.js';
 import {
   importYoutubeTakeoutStream,
+  invalidateYoutubeV2ExactExclusions,
+  primeYoutubeV2ExactExclusions,
   refreshYoutubeV2AfterLocalSignal,
   resolveYoutubeImpressionSourceRevision,
   YoutubeService,
@@ -1539,6 +1541,9 @@ async function main(): Promise<void> {
   // H1(b): no-ops unless MANGO_TRIGGER_CONSUMER=1 — bounded, idle-gated, debounced (couch safety).
   startTriggerConsumerBackgroundTick(core);
   const youtube = new YoutubeService();
+  // Move the potentially multi-thousand-row exclusion read to catalog startup.
+  // Cached Home/X remains database- and provider-free afterward.
+  primeYoutubeV2ExactExclusions();
   setRecommendationSignalChangeHook((change) => {
     if (change.stage === 'play') return;
     if (change.type === 'youtube_video') {
@@ -2257,6 +2262,7 @@ async function main(): Promise<void> {
           profile_id: savedOwner,
         });
         if (saved.source === 'youtube') {
+          invalidateYoutubeV2ExactExclusions();
           core.clearRailItemsCache();
         } else if (saved.source !== SYNTHETIC_LIBRARY_SOURCE
           && (saved.type === 'movie' || saved.type === 'series')) {
@@ -2310,6 +2316,7 @@ async function main(): Promise<void> {
           profile_id: savedOwner,
         });
         if (target.source === 'youtube') {
+          invalidateYoutubeV2ExactExclusions();
           core.clearRailItemsCache();
         } else if (target.source !== SYNTHETIC_LIBRARY_SOURCE
           && (target.type === 'movie' || target.type === 'series')) {
@@ -2392,6 +2399,7 @@ async function main(): Promise<void> {
             profile_id: feedbackOwner,
           });
           if (target.source === 'youtube') {
+            invalidateYoutubeV2ExactExclusions();
             core.clearRailItemsCache();
           }
           else if (target.type === 'movie' || target.type === 'series') {
@@ -2416,6 +2424,7 @@ async function main(): Promise<void> {
             profile_id: feedbackOwner,
           });
           if (target.source === 'youtube') {
+            invalidateYoutubeV2ExactExclusions();
             core.clearRailItemsCache();
           }
           else if (target.type === 'movie' || target.type === 'series') {
