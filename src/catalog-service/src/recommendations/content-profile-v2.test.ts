@@ -16,6 +16,7 @@ import {
   contentProfileIsServingEligible,
   contentProfileStoryGraphTitle,
   contentSemanticEvidenceHash,
+  mergeCompatibleHistoricalStoryDnaEvidence,
 } from './content-profile-v2.js';
 import { rankStoryGraphRecommendations } from './story-graph-v1.js';
 
@@ -75,6 +76,37 @@ test('semantic evidence hash ignores operational retrieval and source churn', ()
   assert.notEqual(contentSemanticEvidenceHash(first), contentSemanticEvidenceHash(input({
     synopsis: 'A different story about a comic workplace rivalry.',
   })));
+});
+
+test('historical StoryDNA evidence repairs missing facts without overriding current truth', () => {
+  const historical = input({
+    curated_pool_memberships: ['movies-classics'],
+    external_ids: { imdb: 'tt100', tmdb: '100' },
+  });
+  const current = input({
+    synopsis: null, genres: [], keywords: [], languages: [], countries: [],
+    runtime_minutes: null, cast: [], directors: [], writers: [],
+    awards_certification: [], format: null,
+    external_ids: { imdb: 'tt100' },
+    curated_pool_memberships: ['movies-drama'],
+  });
+  const merged = mergeCompatibleHistoricalStoryDnaEvidence(current, historical);
+  assert.ok(merged);
+  assert.equal(merged.synopsis, historical.synopsis);
+  assert.deepEqual(merged.genres, historical.genres);
+  assert.deepEqual(merged.external_ids, { imdb: 'tt100', tmdb: '100' });
+  assert.deepEqual(merged.curated_pool_memberships, ['movies-drama']);
+});
+
+test('historical StoryDNA evidence detaches on identity or observed scalar conflicts', () => {
+  assert.equal(mergeCompatibleHistoricalStoryDnaEvidence(
+    input({ runtime_minutes: 112 }),
+    input({ runtime_minutes: 90 }),
+  ), null);
+  assert.equal(mergeCompatibleHistoricalStoryDnaEvidence(
+    input({ external_ids: { imdb: 'tt100' } }),
+    input({ external_ids: { imdb: 'tt999' } }),
+  ), null);
 });
 
 test('deterministic factual profile is serving eligible without StoryDNA', () => {

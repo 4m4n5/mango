@@ -22,7 +22,7 @@ import {
 } from './story-graph-v1.js';
 
 export const VOD_CONTENT_PROFILE_VERSION = 'vod-content-profile-v2' as const;
-export const VOD_CONTENT_PROFILE_COMPILER_VERSION = 'vod-content-compiler-v1' as const;
+export const VOD_CONTENT_PROFILE_COMPILER_VERSION = 'vod-content-compiler-v2' as const;
 export const VOD_STORY_FRONTIER_MODEL_VERSION = 'vod-story-frontier-v2' as const;
 
 export type ContentProfileFamilyState = 'observed' | 'known_absent' | 'unknown';
@@ -187,6 +187,77 @@ export function contentSemanticEvidence(input: StoryDnaInput): Record<string, un
 
 export function contentSemanticEvidenceHash(input: StoryDnaInput): string {
   return sha256(contentSemanticEvidence(input));
+}
+
+/**
+ * Recover richer canonical evidence that Mango previously persisted with a
+ * valid StoryDNA document. Current observed scalar facts remain authoritative;
+ * missing fields and additive factual lists may be restored. A conflicting
+ * identity or scalar fact detaches the historical overlay.
+ */
+export function mergeCompatibleHistoricalStoryDnaEvidence(
+  current: StoryDnaInput,
+  historical: StoryDnaInput,
+): StoryDnaInput | null {
+  const currentEvidence = contentSemanticEvidence(current);
+  const historicalEvidence = contentSemanticEvidence(historical);
+  if (currentEvidence.type !== historicalEvidence.type
+    || currentEvidence.id !== historicalEvidence.id
+    || currentEvidence.title !== historicalEvidence.title) return null;
+
+  const scalarKeys = [
+    'year', 'synopsis', 'runtime_minutes', 'release_state', 'format',
+  ] as const;
+  for (const key of scalarKeys) {
+    const left = currentEvidence[key];
+    const right = historicalEvidence[key];
+    if (left !== null && left !== '' && right !== null && right !== '' && left !== right) {
+      return null;
+    }
+  }
+  const currentIds = currentEvidence.external_ids as Record<string, string>;
+  const historicalIds = historicalEvidence.external_ids as Record<string, string>;
+  for (const [key, value] of Object.entries(currentIds)) {
+    if (historicalIds[key] !== undefined && historicalIds[key] !== value) return null;
+  }
+
+  const list = (currentValues: string[] | undefined, historicalValues: string[] | undefined): string[] => (
+    [...new Set([...(currentValues ?? []), ...(historicalValues ?? [])])]
+  );
+  const scalar = <T>(currentValue: T | null | undefined, historicalValue: T | null | undefined): T | null => (
+    currentValue === null || currentValue === undefined || currentValue === ''
+      ? historicalValue ?? null
+      : currentValue
+  );
+  const mergedFieldProvenance = { ...(historical.field_provenance ?? {}) };
+  for (const [field, sources] of Object.entries(current.field_provenance ?? {})) {
+    mergedFieldProvenance[field] = list(sources, mergedFieldProvenance[field]);
+  }
+  return {
+    ...historical,
+    ...current,
+    year: scalar(current.year, historical.year),
+    synopsis: scalar(current.synopsis ?? current.description, historical.synopsis ?? historical.description),
+    genres: list(current.genres, historical.genres),
+    keywords: list(current.keywords, historical.keywords),
+    languages: list(current.languages, historical.languages),
+    countries: list(current.countries, historical.countries),
+    runtime_minutes: scalar(current.runtime_minutes, historical.runtime_minutes),
+    release_state: scalar(current.release_state, historical.release_state),
+    format: scalar(current.format, historical.format),
+    cast: list(current.cast, historical.cast),
+    characters: list(current.characters, historical.characters),
+    directors: list(current.directors, historical.directors),
+    writers: list(current.writers, historical.writers),
+    awards_certification: list(current.awards_certification, historical.awards_certification),
+    external_ids: { ...(historical.external_ids ?? {}), ...(current.external_ids ?? {}) },
+    // Visible membership is current operational truth. It is deliberately not
+    // restored from an old rail presentation snapshot.
+    curated_pool_memberships: current.curated_pool_memberships ?? current.rail_ids ?? [],
+    rail_ids: current.rail_ids ?? current.curated_pool_memberships ?? [],
+    evidence_sources: list(current.evidence_sources, historical.evidence_sources),
+    field_provenance: mergedFieldProvenance,
+  };
 }
 
 function edge(

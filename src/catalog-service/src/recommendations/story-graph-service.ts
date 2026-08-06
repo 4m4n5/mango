@@ -65,6 +65,7 @@ import {
   contentProfileIsServingEligible,
   contentProfileStoryGraphTitle,
   contentSemanticEvidenceHash,
+  mergeCompatibleHistoricalStoryDnaEvidence,
   type ContentProfileV2,
 } from './content-profile-v2.js';
 import {
@@ -849,8 +850,55 @@ function compatibleProgressiveStoryDnaOverlays(
   type: RatingContentType,
   inputByKey: Map<StoryGraphContentId, StoryDnaInput>,
 ): Map<StoryGraphContentId, StoryDnaDocument> {
-  const exact = loadCompatibleStoryDnaTeacherCache([...inputByKey.values()]);
   const output = new Map<StoryGraphContentId, StoryDnaDocument>();
+  // A newer sparse profile must not hide a valid older StoryDNA document and
+  // the structured evidence that grounded it. Select the newest document that
+  // actually contains an overlay, validate it against its original evidence,
+  // then recover only missing/non-conflicting facts into the current input.
+  const historicalRows = libraryDatabase().prepare(`
+WITH latest AS (
+  SELECT content_id, MAX(generation_id) AS generation_id
+  FROM vod_story_dna_documents
+  WHERE content_type = ? AND status = 'valid' AND story_dna_json IS NOT NULL
+  GROUP BY content_id
+)
+SELECT docs.content_id, docs.title, docs.evidence_json, docs.story_dna_json,
+       (SELECT items.year FROM vod_rank_items items
+        WHERE items.content_type = docs.content_type AND items.content_id = docs.content_id
+        ORDER BY items.rank_generation_id DESC LIMIT 1) AS year
+FROM vod_story_dna_documents docs
+JOIN latest ON latest.content_id = docs.content_id AND latest.generation_id = docs.generation_id
+WHERE docs.content_type = ?
+ORDER BY docs.content_id
+`).all(type, type) as Array<{
+    content_id: string;
+    title: string | null;
+    year: string | null;
+    evidence_json: string;
+    story_dna_json: string;
+  }>;
+  for (const row of historicalRows) {
+    const key = contentKey(type, row.content_id);
+    const current = inputByKey.get(key);
+    if (!current) continue;
+    try {
+      const raw = JSON.parse(row.story_dna_json) as unknown;
+      const document = validateStoryDnaDocument(raw, new Set([key]));
+      const historical = storyDnaInputFromPersistedEvidence({
+        type, id: row.content_id, title: row.title, year: row.year,
+        evidence_json: row.evidence_json, document,
+      });
+      if (!historical || !validatedDocumentForInput(raw, historical, null)) continue;
+      const merged = mergeCompatibleHistoricalStoryDnaEvidence(current, historical);
+      if (!merged) continue;
+      inputByKey.set(key, merged);
+      output.set(key, document);
+    } catch {
+      // Invalid historical rows remain preserved but detached.
+    }
+  }
+
+  const exact = loadCompatibleStoryDnaTeacherCache([...inputByKey.values()]);
   const immutableRows = libraryDatabase().prepare(`
 SELECT content_id, semantic_evidence_hash, document_hash, document_json
 FROM vod_story_dna_overlays WHERE content_type = ?
