@@ -1,7 +1,7 @@
 # mango — native YouTube
 
 **Milestone:** M6.2 · **Status:** the native YouTube base and recommendation
-v2.4 are Pi-deployed/gated. Commit `a60d1c0c25d2bbe3b2cc1cd7704da20325039630` keeps authoritative subscription/history v2
+v2.5 are Pi-deployed and runtime-gated. Commit `7ed5a3105db2674dac566fd45b1fd4e4b07a3145` keeps authoritative subscription/history v2
 as the sole executable recommendation architecture behind an independent
 `off|shadow|serve` flag and replaces the lifetime exact-watch veto with a
 rolling 30-day cooldown. The current source also includes post-auth account/sync
@@ -9,8 +9,10 @@ truth, complete bounded subscription coverage, official metadata evidence,
 source/seed portfolio constraints, and uploads-playlist-backed conditional
 More Like recovery. The current India account is Ready with 55 subscriptions.
 Its watch-history HTML import produced 2,872 normalized events covering 2,548
-unique videos; with six Mango-local anchors, v2 ranks from 2,554 meaningful
-history anchors. Search-history HTML was not imported and cannot affect
+unique videos. Those official Takeout events plus the OAuth subscription
+snapshot are the only taste/acquisition inputs. The one-time Household reset
+removed 986 Mango-local YouTube history rows without changing Takeout, Saved,
+progress, ratings, profiles, VOD history, or StoryDNA. Search-history HTML was not imported and cannot affect
 recommendations. Exact Pi runtime proof is recorded in [STATUS.md](STATUS.md).
 
 Mango treats YouTube as a first-class content source while preserving the voice
@@ -52,7 +54,7 @@ Launcher YouTube tab
 | Layer | Owns |
 |-------|------|
 | `youtube.db` | Cached videos/channels/playlists, authoritative subscription generations, explicit candidate provenance, published rail generations, refresh/quota counters, auth sessions |
-| `library.db` | Saved, normalized Takeout/Mango-local watch history, exact Not-for-me, finished state, import batches, and current context; personal profile rows are preserved but do not influence the latest recommender |
+| `library.db` | Saved, normalized Takeout and Mango-local watch history, exact Not-for-me, finished state, import batches, and current context; only Takeout history may teach the recommender, while personal profile rows remain preserved |
 | YouTube Data API | Exact authorized-channel identity, metadata/search/subscriptions, and channel upload playlists |
 | `yt-dlp -> mpv` | Playback resolution/rendering via the Mango wrapper; no Data API quota use |
 
@@ -287,12 +289,12 @@ materially distinct timestamp. It stores batch counts, format, timestamp, and
 errors, then discards the uploaded
 archive and raw source documents. Missing metadata is resolved asynchronously
 within quota. Imported watches contribute meaningful-watch strength and use a
-90-day ranking half-life; Mango-local completions may contribute full strength.
-An exact imported or Mango-local meaningful watch is withheld from
-recommendation rails for 30 days after its most recent watch, not forever.
-Mango-local bare starts are ignored: known-duration watches qualify at
-`min(25% of duration, 5 minutes)`, and unknown-duration watches require two
-minutes.
+90-day ranking half-life. Mango-local viewing never contributes taste or
+acquisition strength. A meaningful Mango-local watch is still withheld as an
+exact output-control for 30 days after its most recent watch, while bare starts
+remain chronological History/progress only. Known-duration watches enter that
+cooldown at `min(25% of duration, 5 minutes)`; unknown-duration watches require
+two minutes.
 
 ```bash
 cd src/catalog-service
@@ -328,8 +330,9 @@ source-tested at the target and remains a Pi rollback check.
   **Live Now** follows when subscribed channels have live content.
 - `Live Now` may contain one to four cards instead of receiving unrelated filler.
 - History is newest-first across normalized Takeout and resolvable Mango-local
-  launches, including bare starts. Only meaningful watches seed recommendations
-  or start the rolling 30-day exact-video cooldown. Saved is explicit utility
+  launches, including bare starts. Only Takeout watches seed recommendations;
+  meaningful Mango-local watches start only the rolling 30-day exact-video
+  cooldown. Saved is explicit utility
   state. Both rails are
   chronological/stable and neither affects recommendation scoring.
 - For You weights decayed history affinity 60% and subscription affinity 40%,
@@ -411,8 +414,9 @@ YouTube Data API no longer provides `search.list relatedToVideoId`, and the
 need an unofficial/scraping path and must be added as an explicit experimental
 operator opt-in, separate from the supported official API cache.
 
-YouTube v2 uses only authoritative subscriptions plus normalized
-Takeout/Mango-local meaningful history for recommendation acquisition and ranking. Search, Saved,
+YouTube v2 uses only authoritative subscriptions plus normalized official
+Takeout history for recommendation acquisition and ranking. Mango-local viewing
+is limited to History/progress and the 30-day exact-video cooldown. Search, Saved,
 profiles, mood, VOD, companion memory, AI catalogs, and global charts are
 explicitly isolated. Refresh may use bounded official search/detail metadata to
 resolve those approved seeds, then serves the last-good generation if later work

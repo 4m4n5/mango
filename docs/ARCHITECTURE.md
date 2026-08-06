@@ -378,9 +378,11 @@ and Saved remain stable. `GET /youtube/rails?reshuffle=1` advances only
 published recommendation, discovery, subscription, and live slates and performs
 no API call, acquisition, or ranking work.
 
-Recommendation acquisition and scoring accept exactly two inputs:
-authoritative subscription snapshots and Google Takeout/Mango-local meaningful
-watch history. Explicit provenance (`subscription_upload`,
+Recommendation acquisition and scoring accept exactly two official inputs:
+authoritative OAuth subscription snapshots and Google Takeout watch history.
+Mango-local viewing remains useful for chronological History/progress and a
+30-day exact-video cooldown, but it never teaches taste or starts acquisition.
+Explicit provenance (`subscription_upload`,
 `subscription_live`, `history_channel`, or `history_topic`) is required; a video
 in the generic Search/detail/AI/chart metadata cache cannot leak into a
 recommendation rail. Saved remains a utility rail and has zero ranking effect.
@@ -406,7 +408,7 @@ reservoirs. Independent
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` switches permit isolated rollout.
 
 Both latest-only architectures have their source/runtime rollout blockers
-closed at `f24fcda240581758bf70ec9cb045973e2570c3e6`: YouTube `off` uses exact active
+closed at `7ed5a3105db2674dac566fd45b1fd4e4b07a3145`: YouTube `off` uses exact active
 personal ownership, VOD active modes use exact Household Saved, off/shadow
 cannot expose or falsely advance Shuffle, and diagnostics distinguish the
 active/previous serving pointers from the newest attempted generation. Focused

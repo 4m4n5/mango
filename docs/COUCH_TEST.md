@@ -210,12 +210,12 @@ state transition explicitly rather than treating shadow as invisible compute.
 | F15 | Shadow identity | Personal rows/counts remain intact; profile/mood writes are typed; Continue/progress and Saved ownership match the accepted Household policy with no shadow/serve divergence | |
 | F16 | Recommendation-disabled Shuffle | Off/shadow expose no `For You` or public recommendation epoch, but X still honestly changes cached category rails; no-op/exhausted pools never report false success | |
 
-The Pi serves target `f24fcda` with complete progressive accounting, bounded
+The Pi serves target `7ed5a31` with complete progressive accounting, bounded
 frontier-off behavior, healthy reserves, and an aggregate pre-couch PASS after
 the standard display-wake path restored X11 Monitor On. Earlier 100-X proof
-exercises cyclic `For You`; current exact-SHA proof covers five X presses per
-tab, every category rail, tab/utility stability, zero rank/provider work, and
-service p95 140 ms. Do not turn automated proof into
+exercises cyclic `For You`; current exact-SHA proof covers 30 Shuffle calls per
+tab, every category rail, utility stability, zero startup rank work, and
+service p95 71.4 ms Movies / 47.9 ms TV. Do not turn automated proof into
 a human quality claim: F1–F14 still require the physical
 ten-shuffle relevance, focus, playback-return, picture, and audio checks. A
 bulk artifact/importer is required only if measured progressive quality gaps
@@ -237,12 +237,12 @@ regression is source-tested at the target and must be re-proven on the Pi.
 | YT2 | Connect | Companion device flow succeeds; token stays `/etc/mango`, 0600; LAN status DTO stays sanitized | |
 | YT3 | Takeout | Bounded ZIP/JSON/HTML import is path-safe/idempotent; normalized events remain; raw upload is discarded | |
 | YT4 | Playback | Video B → `yt-dlp` → mpv; one selector fallback at most; couch-safe 403/429/CAPTCHA error | |
-| YT5 | Input isolation | Only authoritative subscriptions and qualifying Takeout/Mango history influence v2 | |
+| YT5 | Input isolation | Only authoritative OAuth subscriptions and official Takeout history influence v2; Mango-local viewing is History/progress plus exact cooldown only | |
 | YT6 | Logical order | For You, Beyond, More Like, History, Saved, then conditional Subscriptions/Live | |
 | YT7 | Supply honesty | Normal rows render only at exactly four cards and can be absent; Live renders 1–4; no unrelated filler | |
 | YT8 | X/quota | X advances cached eligible rails only; API/search counters unchanged; History/Saved stable | |
-| YT9 | For You | 60/40 decayed history/subscriptions with cold-start renormalization; meaningful watches are absent for 30 days while Saved/Short/live exclusions remain exact | |
-| YT10 | Beyond/More Like | Beyond excludes subscribed creators; More Like uses stable meaningful-watch seed; creator caps/dedupe hold | |
+| YT9 | For You | 60/40 decayed official-Takeout history/subscriptions with cold-start renormalization; exact meaningful watches are absent for 30 days while Saved/Short/live exclusions remain exact | |
+| YT10 | Beyond/More Like | Beyond excludes subscribed creators; More Like uses a stable official-Takeout seed; creator caps/dedupe hold | |
 | YT11 | Not for me | Exact reversible video suppression only; no creator/topic penalty | |
 | YT12 | Failure | Partial refresh/OAuth/quota failure preserves explicit stale last-good generation | |
 | YT13 | Empty setup | With neither qualifying subscriptions/history, show connect/import/watch setup—not fake Popular filler | |

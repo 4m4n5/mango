@@ -1,24 +1,23 @@
 # Recommendations reliability recovery — home deployment runbook
 
-Status: **DEPLOYED ON THE PI IN SERVE MODE; VOD TAB-WIDE SHUFFLE AND YOUTUBE
-COOLDOWN GATES PASS.** The exact target passes the full local catalog suite,
-focused Pi VOD/playability and launcher suites, and cached five-X-per-tab proof.
-YouTube smoke/generation/50-X proof remains bound to executable ancestor
-`a60d1c0`; playback, voice, stream, Reliability, and aggregate pre-couch proof
-remain bound to executable ancestor `7a8bc1b`.
-Human thematic, focus, audio, and picture judgment remains explicitly pending.
+Status: **DEPLOYED ON THE PI IN SERVE MODE; SHUFFLE EFFICIENCY AND OFFICIAL-ONLY
+YOUTUBE INPUT GATES PASS.** The exact target passes the full local catalog and
+launcher suites, Pi state-preservation/reset checks, cached 30-X-per-tab proof,
+and restart-suppression proof. The standard exact-target pre-couch gate also
+passes; human thematic, focus, picture, audio, and physical-controller judgment
+remain explicitly pending.
 
 ```bash
-TARGET_SHA=f24fcda240581758bf70ec9cb045973e2570c3e6
+TARGET_SHA=7ed5a3105db2674dac566fd45b1fd4e4b07a3145
 ```
 
 Do not promote `345535d`, `3ef1b20`, `772b3d5`, `9425b1f`, or `c8cfe72` as the
-current target. This successor retains the sole executable recommendation
+current target. Do not promote `f24fcda` as the current target. This successor retains the sole executable recommendation
 architectures and includes the measured VOD evaluation, memory, shuffle,
 synthetic-gate isolation, and playback-smoke corrections.
 
 - VOD: `vod-content-profile-v2` + `vod-story-frontier-v2`.
-- YouTube: authoritative subscription/history provenance-gated v2.
+- YouTube: authoritative OAuth-subscription/official-Takeout provenance-gated v2.5.
 - StoryDNA: compatible `story-dna-v1` rows remain immutable optional overlays.
 
 Cleanup is code-only. Never delete, rewrite, merge, vacuum, fresh-start, purge,
@@ -34,23 +33,22 @@ this runbook.
 | Gate | Pi evidence |
 |------|-------------|
 | Modes | VOD `serve`; YouTube `serve`; StoryDNA teacher/frontier and TMDB `off` |
-| Durable state | Library schema 17; playability schema 14; both `quick_check=ok`; 1,096 `story-dna-v1`/AI overlays preserved; no synthetic gate Saved row |
+| Durable state | Library schema 17; playability schema 15; live DBs and fresh online backup pass integrity checks; 1,096 `story-dna-v1`/AI feature rows preserved; no synthetic gate Saved row |
 | VOD Movies | Active/public latest complete generation; 224 eligible + 5,447 sparse/excluded = 5,671 verified; reserve 224; cyclic six-card cached slate; `evidence_cold_start` |
 | VOD TV | Active/public latest complete generation; 229 eligible + 3,645 sparse/excluded = 3,874 verified; reserve 229; cyclic six-card cached slate; `evidence_cold_start` |
 | Ratings | `<1` is a true-negative evaluation label, `1–2` is neutral, and `>2` contributes quadratic positive evidence: `((rating - 2) / 3)^2` |
 | VOD evaluation | Only thematically rankable rated profiles are labels. Current result is honestly insufficient rather than a false concordance failure; operational serving remains independently authorized |
 | Memory/liveness | One catalog invocation, zero restarts/OOM events, process and cgroup memory separated, 128-title bounded work, effective 1280M/1536M limits |
-| YouTube | `youtube-household-v2.4` ready for channel `Aman`, India/en; 55 subscriptions; 2,872 Takeout events covering 2,548 unique videos plus six Mango-local anchors; generation-13 reserves 120/63/13/120; More Like thematic; exact meaningful watches cool down for 30 days |
-| Cached interaction | Earlier 100-X proof retained cyclic `For You` four-slate avoidance. At exact target, five X presses per VOD tab changed all six category rails and `For You`, held Continue/Saved and the inactive tab stable, retained category cross-rail uniqueness, moved no full-reserve/rank/dealer counter, and measured p50 114 ms/p95 140 ms/max 140 ms. Generation-13 YouTube 50-X ancestor proof was p50 49 ms/p95 106 ms with stable History, no recent-watch leaks, and zero quota/provider work |
+| YouTube | `youtube-household-v2.5` ready for channel `Aman`, India/en; 55 subscriptions; 2,872 Takeout events covering 2,548 unique videos; zero Mango-local ranking anchors; generation-14 reserves 120/32/9/120; More Like thematic; Mango-local meaningful watches only create the 30-day exact cooldown |
+| Cached interaction | Thirty exact-target calls per VOD tab changed every category rail and `For You`, held Continue/Saved stable, and measured p50/p95 53.6/71.4 ms Movies and 42.4/47.9 ms TV. Thirty YouTube X calls measured p50/p95 43.4/82.9 ms with stable History and unchanged generation/API/quota counters |
 | Playback | Exact-SHA YouTube search/detail/`yt-dlp -> mpv` smoke passes; earlier served VOD representative launch proof remains applicable because the later executable delta is cache/dealer-only |
-| Backup | Fresh pre-shuffle-deploy SQLite online backup: `~/.local/share/mango/backups/agent-snapshots/vod-shuffle-pre-deploy-20260806T065502Z`; Takeout and all older recommendation/frontier backups remain preserved |
+| Backup | Fresh pre-deploy SQLite online backup: `~/.local/share/mango/backups/agent-snapshots/recommendations-perf-pre-deploy-20260806T075723Z`; Takeout and all older recommendation/frontier backups remain preserved |
 
-The target passed 897/897 catalog tests on the Mac plus 27 focused
-VOD/playability and 12 focused launcher tests on the Pi. The full 87/87
-launcher suite and production build passed at `9fa23c8`, whose launcher tree is
-identical to this target. The 45/45 YouTube tests, smoke, atomic v2.4 refresh,
-and cached 50-X proof remain valid ancestor evidence from `a60d1c0`.
-Reliability is yellow because five curated VOD rails are thin and 2/28 sampled
+The target passed 900/900 catalog tests and the full 87/87 launcher suite on the
+Mac; catalog and launcher production builds pass on the same exact revision.
+The Pi passed the v2.5 atomic refresh, source-isolation/reset checks, cached
+Shuffle proof, and restart-suppression proof.
+Reliability is yellow because five curated VOD rails are thin and 1/28 sampled
 served titles were broken; automated proof does not substitute for the
 user-owned physical couch verdict.
 
@@ -81,14 +79,22 @@ The target adds:
 - cyclic predealt `For You` slates plus a tab-scoped, cache-only X path that
   also re-deals every VOD category rail from its verified pool, leaves
   Continue/Saved stable, and avoids provider or ranking work.
+- a revision-keyed bounded verified-pool cache, narrowed playability migration
+  15 triggers, and a current-generation startup gate so Shuffle and restart do
+  not scan or rebuild unchanged full-corpus state;
+- `youtube-household-v2.5`, where Mango-local viewing remains History/progress
+  and a 30-day exact-video cooldown but cannot enter taste, ranking, or
+  acquisition;
+- an immediate launcher update path with no forced layout read, rail-wide card
+  cascade, redundant personalization preflight, or duplicate Saved fetch.
 
 Mac proof bound to `TARGET_SHA`:
 
 ```text
-catalog-service npm test at TARGET_SHA: 897 pass / 0 fail
-launcher focused tests at TARGET_SHA: 12 pass / 0 fail
-launcher deterministic tests at identical-tree 9fa23c8: 87 pass / 0 fail
-launcher production build at identical-tree 9fa23c8: pass
+catalog-service npm test at TARGET_SHA: 900 pass / 0 fail
+launcher deterministic tests at TARGET_SHA: 87 pass / 0 fail
+catalog-service production build at TARGET_SHA: pass
+launcher production build at TARGET_SHA: pass
 companion production build at ancestor 7a8bc1b: pass
 health-repair shell syntax: pass
 ```
@@ -195,7 +201,7 @@ MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 test "$(git rev-parse HEAD)" = "$TARGET_SHA"
 ```
 
-Require catalog `/health/live`, library schema 17, playability schema 14,
+Require catalog `/health/live`, library schema 17, playability schema 15,
 `quick_check=ok`, and exactly the pre-deploy StoryDNA count before proceeding.
 
 ## 4. Two-cycle VOD shadow proof
@@ -282,7 +288,7 @@ must be HTTP 200 and exact-owner scoped. If only Household exists, mark the
 personal-owner case deferred; do not create a profile.
 
 Set YouTube to `shadow`, enqueue one exact refresh job, and require complete
-atomic publication with qualifying Takeout/Mango-local history and successful
+atomic publication with official Takeout history and successful
 authoritative subscription pagination. Zero subscriptions is valid history-only
 state; omit subscription/live rails.
 

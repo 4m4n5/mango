@@ -144,7 +144,7 @@ explicit product approval.
 |-------|---------------|
 | Source | First-class native tab; official Data API for metadata/search/subscriptions and `yt-dlp` → mpv for playback |
 | Auth/secrets | Operator-owned `/etc/mango/*`, never repository secrets |
-| Inputs | Only authoritative complete subscriptions and qualifying Takeout/Mango-local history influence recommendation acquisition/ranking |
+| Inputs | Only authoritative complete subscriptions and official Google Takeout watch history influence recommendation acquisition/ranking; Mango-local viewing is limited to History/progress and a 30-day exact-video cooldown |
 | Isolation | Search, Saved, profiles, mood, VOD, companion memory, AI catalogs, charts, and generic cache do not influence YouTube v2 |
 | Core positions | For You → Beyond Subscriptions → More Like → History → Saved; conditional Subscriptions and Live Now follow |
 | Visibility | Normal rows render only with exactly four cards; Live Now renders one to four; logical positions are not guaranteed visible |
