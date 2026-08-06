@@ -38,7 +38,7 @@ import {
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const DEFAULT_VERIFY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const SCHEMA_VERSION = 16;
+const SCHEMA_VERSION = 17;
 
 export type StreamCapabilityClass = 'proven_smooth' | 'unknown' | 'known_risky';
 
@@ -81,6 +81,8 @@ export type PlayabilityStatus = {
   vod_browse_v3?: {
     classified_memberships: number;
     trusted_memberships: number;
+    ready_reservoirs: number;
+    reservoir_candidate_rows: number;
     explore_session_rows: number;
     active_tab_deals: number;
     previous_tab_deals: number;
@@ -200,6 +202,7 @@ export type TabRailSessionAllocateOptions = {
   forceReshuffle?: boolean;
   stableRatio?: number;
   browseV3?: boolean;
+  browseV3Tab?: 'movies' | 'series';
   seed?: string;
   excludedKeys?: ReadonlySet<string>;
   initiallyOccupiedKeys?: ReadonlySet<string>;
@@ -207,6 +210,23 @@ export type TabRailSessionAllocateOptions = {
     taste_adjacency: number;
     profile_confidence: number | null;
   }>;
+};
+
+export type VodBrowseReservoirRail = {
+  railId: string;
+  displayLimit: number;
+  minDisplay: number;
+  playability?: RailPlayabilityConfig;
+};
+
+type VodBrowseReservoirItem = RailPoolRow & {
+  weight: number;
+  trusted: boolean;
+  source_position: number | null;
+  theme_confidence: number | null;
+  taste_affinity: number | null;
+  novelty: number | null;
+  reason: string;
 };
 
 export type PlayabilityTriggerType =
@@ -403,6 +423,9 @@ export function resetPlayabilityDbForTests(): void {
     dbSingleton = null;
   }
   invalidateRailPoolCache();
+  vodBrowseReservoirCache.clear();
+  vodBrowseReservoirPreparation.clear();
+  vodBrowseReservoirPreparationTail = Promise.resolve();
   schemaInitialized = false;
 }
 
@@ -1509,6 +1532,52 @@ INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (16, @applied_at);
 `).run({ applied_at: nowMs() });
   }
+  if (appliedVersion < 17) {
+    db.exec(`
+CREATE TABLE IF NOT EXISTS vod_browse_reservoir_generations_v3 (
+  generation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tab TEXT NOT NULL CHECK(tab IN ('movies', 'series')),
+  corpus_generation INTEGER NOT NULL,
+  source_revision TEXT NOT NULL,
+  affinity_revision TEXT NOT NULL,
+  state TEXT NOT NULL CHECK(state IN ('building', 'ready', 'failed')),
+  rail_count INTEGER NOT NULL DEFAULT 0,
+  candidate_count INTEGER NOT NULL DEFAULT 0,
+  trusted_count INTEGER NOT NULL DEFAULT 0,
+  excluded_count INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  published_at INTEGER,
+  error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vod_browse_reservoir_generations_v3_tab
+  ON vod_browse_reservoir_generations_v3(tab, generation_id DESC);
+
+CREATE TABLE IF NOT EXISTS vod_browse_reservoir_rails_v3 (
+  generation_id INTEGER NOT NULL REFERENCES vod_browse_reservoir_generations_v3(generation_id)
+    ON DELETE CASCADE,
+  rail_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('category', 'ai_catalog', 'explore')),
+  candidate_count INTEGER NOT NULL,
+  minimum_weight REAL,
+  maximum_weight REAL,
+  payload_json TEXT NOT NULL,
+  PRIMARY KEY(generation_id, rail_id)
+);
+
+CREATE TABLE IF NOT EXISTS vod_browse_active_reservoirs_v3 (
+  tab TEXT PRIMARY KEY CHECK(tab IN ('movies', 'series')),
+  active_generation_id INTEGER NOT NULL
+    REFERENCES vod_browse_reservoir_generations_v3(generation_id),
+  previous_generation_id INTEGER
+    REFERENCES vod_browse_reservoir_generations_v3(generation_id),
+  updated_at INTEGER NOT NULL
+);
+`);
+    db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (17, @applied_at);
+`).run({ applied_at: nowMs() });
+  }
 }
 
 export function listSourceGrowWeights(): SourceGrowWeightRecord[] {
@@ -2081,8 +2150,22 @@ FROM verify_log;
 `).all() as IndexerRow[];
   const browse = db.prepare(`
 SELECT
-  (SELECT COUNT(*) FROM vod_browse_membership_v3) AS classified_memberships,
-  (SELECT COUNT(*) FROM vod_browse_membership_v3 WHERE trusted = 1) AS trusted_memberships,
+  (SELECT COALESCE(SUM(generations.trusted_count + generations.excluded_count), 0)
+   FROM vod_browse_active_reservoirs_v3 active
+   JOIN vod_browse_reservoir_generations_v3 generations
+     ON generations.generation_id = active.active_generation_id
+   WHERE generations.state = 'ready') AS classified_memberships,
+  (SELECT COALESCE(SUM(generations.trusted_count), 0)
+   FROM vod_browse_active_reservoirs_v3 active
+   JOIN vod_browse_reservoir_generations_v3 generations
+     ON generations.generation_id = active.active_generation_id
+   WHERE generations.state = 'ready') AS trusted_memberships,
+  (SELECT COUNT(*) FROM vod_browse_active_reservoirs_v3) AS ready_reservoirs,
+  (SELECT COALESCE(SUM(generations.candidate_count), 0)
+   FROM vod_browse_active_reservoirs_v3 active
+   JOIN vod_browse_reservoir_generations_v3 generations
+     ON generations.generation_id = active.active_generation_id
+   WHERE generations.state = 'ready') AS reservoir_candidate_rows,
   (SELECT COUNT(*) FROM vod_explore_sessions_v3) AS explore_session_rows,
   (SELECT COUNT(*) FROM vod_tab_deals_v3 WHERE state = 'active') AS active_tab_deals,
   (SELECT COUNT(*) FROM vod_tab_deals_v3 WHERE state = 'previous') AS previous_tab_deals
@@ -2832,6 +2915,299 @@ function classifyBrowseMembership(input: {
   };
 }
 
+type VodBrowseReservoirSnapshot = {
+  generation_id: number;
+  corpus_generation: number;
+  source_revision: string;
+  affinity_revision: string;
+  rails: Map<string, VodBrowseReservoirItem[]>;
+};
+
+const vodBrowseReservoirPreparation = new Map<'movies' | 'series', Promise<number>>();
+const vodBrowseReservoirCache = new Map<'movies' | 'series', VodBrowseReservoirSnapshot>();
+let vodBrowseReservoirPreparationTail: Promise<void> = Promise.resolve();
+
+function currentRecommendationCorpusGeneration(db: Database.Database): number {
+  return Number((db.prepare(`
+SELECT generation FROM recommendation_corpus_state WHERE state_id = 1
+`).get() as { generation?: number } | undefined)?.generation ?? 1);
+}
+
+function vodBrowseSourceRevision(
+  db: Database.Database,
+  tab: 'movies' | 'series',
+): string {
+  const type = tab === 'series' ? 'series' : 'movie';
+  const row = db.prepare(`
+SELECT COUNT(*) AS count, COALESCE(MAX(ingested_at), 0) AS latest
+FROM rail_pool WHERE type = ?
+`).get(type) as { count: number; latest: number };
+  return `${row.count}:${row.latest}`;
+}
+
+function readVodBrowseReservoirSnapshot(
+  db: Database.Database,
+  tab: 'movies' | 'series',
+): VodBrowseReservoirSnapshot | null {
+  const active = db.prepare(`
+SELECT generations.generation_id, generations.corpus_generation,
+       generations.source_revision, generations.affinity_revision
+FROM vod_browse_active_reservoirs_v3 active
+JOIN vod_browse_reservoir_generations_v3 generations
+  ON generations.generation_id = active.active_generation_id
+WHERE active.tab = ? AND generations.state = 'ready'
+`).get(tab) as Omit<VodBrowseReservoirSnapshot, 'rails'> | undefined;
+  if (!active) return null;
+  const cached = vodBrowseReservoirCache.get(tab);
+  if (cached?.generation_id === active.generation_id) return cached;
+  const rows = db.prepare(`
+SELECT rail_id, payload_json
+FROM vod_browse_reservoir_rails_v3
+WHERE generation_id = ?
+ORDER BY rail_id
+`).all(active.generation_id) as Array<{ rail_id: string; payload_json: string }>;
+  const rails = new Map<string, VodBrowseReservoirItem[]>();
+  try {
+    for (const row of rows) {
+      const parsed = JSON.parse(row.payload_json) as VodBrowseReservoirItem[];
+      if (!Array.isArray(parsed)) return null;
+      rails.set(row.rail_id, parsed);
+    }
+  } catch {
+    return null;
+  }
+  const snapshot = { ...active, rails };
+  vodBrowseReservoirCache.set(tab, snapshot);
+  return snapshot;
+}
+
+async function buildVodBrowseReservoirV3(input: {
+  tab: 'movies' | 'series';
+  rails: readonly VodBrowseReservoirRail[];
+  affinityRevision: string;
+  affinityByKey?: ReadonlyMap<string, {
+    taste_adjacency: number;
+    profile_confidence: number | null;
+  }>;
+}): Promise<number> {
+  await initPlayabilityDb();
+  const db = openDb();
+  const now = nowMs();
+  const corpusGeneration = currentRecommendationCorpusGeneration(db);
+  const sourceRevision = vodBrowseSourceRevision(db, input.tab);
+  const existing = db.prepare(`
+SELECT generations.generation_id
+FROM vod_browse_active_reservoirs_v3 active
+JOIN vod_browse_reservoir_generations_v3 generations
+  ON generations.generation_id = active.active_generation_id
+WHERE active.tab = ? AND generations.state = 'ready'
+  AND generations.corpus_generation = ? AND generations.source_revision = ?
+  AND generations.affinity_revision = ?
+`).get(input.tab, corpusGeneration, sourceRevision, input.affinityRevision) as { generation_id: number } | undefined;
+  if (existing) return existing.generation_id;
+
+  const generationId = Number(db.prepare(`
+INSERT INTO vod_browse_reservoir_generations_v3(
+  tab, corpus_generation, source_revision, affinity_revision, state, created_at
+) VALUES (?, ?, ?, ?, 'building', ?)
+`).run(input.tab, corpusGeneration, sourceRevision, input.affinityRevision, now).lastInsertRowid);
+  try {
+    const overrides = await loadRailCurationOverrides();
+    const themeProfiles = await loadRailThemeProfiles();
+    const railPayloads = new Map<string, { kind: 'category' | 'ai_catalog' | 'explore'; items: VodBrowseReservoirItem[] }>();
+    const trustedCatalogQuality = new Map<string, number>();
+    const verifiedKeys = new Set((db.prepare(`
+SELECT type, id FROM titles WHERE status = 'verified' AND type IN ('movie', 'series')
+`).all() as Array<{ type: string; id: string }>).map((row) => titleKey(row.type, row.id)));
+    for (const rail of input.rails) {
+      const pool = curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides)
+        .filter((row) => verifiedKeys.has(titleKey(row.type, row.id)));
+      const pins = new Set(pinsForRail(rail.railId, overrides).map((pin) => titleKey(pin.type, pin.id)));
+      const items = pool.map((row, index) => {
+        const key = titleKey(row.type, row.id);
+        const affinity = input.affinityByKey?.get(key);
+        const decision = classifyBrowseMembership({
+          railId: rail.railId,
+          row,
+          index,
+          poolSize: pool.length,
+          now,
+          themeProfile: themeProfiles.get(rail.railId),
+          tasteAffinity: affinity?.taste_adjacency,
+          pinned: pins.has(key),
+        });
+        if (decision.trusted && !rail.railId.startsWith(AI_CATALOG_RAIL_PREFIX)) {
+          trustedCatalogQuality.set(key, Math.max(
+            trustedCatalogQuality.get(key) ?? 0,
+            decision.sourcePosition,
+          ));
+        }
+        return {
+          ...row,
+          evidence_json: null,
+          weight: decision.weight,
+          trusted: decision.trusted,
+          source_position: decision.sourcePosition,
+          theme_confidence: decision.themeConfidence,
+          taste_affinity: decision.tasteAffinity,
+          novelty: decision.novelty,
+          reason: decision.reason,
+        } satisfies VodBrowseReservoirItem;
+      });
+      railPayloads.set(rail.railId, {
+        kind: rail.railId.startsWith(AI_CATALOG_RAIL_PREFIX) ? 'ai_catalog' : 'category',
+        items,
+      });
+    }
+
+    const type = input.tab === 'series' ? 'series' : 'movie';
+    const exploreRailId = input.tab === 'series' ? 'explore-series' : 'explore-movies';
+    const exploreRows = db.prepare(`
+SELECT titles.type, titles.id, titles.first_verified_at, titles.best_source,
+       titles.cache_status, titles.debrid_service, titles.verified_at, titles.expires_at,
+       evidence.title, evidence.poster_url, evidence.year
+FROM titles
+JOIN title_story_evidence evidence ON evidence.type = titles.type AND evidence.id = titles.id
+WHERE titles.type = ? AND titles.status = 'verified'
+  AND NULLIF(TRIM(evidence.title), '') IS NOT NULL
+  AND NULLIF(TRIM(evidence.poster_url), '') IS NOT NULL
+ORDER BY titles.id
+`).all(type) as Array<{
+      type: string;
+      id: string;
+      first_verified_at: number | null;
+      best_source: string | null;
+      cache_status: string | null;
+      debrid_service: string | null;
+      verified_at: number | null;
+      expires_at: number | null;
+      title: string;
+      poster_url: string;
+      year: string | null;
+    }>;
+    const exploreItems = exploreRows.map((row) => {
+      const key = titleKey(row.type, row.id);
+      const affinity = input.affinityByKey?.get(key);
+      const novelty = browseNovelty(row.first_verified_at, now);
+      const weight = exploreWeight({
+        catalogQuality: trustedCatalogQuality.get(key),
+        tasteAdjacency: affinity?.taste_adjacency,
+        profileConfidence: affinity?.profile_confidence,
+        novelty,
+      });
+      return {
+        rail_id: exploreRailId,
+        ...row,
+        score: weight,
+        evidence_json: null,
+        weight,
+        trusted: true,
+        source_position: trustedCatalogQuality.get(key) ?? null,
+        theme_confidence: null,
+        taste_affinity: affinity?.taste_adjacency ?? null,
+        novelty,
+        reason: 'verified_explore',
+      } satisfies VodBrowseReservoirItem;
+    });
+    railPayloads.set(exploreRailId, { kind: 'explore', items: exploreItems });
+
+    const publish = db.transaction(() => {
+      if (currentRecommendationCorpusGeneration(db) !== corpusGeneration) {
+        throw new Error('verified corpus changed while Browse v3 reservoir was building');
+      }
+      if (vodBrowseSourceRevision(db, input.tab) !== sourceRevision) {
+        throw new Error('browse source membership changed while Browse v3 reservoir was building');
+      }
+      const insertRail = db.prepare(`
+INSERT INTO vod_browse_reservoir_rails_v3(
+  generation_id, rail_id, kind, candidate_count, minimum_weight, maximum_weight, payload_json
+) VALUES (?, ?, ?, ?, ?, ?, ?)
+`);
+      let candidateCount = 0;
+      let trustedCount = 0;
+      let excludedCount = 0;
+      for (const [railId, payload] of railPayloads) {
+        const weights = payload.items.map((item) => item.weight);
+        candidateCount += payload.items.length;
+        if (payload.kind !== 'explore') {
+          trustedCount += payload.items.filter((item) => item.trusted).length;
+          excludedCount += payload.items.filter((item) => !item.trusted).length;
+        }
+        insertRail.run(
+          generationId,
+          railId,
+          payload.kind,
+          payload.items.length,
+          weights.length > 0 ? Math.min(...weights) : null,
+          weights.length > 0 ? Math.max(...weights) : null,
+          JSON.stringify(payload.items),
+        );
+      }
+      db.prepare(`
+UPDATE vod_browse_reservoir_generations_v3
+SET state = 'ready', rail_count = ?, candidate_count = ?, trusted_count = ?,
+    excluded_count = ?, published_at = ?, error = NULL
+WHERE generation_id = ? AND state = 'building'
+`).run(railPayloads.size, candidateCount, trustedCount, excludedCount, nowMs(), generationId);
+      const pointer = db.prepare(`
+SELECT active_generation_id FROM vod_browse_active_reservoirs_v3 WHERE tab = ?
+`).get(input.tab) as { active_generation_id: number } | undefined;
+      db.prepare(`
+INSERT INTO vod_browse_active_reservoirs_v3(
+  tab, active_generation_id, previous_generation_id, updated_at
+) VALUES (?, ?, ?, ?)
+ON CONFLICT(tab) DO UPDATE SET
+  previous_generation_id = vod_browse_active_reservoirs_v3.active_generation_id,
+  active_generation_id = excluded.active_generation_id,
+  updated_at = excluded.updated_at
+`).run(input.tab, generationId, pointer?.active_generation_id ?? null, nowMs());
+      db.prepare(`
+DELETE FROM vod_browse_reservoir_generations_v3
+WHERE tab = ? AND generation_id NOT IN (
+  SELECT active_generation_id FROM vod_browse_active_reservoirs_v3 WHERE tab = ?
+  UNION
+  SELECT previous_generation_id FROM vod_browse_active_reservoirs_v3
+  WHERE tab = ? AND previous_generation_id IS NOT NULL
+)
+`).run(input.tab, input.tab, input.tab);
+    });
+    publish();
+    vodBrowseReservoirCache.delete(input.tab);
+    return generationId;
+  } catch (error) {
+    db.prepare(`
+UPDATE vod_browse_reservoir_generations_v3
+SET state = 'failed', error = ? WHERE generation_id = ? AND state = 'building'
+`).run(error instanceof Error ? error.message : String(error), generationId);
+    throw error;
+  }
+}
+
+/** Build the replaceable browse reservoir away from Home/X; coalesced per tab. */
+export function prepareVodBrowseReservoirV3(input: {
+  tab: 'movies' | 'series';
+  rails: readonly VodBrowseReservoirRail[];
+  affinityRevision: string;
+  affinityByKey?: ReadonlyMap<string, {
+    taste_adjacency: number;
+    profile_confidence: number | null;
+  }>;
+}): Promise<number> {
+  const existing = vodBrowseReservoirPreparation.get(input.tab);
+  if (existing) return existing;
+  const running = vodBrowseReservoirPreparationTail
+    .catch(() => undefined)
+    .then(() => buildVodBrowseReservoirV3(input))
+    .finally(() => {
+    if (vodBrowseReservoirPreparation.get(input.tab) === running) {
+      vodBrowseReservoirPreparation.delete(input.tab);
+    }
+  });
+  vodBrowseReservoirPreparationTail = running.then(() => undefined, () => undefined);
+  vodBrowseReservoirPreparation.set(input.tab, running);
+  return running;
+}
+
 /** Remove pool rows only for confirmed failed titles; stale remains published until confirmed. */
 export async function pruneNonPlayableFromRailPools(_now: number = nowMs()): Promise<number> {
   const quarantined = await quarantineLegacyBackgroundUncachedVerifiedTitles(_now);
@@ -3424,10 +3800,15 @@ export async function allocateTabRailSessions(
   const now = nowMs();
   const cooldownCutoff = now - 7 * 24 * 60 * 60 * 1000;
   const snapshots = new Map<string, RailSessionSnapshot>();
-  const themeProfiles = options.browseV3 ? await loadRailThemeProfiles() : new Map();
-  const corpusGeneration = Number((db.prepare(`
-SELECT generation FROM recommendation_corpus_state WHERE state_id = 1
-`).get() as { generation?: number } | undefined)?.generation ?? 1);
+  if (options.browseV3 && !options.browseV3Tab) {
+    throw new Error('Browse v3 tab identity is required for reservoir allocation');
+  }
+  const browseReservoir = options.browseV3
+    ? readVodBrowseReservoirSnapshot(db, options.browseV3Tab!)
+    : null;
+  if (options.browseV3 && !browseReservoir) {
+    throw new Error('Browse v3 reservoir is not ready; retain the previous complete tab deal');
+  }
 
   const existingByRail = new Map<string, RailSessionPoolItem[]>();
   const curatedPools = new Map<string, ReturnType<typeof readRailPool>>();
@@ -3436,27 +3817,27 @@ SELECT generation FROM recommendation_corpus_state WHERE state_id = 1
   let canReuseExisting = options.rails.length > 0 && !options.forceReshuffle;
 
   for (const rail of options.rails) {
-    const rawPool = curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides)
-      .filter((item) => !options.excludedKeys?.has(titleKey(item.type, item.id)));
-    const pins = new Set(pinsForRail(rail.railId, overrides).map((pin) => titleKey(pin.type, pin.id)));
+    const prepared = browseReservoir?.rails.get(rail.railId) ?? [];
+    const rawPool = options.browseV3
+      ? prepared.filter((item) => (
+        item.trusted && !options.excludedKeys?.has(titleKey(item.type, item.id))
+      ))
+      : curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides)
+        .filter((item) => !options.excludedKeys?.has(titleKey(item.type, item.id)));
     const decisions = new Map<string, VodBrowseMembershipDecision>();
-    rawPool.forEach((row, index) => {
-      const affinity = options.affinityByKey?.get(titleKey(row.type, row.id));
-      decisions.set(titleKey(row.type, row.id), classifyBrowseMembership({
-        railId: rail.railId,
-        row,
-        index,
-        poolSize: rawPool.length,
-        now,
-        themeProfile: themeProfiles.get(rail.railId),
-        tasteAffinity: affinity?.taste_adjacency,
-        pinned: pins.has(titleKey(row.type, row.id)),
+    if (options.browseV3) {
+      (rawPool as VodBrowseReservoirItem[]).forEach((row) => decisions.set(titleKey(row.type, row.id), {
+        trusted: row.trusted,
+        sourcePosition: row.source_position ?? 0.5,
+        themeConfidence: row.theme_confidence,
+        tasteAffinity: row.taste_affinity,
+        novelty: row.novelty ?? 0.5,
+        weight: row.weight,
+        reason: row.reason,
       }));
-    });
+    }
     decisionsByRail.set(rail.railId, decisions);
-    const pool = options.browseV3
-      ? rawPool.filter((item) => decisions.get(titleKey(item.type, item.id))?.trusted === true)
-      : rawPool;
+    const pool = rawPool;
     curatedPools.set(rail.railId, pool);
     poolSizes.set(rail.railId, pool.length);
     const displayLimit = resolveRailDisplayLimit(rail, pool.length);
@@ -3525,53 +3906,6 @@ WHERE rail_id = @rail_id AND session_id = @session_id;
       },
     );
 
-    if (options.browseV3) {
-      const insertMembership = db.prepare(`
-INSERT INTO vod_browse_membership_v3(
-  corpus_generation, rail_id, type, id, trusted, source_position,
-  theme_confidence, taste_affinity, novelty, selection_weight, reason, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(corpus_generation, rail_id, type, id) DO UPDATE SET
-  trusted = excluded.trusted,
-  source_position = excluded.source_position,
-  theme_confidence = excluded.theme_confidence,
-  taste_affinity = excluded.taste_affinity,
-  novelty = excluded.novelty,
-  selection_weight = excluded.selection_weight,
-  reason = excluded.reason,
-  updated_at = excluded.updated_at
-`);
-      for (const rail of options.rails) {
-        for (const [key, decision] of decisionsByRail.get(rail.railId) ?? []) {
-          const separator = key.indexOf(':');
-          insertMembership.run(
-            corpusGeneration,
-            rail.railId,
-            key.slice(0, separator),
-            key.slice(separator + 1),
-            decision.trusted ? 1 : 0,
-            decision.sourcePosition,
-            decision.themeConfidence,
-            decision.tasteAffinity,
-            decision.novelty,
-            decision.weight,
-            decision.reason,
-            now,
-          );
-        }
-      }
-      db.prepare(`
-DELETE FROM vod_browse_membership_v3
-WHERE corpus_generation NOT IN (
-  SELECT corpus_generation
-  FROM vod_browse_membership_v3
-  GROUP BY corpus_generation
-  ORDER BY corpus_generation DESC
-  LIMIT 2
-)
-`).run();
-    }
-
     for (const rail of options.rails) {
       const pool = pools.get(rail.railId) ?? [];
       const displayLimit = resolveRailDisplayLimit(rail, pool.length);
@@ -3631,7 +3965,6 @@ export async function allocateVodExploreSession(options: {
   await initPlayabilityDb();
   const db = openDb();
   const now = nowMs();
-  const type = options.tab === 'series' ? 'series' : 'movie';
   const railId = options.tab === 'series' ? 'explore-series' : 'explore-movies';
   const displayLimit = Math.max(1, Math.min(12, Math.floor(options.displayLimit ?? 6)));
   const occupied = new Set(options.occupiedKeys ?? []);
@@ -3686,50 +4019,17 @@ ORDER BY sessions.slot
     };
   }
 
-  const rows = db.prepare(`
-SELECT titles.type, titles.id, titles.first_verified_at, titles.best_source,
-       titles.cache_status, titles.debrid_service, titles.verified_at, titles.expires_at,
-       evidence.title, evidence.poster_url, evidence.year,
-       MAX(membership.source_position) AS trusted_catalog_quality
-FROM titles
-JOIN title_story_evidence evidence ON evidence.type = titles.type AND evidence.id = titles.id
-LEFT JOIN vod_browse_membership_v3 membership
-  ON membership.corpus_generation = (
-    SELECT generation FROM recommendation_corpus_state WHERE state_id = 1
-  )
- AND membership.type = titles.type AND membership.id = titles.id
- AND membership.trusted = 1 AND membership.rail_id NOT LIKE 'ai-%'
-WHERE titles.type = ? AND titles.status = 'verified'
-  AND NULLIF(TRIM(evidence.title), '') IS NOT NULL
-  AND NULLIF(TRIM(evidence.poster_url), '') IS NOT NULL
-GROUP BY titles.type, titles.id
-ORDER BY titles.id
-`).all(type) as Array<{
-    type: string;
-    id: string;
-    first_verified_at: number | null;
-    best_source: string | null;
-    cache_status: string | null;
-    debrid_service: string | null;
-    verified_at: number | null;
-    expires_at: number | null;
-    title: string;
-    poster_url: string;
-    year: string | null;
-    trusted_catalog_quality: number | null;
-  }>;
+  const reservoir = readVodBrowseReservoirSnapshot(db, options.tab);
+  const rows = reservoir?.rails.get(railId) ?? [];
+  if (!reservoir || rows.length === 0) {
+    throw new Error(`Browse v3 ${options.tab} Explore reservoir is not ready`);
+  }
   const candidates = rows.flatMap((row) => {
     const key = titleKey(row.type, row.id);
     if (occupied.has(key) || excluded.has(key)) return [];
-    const affinity = options.affinityByKey?.get(key);
     return [{
       ...row,
-      weight: exploreWeight({
-        catalogQuality: row.trusted_catalog_quality,
-        tasteAdjacency: affinity?.taste_adjacency,
-        profileConfidence: affinity?.profile_confidence,
-        novelty: browseNovelty(row.first_verified_at, now),
-      }),
+      weight: row.weight,
     }];
   });
   const selected = weightedDeal(candidates, displayLimit, options.seed ?? options.sessionId);

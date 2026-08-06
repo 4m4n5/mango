@@ -3316,9 +3316,21 @@ export type VodBrowseAffinity = {
   profile_status: string | null;
 };
 
-/** Compact, read-only household affinity hints for cached Browse-v3 dealing. */
-export function loadVodBrowseAffinity(tab: StoryGraphTab): Map<string, VodBrowseAffinity> {
+export type VodBrowseAffinitySnapshot = {
+  revision: string;
+  values: Map<string, VodBrowseAffinity>;
+};
+
+/** Compact, read-only household affinity hints for offline Browse-v3 preparation. */
+export function loadVodBrowseAffinitySnapshot(tab: StoryGraphTab): VodBrowseAffinitySnapshot {
   const type = contentTypeForTab(tab);
+  const active = libraryDatabase().prepare(`
+SELECT active_rank_generation_id, active_taste_generation_id
+FROM vod_active_generations WHERE content_type = ?
+`).get(type) as {
+    active_rank_generation_id: number;
+    active_taste_generation_id: number;
+  } | undefined;
   const rows = libraryDatabase().prepare(`
 SELECT ri.content_id, ri.rank, ri.rank_score, ri.feature_confidence, ri.profile_status
 FROM vod_active_generations active
@@ -3333,7 +3345,11 @@ ORDER BY CASE WHEN ri.rank IS NULL THEN 1 ELSE 0 END, ri.rank ASC, ri.content_id
     profile_status: string | null;
   }>;
   const rankedCount = rows.filter((row) => row.rank !== null).length;
-  return new Map(rows.map((row) => {
+  return {
+    revision: active
+      ? `rank:${active.active_rank_generation_id}:taste:${active.active_taste_generation_id}`
+      : 'rank:none:taste:none',
+    values: new Map(rows.map((row) => {
     const adjacency = row.rank === null || rankedCount <= 1
       ? 0.5
       : clampUnit(1 - (row.rank - 1) / (rankedCount - 1));
@@ -3343,7 +3359,12 @@ ORDER BY CASE WHEN ri.rank IS NULL THEN 1 ELSE 0 END, ri.rank ASC, ri.content_id
       rank_score: row.rank_score,
       profile_status: row.profile_status,
     }];
-  }));
+    })),
+  };
+}
+
+export function loadVodBrowseAffinity(tab: StoryGraphTab): Map<string, VodBrowseAffinity> {
+  return loadVodBrowseAffinitySnapshot(tab).values;
 }
 
 export function householdVodDiscoveryExclusions(tab: StoryGraphTab): Set<string> {

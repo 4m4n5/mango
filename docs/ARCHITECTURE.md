@@ -323,11 +323,14 @@ reasons. `MANGO_VOD_BROWSE_V3=off|shadow|serve` independently stages the couch
 browse dealer. In serve, Movies/TV X atomically advances every visible rail:
 recency-weighted Continue/Saved, the cached six-card `For You`, trusted category
 and AI-catalog samples, and full-corpus `Explore`. The deal is epoch-seeded,
-globally deduplicated, and persisted as active/previous state. X never waits for
-enrichment, graph, scan, ranking, metadata, or network work, and a failed deal
-cannot replace the previous complete page. Shadow persists the same derived
-deal while leaving the older Home visible. The launcher reports success only
-when returned membership/order changes. An
+globally deduplicated, and persisted as active/previous state. Classification
+and full-corpus Explore weights publish through a separate atomic
+active/previous reservoir during shadow or post-rank background work. X reads
+that reservoir and never waits for reclassification, enrichment, graph, scan,
+ranking, metadata, or network work; a failed deal cannot replace the previous
+complete page. Shadow preparation is asynchronous and cannot delay the older
+visible Home response. The launcher reports success only when returned
+membership/order changes. An
 opaque server-issued token binds the immutable served Household owner,
 domain, rail, served revision, exact membership, source revision, and bounded
 context. Public cards carry opaque content IDs needed for actions, but the TV

@@ -1440,7 +1440,10 @@ async function main(): Promise<void> {
       activeRecommendationReasons.delete(key);
       return result;
     },
-    onPublished: (work) => core.invalidateRecommendationTab(work.tab),
+    onPublished: (work) => {
+      core.invalidateRecommendationTab(work.tab);
+      core.scheduleVodBrowseReservoirRefresh(work.tab);
+    },
     onRetainedLastGood: (work, error, willRetry) => {
       if (error instanceof CouchPreemptedRecommendationRefreshError) {
         const key = recommendationWorkKey(work.profile_id, work.tab);

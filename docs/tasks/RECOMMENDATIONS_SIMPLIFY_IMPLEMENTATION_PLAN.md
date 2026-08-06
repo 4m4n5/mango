@@ -100,9 +100,11 @@ the product order above. Continue uses a 30-day half-life and Saved 180 days.
 Global same-page deduplication applies across every rail.
 
 The deal seed is the persisted per-tab epoch, so replay is deterministic and a
-new X advances. Home and X use only local databases and cached metadata—no
-provider, Companion, StoryDNA teacher, metadata enrichment, ranking, or corpus
-job. Ordinary reload reuses the active deal. Current eligibility is rechecked;
+new X advances. Shadow/background preparation classifies source membership and
+publishes one immutable active/previous reservoir per tab. Home and X read that
+reservoir; they never reclassify or rewrite the corpus and perform no provider,
+Companion, StoryDNA teacher, metadata enrichment, or ranking job. Ordinary
+reload reuses the active deal. Current eligibility is rechecked;
 newly invalid cards force healing. The database keeps active and previous
 complete deals. A partial deal or concurrent epoch race returns a typed failure
 and never replaces the last complete page.
@@ -140,11 +142,13 @@ omit the rail honestly; the launcher no longer substitutes random Home cards.
 
 ## Derived persistence and diagnostics
 
-Playability migration 16 adds only replaceable state:
+Playability migrations 16–17 add only replaceable state:
 
 - trusted category membership and component weights;
 - Explore session rows;
 - active/previous atomic tab deals.
+- atomic active/previous sampling reservoirs containing compact category,
+  AI-catalog, and Explore candidates and weights.
 
 Historical tables, migrations, ratings, profiles, StoryDNA documents, ranks,
 slates, Saved/history, and playability evidence are untouched. Recommendation
@@ -155,8 +159,9 @@ counts. Private weights and semantic features never enter couch payloads.
 ## Rollout and gates
 
 1. `off`: existing VOD browse behavior; no v3 derived selection.
-2. `shadow`: old Home remains visible while complete v3 deals and relevance
-   predealt slates are built locally. No teacher calls.
+2. `shadow`: old Home returns immediately while reservoir/deal preparation runs
+   asynchronously. Complete v3 deals and relevance predealt slates are built
+   locally with no teacher calls.
 3. `serve`: v3 Home, shuffle, and Detail related become public.
 
 Promotion requires exact-SHA Mac tests/builds and Pi proof for schema migration,

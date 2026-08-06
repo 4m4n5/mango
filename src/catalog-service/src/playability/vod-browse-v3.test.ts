@@ -5,9 +5,11 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import {
+  allocateTabRailSessions,
   allocateVodExploreSession,
   getPlayabilityDb,
   initPlayabilityDb,
+  prepareVodBrowseReservoirV3,
   persistVodTabDealV3,
   readVodTabDealV3,
   resetPlayabilityDbForTests,
@@ -18,6 +20,7 @@ const ENV = { ...process.env };
 async function withBrowseDb(fn: () => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), 'mango-vod-browse-v3-'));
   process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
+  process.env.MANGO_REPO_DIR = join(process.cwd(), '../..');
   resetPlayabilityDbForTests();
   try {
     await initPlayabilityDb();
@@ -48,6 +51,11 @@ VALUES ('movie', ?, ?, ?, '2026', ?)
         insertEvidence.run(id, `Title ${index}`, `https://img/${id}.jpg`, now);
       }
     })();
+    await prepareVodBrowseReservoirV3({
+      tab: 'movies',
+      rails: [],
+      affinityRevision: 'fixture-rank-1',
+    });
     const excluded = new Set(['movie:tt0000000']);
     const occupied = new Set(['movie:tt0000001']);
     const first = await allocateVodExploreSession({
@@ -89,5 +97,49 @@ test('atomic tab deals retain one previous generation and reject stale concurren
       payload_json: '{}', expected_previous_epoch: 0,
     }), /changed while movies was being dealt/);
     assert.equal((await readVodTabDealV3('movies', 'active'))?.deal_epoch, 1);
+  });
+});
+
+test('serve-time category deals read the published reservoir without rescanning source membership', async () => {
+  await withBrowseDb(async () => {
+    const db = getPlayabilityDb();
+    const now = Date.now();
+    const insertTitle = db.prepare(`
+INSERT INTO titles(type, id, status, verified_at, first_verified_at, best_source, updated_at)
+VALUES ('movie', ?, 'verified', ?, ?, 'fixture', ?)
+`);
+    const insertEvidence = db.prepare(`
+INSERT INTO title_story_evidence(type, id, title, poster_url, year, updated_at)
+VALUES ('movie', ?, ?, ?, '2026', ?)
+`);
+    const insertMembership = db.prepare(`
+INSERT INTO rail_pool(rail_id, type, id, score, ingested_at, title, poster_url, year)
+VALUES ('movies-global-popular', 'movie', ?, ?, ?, ?, ?, '2026')
+`);
+    db.transaction(() => {
+      for (let index = 0; index < 20; index += 1) {
+        const id = `tt${String(index + 100).padStart(7, '0')}`;
+        insertTitle.run(id, now, now, now);
+        insertEvidence.run(id, `Reservoir ${index}`, `https://img/${id}.jpg`, now);
+        insertMembership.run(id, 20 - index, now, `Reservoir ${index}`, `https://img/${id}.jpg`);
+      }
+    })();
+    await prepareVodBrowseReservoirV3({
+      tab: 'movies',
+      rails: [{ railId: 'movies-global-popular', displayLimit: 9, minDisplay: 6 }],
+      affinityRevision: 'fixture-rank-2',
+    });
+    db.prepare("DELETE FROM rail_pool WHERE rail_id = 'movies-global-popular'").run();
+    const sessions = await allocateTabRailSessions({
+      sessionId: 'reservoir-session',
+      rails: [{ railId: 'movies-global-popular', displayLimit: 9, minDisplay: 6 }],
+      forceReshuffle: true,
+      browseV3: true,
+      browseV3Tab: 'movies',
+      seed: 'reservoir-seed',
+    });
+    const session = sessions.get('movies-global-popular');
+    assert.equal(session?.items.length, 9);
+    assert.equal(session?.verified_pool, 20);
   });
 });

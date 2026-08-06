@@ -42,6 +42,7 @@ import {
   listRailPoolMissingDisplay,
   patchRailPoolDisplay,
   pickRailRelatedFromPool,
+  prepareVodBrowseReservoirV3,
   persistVodTabDealV3,
   readVodTabDealV3,
   type PlayabilityStatus,
@@ -101,8 +102,8 @@ import { loadForYouRail } from './recommendations/service.js';
 import {
   householdVodDiscoveryExclusions,
   loadStoryGraphRelatedTitles,
-  loadVodBrowseAffinity,
-  type VodBrowseAffinity,
+  loadVodBrowseAffinitySnapshot,
+  type VodBrowseAffinitySnapshot,
 } from './recommendations/story-graph-service.js';
 import {
   recencyWeight,
@@ -1230,7 +1231,8 @@ export class CatalogCore {
     expiresAt: number;
   }>();
   private readonly recommendationRevisionFence = new RecommendationTabRevisionFence();
-  private readonly vodBrowseAffinityCache = new Map<VodRecommendationTab, Map<string, VodBrowseAffinity>>();
+  private readonly vodBrowseAffinityCache = new Map<VodRecommendationTab, VodBrowseAffinitySnapshot>();
+  private readonly vodBrowseShadowBuilds = new Map<VodRecommendationTab, Promise<void>>();
   private liveTabRailItemsCache: {
     payload: TabRailItemsResponse;
     expiresAt: number;
@@ -1667,6 +1669,28 @@ export class CatalogCore {
     this.recommendationRevisionFence.bump(tab);
     this.vodBrowseAffinityCache.delete(tab);
     this.clearTabRailItemsCacheForTab(tab);
+  }
+
+  scheduleVodBrowseReservoirRefresh(tab: VodRecommendationTab): void {
+    if (vodBrowseV3Mode() === 'off') return;
+    const affinity = loadVodBrowseAffinitySnapshot(tab);
+    this.vodBrowseAffinityCache.set(tab, affinity);
+    const rails = this.browsableRailsForTab(tab);
+    void prepareVodBrowseReservoirV3({
+      tab,
+      rails: rails.map((rail) => ({
+        railId: rail.id,
+        displayLimit: Math.min(9, rail.playability.display_limit),
+        minDisplay: 6,
+        playability: rail.playability,
+      })),
+      affinityRevision: affinity.revision,
+      affinityByKey: affinity.values,
+    }).catch((error) => {
+      console.warn(`Browse v3 ${tab} reservoir retained last-good: ${
+        error instanceof Error ? error.message : String(error)
+      }`);
+    });
   }
 
   clearRailItemsCache(railId?: string): void {
@@ -2524,6 +2548,25 @@ export class CatalogCore {
       forYouOverride?: RailItemsResponse | null;
     } = {},
   ): Promise<StagedPersonalizationResult<TabRailItemsResponse>> {
+    let affinity = this.vodBrowseAffinityCache.get(tab);
+    if (!affinity) {
+      affinity = loadVodBrowseAffinitySnapshot(tab);
+      this.vodBrowseAffinityCache.set(tab, affinity);
+    }
+    const rails = this.browsableRailsForTab(tab);
+    if (vodBrowseV3Mode() === 'shadow') {
+      await prepareVodBrowseReservoirV3({
+        tab,
+        rails: rails.map((rail) => ({
+          railId: rail.id,
+          displayLimit: Math.min(9, rail.playability.display_limit),
+          minDisplay: 6,
+          playability: rail.playability,
+        })),
+        affinityRevision: affinity.revision,
+        affinityByKey: affinity.values,
+      });
+    }
     const stored = await readVodTabDealV3(tab);
     if (!reshuffle && stored) {
       try {
@@ -2581,12 +2624,6 @@ export class CatalogCore {
         rail.items.forEach((item) => occupied.add(titleKey(item.type, item.id)));
       }
       const exclusions = householdVodDiscoveryExclusions(tab);
-      let affinity = this.vodBrowseAffinityCache.get(tab);
-      if (!affinity) {
-        affinity = loadVodBrowseAffinity(tab);
-        this.vodBrowseAffinityCache.set(tab, affinity);
-      }
-      const rails = this.browsableRailsForTab(tab);
       const sessions = await allocateTabRailSessions({
         sessionId,
         rails: rails.map((rail) => ({
@@ -2598,10 +2635,11 @@ export class CatalogCore {
         forceReshuffle: true,
         stableRatio: 0,
         browseV3: true,
+        browseV3Tab: tab,
         seed: dealSeed,
         excludedKeys: exclusions,
         initiallyOccupiedKeys: occupied,
-        affinityByKey: affinity,
+        affinityByKey: affinity.values,
       });
       const specialized: RailItemsResponse[] = [];
       for (const rail of rails) {
@@ -2624,7 +2662,7 @@ export class CatalogCore {
         seed: `${dealSeed}:explore`,
         excludedKeys: exclusions,
         occupiedKeys: occupied,
-        affinityByKey: affinity,
+        affinityByKey: affinity.values,
       });
       const exploreRail = this.buildExploreRailResponse(exploreSession, started);
       if (exploreRail.items.length < 6) {
@@ -2639,6 +2677,17 @@ export class CatalogCore {
       const allKeys = visibleRails.flatMap((rail) => rail.items.map((item) => titleKey(item.type, item.id)));
       if (new Set(allKeys).size !== allKeys.length) {
         throw new CatalogError(503, 'VOD tab deal contains duplicate titles', undefined, {
+          couchMessage: 'Shuffle is keeping the previous complete page',
+        });
+      }
+      const discoveryItems = visibleRails
+        .filter((rail) => rail.rail_id !== CONTINUE_RAIL_ID && rail.rail_id !== SAVED_RAIL_ID)
+        .flatMap((rail) => rail.items.map((item) => ({ type: item.type, id: item.id })));
+      const currentPlayability = await getTitlesPlayabilityBulk(discoveryItems);
+      if (discoveryItems.some((item) => (
+        currentPlayability.get(titleKey(item.type, item.id))?.status !== 'verified'
+      ))) {
+        throw new CatalogError(503, 'VOD tab deal selected a title whose playability changed', undefined, {
           couchMessage: 'Shuffle is keeping the previous complete page',
         });
       }
@@ -2694,6 +2743,41 @@ export class CatalogCore {
       }
       throw error;
     }
+  }
+
+  private scheduleVodBrowseV3Shadow(input: {
+    tab: VodRecommendationTab;
+    reshuffle: boolean;
+    personalization: PersonalizationSnapshot;
+    recommendationRevision: number | null;
+    cacheKey: string;
+    forYouRail: RailItemsResponse | null;
+  }): void {
+    if (this.vodBrowseShadowBuilds.has(input.tab)) return;
+    let running: Promise<void>;
+    running = new Promise<void>((resolve) => {
+      setImmediate(() => {
+        void this.stageVodBrowseV3(
+          input.tab,
+          input.reshuffle,
+          input.personalization,
+          input.recommendationRevision,
+          `${input.cacheKey}\u0000browse-v3-shadow`,
+          undefined,
+          Date.now(),
+          { publishCache: false, forYouOverride: input.forYouRail },
+        ).then((staged) => staged.commit?.()).catch((error) => {
+          console.warn(`Browse v3 shadow deal retained visible v2 page: ${
+            error instanceof Error ? error.message : String(error)
+          }`);
+        }).finally(resolve);
+      });
+    }).finally(() => {
+      if (this.vodBrowseShadowBuilds.get(input.tab) === running) {
+        this.vodBrowseShadowBuilds.delete(input.tab);
+      }
+    });
+    this.vodBrowseShadowBuilds.set(input.tab, running);
   }
 
   private async stageTabRailItems(
@@ -2791,25 +2875,6 @@ export class CatalogCore {
       rails: visibleRails,
       resolve_ms: Date.now() - started,
     };
-    let shadowBrowse: StagedPersonalizationResult<TabRailItemsResponse> | null = null;
-    if ((tab === 'movies' || tab === 'series') && vodBrowseV3Mode() === 'shadow') {
-      try {
-        shadowBrowse = await this.stageVodBrowseV3(
-          tab,
-          reshuffle,
-          personalization,
-          recommendationRevision,
-          `${cacheKey}\u0000browse-v3-shadow`,
-          undefined,
-          started,
-          { publishCache: false, forYouOverride: forYouRail },
-        );
-      } catch (error) {
-        console.warn(`Browse v3 shadow deal retained visible v2 page: ${
-          error instanceof Error ? error.message : String(error)
-        }`);
-      }
-    }
     const expiresAt = Date.now() + RAIL_ITEMS_CACHE_TTL_MS;
     return {
       value: payload,
@@ -2828,12 +2893,15 @@ export class CatalogCore {
           payload,
           expiresAt,
         });
-        try {
-          await shadowBrowse?.commit?.();
-        } catch (error) {
-          console.warn(`Browse v3 shadow deal commit retained visible v2 page: ${
-            error instanceof Error ? error.message : String(error)
-          }`);
+        if ((tab === 'movies' || tab === 'series') && vodBrowseV3Mode() === 'shadow') {
+          this.scheduleVodBrowseV3Shadow({
+            tab,
+            reshuffle,
+            personalization,
+            recommendationRevision,
+            cacheKey,
+            forYouRail,
+          });
         }
       },
       rollback: () => this.tabRailItemsCache.delete(cacheKey),

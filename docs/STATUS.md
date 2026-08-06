@@ -386,7 +386,10 @@ predates this latest-only implementation, so its visible rail is historical.
 Browse presentation has its own `MANGO_VOD_BROWSE_V3=off|shadow|serve` flag.
 V3 keeps the precise six-card Story Frontier rail, adds full-corpus Explore,
 uses positive-weight trusted category/AI deals, recency-shuffles Continue and
-Saved, and persists one globally deduplicated active/previous tab deal. Detail
+Saved, and persists one globally deduplicated active/previous tab deal.
+Playability migration 17 keeps classification and full-corpus Explore work in
+an atomic background/shadow reservoir so Home/X only deal published local
+candidates. Detail
 uses `vod-related-v1` StoryDNA/content-profile matching rather than random
 same-rail cards. This is source truth until an exact-SHA Pi proof below records
 deployment; human freshness and thematic coherence remain unproven until couch
