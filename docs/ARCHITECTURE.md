@@ -278,10 +278,9 @@ migration 17 adds immutable per-content-generation priors and refresh phase,
 cursor, heartbeat, deadline, generation-link, typed-error, successor, and
 phase/peak-memory diagnostics; playability
 migration 14 adds semantic revisions. The exact executable target
-`3aa64513c73590b006e8e3d937de750e725f014c` passes the recorded focused and
-full Mac suites and headless-safe Pi recommendation proof. The aggregate
-pre-couch gate remains blocked by the powered-off X11 monitor; human thematic
-and target-TV judgment remains unaccepted. Runtime
+`7a8bc1bd6f08928270ff092a8a9dad26c02419bf` passes the recorded focused and
+full Mac/Pi suites plus the aggregate pre-couch gate; human thematic and
+target-TV judgment remains unaccepted. Runtime
 rollback disables exposure (`shadow`/`off`);
 older ranking code requires a reviewed Git rollback and can read preserved
 historical rows.
@@ -404,7 +403,7 @@ reservoirs. Independent
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` switches permit isolated rollout.
 
 Both latest-only architectures have their source/runtime rollout blockers
-closed at `3aa64513c73590b006e8e3d937de750e725f014c`: YouTube `off` uses exact active
+closed at `7a8bc1bd6f08928270ff092a8a9dad26c02419bf`: YouTube `off` uses exact active
 personal ownership, VOD active modes use exact Household Saved, off/shadow
 cannot expose or falsely advance Shuffle, and diagnostics distinguish the
 active/previous serving pointers from the newest attempted generation. Focused

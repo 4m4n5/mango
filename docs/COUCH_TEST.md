@@ -210,11 +210,11 @@ state transition explicitly rather than treating shadow as invisible compute.
 | F15 | Shadow identity | Personal rows/counts remain intact; profile/mood writes are typed; Continue/progress and Saved ownership match the accepted Household policy with no shadow/serve divergence | |
 | F16 | Disabled Shuffle | X/Shuffle is hidden or honest in off/shadow; it never reports a successful refresh when no For You rail changed | |
 
-The Pi serves target `3aa6451` with complete progressive accounting, bounded
-frontier-off behavior, healthy reserves, and headless-safe exact-target gates.
-Its 100-X-per-tab proof exercises cyclic four-slate avoidance, but the aggregate
-gate currently stops because the physical X11 monitor is off. Do not turn that
-into a human quality claim: F1–F14 still require the physical
+The Pi serves target `7a8bc1b` with complete progressive accounting, bounded
+frontier-off behavior, healthy reserves, and an aggregate pre-couch PASS after
+the standard display-wake path restored X11 Monitor On. Its 100-X-per-tab VOD
+proof exercises cyclic four-slate avoidance. Do not turn automated proof into
+a human quality claim: F1–F14 still require the physical
 ten-shuffle relevance, focus, playback-return, picture, and audio checks. A
 bulk artifact/importer is required only if measured progressive quality gaps
 justify that additional architecture.

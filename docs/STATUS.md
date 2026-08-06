@@ -3,10 +3,10 @@
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
 Latest executable recommendation deployment target: **2026-08-05**,
-`3aa64513c73590b006e8e3d937de750e725f014c`. It is deployed and the
-headless-safe recommendation, build, and playback gates pass on the Pi; the
-aggregate pre-couch gate remains physically blocked by the powered-off X11
-monitor. Human couch judgment remains separate. Use `git status`,
+`7a8bc1bd6f08928270ff092a8a9dad26c02419bf`. It is deployed and the
+recommendation, build, playback, launcher, voice, and aggregate pre-couch gates
+pass on the Pi after the existing display-wake path restored X11 Monitor On.
+Human thematic and target-TV judgment remain separate. Use `git status`,
 `git rev-parse HEAD`, and the Pi commands below before acting.
 
 ## How to read this page
@@ -32,9 +32,9 @@ prove only their exact revision and contract.
 | Native mpv playback | Complete | Deferred-foreground and single-B playback were proven on selected titles on earlier revisions | Current-SHA regression matrix, failure cases, target-TV/audio proof, legacy direct-MediaFusion topology decision |
 | HUD and Streams drawer | Complete | Local fixture/source gates; home-agent deployment work recorded | Current exact-SHA screenshots and 4K dropped-frame/no-regression couch pass |
 | Mango library and Fire/Water input | Complete | Deployed; unset axes start at neutral 2; `<1` negative, `1–2` neutral, `>2` quadratic positive | Human use/clarity and served recommendation quality |
-| VOD recommendations | `3aa6451` bounded progressive profiles + Household Story Frontier; cyclic predealt slates and cached-tab-only X; data preserved | Pi serves Movies/TV with complete 5,671/3,874 accounting, 224/229 reserves and 1,096 preserved overlays; 100 X presses per tab kept four-slate avoidance with p95 27/14 ms and zero provider work | Human thematic verdict and physical focus/picture/audio checks |
+| VOD recommendations | `7a8bc1b` bounded progressive profiles + Household Story Frontier; cyclic predealt slates and cached-tab-only X; data preserved | Pi serves Movies/TV with complete 5,671/3,874 accounting, 224/229 reserves and 1,096 preserved overlays; 100 X presses per tab kept four-slate avoidance with p95 27/14 ms and zero provider work | Human thematic verdict and physical focus/picture/audio checks |
 | Native YouTube base | Complete | Previously deployed/Pi-gated | Current exact-SHA revalidation and account-specific proof |
-| YouTube recommendations | `3aa6451` `youtube-household-v2.3`; post-auth account truth, complete bounded subscription coverage, official metadata, portfolio constraints, and conditional More Like | Authenticated India account is Ready with 55 subscriptions; reserves For You/Beyond/More Like/Subscriptions = 120/38/6/120; exact-channel `More from …` fallback is honest; cached X and actual playback smoke pass | Human relevance, focus/Back, offline, and picture/audio observation; manual Takeout import intentionally not run |
+| YouTube recommendations | `7a8bc1b` `youtube-household-v2.3`; subscriptions plus Takeout/Mango-local meaningful history only, with cached exact exclusions and chronological History | Authenticated India account is Ready with 55 subscriptions; 2,872 Takeout events represent 2,548 unique watched videos; total meaningful anchors are 2,553; reserves are 120/47/12/120 and More Like is thematic; 100-X p95 is 62 ms with zero quota/provider work | Human relevance, focus/Back, offline, and picture/audio observation; Search-history export remains intentionally unused |
 | Voice/phone companion | Complete for trusted-LAN development contract | Automated corpus/memory/UX gates on earlier revisions; partial couch work | Full V1–V12/current coherence plus per-device client auth/pairing before appliance release |
 | Reliability Center/nightly proof | Implemented with a known optional-Live defect | Deployed on earlier revisions | Current-SHA proof, make intentionally disabled Live neutral, controller-action UI mismatch, repeated unattended evidence |
 | Controller reconnect | Source-complete | Automated gate exists; normal-wake behavior partially exercised | Five physical power-on reconnect cycles without pairing mode |
@@ -48,7 +48,7 @@ prove only their exact revision and contract.
 
 ### Source audit
 
-- `3aa64513c73590b006e8e3d937de750e725f014c` is the exact executable recommendation rollout target. It keeps the
+- `7a8bc1bd6f08928270ff092a8a9dad26c02419bf` is the exact executable recommendation rollout target. It keeps the
   latest-only architecture and preserves historical database rows and schemas.
 - VOD retains deterministic `vod-content-profile-v2`, compatible immutable
   StoryDNA overlays, local Household taste/ranking, full-corpus generations,
@@ -63,7 +63,7 @@ prove only their exact revision and contract.
   and destructive fresh-start/reset APIs. Search and user-created AI catalog
   seeds remain separate and cannot establish recommendation provenance.
 - The catalog-service build and full test suite pass locally at this revision
-  (`893/893`), as do 87 launcher deterministic tests, 106 orchestrator tests,
+  (`895/895`), as do 87 launcher deterministic tests, 106 orchestrator tests,
   and the launcher and
   companion production builds. The
   cleanup intentionally removed a large legacy implementation/test surface, so
@@ -112,7 +112,7 @@ prove only their exact revision and contract.
   `/stream` diagnostics can still expose raw addon fetch error details even
   though the launcher does not render them and the companion proxy blocks the
   route. Treat those DTOs as operator-only; sanitize them before widening access.
-- **Recommendation source/runtime blockers are closed at `3aa6451`.** YouTube off now
+- **Recommendation source/runtime blockers are closed at `7a8bc1b`.** YouTube off now
   returns exact active-profile utilities without a false 409; VOD shadow and
   serve both read exact Household Saved; off/shadow cannot advance or falsely
   report Shuffle; and diagnostics distinguish newest rows from active/previous,
@@ -150,7 +150,7 @@ prove only their exact revision and contract.
 ### Latest repository-recorded recommendation runtime snapshot
 
 The Pi is deployed at executable target
-`3aa64513c73590b006e8e3d937de750e725f014c` with:
+`7a8bc1bd6f08928270ff092a8a9dad26c02419bf` with:
 
 ```text
 MANGO_VOD_RECS_V2=serve
@@ -165,18 +165,21 @@ All 1,096 StoryDNA overlays remain preserved. Movies accounts for 224 ranked +
 5,447 sparse/excluded = 5,671 verified titles; TV accounts for 229 + 3,645 =
 3,874. Both active/public generations have six-card cyclic cached slates and use the
 honest `evidence_cold_start` basis because no currently rated title has a
-thematically rankable profile for supervised replay. YouTube is ready with
-five Mango-local meaningful watches, 55 authoritative subscriptions, complete
-subscription coverage, and For You/Beyond/More Like/Subscriptions reserves of
-120/38/6/120. Today’s topic queries did not yield four sufficiently related
-cross-channel cards, so the current third rail is honestly labelled
-`More from Them Boxer Shorts`; it is not misreported as thematic or hybrid.
-YouTube Home/X p95 is at most 240 ms in the recorded steady-state sample and
-VOD’s 100-X samples are 27/14 ms, with no API/provider work. The exact-SHA
-catalog suite (893), launcher deterministic suite (87), production builds,
-YouTube smoke, and actual `yt-dlp -> mpv` playback pass. The aggregate pre-couch
-gate stops only because the physical X11 monitor is off. Human relevance,
-screenshots, focus/Back, and target-TV picture/audio judgment remain pending.
+thematically rankable profile for supervised replay. YouTube is ready with 55
+authoritative subscriptions plus 2,872 normalized Takeout events covering
+2,548 unique videos and five Mango-local anchors. The 2,553 unique meaningful
+anchors use the locked 90-day half-life and produce For You/Beyond/More
+Like/Subscriptions reserves of 120/47/12/120; More Like is currently thematic.
+The chronological History and 2,557 exact serving exclusions are primed once
+and rebuilt only at source/metadata boundaries. A 100-X Pi sample was p50 44 ms
+and p95 62 ms; all recommendation rows rotated, History stayed stable, watched
+items did not leak, global dedupe held, and API/quota counters stayed unchanged.
+The exact-SHA catalog suite (895), launcher deterministic suite (87), production
+builds, YouTube smoke, lite VOD playback, and aggregate pre-couch gate pass.
+Reliability remains yellow because five curated VOD rails are thin and 2/28
+served-title probes were broken; those warnings are not attributed to the
+YouTube history path. Human relevance, screenshots, focus/Back, and target-TV
+picture/audio judgment remain pending.
 
 ### Older objective playback/runtime evidence
 

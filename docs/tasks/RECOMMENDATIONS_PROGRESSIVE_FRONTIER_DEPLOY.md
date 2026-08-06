@@ -1,12 +1,12 @@
 # Recommendations reliability recovery — home deployment runbook
 
-Status: **DEPLOYED ON THE PI IN SERVE MODE; HEADLESS-SAFE SUBSYSTEM PROOF
-COMPLETE.** The aggregate pre-couch gate stops because the physical X11 monitor
-is powered off. Human thematic, focus, audio, and picture observation remain
-explicitly pending.
+Status: **DEPLOYED ON THE PI IN SERVE MODE; AGGREGATE PRE-COUCH GATE PASS.**
+The existing display-wake path restored X11 Monitor On and the exact-target
+launcher, playback, voice, stream, YouTube, and Reliability gates completed.
+Human thematic, focus, audio, and picture judgment remains explicitly pending.
 
 ```bash
-TARGET_SHA=3aa64513c73590b006e8e3d937de750e725f014c
+TARGET_SHA=7a8bc1bd6f08928270ff092a8a9dad26c02419bf
 ```
 
 Do not promote `345535d`, `3ef1b20`, `772b3d5`, `9425b1f`, or `c8cfe72` as the
@@ -37,17 +37,18 @@ this runbook.
 | Ratings | `<1` is a true-negative evaluation label, `1–2` is neutral, and `>2` contributes quadratic positive evidence: `((rating - 2) / 3)^2` |
 | VOD evaluation | Only thematically rankable rated profiles are labels. Current result is honestly insufficient rather than a false concordance failure; operational serving remains independently authorized |
 | Memory/liveness | One catalog invocation, zero restarts/OOM events, process and cgroup memory separated, 128-title bounded work, effective 1280M/1536M limits |
-| YouTube | `youtube-household-v2.3` ready for channel `Aman`, India/en; 55 authoritative subscriptions and five Mango-local meaningful watches; reserves 120/38/6/120; exact-channel `More from …` is the honest current fallback |
-| Cached interaction | 100 X presses per VOD tab retained four-slate avoidance with p95 27/14 ms; five-X YouTube p95 stayed below 250 ms, kept utilities stable, and used zero quota/provider work |
+| YouTube | `youtube-household-v2.3` ready for channel `Aman`, India/en; 55 subscriptions; 2,872 Takeout events covering 2,548 unique videos plus five Mango-local anchors; reserves 120/47/12/120; More Like is thematic |
+| Cached interaction | 100 X presses per VOD tab retained four-slate avoidance with p95 27/14 ms; 100 YouTube X presses were p50 44 ms/p95 62 ms, changed all recommendation rows, kept History stable, excluded watched IDs, and used zero quota/provider work |
 | Playback | Exact-SHA YouTube search/detail/`yt-dlp -> mpv` smoke passes; earlier served VOD representative launch proof remains applicable because the later executable delta is cache/dealer-only |
-| Backup | `~/.local/share/mango/backups/agent-snapshots/youtube-v23-pre-deploy-20260806T023133Z` is complete; older frontier backups remain preserved |
+| Backup | `~/.local/share/mango/backups/agent-snapshots/youtube-takeout-pre-import-20260806T051951Z` is complete; older recommendation/frontier backups remain preserved |
 
-The target passed 893/893 catalog tests on both Mac and Pi, 87/87 launcher
+The target passed 895/895 catalog tests on both Mac and Pi, 87/87 launcher
 deterministic tests on both machines, launcher and Companion production builds,
-migration/state preservation checks, YouTube smoke, actual YouTube playback,
-and long-session cached shuffle proof. The aggregate pre-couch gate is
-DEFERRED at its first physical-display check (`X11 monitor is Off`); automated
-proof does not substitute for the user-owned physical couch verdict.
+migration/state preservation checks, YouTube smoke, lite movie/series playback,
+and long-session cached shuffle proof. The aggregate pre-couch gate passes.
+Reliability is yellow because five curated VOD rails are thin and 2/28 sampled
+served titles were broken; automated proof does not substitute for the
+user-owned physical couch verdict.
 
 ## 1. Source contract and proof
 
@@ -67,13 +68,18 @@ The target adds:
   diagnostics, More-Like-first allocation, and honest conditional omission.
 - post-auth authorized-channel truth, complete paged subscription coverage,
   official metadata evidence, and source/seed portfolio constraints;
+- startup/refresh snapshots for exhaustive YouTube exact exclusions and the
+  chronological History utility row, with mutation invalidation and count-only
+  diagnostics;
+- one durable served-attribution transaction per rendered YouTube response
+  instead of one SD-card commit per rail;
 - cyclic predealt VOD slates plus a cached-tab X path that replaces only For You
   and avoids finite-queue exhaustion or curated-rail rebuild latency.
 
 Mac proof bound to `TARGET_SHA`:
 
 ```text
-catalog-service npm test: 893 pass / 0 fail
+catalog-service npm test: 895 pass / 0 fail
 launcher deterministic tests: 87 pass / 0 fail
 launcher production build: pass
 companion production build: pass

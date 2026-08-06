@@ -1,14 +1,16 @@
 # mango — native YouTube
 
 **Milestone:** M6.2 · **Status:** the native YouTube base and recommendation
-v2.3 are Pi-deployed/gated. Commit `3aa64513c73590b006e8e3d937de750e725f014c` makes authoritative subscription/history v2
+v2.3 are Pi-deployed/gated. Commit `7a8bc1bd6f08928270ff092a8a9dad26c02419bf` makes authoritative subscription/history v2
 the sole executable recommendation architecture behind an independent
 `off|shadow|serve` flag. The current v2.3 source adds post-auth account/sync
 truth, complete bounded subscription coverage, official metadata evidence,
 source/seed portfolio constraints, and uploads-playlist-backed conditional
-More Like recovery. The current India account is Ready with 55 subscriptions;
-manual Takeout history import was deliberately not run. Exact Pi runtime proof
-is recorded in [STATUS.md](STATUS.md).
+More Like recovery. The current India account is Ready with 55 subscriptions.
+Its watch-history HTML import produced 2,872 normalized events covering 2,548
+unique videos; with five Mango-local anchors, v2 ranks from 2,553 meaningful
+history anchors. Search-history HTML was not imported and cannot affect
+recommendations. Exact Pi runtime proof is recorded in [STATUS.md](STATUS.md).
 
 Mango treats YouTube as a first-class content source while preserving the voice
 safety contract: voice can search/open/save, but playback starts only when the
@@ -239,6 +241,16 @@ currently live streams from the authoritative subscription snapshot; it never
 runs a generic live search. OAuth loss serves an explicitly stale last-good
 snapshot. Ordinary Home loads and X never initiate any phase.
 
+Serving is snapshot-based. Exact watched/Saved/Not-for-me IDs and the resolved
+chronological Household History pool are primed once at catalog startup and
+rebuilt at meaningful-history/import/metadata publication boundaries. Saved
+and feedback writes invalidate exact exclusions before the next couch read.
+Rendered rail attribution is committed for the whole response in one SQLite
+transaction. This keeps durable action ownership while avoiding repeated
+multi-gigabyte library scans, thousands of history-to-metadata lookups, or one
+SD-card commit per rail. Diagnostics expose cache readiness/counts only, never
+the private IDs.
+
 Manual equivalents:
 
 On the Pi, from the repository root:
@@ -281,9 +293,14 @@ npm run youtube:takeout -- /path/to/takeout.zip
 ```
 
 Takeout is a manual bootstrap, not continuous Google account-history sync. The
-supported Data API does not expose account watch history. Streaming, path-safety,
-idempotency, and raw-data-discard behavior must pass the local promotion suite;
-this document is not runtime proof.
+supported Data API does not expose account watch history. Mango deliberately
+does not ingest exported YouTube Search history: Search, Saved, VOD, profiles,
+mood, Companion state, and charts have zero recommendation influence. The
+current import was streamed through the loopback-only application endpoint;
+only normalized events and the bounded audit receipt remain, while the raw HTML
+was discarded. Missing official metadata resolves gradually in bounded nightly
+batches without blocking cached serving. Streaming, path-safety, idempotency,
+and raw-data-discard behavior are covered by the promotion suite.
 
 ---
 
