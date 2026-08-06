@@ -28,9 +28,10 @@ Current state to verify, never assume:
   youtube-takeout-pre-import-20260806T051951Z;
 - authenticated YouTube account `Aman`, region IN/language en, 55 authoritative
   subscriptions, 2,872 imported Takeout watch events covering 2,548 unique
-  videos, five Mango-local anchors, and current v2.3 reserves 120/47/12/120;
-- current More Like status is thematic; the 100-X sample was p50 44 ms/p95
-  62 ms with stable History, no watched leaks, and unchanged quota;
+  videos, six Mango-local anchors, and current v2.3 reserves 120/59/13/120;
+- current More Like status is thematic; the final generation-12 100-X sample
+  was p50 51 ms/p95 73 ms with stable History, no watched leaks, and unchanged
+  quota;
 - the aggregate pre-couch gate passed after the standard display-wake helper
   restored X11 Monitor On. Reliability remained yellow for five thin curated
   VOD rails and 2/28 broken served-title probes.

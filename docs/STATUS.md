@@ -34,7 +34,7 @@ prove only their exact revision and contract.
 | Mango library and Fire/Water input | Complete | Deployed; unset axes start at neutral 2; `<1` negative, `1–2` neutral, `>2` quadratic positive | Human use/clarity and served recommendation quality |
 | VOD recommendations | `7a8bc1b` bounded progressive profiles + Household Story Frontier; cyclic predealt slates and cached-tab-only X; data preserved | Pi serves Movies/TV with complete 5,671/3,874 accounting, 224/229 reserves and 1,096 preserved overlays; 100 X presses per tab kept four-slate avoidance with p95 27/14 ms and zero provider work | Human thematic verdict and physical focus/picture/audio checks |
 | Native YouTube base | Complete | Previously deployed/Pi-gated | Current exact-SHA revalidation and account-specific proof |
-| YouTube recommendations | `7a8bc1b` `youtube-household-v2.3`; subscriptions plus Takeout/Mango-local meaningful history only, with cached exact exclusions and chronological History | Authenticated India account is Ready with 55 subscriptions; 2,872 Takeout events represent 2,548 unique watched videos; total meaningful anchors are 2,553; reserves are 120/47/12/120 and More Like is thematic; 100-X p95 is 62 ms with zero quota/provider work | Human relevance, focus/Back, offline, and picture/audio observation; Search-history export remains intentionally unused |
+| YouTube recommendations | `7a8bc1b` `youtube-household-v2.3`; subscriptions plus Takeout/Mango-local meaningful history only, with cached exact exclusions and chronological History | Authenticated India account is Ready with 55 subscriptions; 2,872 Takeout events represent 2,548 unique watched videos; total meaningful anchors are 2,554; reserves are 120/59/13/120 and More Like is thematic; final-generation 100-X p95 is 73 ms with zero quota/provider work | Human relevance, focus/Back, offline, and picture/audio observation; Search-history export remains intentionally unused |
 | Voice/phone companion | Complete for trusted-LAN development contract | Automated corpus/memory/UX gates on earlier revisions; partial couch work | Full V1–V12/current coherence plus per-device client auth/pairing before appliance release |
 | Reliability Center/nightly proof | Implemented with a known optional-Live defect | Deployed on earlier revisions | Current-SHA proof, make intentionally disabled Live neutral, controller-action UI mismatch, repeated unattended evidence |
 | Controller reconnect | Source-complete | Automated gate exists; normal-wake behavior partially exercised | Five physical power-on reconnect cycles without pairing mode |
@@ -167,12 +167,13 @@ All 1,096 StoryDNA overlays remain preserved. Movies accounts for 224 ranked +
 honest `evidence_cold_start` basis because no currently rated title has a
 thematically rankable profile for supervised replay. YouTube is ready with 55
 authoritative subscriptions plus 2,872 normalized Takeout events covering
-2,548 unique videos and five Mango-local anchors. The 2,553 unique meaningful
-anchors use the locked 90-day half-life and produce For You/Beyond/More
-Like/Subscriptions reserves of 120/47/12/120; More Like is currently thematic.
-The chronological History and 2,557 exact serving exclusions are primed once
-and rebuilt only at source/metadata boundaries. A 100-X Pi sample was p50 44 ms
-and p95 62 ms; all recommendation rows rotated, History stayed stable, watched
+2,548 unique videos and six Mango-local anchors; the sixth came from the
+exact-target playback smoke. The 2,554 unique meaningful anchors use the locked
+90-day half-life and produce For You/Beyond/More Like/Subscriptions reserves of
+120/59/13/120; More Like is currently thematic. The chronological History and
+2,558 exact serving exclusions are primed once and rebuilt only at
+source/metadata boundaries. The final generation-12 100-X Pi sample was p50 51
+ms and p95 73 ms; all recommendation rows rotated, History stayed stable, watched
 items did not leak, global dedupe held, and API/quota counters stayed unchanged.
 The exact-SHA catalog suite (895), launcher deterministic suite (87), production
 builds, YouTube smoke, lite VOD playback, and aggregate pre-couch gate pass.

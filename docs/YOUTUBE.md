@@ -8,7 +8,7 @@ truth, complete bounded subscription coverage, official metadata evidence,
 source/seed portfolio constraints, and uploads-playlist-backed conditional
 More Like recovery. The current India account is Ready with 55 subscriptions.
 Its watch-history HTML import produced 2,872 normalized events covering 2,548
-unique videos; with five Mango-local anchors, v2 ranks from 2,553 meaningful
+unique videos; with six Mango-local anchors, v2 ranks from 2,554 meaningful
 history anchors. Search-history HTML was not imported and cannot affect
 recommendations. Exact Pi runtime proof is recorded in [STATUS.md](STATUS.md).
 

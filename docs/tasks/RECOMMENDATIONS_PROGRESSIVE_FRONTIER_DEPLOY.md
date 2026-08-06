@@ -37,8 +37,8 @@ this runbook.
 | Ratings | `<1` is a true-negative evaluation label, `1–2` is neutral, and `>2` contributes quadratic positive evidence: `((rating - 2) / 3)^2` |
 | VOD evaluation | Only thematically rankable rated profiles are labels. Current result is honestly insufficient rather than a false concordance failure; operational serving remains independently authorized |
 | Memory/liveness | One catalog invocation, zero restarts/OOM events, process and cgroup memory separated, 128-title bounded work, effective 1280M/1536M limits |
-| YouTube | `youtube-household-v2.3` ready for channel `Aman`, India/en; 55 subscriptions; 2,872 Takeout events covering 2,548 unique videos plus five Mango-local anchors; reserves 120/47/12/120; More Like is thematic |
-| Cached interaction | 100 X presses per VOD tab retained four-slate avoidance with p95 27/14 ms; 100 YouTube X presses were p50 44 ms/p95 62 ms, changed all recommendation rows, kept History stable, excluded watched IDs, and used zero quota/provider work |
+| YouTube | `youtube-household-v2.3` ready for channel `Aman`, India/en; 55 subscriptions; 2,872 Takeout events covering 2,548 unique videos plus six Mango-local anchors (one from exact-target playback smoke); reserves 120/59/13/120; More Like is thematic |
+| Cached interaction | 100 X presses per VOD tab retained four-slate avoidance with p95 27/14 ms; final generation-12 YouTube 100-X was p50 51 ms/p95 73 ms, changed all recommendation rows, kept History stable, excluded watched IDs, and used zero quota/provider work |
 | Playback | Exact-SHA YouTube search/detail/`yt-dlp -> mpv` smoke passes; earlier served VOD representative launch proof remains applicable because the later executable delta is cache/dealer-only |
 | Backup | `~/.local/share/mango/backups/agent-snapshots/youtube-takeout-pre-import-20260806T051951Z` is complete; older recommendation/frontier backups remain preserved |
 
