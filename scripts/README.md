@@ -119,7 +119,8 @@ diag/            manual diagnostics
 | `m6-ship/gate-m6-stream-picker-smoke.sh` | Pi active-stream API, URL-free snapshot, policy and pad wiring |
 | `m6-ship/render-mpv-hud-fixtures.sh` | Render production Lua/libass HUD/drawer states through real mpv |
 | `m6-ship/gate-m6-4k-hdr-profile.sh` | mpv-hifi policy, display modes/EDID and resources; target-TV playback remains separate |
-| `m6-ship/backup-library-state.sh` | Prefers SQLite online backup for `progress.db`/`library.db`, but currently falls back to a plain file copy on database error; do not use it as fail-closed WAL-safe migration proof until that fallback is removed/tested |
+| `m6-ship/backup-library-state.sh` | Creates one atomic, `quick_check`-verified online-backup set for progress/library/playability/YouTube and retains the newest three complete sets |
+| `m6-ship/prune-legacy-backups.py` | Dry-run-first migration helper that verifies the three retained routine/deploy sets before deleting older backup-only artifacts |
 | `m3-play/playability/playability-grow-monitor.sh` | Wrapper for grow_monitor.py |
 | `m3-play/playability/monitor-grow-poll.sh` | Mac-side Pi polling log for long grow runs |
 | `m3-play/playability/rail-pool-retheme.sh` | Thematic pool prune/relocate (manual) |

@@ -470,12 +470,13 @@ remains profile-exact.
 None rewrites historical snapshots or deletes ratings, Saved, history, profiles,
 progress, StoryDNA, provenance, or last-good state.
 
-The routine `scripts/m6-ship/backup-library-state.sh` is not fail-closed
-migration proof: if SQLite online backup raises `DatabaseError`, it falls back
-to a plain copy of the main DB file, and it does not cover `playability.db`.
-Before migrations 15–17/playability 14 on a live Pi, use and verify explicit
-SQLite online backups for both `/etc/mango/library.db` and
-`/etc/mango/playability.db`; reject any plain-copy fallback.
+The routine `scripts/m6-ship/backup-library-state.sh` creates one atomic backup
+set using SQLite's online backup API for `progress.db`, `library.db`,
+`playability.db`, and `youtube.db`. Every database must pass `quick_check`
+before publication; failures preserve all prior sets. The newest three complete
+sets are retained. `prune-legacy-backups.py` is dry-run-first and exists only to
+migrate older flat and pre-deploy backup collections to the same three-set
+policy after validating the retained databases.
 
 ```bash
 test -f /etc/mango/library.db.pre-fire-water-v4.bak

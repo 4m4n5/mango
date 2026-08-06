@@ -1,58 +1,122 @@
 #!/usr/bin/env bash
-# Back up Mango-owned local state DBs using SQLite's online backup API.
+# Create one atomic, verified backup set for Mango-owned SQLite state.
 
 set -euo pipefail
 
 BACKUP_DIR="${MANGO_STATE_BACKUP_DIR:-$HOME/.local/share/mango/backups/state}"
-RETENTION="${MANGO_STATE_BACKUP_RETENTION:-20}"
+RETENTION="${MANGO_STATE_BACKUP_RETENTION:-3}"
 QUIET=0
 
 if [[ "${1:-}" == "--quiet" ]]; then
   QUIET=1
+elif [[ -n "${1:-}" ]]; then
+  echo "usage: $0 [--quiet]" >&2
+  exit 2
+fi
+
+if [[ ! "$RETENTION" =~ ^[1-9][0-9]*$ ]]; then
+  echo "MANGO_STATE_BACKUP_RETENTION must be a positive integer" >&2
+  exit 2
 fi
 
 mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR"
 
-timestamp="$(date +%Y%m%d-%H%M%S)"
+timestamp="$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ"))')"
+temporary_set="$BACKUP_DIR/.state-$timestamp.tmp"
+final_set="$BACKUP_DIR/state-$timestamp"
+mkdir -m 700 "$temporary_set"
 
-backup_db() {
-  local label="$1"
-  local source="$2"
-  local target="$BACKUP_DIR/${label}-${timestamp}.db"
+cleanup() {
+  [[ -d "$temporary_set" ]] && rm -rf -- "$temporary_set"
+}
+trap cleanup EXIT
 
-  [[ -f "$source" ]] || return 0
-
-  python3 - "$source" "$target" <<'PY'
-import shutil
+python3 - "$temporary_set" \
+  "progress=${MANGO_PROGRESS_DB_PATH:-/etc/mango/progress.db}" \
+  "library=${MANGO_LIBRARY_DB_PATH:-/etc/mango/library.db}" \
+  "playability=${MANGO_PLAYABILITY_DB_PATH:-/etc/mango/playability.db}" \
+  "youtube=${MANGO_YOUTUBE_DB_PATH:-/etc/mango/youtube.db}" <<'PY'
+import json
+import os
+from pathlib import Path
 import sqlite3
 import sys
+from datetime import datetime, timezone
 
-source_path, target_path = sys.argv[1], sys.argv[2]
-try:
-    source = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True)
-    target = sqlite3.connect(target_path)
-    with target:
+destination = Path(sys.argv[1])
+sources = []
+for argument in sys.argv[2:]:
+    label, raw_path = argument.split("=", 1)
+    source_path = Path(raw_path)
+    if source_path.is_file():
+        sources.append((label, source_path))
+
+if not sources:
+    raise SystemExit("no Mango state databases exist to back up")
+
+manifest = {
+    "format": "mango-state-backup-v2",
+    "created_at": datetime.now(timezone.utc).isoformat(),
+    "databases": [],
+}
+
+for label, source_path in sources:
+    target_path = destination / f"{label}.db"
+    source = None
+    target = None
+    try:
+        source = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True)
+        target = sqlite3.connect(target_path)
         source.backup(target)
-    source.close()
-    target.close()
-except sqlite3.DatabaseError:
-    shutil.copy2(source_path, target_path)
+        result = target.execute("PRAGMA quick_check").fetchone()
+        if result is None or result[0] != "ok":
+            raise sqlite3.DatabaseError(f"quick_check failed for {label}: {result}")
+    finally:
+        if target is not None:
+            target.close()
+        if source is not None:
+            source.close()
+
+    os.chmod(target_path, 0o600)
+    manifest["databases"].append({
+        "label": label,
+        "source": str(source_path),
+        "file": target_path.name,
+        "bytes": target_path.stat().st_size,
+        "quick_check": "ok",
+    })
+
+manifest_path = destination / "manifest.json"
+manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+os.chmod(manifest_path, 0o600)
 PY
 
-  [[ "$QUIET" == "1" ]] || echo "backed up $source -> $target"
-}
+mv -- "$temporary_set" "$final_set"
+trap - EXIT
 
-prune_backups() {
-  local label="$1"
-  find "$BACKUP_DIR" -maxdepth 1 -type f -name "${label}-*.db" -print \
-    | sort -r \
-    | awk -v keep="$RETENTION" 'NR > keep' \
-    | xargs -r rm -f
-}
+# Prune only complete v2 sets, and only after the replacement set verifies and
+# publishes atomically. Legacy flat files are handled by the explicit migration
+# helper so an ordinary service restart cannot silently reinterpret them.
+python3 - "$BACKUP_DIR" "$RETENTION" <<'PY'
+from pathlib import Path
+import shutil
+import sys
 
-backup_db progress "${MANGO_PROGRESS_DB_PATH:-/etc/mango/progress.db}"
-backup_db library "${MANGO_LIBRARY_DB_PATH:-/etc/mango/library.db}"
-prune_backups progress
-prune_backups library
+root = Path(sys.argv[1]).resolve()
+retention = int(sys.argv[2])
+sets = sorted(
+    (path for path in root.iterdir()
+     if path.is_dir() and path.name.startswith("state-")
+     and (path / "manifest.json").is_file()),
+    key=lambda path: path.name,
+    reverse=True,
+)
+for obsolete in sets[retention:]:
+    shutil.rmtree(obsolete)
+PY
 
-[[ "$QUIET" == "1" ]] || echo "state backups retained in $BACKUP_DIR"
+if [[ "$QUIET" != "1" ]]; then
+  echo "verified state backup: $final_set"
+  echo "retained newest $RETENTION complete state backup set(s)"
+fi

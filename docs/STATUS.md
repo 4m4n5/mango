@@ -99,13 +99,11 @@ prove only their exact revision and contract.
   inserts migration `14`, reports `schema_version=14`, and has a focused test
   tying the public status value to the latest applied migration. Pi readback is
   still required after deployment.
-- **Routine state backup is not fail-closed.**
-  `scripts/m6-ship/backup-library-state.sh` prefers SQLite's online backup API,
-  but on `DatabaseError` falls back to `shutil.copy2` of the main file, which can
-  omit live WAL state. It also does not back up `playability.db`. Do not use the
-  helper alone as migration proof; successor rollouts require explicit online
-  backups and verification of both library and playability databases until the
-  helper is hardened and tested.
+- **Routine state backup is fail-closed and set-based.**
+  `scripts/m6-ship/backup-library-state.sh` creates atomic, verified SQLite
+  online-backup sets for progress, library, playability, and YouTube state. It
+  publishes only after every present database passes `quick_check`, retains the
+  newest three complete sets, and has no live-WAL plain-copy fallback.
 - **Optional Live currently poisons overall reliability.** Product policy makes
   Live optional and excludes it from default gates, but the Reliability model
   marks `live_config_ready=false` red and folds that component into overall red.
