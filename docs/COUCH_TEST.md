@@ -210,12 +210,12 @@ state transition explicitly rather than treating shadow as invisible compute.
 | F15 | Shadow identity | Personal rows/counts remain intact; profile/mood writes are typed; Continue/progress and Saved ownership match the accepted Household policy with no shadow/serve divergence | |
 | F16 | Recommendation-disabled Shuffle | Off/shadow expose no `For You` or public recommendation epoch, but X still honestly changes cached category rails; no-op/exhausted pools never report false success | |
 
-The Pi serves target `7ed5a31` with complete progressive accounting, bounded
-frontier-off behavior, healthy reserves, and an aggregate pre-couch PASS after
-the standard display-wake path restored X11 Monitor On. Earlier 100-X proof
-exercises cyclic `For You`; current exact-SHA proof covers 30 Shuffle calls per
-tab, every category rail, utility stability, zero startup rank work, and
-service p95 71.4 ms Movies / 47.9 ms TV. Do not turn automated proof into
+The Pi serves target `06487cd` with complete progressive accounting, bounded
+frontier-off behavior, healthy reserves, and an aggregate pre-couch PASS.
+Current exact-SHA proof refreshed Movies/TV generations 170/171 and showed one
+Shuffle per tab changing every category rail and `For You` with fresh
+membership, stable utilities, and 77.7 ms Movies / 48.3 ms TV service time. Do
+not turn automated proof into
 a human quality claim: F1–F14 still require the physical
 ten-shuffle relevance, focus, playback-return, picture, and audio checks. A
 bulk artifact/importer is required only if measured progressive quality gaps

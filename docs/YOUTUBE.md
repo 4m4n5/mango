@@ -1,7 +1,9 @@
 # mango — native YouTube
 
 **Milestone:** M6.2 · **Status:** the native YouTube base and recommendation
-v2.6 are source-complete; the exact Pi proof is recorded in [STATUS.md](STATUS.md).
+v2.6 are Pi-deployed at executable target
+`06487cde605977126ae4a4685b6d29700656d1bf`; exact proof is recorded in
+[STATUS.md](STATUS.md).
 The latest model keeps authoritative subscription/history v2
 as the sole executable recommendation architecture behind an independent
 `off|shadow|serve` flag and replaces the lifetime exact-watch veto with a
@@ -16,6 +18,12 @@ snapshot are the only taste/acquisition inputs. The one-time Household reset
 removed 986 Mango-local YouTube history rows without changing Takeout, Saved,
 progress, ratings, profiles, VOD history, or StoryDNA. Search-history HTML was not imported and cannot affect
 recommendations. Exact Pi runtime proof is recorded in [STATUS.md](STATUS.md).
+
+The current generation is 16 with reserves 120 For You / 80 Beyond / 103 More
+Like / 120 From Subscriptions. Six official-history seeds contributed to the
+thematic More Like pool, and the visible hand used four distinct seed
+provenances. Five cached X calls measured p95 212.2 ms without API or quota
+movement.
 
 Mango treats YouTube as a first-class content source while preserving the voice
 safety contract: voice can search/open/save, but playback starts only when the
