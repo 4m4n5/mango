@@ -131,6 +131,14 @@ test('Related admission rejects parent and facet coincidences but preserves rich
   assert.equal(relatedEvidenceQualifies({
     anchorEnriched: true,
     shared: [
+      { family: 'story-engine', nodeKey: 'story-engine:transformation' },
+      { family: 'theme', nodeKey: 'theme:identity' },
+      { family: 'tone', nodeKey: 'tone:dark' },
+    ],
+  }), false);
+  assert.equal(relatedEvidenceQualifies({
+    anchorEnriched: true,
+    shared: [
       { family: 'genre-subgenre', nodeKey: 'genre-subgenre:crime' },
       { family: 'story-engine', nodeKey: 'story-engine:investigation' },
       { family: 'theme', nodeKey: 'theme:justice' },

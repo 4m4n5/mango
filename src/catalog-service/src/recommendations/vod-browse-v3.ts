@@ -209,7 +209,7 @@ export function relatedEvidenceQualifies(input: {
     const core = [...families].filter((family) => RELATED_DIRECT_CORE_FAMILIES.has(family));
     const hasGenre = families.has('genre-subgenre');
     const hasStoryEngine = families.has('story-engine');
-    return core.length >= 3 && (hasStoryEngine || (hasGenre && core.length >= 4));
+    return hasGenre && core.length >= 3 && (hasStoryEngine || core.length >= 4);
   }
   const hasGenreOrCategory = families.has('genre-subgenre') || families.has('curated-list');
   return hasGenreOrCategory
