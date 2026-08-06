@@ -10,6 +10,7 @@ import {
   relatedEvidenceQualifies,
   relatedScore,
   relatedWeight,
+  strongestRelatedFrontier,
   weightedDeal,
 } from './vod-browse-v3.js';
 
@@ -167,4 +168,16 @@ test('Related admission rejects parent and facet coincidences but preserves rich
       { family: 'compound', nodeKey: 'compound:genre%3Ddrama%26pace%3D3' },
     ],
   }), false);
+});
+
+test('Related rotation is bounded to the strongest deterministic semantic frontier', () => {
+  const items = Array.from({ length: 80 }, (_, index) => ({
+    type: 'movie', id: `item-${String(index).padStart(2, '0')}`,
+    relation_score: index / 100, weight: 1,
+  }));
+  const frontier = strongestRelatedFrontier(items, 64);
+  assert.equal(frontier.length, 64);
+  assert.equal(frontier[0]!.id, 'item-79');
+  assert.equal(frontier.at(-1)!.id, 'item-16');
+  assert.deepEqual(strongestRelatedFrontier(items, 64), frontier);
 });

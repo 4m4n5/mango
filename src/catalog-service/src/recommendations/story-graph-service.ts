@@ -95,6 +95,7 @@ import {
   relatedEvidenceQualifies,
   relatedScore,
   relatedWeight,
+  strongestRelatedFrontier,
   vodBrowseV3Mode,
   weightedDeal,
 } from './vod-browse-v3.js';
@@ -3630,10 +3631,15 @@ ORDER BY edges.content_id, edges.family, edges.node_key
   const eligible = candidates.filter((candidate) => (
     playability.get(contentKey(type, candidate.id))?.status === 'verified'
   ));
+  // Weighting rotates within a high-confidence semantic frontier. Letting the
+  // 16x sampler draw from every merely admissible candidate reintroduced weak
+  // tail matches on large corpora even though stronger neighbors existed.
+  const frontierLimit = Math.max(limit * 8, 64);
+  const frontier = strongestRelatedFrontier(eligible, frontierLimit);
   const day = Math.floor(Date.now() / (24 * 60 * 60 * 1_000));
   const ordered = weightedDeal(
-    eligible,
-    Math.min(eligible.length, Math.max(limit * 8, 64)),
+    frontier,
+    frontier.length,
     `${type}:${input.content_id}:${active.story_generation_id}:${day}`,
   );
 

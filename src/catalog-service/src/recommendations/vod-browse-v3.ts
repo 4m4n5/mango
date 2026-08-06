@@ -215,3 +215,15 @@ export function relatedEvidenceQualifies(input: {
   return hasGenreOrCategory
     && [...families].some((family) => RELATED_SPARSE_FACT_FAMILIES.has(family));
 }
+
+export function strongestRelatedFrontier<T extends WeightedIdentity & { relation_score: number }>(
+  items: readonly T[],
+  limit: number,
+): T[] {
+  const bounded = Math.max(0, Math.floor(limit));
+  return [...items].sort((left, right) => (
+    right.relation_score - left.relation_score
+      || left.type.localeCompare(right.type)
+      || left.id.localeCompare(right.id)
+  )).slice(0, bounded);
+}
