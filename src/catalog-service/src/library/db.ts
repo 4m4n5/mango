@@ -4013,42 +4013,6 @@ WHERE lc.context_id = ?;
   return row ? { profile_id: profileId, ...row } : null;
 }
 
-export function clearWatchHistoryForSource(source: string): number {
-  const db = ensureDb();
-  const normalizedSource = normalizeSource(source);
-  const profileId = activeViewerProfileId();
-  return db.transaction(() => {
-    const rows = db.prepare(`
-SELECT pwh.history_id
-FROM profile_watch_history pwh
-JOIN watch_history wh ON wh.history_id = pwh.history_id
-WHERE pwh.profile_id = ? AND wh.source = ?
-`).all(profileId, normalizedSource) as Array<{ history_id: number }>;
-    if (rows.length === 0) return 0;
-    const ids = rows.map((row) => row.history_id);
-    const placeholders = ids.map(() => '?').join(', ');
-    db.prepare(`
-DELETE FROM profile_watch_history
-WHERE profile_id = ? AND history_id IN (${placeholders})
-`).run(profileId, ...ids);
-    db.prepare(`
-DELETE FROM watch_history
-WHERE history_id IN (${placeholders})
-  AND NOT EXISTS (
-    SELECT 1 FROM profile_watch_history pwh
-    WHERE pwh.history_id = watch_history.history_id
-  )
-`).run(...ids);
-    db.prepare(`
-DELETE FROM profile_recommendation_events
-WHERE profile_id = ?
-  AND domain = ?
-  AND event_type NOT IN ('saved', 'unsaved', 'not_interested', 'not_interested_cleared', 'search')
-`).run(profileId, normalizedSource === 'youtube' ? 'youtube' : 'vod');
-    return rows.length;
-  })();
-}
-
 export function clearLibraryFeedbackForSource(feedback: string, source: string): number {
   const db = ensureDb();
   const normalizedFeedback = feedback.trim().toLowerCase();

@@ -7,7 +7,6 @@ import Database from 'better-sqlite3';
 import { CatalogError } from '../catalog-errors.js';
 import {
   activateViewerProfile,
-  clearWatchHistoryForSource,
   createViewerProfile,
   getPersonalizationState,
   libraryDatabase,
@@ -495,7 +494,7 @@ test('Saved-only cold start keeps setup_required and the stable Saved utility ra
 test('clearing Mango history preserves official history and an official empty source tombstone supersedes ready', () => withTempState(() => {
   seedV2();
   assert.ok(rebuildYoutubeV2Generation({ force: true }));
-  clearWatchHistoryForSource('youtube');
+  libraryDatabase().prepare("DELETE FROM watch_history WHERE source = 'youtube'").run();
   replaceYoutubeV2Subscriptions([], { source_generation: 'oauth-empty' });
   assert.ok(
     rebuildYoutubeV2Generation({ force: true }),
