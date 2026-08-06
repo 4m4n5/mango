@@ -9,6 +9,7 @@ import {
   buildStoryDealerCache,
   buildStoryTasteModel,
   dealStoryRecommendations,
+  effectiveStoryGraphServingFitFloor,
   likelihoodMatchStandardDeviation,
   positiveRatingEvidence,
   rankStoryGraphRecommendations,
@@ -548,6 +549,24 @@ test('Browse v3 dealer keeps thread portfolios but samples only above fit floor 
   });
   assert.equal(capped.length, 6);
   assert.ok(capped.filter((item) => franchiseKeys.get(identity(item.id))?.includes('franchise:shared')).length <= 2);
+});
+
+test('Browse v3 calibrates a 200-title strongest-fit reserve when risk scores use a lower scale', () => {
+  const ranked = Array.from({ length: 240 }, (_, index) => syntheticScore(
+    `risk-${String(index).padStart(3, '0')}`,
+    ['a', 'b', 'c'][index % 3]!,
+    2.2 - index / 1_000,
+  ));
+  const floor = effectiveStoryGraphServingFitFloor(ranked, 2.5, 200);
+  assert.equal(floor, ranked[199]!.rank_score);
+  const cache = buildStoryDealerCache(ranked, ['a', 'b', 'c'], 'relevance', 2.5, 200);
+  assert.equal(cache.items.filter((item) => item.dealer_weight > 0).length, 200);
+  const deal = dealStoryRecommendations(cache, {
+    seed: 'risk-scale-fallback',
+    minimum_rank_score: floor,
+  });
+  assert.equal(deal.length, 6);
+  assert.ok(deal.every((item) => item.rank_score >= floor));
 });
 
 test('rank output covers the entire requested corpus and uses the exact risk formula', () => {

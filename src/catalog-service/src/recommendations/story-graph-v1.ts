@@ -1545,16 +1545,42 @@ export function storyDealerRankWeight(rank: number): number {
   return rank ** -STORY_GRAPH_DEALER_EXPONENT;
 }
 
+/**
+ * The posterior risk score is intentionally uncertainty-penalized and is not
+ * guaranteed to share the Fire/Water scale. Prefer the configured absolute
+ * boundary when it can sustain the 200-title serving reserve; otherwise use
+ * the 200th strongest supported score. This is a bounded cold-evidence
+ * calibration, not an Explore fallback: only the ranker's strongest reserve
+ * remains eligible.
+ */
+export function effectiveStoryGraphServingFitFloor(
+  rankedInput: readonly StoryGraphScoredRecommendation[],
+  absoluteFloor = 2.5,
+  minimumReserve = 200,
+): number {
+  const scores = rankedInput.map((item) => item.rank_score)
+    .filter(Number.isFinite)
+    .sort((left, right) => right - left);
+  const required = Math.max(1, Math.floor(minimumReserve));
+  if (scores.length < required) return absoluteFloor;
+  if (scores.filter((score) => score >= absoluteFloor).length >= required) return absoluteFloor;
+  return scores[required - 1] ?? absoluteFloor;
+}
+
 /** Caches only ordering/weights; it does not truncate the complete rank generation. */
 export function buildStoryDealerCache(
   rankedInput: StoryGraphScoredRecommendation[],
   threadOrder: string[] = [],
   weightPolicy: StoryDealerWeightPolicy = 'rank',
+  absoluteFitFloor = 2.5,
+  minimumReserve = 200,
 ): StoryDealerCache {
   const ranked = [...rankedInput].sort(scoredRecommendationCompare);
   const seen = new Set<StoryGraphContentId>();
   const perThreadRank = new Map<string, number>();
-  const fitFloor = 2.5;
+  const fitFloor = weightPolicy === 'relevance'
+    ? effectiveStoryGraphServingFitFloor(ranked, absoluteFitFloor, minimumReserve)
+    : absoluteFitFloor;
   const perThreadScores = new Map<string, number[]>();
   for (const recommendation of ranked) {
     const thread = recommendation.best_thread_id ?? 'unassigned';

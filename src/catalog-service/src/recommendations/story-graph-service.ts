@@ -41,6 +41,7 @@ import {
   buildStoryDealerCache,
   buildStoryTasteModelWithBackground,
   dealStoryRecommendations,
+  effectiveStoryGraphServingFitFloor,
   positiveRatingEvidence,
   scoreStoryGraphCandidate,
   storyHolisticAffinity,
@@ -1636,12 +1637,32 @@ function persistedRankToRecommendation(row: PersistedRankRow): StoryGraphScoredR
   };
 }
 
-function dealerCacheFromRows(rows: PersistedRankRow[], selectedK: number): StoryDealerCache {
-  return buildStoryDealerCache(
-    rows.map(persistedRankToRecommendation),
-    Array.from({ length: selectedK }, (_, index) => `thread-index:${index}`),
-    vodBrowseV3Mode() === 'off' ? 'rank' : 'relevance',
+function dealerCacheFromRows(rows: PersistedRankRow[], selectedK: number): {
+  cache: StoryDealerCache;
+  fitFloor: number;
+} {
+  const recommendations = rows.map(persistedRankToRecommendation);
+  const absoluteRaw = Number(process.env.MANGO_VOD_STORY_GRAPH_FIT_FLOOR ?? 2.5);
+  const absoluteFloor = Number.isFinite(absoluteRaw) ? absoluteRaw : 2.5;
+  const minimumReserve = boundedInteger(
+    process.env.MANGO_VOD_STORY_GRAPH_BOOTSTRAP_MIN,
+    DEFAULT_BOOTSTRAP_MINIMUM,
+    VISIBLE_LIMIT,
+    10_000,
   );
+  const fitFloor = vodBrowseV3Mode() === 'off'
+    ? absoluteFloor
+    : effectiveStoryGraphServingFitFloor(recommendations, absoluteFloor, minimumReserve);
+  return {
+    cache: buildStoryDealerCache(
+      recommendations,
+      Array.from({ length: selectedK }, (_, index) => `thread-index:${index}`),
+      vodBrowseV3Mode() === 'off' ? 'rank' : 'relevance',
+      absoluteFloor,
+      minimumReserve,
+    ),
+    fitFloor,
+  };
 }
 
 function selectCachedSlateIds(input: {
@@ -1653,9 +1674,7 @@ function selectCachedSlateIds(input: {
   franchiseKeysById?: ReadonlyMap<StoryGraphContentId, readonly string[]>;
 }): StoryGraphScoredRecommendation[] {
   storyGraphServingWorkCounters.dealer_calls += 1;
-  const cache = dealerCacheFromRows(input.rows, input.selectedK);
-  const floorRaw = Number(process.env.MANGO_VOD_STORY_GRAPH_FIT_FLOOR ?? 2.5);
-  const fitFloor = Number.isFinite(floorRaw) ? floorRaw : 2.5;
+  const { cache, fitFloor } = dealerCacheFromRows(input.rows, input.selectedK);
   const fixed = [...new Set(input.fixedExcludeIds ?? [])];
   const retained = [...input.recentSlates];
   while (true) {
@@ -3462,13 +3481,21 @@ export async function loadStoryGraphRelatedTitles(input: {
   const limit = Math.max(1, Math.min(24, Math.floor(input.limit ?? 8)));
   const db = libraryDatabase();
   const active = db.prepare(`
-SELECT active.active_story_generation_id AS story_generation_id,
+SELECT COALESCE((
+         SELECT generations.generation_id
+         FROM vod_story_dna_generations generations
+         WHERE generations.content_type = active.content_type
+           AND generations.status = 'complete'
+           AND generations.profile_version = ?
+           AND generations.compiler_version = ?
+         ORDER BY generations.generation_id DESC LIMIT 1
+       ), active.active_story_generation_id) AS story_generation_id,
        active.active_rank_generation_id AS rank_generation_id,
        ranks.eligible_count
 FROM vod_active_generations active
 JOIN vod_rank_generations ranks ON ranks.rank_generation_id = active.active_rank_generation_id
 WHERE active.content_type = ? AND ranks.status IN ('bootstrap', 'complete')
-`).get(type) as {
+`).get(VOD_CONTENT_PROFILE_VERSION, VOD_CONTENT_PROFILE_COMPILER_VERSION, type) as {
     story_generation_id: number;
     rank_generation_id: number;
     eligible_count: number;
