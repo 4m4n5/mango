@@ -112,7 +112,9 @@ youtube:
   api_key_file: /etc/mango/youtube-api.key
   oauth_client_file: /etc/mango/youtube-oauth-client.json
   auth_token_file: /etc/mango/youtube-auth.json
-  region_code: US
+  # Discovery locale is independent of the relevance language. The household
+  # YouTube account is India-based; operators may override both via env.
+  region_code: IN
   relevance_language: en
   max_results: 25
   exclude_shorts: true

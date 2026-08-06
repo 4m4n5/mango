@@ -97,7 +97,7 @@ export function loadYoutubeConfig(): YoutubeConfig {
       || '/etc/mango/youtube-auth.json',
     region_code: process.env.MANGO_YOUTUBE_REGION
       || optionalString(youtube.region_code)
-      || 'US',
+      || 'IN',
     relevance_language: process.env.MANGO_YOUTUBE_LANGUAGE
       || optionalString(youtube.relevance_language)
       || 'en',

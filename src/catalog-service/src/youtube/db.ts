@@ -77,6 +77,11 @@ CREATE TABLE IF NOT EXISTS youtube_items (
   duration_sec INTEGER,
   live_status TEXT NOT NULL DEFAULT 'none',
   playlist_id TEXT,
+  category_id TEXT,
+  default_language TEXT,
+  default_audio_language TEXT,
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  official_metadata_checked_at INTEGER,
   raw_json TEXT,
   first_seen_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
@@ -548,6 +553,25 @@ CREATE INDEX idx_youtube_v2_candidate_source
     db.prepare('INSERT INTO youtube_migrations(version, applied_at) VALUES (15, ?)')
       .run(nowMs());
   }
+  const officialMetadataMigration = db.prepare(
+    'SELECT 1 FROM youtube_migrations WHERE version = 16',
+  ).get();
+  if (!officialMetadataMigration) {
+    const columns = db.prepare('PRAGMA table_info(youtube_items)')
+      .all() as Array<{ name: string }>;
+    const existing = new Set(columns.map((column) => column.name));
+    for (const [name, definition] of [
+      ['category_id', 'TEXT'],
+      ['default_language', 'TEXT'],
+      ['default_audio_language', 'TEXT'],
+      ['tags_json', "TEXT NOT NULL DEFAULT '[]'"],
+      ['official_metadata_checked_at', 'INTEGER'],
+    ] as const) {
+      if (!existing.has(name)) db.exec(`ALTER TABLE youtube_items ADD COLUMN ${name} ${definition};`);
+    }
+    db.prepare('INSERT INTO youtube_migrations(version, applied_at) VALUES (16, ?)')
+      .run(nowMs());
+  }
 }
 
 function ensureDb(): Database.Database {
@@ -577,16 +601,33 @@ function normalizeLiveStatus(status: string | null | undefined): YoutubeLiveStat
   return 'none';
 }
 
+function youtubeItemFromRow(row: YoutubeItem & { tags_json?: string }): YoutubeItem {
+  let tags: string[] = [];
+  try {
+    const parsed = JSON.parse(row.tags_json || '[]');
+    if (Array.isArray(parsed)) tags = parsed.filter((tag): tag is string => typeof tag === 'string');
+  } catch {
+    tags = [];
+  }
+  const { tags_json: _tagsJson, ...item } = row;
+  if (item.official_metadata_checked_at === null) {
+    delete item.official_metadata_checked_at;
+  }
+  return { ...item, tags };
+}
+
 export function upsertYoutubeItems(items: YoutubeItem[], rawJsonById: Map<string, unknown> = new Map()): void {
   const db = ensureDb();
   const timestamp = nowMs();
   const stmt = db.prepare(`
 INSERT INTO youtube_items (
   id, kind, title, subtitle, description, thumbnail, channel_id, channel_title,
-  published_at, duration_sec, live_status, playlist_id, raw_json, first_seen_at, updated_at
+  published_at, duration_sec, live_status, playlist_id, category_id, default_language,
+  default_audio_language, tags_json, official_metadata_checked_at, raw_json, first_seen_at, updated_at
 ) VALUES (
   @id, @kind, @title, @subtitle, @description, @thumbnail, @channel_id, @channel_title,
-  @published_at, @duration_sec, @live_status, @playlist_id, @raw_json, @first_seen_at, @updated_at
+  @published_at, @duration_sec, @live_status, @playlist_id, @category_id, @default_language,
+  @default_audio_language, @tags_json, @official_metadata_checked_at, @raw_json, @first_seen_at, @updated_at
 )
 ON CONFLICT(kind, id) DO UPDATE SET
   title = excluded.title,
@@ -599,6 +640,14 @@ ON CONFLICT(kind, id) DO UPDATE SET
   duration_sec = COALESCE(excluded.duration_sec, youtube_items.duration_sec),
   live_status = excluded.live_status,
   playlist_id = COALESCE(excluded.playlist_id, youtube_items.playlist_id),
+  category_id = COALESCE(excluded.category_id, youtube_items.category_id),
+  default_language = COALESCE(excluded.default_language, youtube_items.default_language),
+  default_audio_language = COALESCE(excluded.default_audio_language, youtube_items.default_audio_language),
+  tags_json = CASE WHEN excluded.tags_json = '[]' THEN youtube_items.tags_json ELSE excluded.tags_json END,
+  official_metadata_checked_at = COALESCE(
+    excluded.official_metadata_checked_at,
+    youtube_items.official_metadata_checked_at
+  ),
   raw_json = COALESCE(excluded.raw_json, youtube_items.raw_json),
   updated_at = excluded.updated_at;
 `);
@@ -608,6 +657,11 @@ ON CONFLICT(kind, id) DO UPDATE SET
         ...item,
         kind: normalizeKind(item.kind),
         live_status: normalizeLiveStatus(item.live_status),
+        category_id: item.category_id ?? null,
+        default_language: item.default_language ?? null,
+        default_audio_language: item.default_audio_language ?? null,
+        tags_json: JSON.stringify(item.tags ?? []),
+        official_metadata_checked_at: item.official_metadata_checked_at ?? null,
         raw_json: rawJsonById.has(item.id) ? JSON.stringify(rawJsonById.get(item.id)) : null,
         first_seen_at: item.updated_at || timestamp,
         updated_at: item.updated_at || timestamp,
@@ -620,23 +674,25 @@ ON CONFLICT(kind, id) DO UPDATE SET
 export function getYoutubeItem(kind: string, id: string): YoutubeItem | null {
   const row = ensureDb().prepare(`
 SELECT id, kind, title, subtitle, description, thumbnail, channel_id, channel_title,
-  published_at, duration_sec, live_status, playlist_id, updated_at
+  published_at, duration_sec, live_status, playlist_id, category_id, default_language,
+  default_audio_language, tags_json, official_metadata_checked_at, updated_at
 FROM youtube_items
 WHERE kind = ? AND id = ?;
-`).get(normalizeKind(kind), id) as YoutubeItem | undefined;
-  return row ?? null;
+`).get(normalizeKind(kind), id) as (YoutubeItem & { tags_json?: string }) | undefined;
+  return row ? youtubeItemFromRow(row) : null;
 }
 
 export function listYoutubeItems(kind: YoutubeItemKind | null = null, limit = 50): YoutubeItem[] {
   const rows = ensureDb().prepare(`
 SELECT id, kind, title, subtitle, description, thumbnail, channel_id, channel_title,
-  published_at, duration_sec, live_status, playlist_id, updated_at
+  published_at, duration_sec, live_status, playlist_id, category_id, default_language,
+  default_audio_language, tags_json, official_metadata_checked_at, updated_at
 FROM youtube_items
 WHERE (@kind IS NULL OR kind = @kind)
 ORDER BY updated_at DESC
   LIMIT @limit;
 `).all({ kind, limit: Math.max(1, Math.min(20_000, limit)) }) as YoutubeItem[];
-  return rows;
+  return rows.map((row) => youtubeItemFromRow(row as YoutubeItem & { tags_json?: string }));
 }
 
 export function searchCachedYoutubeItems(query: string, limit = 25): YoutubeItem[] {
@@ -648,7 +704,8 @@ export function searchCachedYoutubeItems(query: string, limit = 25): YoutubeItem
   const boundedLimit = Math.max(1, Math.min(100, limit));
   const exactRows = ensureDb().prepare(`
 SELECT id, kind, title, subtitle, description, thumbnail, channel_id, channel_title,
-  published_at, duration_sec, live_status, playlist_id, updated_at
+  published_at, duration_sec, live_status, playlist_id, category_id, default_language,
+  default_audio_language, tags_json, official_metadata_checked_at, updated_at
 FROM youtube_items
 WHERE lower(title) LIKE @like
   OR lower(COALESCE(channel_title, '')) LIKE @like
@@ -657,7 +714,7 @@ ORDER BY updated_at DESC
 LIMIT @limit;
 `).all({ like, limit: boundedLimit }) as YoutubeItem[];
   if (exactRows.length > 0) {
-    return exactRows;
+    return exactRows.map((row) => youtubeItemFromRow(row as YoutubeItem & { tags_json?: string }));
   }
   const tokens = normalized
     .replace(/[^a-z0-9 ]+/g, ' ')
@@ -1465,7 +1522,8 @@ SELECT
   cp.acquired_at, cp.expires_at,
   yi.id, yi.kind, yi.title, yi.subtitle, yi.description, yi.thumbnail,
   yi.channel_id, yi.channel_title, yi.published_at, yi.duration_sec,
-  yi.live_status, yi.playlist_id, yi.updated_at
+  yi.live_status, yi.playlist_id, yi.category_id, yi.default_language,
+  yi.default_audio_language, yi.tags_json, yi.official_metadata_checked_at, yi.updated_at
 FROM youtube_v2_candidate_provenance cp
 JOIN youtube_items yi ON yi.kind = cp.kind AND yi.id = cp.id
 WHERE cp.expires_at > ?
@@ -1473,7 +1531,7 @@ ORDER BY cp.acquired_at DESC, cp.id, cp.provenance, cp.provenance_ref
 LIMIT ?
 `).all(at, limit) as Array<YoutubeItem & Omit<YoutubeV2CandidateProvenance, 'item'>>;
   return rows.map((row) => ({
-    item: {
+    item: youtubeItemFromRow({
       id: row.id,
       kind: row.kind,
       title: row.title,
@@ -1486,8 +1544,13 @@ LIMIT ?
       duration_sec: row.duration_sec,
       live_status: row.live_status,
       playlist_id: row.playlist_id,
+      category_id: row.category_id,
+      default_language: row.default_language,
+      default_audio_language: row.default_audio_language,
+      tags_json: (row as YoutubeItem & { tags_json?: string }).tags_json,
+      official_metadata_checked_at: row.official_metadata_checked_at,
       updated_at: row.updated_at,
-    },
+    } as YoutubeItem & { tags_json?: string }),
     provenance: row.provenance,
     provenance_ref: row.provenance_ref,
     source_generation: row.source_generation,
@@ -1670,14 +1733,18 @@ SELECT
   gi.rail_id, gi.rank, gi.score, gi.reason, gi.provenance, gi.provenance_ref,
   gi.source_expires_at, gi.context_id, yi.id, yi.kind, yi.title, yi.subtitle, yi.description,
   yi.thumbnail, yi.channel_id, yi.channel_title, yi.published_at,
-  yi.duration_sec, yi.live_status, yi.playlist_id, yi.updated_at
+  yi.duration_sec, yi.live_status, yi.playlist_id, yi.category_id, yi.default_language,
+  yi.default_audio_language, yi.tags_json, yi.official_metadata_checked_at, yi.updated_at
 FROM youtube_v2_generation_items gi
 JOIN youtube_items yi ON yi.kind = gi.kind AND yi.id = gi.id
 WHERE gi.generation = ?
 ORDER BY gi.rail_id, gi.rank
-`).all(generation.generation) as YoutubeV2Generation['items'];
+`).all(generation.generation) as Array<YoutubeV2Generation['items'][number] & { tags_json?: string }>;
   const { status: _status, ...ready } = generation;
-  return { ...ready, items };
+  return {
+    ...ready,
+    items: items.map((entry) => ({ ...entry, ...youtubeItemFromRow(entry) })),
+  };
 }
 
 export function youtubeV2ServingEpoch(

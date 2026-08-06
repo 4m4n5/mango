@@ -15,6 +15,12 @@ export type YoutubeItem = {
   duration_sec: number | null;
   live_status: YoutubeLiveStatus;
   playlist_id: string | null;
+  /** Official Data API fields used only by local thematic matching. */
+  category_id?: string | null;
+  default_language?: string | null;
+  default_audio_language?: string | null;
+  tags?: string[];
+  official_metadata_checked_at?: number | null;
   updated_at: number;
 };
 

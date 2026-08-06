@@ -51,7 +51,7 @@ function withCompanionState<T>(fn: () => T | Promise<T>): T | Promise<T> {
   }
 }
 
-test('companion status exposes only the four fields consumed by the phone UI', () => (
+test('companion status exposes sanitized account and sync truth for the phone UI', () => (
   withCompanionState(() => {
     setYoutubeState('last_error', 'provider temporarily unavailable');
     const service = new YoutubeService();
@@ -62,6 +62,13 @@ test('companion status exposes only the four fields consumed by the phone UI', (
       oauth_configured: true,
       authenticated: true,
       needs_attention: true,
+      sync_status: 'paused',
+      channel_title: null,
+      channel_thumbnail: null,
+      subscription_count: null,
+      region_code: 'IN',
+      relevance_language: 'en',
+      synced_at: null,
     });
     assert.deepEqual(service.disconnectCompanionAuth(), { ok: true });
 

@@ -117,6 +117,30 @@ test('channelUploadPlaylists reads uploads playlist from channels contentDetails
   assert.equal(capturedUrl.searchParams.get('id'), 'channel-1');
 }));
 
+test('authorizedChannel resolves the signed-in channel without exposing credentials', () => withApiTest(async (config) => {
+  let captured: URL | null = null;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    captured = new URL(input instanceof Request ? input.url : String(input));
+    return jsonResponse({
+      items: [{
+        id: 'owner-channel',
+        snippet: {
+          title: 'Aman',
+          thumbnails: { high: { url: 'https://img.example/owner.jpg' } },
+        },
+      }],
+    });
+  }) as typeof fetch;
+  const channel = await new YoutubeApiClient(config).authorizedChannel('secret-token');
+  assert.deepEqual(channel, {
+    id: 'owner-channel', title: 'Aman', thumbnail: 'https://img.example/owner.jpg',
+  });
+  assert.ok(captured);
+  const capturedUrl = captured as unknown as URL;
+  assert.equal(capturedUrl.searchParams.get('mine'), 'true');
+  assert.equal(capturedUrl.searchParams.has('key'), false);
+}));
+
 test('playlistItems paginates uploads and enriches videos without search', () => withApiTest(async (config) => {
   const paths: string[] = [];
   globalThis.fetch = (async (input: string | URL | Request) => {
@@ -275,6 +299,29 @@ test('videos maps live streaming details to live, completed, and upcoming', () =
     ['ended-without-end-time', 'completed'],
     ['upcoming-video', 'upcoming'],
   ]);
+}));
+
+test('videos persists official category, language, and tag evidence for local matching', () => withApiTest(async (config) => {
+  globalThis.fetch = (async () => jsonResponse({
+    items: [{
+      id: 'rich-video',
+      snippet: {
+        title: 'Indian architecture explained',
+        channelId: 'architecture-channel',
+        channelTitle: 'Architecture Channel',
+        categoryId: '27',
+        defaultLanguage: 'en-IN',
+        defaultAudioLanguage: 'en',
+        tags: ['architecture', 'India', 'architecture'],
+      },
+      contentDetails: { duration: 'PT20M' },
+    }],
+  })) as typeof fetch;
+  const [item] = await new YoutubeApiClient(config).videos(['rich-video']);
+  assert.equal(item?.category_id, '27');
+  assert.equal(item?.default_language, 'en-IN');
+  assert.equal(item?.default_audio_language, 'en');
+  assert.deepEqual(item?.tags, ['architecture', 'India']);
 }));
 
 test('channelStats returns creator statistics and handles hidden subscribers', () => withApiTest(async (config) => {

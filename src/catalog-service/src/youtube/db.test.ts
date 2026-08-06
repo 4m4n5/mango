@@ -6,6 +6,7 @@ import Database from 'better-sqlite3';
 import test from 'node:test';
 import {
   getYoutubeSearchCache,
+  getYoutubeItem,
   initYoutubeDb,
   incrementYoutubeQuota,
   listYoutubeProfileCandidateStates,
@@ -15,6 +16,7 @@ import {
   resetYoutubeDbForTests,
   setYoutubeProfileCandidateState,
   setYoutubeState,
+  upsertYoutubeItems,
   upsertYoutubeV2CandidateProvenance,
   youtubeQuotaDecision,
   youtubeRefreshStatus,
@@ -71,11 +73,23 @@ test('initYoutubeDb creates WAL cache schema', () => withTempYoutube((dir) => {
     const rows = db.prepare('SELECT version FROM youtube_migrations').all() as Array<{ version: number }>;
     assert.deepEqual(
       rows.map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
     );
   } finally {
     db.close();
   }
+}));
+
+test('official thematic metadata round-trips additively through youtube_items', () => withTempYoutube(() => {
+  const item = {
+    ...sampleItem('rich'),
+    category_id: '27',
+    default_language: 'hi',
+    default_audio_language: 'en',
+    tags: ['cinema', 'India'],
+  };
+  upsertYoutubeItems([item]);
+  assert.deepEqual(getYoutubeItem('video', 'rich'), item);
 }));
 
 test('latest-only startup preserves historical recommendation rows', () => withTempYoutube((dir) => {

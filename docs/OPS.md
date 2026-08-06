@@ -366,6 +366,13 @@ sudo install -m 0600 /path/to/youtube-oauth-client.json /etc/mango/youtube-oauth
 Then open the companion and use the YouTube connect panel. Full details:
 [YOUTUBE.md](YOUTUBE.md).
 
+Successful Connect must show the authorized channel title/avatar, authoritative
+subscription count, and `ready`. `connected · recommendations paused` is valid
+only when `MANGO_YOUTUBE_RECS_V2=off`; `sync needs attention` means the token was
+kept but the authoritative refresh did not complete. For the India household,
+verify `/youtube/state` is configured with `region_code=IN` and
+`relevance_language=en`.
+
 ---
 
 ## Troubleshooting
@@ -378,6 +385,7 @@ Then open the companion and use the YouTube connect panel. Full details:
 | Voice HUD missing | `MANGO_VOICE=1` in env · `bash scripts/m5-voice/stack/verify-voice-ready.sh` |
 | YouTube tab empty | `curl localhost:3020/youtube/state` · configure `/etc/mango/youtube-api.key` · run `bash scripts/m6-ship/gate-m6-youtube-smoke.sh` |
 | YouTube account not connected | Companion → YouTube connect · verify `/etc/mango/youtube-oauth-client.json` and `/etc/mango/youtube-auth.json` permissions |
+| YouTube connected but not ready | Inspect sanitized Companion sync state, then localhost-only `.recommendations_v2.subscription_acquisition` and refresh phases. Never delete the token or cache merely to clear an error; repair the failing phase and preserve last-good state. |
 | YouTube playback 403/429/CAPTCHA | Update `yt-dlp`; reconnect account/cookies; pick another video; metadata cache should remain visible |
 | Catalog error appears after exiting a successful play | Inspect `~/.cache/mango/playback-session.json`; `ever_ready=true` means the launcher must treat the play as successful. Check catalog logs for a pre-frame failure only; do not invalidate title metadata from a late HTTP timeout. |
 | Same title will not immediately replay | `curl localhost:3020/play-session/<request_id>` when the request ID is known; inspect `~/.cache/mango/play-cancel.epoch` and `~/.cache/mango/mpv.pid`. A stale prior exit monitor is generation-gated and must not stop the new PID. |

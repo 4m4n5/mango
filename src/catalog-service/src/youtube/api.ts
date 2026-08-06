@@ -22,6 +22,10 @@ type Snippet = {
   thumbnails?: Record<string, { url?: string }>;
   liveBroadcastContent?: string;
   resourceId?: { videoId?: string; channelId?: string; playlistId?: string };
+  categoryId?: string;
+  defaultLanguage?: string;
+  defaultAudioLanguage?: string;
+  tags?: string[];
 };
 
 type VideoItem = {
@@ -61,6 +65,12 @@ export type YoutubeChannelStats = {
   video_count: number | null;
   view_count: number | null;
   hidden_subscriber_count: boolean;
+};
+
+export type YoutubeAuthorizedChannel = {
+  id: string;
+  title: string;
+  thumbnail: string | null;
 };
 
 function requireApiKey(config: YoutubeConfig): string {
@@ -142,6 +152,12 @@ function itemFromSnippet(kind: YoutubeItemKind, id: string, snippet?: Snippet, e
     duration_sec: null,
     live_status: liveStatus(snippet?.liveBroadcastContent),
     playlist_id: null,
+    category_id: snippet?.categoryId || null,
+    default_language: snippet?.defaultLanguage || null,
+    default_audio_language: snippet?.defaultAudioLanguage || null,
+    tags: Array.isArray(snippet?.tags)
+      ? [...new Set(snippet.tags.map((tag) => text(tag)).filter(Boolean))].slice(0, 64)
+      : [],
     updated_at: Date.now(),
     ...extra,
   };
@@ -270,6 +286,7 @@ export class YoutubeApiClient {
       return itemFromSnippet('video', id, entry.snippet, {
         duration_sec: duration,
         live_status: videoLiveStatus(entry.snippet, entry.liveStreamingDetails),
+        official_metadata_checked_at: Date.now(),
       });
     }).filter((entry) => entry.id);
     const filtered = this.config.exclude_shorts ? items.filter((item) => !isShortLike(item)) : items;
@@ -371,6 +388,22 @@ export class YoutubeApiClient {
       }
     }
     return result;
+  }
+
+  async authorizedChannel(token: string): Promise<YoutubeAuthorizedChannel | null> {
+    const payload = await this.request('channels', {
+      part: 'snippet',
+      mine: 'true',
+      maxResults: 1,
+    }, token) as { items?: ChannelItem[] };
+    const channel = (payload.items || [])[0];
+    const id = channel?.id || '';
+    if (!id) return null;
+    return {
+      id,
+      title: text(channel.snippet?.title, 'YouTube'),
+      thumbnail: thumbnail(channel.snippet),
+    };
   }
 
   async channelStats(channelIds: string[], token?: string): Promise<Map<string, YoutubeChannelStats>> {

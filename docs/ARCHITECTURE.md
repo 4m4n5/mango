@@ -349,7 +349,9 @@ identity only; preserved personal-profile state cannot affect acquisition or
 ranking. `off` disables recommendation generation and `shadow` hides
 recommendation rails; neither invokes a deleted allocator.
 
-The YouTube Data API is used for metadata/search/subscription refresh only.
+The YouTube Data API is used for exact authorized-channel identity, metadata,
+search, authoritative subscription refresh, and official channel upload
+playlists only.
 Playback resolves through `yt-dlp -> mpv`; API quota does not govern cached
 playback, but `yt-dlp` failures such as 403/429/CAPTCHA are surfaced as
 couch-safe playback errors. Channels and playlists open detail lists; only
@@ -363,7 +365,9 @@ render only with exactly four globally unique landscape cards; therefore a
 logical position can be absent when supply is thin. Live Now may contain one to
 four.
 `More Like` is conditional: acquisition tries two daily-stable meaningful
-history seeds, then an exact-channel fallback labelled `More from <channel>`.
+history seeds, then reads an exact channel's official uploads playlist. A
+thematic/same-channel hybrid is valid; a four-card exact-channel fallback is
+labelled `More from <channel>`.
 If neither yields four eligible cards, diagnostics record `not_applicable` and
 the rail is omitted without blocking otherwise healthy YouTube serve.
 Subscription-only cold start retains `More from channels you follow`. History
@@ -380,6 +384,14 @@ recommendation rail. Saved remains a utility rail and has zero ranking effect.
 Profiles, mood, VOD activity, companion state, Search, AI catalogs, and global
 charts likewise have zero influence. Shorts are excluded; live streams are
 confined to subscribed-channel Live Now.
+
+At OAuth completion Mango resolves the authorized channel and runs a complete
+subscription/upload-coverage sync in 24-channel pages with six playlist reads
+in flight. The Companion shows sanitized channel/avatar/subscription-count and
+`syncing|ready|attention|paused` truth; token receipt alone is not Ready.
+Official category, language, audio-language, and tag fields are private
+thematic evidence. For You and Beyond apply creator/seed portfolio caps and
+require source mixing when both history and subscription supply exists.
 
 The Reliability Center accepts a Takeout ZIP or extracted JSON/HTML, streams and
 validates it with bounded size/expansion, stores only normalized durable watch

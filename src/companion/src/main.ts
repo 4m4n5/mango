@@ -62,6 +62,7 @@ const mirrorToolEl = document.getElementById("mirror-tool");
 const memoryToggle = document.getElementById("memory-toggle");
 const memoryPanel = document.getElementById("memory-panel");
 const youtubeStatusEl = document.getElementById("youtube-status");
+const youtubeAvatarEl = document.getElementById("youtube-avatar");
 const youtubeStartBtn = document.getElementById("youtube-auth-start");
 const youtubeDisconnectBtn = document.getElementById("youtube-auth-disconnect");
 const youtubeCodeEl = document.getElementById("youtube-auth-code");
@@ -403,6 +404,48 @@ function setYoutubeStatus(text: string): void {
   }
 }
 
+type YoutubeAccountStatus = {
+  api_key_configured: boolean;
+  oauth_configured: boolean;
+  authenticated: boolean;
+  needs_attention: boolean;
+  sync_status: "disconnected" | "paused" | "syncing" | "ready" | "attention";
+  channel_title: string | null;
+  channel_thumbnail: string | null;
+  subscription_count: number | null;
+  region_code: string;
+  relevance_language: string;
+  synced_at: number | null;
+};
+
+function renderYoutubeAccount(state: YoutubeAccountStatus): void {
+  if (youtubeAvatarEl instanceof HTMLImageElement) {
+    youtubeAvatarEl.hidden = !state.authenticated || !state.channel_thumbnail;
+    youtubeAvatarEl.src = state.authenticated && state.channel_thumbnail ? state.channel_thumbnail : "";
+    youtubeAvatarEl.alt = state.channel_title ? `${state.channel_title} channel avatar` : "";
+  }
+  if (!state.authenticated) {
+    if (!state.oauth_configured) setYoutubeStatus("OAuth client missing on Pi");
+    else if (!state.api_key_configured) setYoutubeStatus("API key missing on Pi");
+    else setYoutubeStatus("not connected");
+    return;
+  }
+  const title = state.channel_title || "YouTube";
+  const locale = state.region_code === "IN" ? "India" : state.region_code;
+  if (state.sync_status === "syncing") {
+    setYoutubeStatus(`${title} · syncing subscriptions…`);
+  } else if (state.sync_status === "attention" || state.needs_attention) {
+    setYoutubeStatus(`${title} · sync needs attention`);
+  } else if (state.sync_status === "paused") {
+    setYoutubeStatus(`${title} · connected · recommendations paused`);
+  } else {
+    const subscriptions = state.subscription_count === null
+      ? "subscriptions synced"
+      : `${state.subscription_count} subscriptions`;
+    setYoutubeStatus(`${title} · ${subscriptions} · ${locale}`);
+  }
+}
+
 function showYoutubeCode(payload: {
   user_code?: string;
   verification_url?: string;
@@ -444,23 +487,7 @@ async function catalogFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 async function loadYoutubeState(): Promise<void> {
   try {
-    const state = await catalogFetch<{
-      api_key_configured: boolean;
-      oauth_configured: boolean;
-      authenticated: boolean;
-      needs_attention: boolean;
-    }>("/youtube/companion/status");
-    if (state.authenticated) {
-      setYoutubeStatus("connected");
-    } else if (!state.oauth_configured) {
-      setYoutubeStatus("OAuth client missing on Pi");
-    } else if (!state.api_key_configured) {
-      setYoutubeStatus("API key missing on Pi");
-    } else if (state.needs_attention) {
-      setYoutubeStatus("needs attention");
-    } else {
-      setYoutubeStatus("not connected");
-    }
+    renderYoutubeAccount(await catalogFetch<YoutubeAccountStatus>("/youtube/companion/status"));
   } catch {
     setYoutubeStatus("YouTube status unavailable");
   }
@@ -490,13 +517,14 @@ async function startYoutubeAuth(): Promise<void> {
 
 async function pollYoutubeAuth(sessionId: string): Promise<void> {
   try {
-    const poll = await catalogFetch<{ status?: string; interval_sec?: number }>(
+    const poll = await catalogFetch<{ status?: string; interval_sec?: number; account?: YoutubeAccountStatus }>(
       `/youtube/companion/auth/poll?session_id=${encodeURIComponent(sessionId)}`,
     );
     if (poll.status === "authenticated") {
       window.clearInterval(youtubePollTimer);
       showYoutubeCode({});
-      setYoutubeStatus("connected");
+      if (poll.account) renderYoutubeAccount(poll.account);
+      else await loadYoutubeState();
       return;
     }
     if (poll.status === "expired") {

@@ -3,12 +3,10 @@
 **Milestone:** M6.2 · **Status:** the native YouTube base was previously
 Pi-deployed/gated. Commit `772b3d58b53208a278da4e9d5281b46f88054b8e` makes authoritative subscription/history v2
 the sole executable recommendation architecture behind an independent
-`off|shadow|serve` flag; target `c8cfe72154eb7732a41f78417f3a63b164835078`
-adds conditional More Like recovery and diagnostic funnels. The newest Pi
-report remains contained at `9425b1f` with
-recommendations and provider work off; account-specific authoritative
-input refresh, shadow/serve promotion, current-SHA diagnostics, screenshots,
-and human TV-quality proof remain **DEFERRED**. See [STATUS.md](STATUS.md).
+`off|shadow|serve` flag. The current v2.3 source adds post-auth account/sync
+truth, complete bounded subscription coverage, official metadata evidence,
+source/seed portfolio constraints, and uploads-playlist-backed conditional
+More Like recovery. Exact Pi runtime proof is recorded in [STATUS.md](STATUS.md).
 
 Mango treats YouTube as a first-class content source while preserving the voice
 safety contract: voice can search/open/save, but playback starts only when the
@@ -50,7 +48,7 @@ Launcher YouTube tab
 |-------|------|
 | `youtube.db` | Cached videos/channels/playlists, authoritative subscription generations, explicit candidate provenance, published rail generations, refresh/quota counters, auth sessions |
 | `library.db` | Saved, normalized Takeout/Mango-local watch history, exact Not-for-me, finished state, import batches, and current context; personal profile rows are preserved but do not influence the latest recommender |
-| YouTube Data API | Metadata/search/subscriptions only |
+| YouTube Data API | Exact authorized-channel identity, metadata/search/subscriptions, and channel upload playlists |
 | `yt-dlp -> mpv` | Playback resolution/rendering via the Mango wrapper; no Data API quota use |
 
 `youtube.db` is rebuildable. `library.db` is durable user state. The latest
@@ -86,6 +84,12 @@ Repo-safe examples:
 - `config/config.example.yaml`
 - `config/youtube-oauth-client.example.json`
 
+The India household uses discovery region `IN` and relevance language `en`.
+These are independent controls: `MANGO_YOUTUBE_REGION` changes regional
+discovery context, while `MANGO_YOUTUBE_LANGUAGE` changes query relevance. The
+account country is not inferred from OAuth because the authorized channel may
+omit it.
+
 The full deploy helper runs `scripts/m6-ship/ensure-youtube-yt-dlp.sh` to keep
 `yt-dlp` fresh in the user venv. The catalog calls
 `scripts/m6-ship/youtube-yt-dlp.sh`, which prefers that venv and only falls back
@@ -106,9 +110,9 @@ That blocker does not change the `yt-dlp` ownership contract.
 | `POST` | `/youtube/auth/start` | Localhost-only operator device-code OAuth |
 | `GET` | `/youtube/auth/poll?session_id=` | Localhost-only operator OAuth poll |
 | `POST` | `/youtube/auth/disconnect` | Localhost-only operator token removal |
-| `GET` | `/youtube/companion/status` | Sanitized companion booleans only |
+| `GET` | `/youtube/companion/status` | Sanitized connection, channel title/avatar, authoritative subscription count, locale, and sync state |
 | `POST` | `/youtube/companion/auth/start` | Sanitized device-flow code, URLs, session, and timing |
-| `GET` | `/youtube/companion/auth/poll?session_id=` | Sanitized status and optional interval only |
+| `GET` | `/youtube/companion/auth/poll?session_id=` | Sanitized status plus account/sync state after automatic authoritative refresh |
 | `POST` | `/youtube/companion/auth/disconnect` | Sanitized `{ "ok": true }` only |
 | `POST` | `/youtube/refresh` | Enqueue metadata/cache refresh; returns HTTP 202 and a durable job ID |
 | `GET` | `/youtube/rails` | History/Saved utility rails in off/shadow; five ordered v2 logical positions plus conditional subscriptions/live in serve |
@@ -134,11 +138,20 @@ path.
 
 The phone reaches the four `/youtube/companion/*` routes only through the HTTPS
 companion's exact capability allowlist. Catalog accepts those upstream calls
-from loopback only. The status DTO is exactly `api_key_configured`,
-`oauth_configured`, `authenticated`, and `needs_attention`; detailed operator
+from loopback only. The status DTO includes configuration/auth booleans plus
+`sync_status`, channel title/avatar, authoritative subscription count,
+region/language, and last successful sync time. It contains no channel ID.
+Detailed operator
 state, raw provider errors, token-file paths, expiry/scopes, command paths,
 cache state, quota counters, and refresh phases remain on localhost-only
 `/youtube/state` and never cross the LAN proxy.
+
+Device OAuth is not declared ready at token receipt. Companion resolves the
+authorized channel, enumerates the complete subscription snapshot, scans every
+channel's official uploads playlist in deterministic 24-channel pages with at
+most six playlist reads in flight, and publishes a fresh generation. Failure
+keeps the token and last-good data but reports `attention`; operational `off`
+reports an authenticated-but-`paused` state.
 
 ## Scheduled refresh
 
@@ -172,7 +185,12 @@ then atomically publishes the ranked rail generation. A phase failure is
 reported independently in `/youtube/state` and never clears the prior complete
 subscription snapshot or last-good rail generation. A later successful complete
 subscription pagination replaces the snapshot rather than merging stale
-channels indefinitely. The YouTube step still runs when playability returns a
+channels indefinitely. OAuth completion performs one bounded full uploads
+coverage pass; later refreshes rotate 24 channels while retaining generation-
+scoped coverage diagnostics. Official video category, default language/audio
+language, and tags are cached as private thematic evidence. They can strengthen
+a multi-signal relation but cannot create provenance or leak into public cards.
+The YouTube step still runs when playability returns a
 quota/source/error failure, but it is skipped while another playability
 maintenance lock is active.
 
@@ -205,7 +223,14 @@ Query responses are keyed by query/kinds/SafeSearch/region/language, cached for
 24 hours, and pruned LRU to 200 keys. See [SEARCH.md](SEARCH.md).
 A triggered history acquisition burst is capped at five `search.list` calls and
 coalesces for 15 minutes. Nightly permits at most eight Beyond queries, four More
-Like queries, and eight subscribed-channel live probes. `Live Now` admits only
+Like attempts, and eight subscribed-channel live probes. More Like topic work
+uses `search.list`; exact-channel fallback uses the channel's official uploads
+playlist and can publish a coherent hybrid of one same-channel card plus
+thematic cards. It tries alternate meaningful seeds and otherwise records
+`not_applicable` honestly. `For You` requires both history and subscription
+sources when both have eligible supply, limits a single creator or seed before
+deterministic shortage relaxation, and `Beyond` caps a seed at two cards.
+`Live Now` admits only
 currently live streams from the authoritative subscription snapshot; it never
 runs a generic live search. OAuth loss serves an explicitly stale last-good
 snapshot. Ordinary Home loads and X never initiate any phase.

@@ -89,6 +89,7 @@ const V2_SUBSCRIPTION_CHANNEL_SCAN_LIMIT = Number.MAX_SAFE_INTEGER;
 const SUBSCRIPTION_CHANNELS_PER_REFRESH = 24;
 const SUBSCRIPTION_ACTIVE_CHANNELS_PER_REFRESH = 12;
 const SUBSCRIPTION_VIDEOS_PER_CHANNEL = 8;
+const SUBSCRIPTION_PLAYLIST_CONCURRENCY = 6;
 
 export function youtubeV2AcquisitionQueryBudget(reason: string): {
   more_like: number;
@@ -132,6 +133,13 @@ export type YoutubeCompanionStatus = {
   oauth_configured: boolean;
   authenticated: boolean;
   needs_attention: boolean;
+  sync_status: 'disconnected' | 'paused' | 'syncing' | 'ready' | 'attention';
+  channel_title: string | null;
+  channel_thumbnail: string | null;
+  subscription_count: number | null;
+  region_code: string;
+  relevance_language: string;
+  synced_at: number | null;
 };
 
 export type YoutubeCompanionAuthStart = {
@@ -145,6 +153,7 @@ export type YoutubeCompanionAuthStart = {
 export type YoutubeCompanionAuthPoll = {
   status: YoutubeAuthPollResult['status'];
   interval_sec?: number;
+  account?: YoutubeCompanionStatus;
 };
 
 export type YoutubeCompanionAuthDisconnect = {
@@ -167,12 +176,33 @@ export function youtubeCompanionAuthStartResponse(
 
 export function youtubeCompanionAuthPollResponse(
   poll: YoutubeAuthPollResult,
+  account?: YoutubeCompanionStatus,
 ): YoutubeCompanionAuthPoll {
   return {
     status: poll.status,
     ...(typeof poll.interval_sec === 'number' ? { interval_sec: poll.interval_sec } : {}),
+    ...(account ? { account } : {}),
   };
 }
+
+type YoutubeConnectedAccountState = {
+  channel_ref: string;
+  channel_title: string;
+  channel_thumbnail: string | null;
+  subscription_count: number;
+  region_code: string;
+  relevance_language: string;
+  sync_status: 'paused' | 'syncing' | 'ready' | 'attention';
+  source_generation: string | null;
+  synced_at: number | null;
+};
+
+type YoutubeSubscriptionCoverageState = {
+  source_generation: string;
+  channel_refs: string[];
+  complete: boolean;
+  updated_at: number;
+};
 
 type YoutubeRailsOptions = {
   reshuffle?: boolean;
@@ -489,23 +519,30 @@ function becauseRelationForItem(item: YoutubeItem, seed: YoutubeItem): BecauseYo
     value.title,
     value.description,
     value.channel_title,
+    ...(value.tags ?? []),
   ].filter(Boolean).join(' '));
   const seedTokens = semanticTokens(seed);
   const itemTokens = semanticTokens(item);
   const shared = [...seedTokens].filter((token) => itemTokens.has(token));
-  if (shared.length < 2) return null;
+  const sameCategory = Boolean(item.category_id && seed.category_id && item.category_id === seed.category_id);
+  const itemLanguage = item.default_audio_language || item.default_language;
+  const seedLanguage = seed.default_audio_language || seed.default_language;
+  const languageCompatible = !itemLanguage || !seedLanguage || itemLanguage === seedLanguage;
+  if (shared.length < 2 && !(shared.length === 1 && sameCategory && languageCompatible)) return null;
   const overlap = tokenOverlapScore(seedTokens, itemTokens);
   const text = `${item.title} ${item.description || ''}`.toLowerCase();
   const deepDive = /\b(documentary|explained|analysis|interview|deep dive|history|lecture|breakdown|essay)\b/.test(text)
     || (item.duration_sec !== null && item.duration_sec >= 45 * 60);
-  if (overlap >= 0.45) return 'same_topic';
+  if (overlap >= 0.45 || (shared.length >= 2 && sameCategory)) return 'same_topic';
   if (overlap >= 0.22 && deepDive) return 'deeper_dive';
   if (overlap >= 0.15) return 'wildcard';
   return null;
 }
 
 function becauseYouWatchedQuerySpecs(seed: YoutubeItem): BecauseYouWatchedQuerySpec[] {
-  const tokens = [...titleTokens(seed)].slice(0, 5);
+  const title = [...titleTokens(seed)];
+  const officialTags = youtubeTitleTokens((seed.tags ?? []).join(' '));
+  const tokens = [...title, ...[...officialTags].filter((token) => !title.includes(token))].slice(0, 6);
   const topicQuery = tokens.join(' ');
   const specs: BecauseYouWatchedQuerySpec[] = [];
   if (topicQuery) {
@@ -638,11 +675,23 @@ export class YoutubeService {
   companionStatus(): YoutubeCompanionStatus {
     const auth = youtubeAuthSummary(this.config);
     const refresh = youtubeRefreshStatus();
+    const account = getYoutubeState<YoutubeConnectedAccountState | null>('youtube_connected_account', null);
+    const authenticated = auth.authenticated;
+    const syncStatus = !authenticated
+      ? 'disconnected' as const
+      : account?.sync_status ?? (youtubeRecommendationsV2Mode() === 'off' ? 'paused' : 'syncing');
     return {
       api_key_configured: Boolean(this.config.api_key),
       oauth_configured: auth.configured,
-      authenticated: auth.authenticated,
-      needs_attention: Boolean(refresh.last_error),
+      authenticated,
+      needs_attention: syncStatus === 'attention' || Boolean(refresh.last_error),
+      sync_status: syncStatus,
+      channel_title: authenticated ? account?.channel_title ?? null : null,
+      channel_thumbnail: authenticated ? account?.channel_thumbnail ?? null : null,
+      subscription_count: authenticated ? account?.subscription_count ?? null : null,
+      region_code: this.config.region_code,
+      relevance_language: this.config.relevance_language,
+      synced_at: authenticated ? account?.synced_at ?? null : null,
     };
   }
 
@@ -673,7 +722,50 @@ export class YoutubeService {
   }
 
   async pollCompanionAuth(sessionId: string): Promise<YoutubeCompanionAuthPoll> {
-    return youtubeCompanionAuthPollResponse(await this.pollAuth(sessionId));
+    const poll = await this.pollAuth(sessionId);
+    if (poll.status === 'authenticated') {
+      if (youtubeRecommendationsV2Mode() === 'off') {
+        const token = await youtubeAccessToken(this.config).catch(() => null);
+        const identity = token ? await this.api.authorizedChannel(token).catch(() => null) : null;
+        setYoutubeState('youtube_connected_account', {
+          channel_ref: identity
+            ? createHash('sha256').update(identity.id).digest('hex').slice(0, 16)
+            : '',
+          channel_title: identity?.title ?? 'YouTube',
+          channel_thumbnail: identity?.thumbnail ?? null,
+          subscription_count: listYoutubeV2Subscriptions().filter((row) => row.source === 'oauth').length,
+          region_code: this.config.region_code,
+          relevance_language: this.config.relevance_language,
+          sync_status: 'paused',
+          source_generation: null,
+          synced_at: null,
+        } satisfies YoutubeConnectedAccountState);
+      } else {
+        const previous = getYoutubeState<YoutubeConnectedAccountState | null>('youtube_connected_account', null);
+        setYoutubeState('youtube_connected_account', {
+          channel_ref: previous?.channel_ref ?? '',
+          channel_title: previous?.channel_title ?? 'YouTube',
+          channel_thumbnail: previous?.channel_thumbnail ?? null,
+          subscription_count: previous?.subscription_count ?? 0,
+          region_code: this.config.region_code,
+          relevance_language: this.config.relevance_language,
+          sync_status: 'syncing',
+          source_generation: previous?.source_generation ?? null,
+          synced_at: previous?.synced_at ?? null,
+        } satisfies YoutubeConnectedAccountState);
+        const refreshed = await this.refresh('oauth_connected');
+        if (!refreshed.ok) {
+          const current = getYoutubeState<YoutubeConnectedAccountState>('youtube_connected_account', {
+            channel_ref: '', channel_title: 'YouTube', channel_thumbnail: null,
+            subscription_count: 0, region_code: this.config.region_code,
+            relevance_language: this.config.relevance_language, sync_status: 'attention',
+            source_generation: null, synced_at: null,
+          });
+          setYoutubeState('youtube_connected_account', { ...current, sync_status: 'attention' });
+        }
+      }
+    }
+    return youtubeCompanionAuthPollResponse(poll, this.companionStatus());
   }
 
   disconnectCompanionAuth(): YoutubeCompanionAuthDisconnect {
@@ -709,7 +801,7 @@ export class YoutubeService {
     }
   }
 
-  private async refreshSubscriptionsIfAuthorized(): Promise<void> {
+  private async refreshSubscriptionsIfAuthorized(reason: string): Promise<void> {
     const token = await youtubeAccessToken(this.config).catch(() => null);
     if (!token) {
       const authoritativeCount = listYoutubeV2Subscriptions()
@@ -733,7 +825,7 @@ export class YoutubeService {
       });
       return;
     }
-    await this.refreshSubscriptionsFromApi(token);
+    await this.refreshSubscriptionsFromApi(token, reason);
   }
 
   private async refreshV2HistoryCandidatesFromApi(reason: string): Promise<void> {
@@ -774,7 +866,7 @@ export class YoutubeService {
       lane: 'more_like' | 'beyond';
       seed_ref: string;
       query_index: number;
-      query_kind: 'topic' | 'exact_channel';
+      query_kind: 'topic' | 'uploads_playlist';
       returned: number;
       live_rejected: number;
       shorts_rejected: number;
@@ -810,7 +902,7 @@ export class YoutubeService {
         lane: entry.lane,
         seed_ref: createHash('sha256').update(entry.seed.provenance_ref).digest('hex').slice(0, 16),
         query_index: entry.query_index,
-        query_kind: entry.spec.channelId ? 'exact_channel' : 'topic',
+        query_kind: entry.spec.channelId ? 'uploads_playlist' : 'topic',
         returned: 0,
         live_rejected: 0,
         shorts_rejected: 0,
@@ -824,16 +916,24 @@ export class YoutubeService {
         error: null,
       };
       try {
-        const groups = await this.api.search(entry.spec.query, {
-          limit: entry.spec.limit,
-          order: entry.spec.order,
-          type: 'video',
-          channelId: entry.spec.channelId,
-          publishedAfter: entry.spec.publishedAfterDays
-            ? rfc3339DaysAgo(entry.spec.publishedAfterDays) : undefined,
-          videoDuration: entry.spec.videoDuration,
-          safeSearch: 'moderate',
-        });
+        const groups = entry.spec.channelId
+          ? await (async (): Promise<YoutubeSearchGroups> => {
+              const playlists = await this.api.channelUploadPlaylists([entry.spec.channelId!]);
+              const playlistId = playlists.get(entry.spec.channelId!);
+              const videos = playlistId
+                ? await this.api.playlistItems(playlistId, entry.spec.limit, undefined, 'background')
+                : [];
+              return { videos, channels: [], playlists: [] };
+            })()
+          : await this.api.search(entry.spec.query, {
+              limit: entry.spec.limit,
+              order: entry.spec.order,
+              type: 'video',
+              publishedAfter: entry.spec.publishedAfterDays
+                ? rfc3339DaysAgo(entry.spec.publishedAfterDays) : undefined,
+              videoDuration: entry.spec.videoDuration,
+              safeSearch: 'moderate',
+            });
         funnel.returned = groups.videos.length;
         const acquiredAt = nowMs();
         const provenance = entry.lane === 'more_like' && entry.spec.channelId
@@ -918,7 +1018,7 @@ export class YoutubeService {
     }>();
     const allCandidates: AcquiredCandidate[] = [];
     let selectedMoreLike: YoutubeV2TopicSeed | null = null;
-    let selectedMode: 'thematic' | 'exact_channel' | 'not_applicable' = 'not_applicable';
+    let selectedMode: 'thematic' | 'hybrid' | 'exact_channel' | 'not_applicable' = 'not_applicable';
     const results: Array<Awaited<ReturnType<typeof execute>>> = [];
     for (const entry of queryPlan.slice(0, budget.more_like)) {
       const result = await execute(entry);
@@ -930,6 +1030,19 @@ export class YoutubeService {
         selectedMoreLike = entry.seed;
         selectedMode = 'thematic';
         allCandidates.push(...pools.thematic);
+        break;
+      }
+      const hybrid = [
+        ...pools.channel.slice(0, 1),
+        ...pools.thematic,
+        ...pools.channel.slice(1),
+      ].filter((candidate, index, all) => (
+        all.findIndex((entry) => entry.item.id === candidate.item.id) === index
+      ));
+      if (hybrid.length >= YOUTUBE_RAIL_LIMIT) {
+        selectedMoreLike = entry.seed;
+        selectedMode = 'hybrid';
+        allCandidates.push(...hybrid);
         break;
       }
       if (pools.channel.length >= YOUTUBE_RAIL_LIMIT) {
@@ -987,7 +1100,12 @@ export class YoutubeService {
       acquired_at: acquiredAt,
       expires_at: acquiredAt + YOUTUBE_V2_CANDIDATE_TTL_MS,
     });
-    if (results.length > 0 && failed.length === results.length) {
+    const topicResults = results.filter((result) => !result.entry.spec.channelId);
+    if (results.length > 0 && (
+      failed.length === results.length
+      || (allCandidates.length === 0 && topicResults.length > 0
+        && topicResults.every((result) => result.error))
+    )) {
       throw new Error(`YouTube v2 discovery acquisition failed: ${failed[0]?.error || 'all queries failed'}`);
     }
   }
@@ -1085,7 +1203,11 @@ export class YoutubeService {
     ];
     const unresolved = [...new Set(historyIds.filter((id) => {
       const item = getYoutubeItem('video', id);
-      return !item || !item.thumbnail || !item.channel_id;
+      return !item
+        || !item.thumbnail
+        || !item.channel_id
+        || !item.official_metadata_checked_at
+        || item.official_metadata_checked_at < nowMs() - 30 * 86_400_000;
     }))];
     if (unresolved.length === 0) {
       setYoutubeState('youtube_v2_history_metadata', {
@@ -1113,14 +1235,15 @@ export class YoutubeService {
     });
   }
 
-  private async refreshSubscriptionsFromApi(token: string): Promise<void> {
+  private async refreshSubscriptionsFromApi(token: string, reason: string): Promise<void> {
     let subscriptions: YoutubeItem[];
+    let identity: Awaited<ReturnType<YoutubeApiClient['authorizedChannel']>>;
     try {
-      subscriptions = await this.api.subscriptions(
-        token,
-        V2_SUBSCRIPTION_CHANNEL_SCAN_LIMIT,
-        'unread',
-      );
+      [subscriptions, identity] = await Promise.all([
+        this.api.subscriptions(token, V2_SUBSCRIPTION_CHANNEL_SCAN_LIMIT, 'unread'),
+        this.api.authorizedChannel(token),
+      ]);
+      if (!identity) throw new Error('Authorized YouTube channel could not be resolved');
     } catch (error) {
       // A failed read is not an authoritative empty subscription set.
       const stale = {
@@ -1154,45 +1277,95 @@ export class YoutubeService {
       authoritative_subscription_count: subscriptions.length,
     });
     if (subscriptions.length === 0) {
+      const syncedAt = nowMs();
       setYoutubeState('youtube_v2_subscription_acquisition', {
         channels_queried: 0,
+        authoritative_channels: 0,
+        coverage_complete: true,
+        coverage_remaining: 0,
+        batches: 0,
         candidates_acquired: 0,
         partial: false,
         error: null,
-        acquired_at: nowMs(),
+        acquired_at: syncedAt,
       });
+      setYoutubeState('youtube_v2_subscription_coverage', {
+        source_generation: sourceGeneration,
+        channel_refs: [],
+        complete: true,
+        updated_at: syncedAt,
+      } satisfies YoutubeSubscriptionCoverageState);
+      setYoutubeState('youtube_connected_account', {
+        channel_ref: createHash('sha256').update(identity.id).digest('hex').slice(0, 16),
+        channel_title: identity.title,
+        channel_thumbnail: identity.thumbnail,
+        subscription_count: 0,
+        region_code: this.config.region_code,
+        relevance_language: this.config.relevance_language,
+        sync_status: 'ready',
+        source_generation: sourceGeneration,
+        synced_at: syncedAt,
+      } satisfies YoutubeConnectedAccountState);
       return;
     }
 
-    const { channels, nextCursor } = selectSubscriptionRefreshChannels(subscriptions);
+    const fullCoverage = reason === 'oauth_connected' || reason === 'subscription_full_refresh';
+    const selection = fullCoverage
+      ? { channels: subscriptions, nextCursor: 0 }
+      : selectSubscriptionRefreshChannels(subscriptions);
+    const { channels, nextCursor } = selection;
     setYoutubeState('subscription_refresh_cursor', nextCursor);
-    let fetchedByChannel: Array<{ channel: YoutubeItem; items: YoutubeItem[] }>;
-    let uploadError: string | null = null;
-    try {
-      const uploadPlaylists = await this.api.channelUploadPlaylists(
-        channels.map((channel) => channel.id),
-        token,
-      );
-      fetchedByChannel = await Promise.all(channels.map(async (channel) => {
-        const playlistId = uploadPlaylists.get(channel.id);
-        if (!playlistId) {
-          return { channel, items: [] as YoutubeItem[] };
+    const fetchedByChannel: Array<{ channel: YoutubeItem; items: YoutubeItem[] }> = [];
+    const failedChannels: string[] = [];
+    const uploadFailures: string[] = [];
+    for (let index = 0; index < channels.length; index += SUBSCRIPTION_CHANNELS_PER_REFRESH) {
+      const batch = channels.slice(index, index + SUBSCRIPTION_CHANNELS_PER_REFRESH);
+      try {
+        const uploadPlaylists = await this.api.channelUploadPlaylists(batch.map((channel) => channel.id), token);
+        for (let offset = 0; offset < batch.length; offset += SUBSCRIPTION_PLAYLIST_CONCURRENCY) {
+          const slice = batch.slice(offset, offset + SUBSCRIPTION_PLAYLIST_CONCURRENCY);
+          const results = await Promise.allSettled(slice.map(async (channel) => {
+            const playlistId = uploadPlaylists.get(channel.id);
+            const items = playlistId
+              ? await this.api.playlistItems(playlistId, SUBSCRIPTION_VIDEOS_PER_CHANNEL, token)
+              : [];
+            return { channel, items };
+          }));
+          for (let resultIndex = 0; resultIndex < results.length; resultIndex += 1) {
+            const result = results[resultIndex]!;
+            if (result.status === 'fulfilled') fetchedByChannel.push(result.value);
+            else {
+              failedChannels.push(slice[resultIndex]!.id);
+              uploadFailures.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+            }
+          }
         }
-        const items = await this.api.playlistItems(playlistId, SUBSCRIPTION_VIDEOS_PER_CHANNEL, token);
-        return { channel, items };
-      }));
-    } catch (error) {
-      uploadError = error instanceof Error ? error.message : String(error);
-      setYoutubeState('youtube_v2_subscription_acquisition', {
-        stale: false,
-        reason: 'oauth_subscription_upload_refresh_failed',
-        candidates_acquired: 0,
-        error: uploadError,
-        at: nowMs(),
-      });
-      fetchedByChannel = channels.map((channel) => ({ channel, items: [] }));
+      } catch (error) {
+        failedChannels.push(...batch.map((channel) => channel.id));
+        uploadFailures.push(error instanceof Error ? error.message : String(error));
+      }
     }
+    const uploadError = failedChannels.length > 0
+      ? `${uploadFailures[0] || 'upload refresh failed'}; ${failedChannels.length} subscription channels failed`
+      : null;
     const acquiredAt = nowMs();
+    const priorCoverage = getYoutubeState<YoutubeSubscriptionCoverageState | null>(
+      'youtube_v2_subscription_coverage',
+      null,
+    );
+    const coveredRefs = new Set(
+      priorCoverage?.source_generation === sourceGeneration ? priorCoverage.channel_refs : [],
+    );
+    for (const { channel } of fetchedByChannel) {
+      coveredRefs.add(createHash('sha256').update(channel.id).digest('hex').slice(0, 16));
+    }
+    const coverageComplete = coveredRefs.size >= subscriptions.length && failedChannels.length === 0;
+    setYoutubeState('youtube_v2_subscription_coverage', {
+      source_generation: sourceGeneration,
+      channel_refs: [...coveredRefs].sort(),
+      complete: coverageComplete,
+      updated_at: acquiredAt,
+    } satisfies YoutubeSubscriptionCoverageState);
     const provenance = fetchedByChannel.flatMap(({ channel, items }) => items
       .filter((item) => item.kind === 'video' && !isShortLikeVideo(item))
       .filter((item) => item.channel_id === channel.id)
@@ -1208,11 +1381,26 @@ export class YoutubeService {
     setYoutubeState('subscriptions_last_refresh_count', provenance.length);
     setYoutubeState('youtube_v2_subscription_acquisition', {
       channels_queried: channels.length,
+      authoritative_channels: subscriptions.length,
+      coverage_complete: coverageComplete,
+      coverage_remaining: Math.max(0, subscriptions.length - coveredRefs.size),
+      batches: Math.ceil(channels.length / SUBSCRIPTION_CHANNELS_PER_REFRESH),
       candidates_acquired: provenance.length,
       partial: uploadError !== null,
       error: uploadError,
       acquired_at: acquiredAt,
     });
+    setYoutubeState('youtube_connected_account', {
+      channel_ref: createHash('sha256').update(identity.id).digest('hex').slice(0, 16),
+      channel_title: identity.title,
+      channel_thumbnail: identity.thumbnail,
+      subscription_count: subscriptions.length,
+      region_code: this.config.region_code,
+      relevance_language: this.config.relevance_language,
+      sync_status: uploadError ? 'attention' : coverageComplete ? 'ready' : 'syncing',
+      source_generation: sourceGeneration,
+      synced_at: uploadError || !coverageComplete ? null : acquiredAt,
+    } satisfies YoutubeConnectedAccountState);
   }
 
   refresh(reason = 'manual'): Promise<RefreshResult> {
@@ -1237,7 +1425,7 @@ export class YoutubeService {
     const phases: YoutubeRefreshPhaseResult[] = [];
     const subscriptionsPhase = await this.runRefreshPhase(
       'subscriptions',
-      () => this.refreshSubscriptionsIfAuthorized(),
+      () => this.refreshSubscriptionsIfAuthorized(reason),
     );
     phases.push(subscriptionsPhase);
     const subscriptionAcquisition = getYoutubeState<{

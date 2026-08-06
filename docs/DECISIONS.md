@@ -149,11 +149,15 @@ explicit product approval.
 | Core positions | For You → Beyond Subscriptions → More Like → History → Saved; conditional Subscriptions and Live Now follow |
 | Visibility | Normal rows render only with exactly four cards; Live Now renders one to four; logical positions are not guaranteed visible |
 | For You | 60% decayed history / 40% subscription affinity, renormalized when one source is absent |
+| Portfolio | When both sources have eligible supply, For You contains both; creator and seed caps relax only to fill four. Beyond uses one creator and at most two cards per seed before shortage relaxation |
+| OAuth ready | Token receipt is not Ready: resolve authorized channel, enumerate authoritative subscriptions, cover official upload playlists in bounded pages, then report sanitized account/sync truth |
+| Locale | India discovery (`IN`) and English relevance (`en`) are independent explicit settings; never infer account country from an absent channel field |
+| More Like | Alternate meaningful seeds, official uploads-playlist channel fallback, thematic/channel hybrid, then honest omission |
 | History/Saved | Stable utility rails; Saved has zero ranking influence |
 | X | Cached serving epoch only; no acquisition, API quota, ranking, or network work; History/Saved stay stable |
 | Native-feed claim | Public YouTube Data API cannot reproduce YouTube's proprietary Home feed; Mango does not claim it can |
 | Rollout | `off` disables recommendation work, `shadow` builds latest-only while hiding recommendation rails, and `serve` exposes Household v2. History/Saved remain utilities; there is no legacy allocator fallback. This flag remains independent of VOD |
-| Current blocker | In `off`, service output is always Household-owned while the HTTP route expects the active profile; non-Household use can 409. AI catalog management still accepts YouTube slots although the latest Home renderer no longer composes them. Fix both contracts and add focused mode/route tests before rollout |
+| Open proof | Human ten-shuffle relevance, focus/launch/offline behavior, and physical couch judgment remain explicit user gates even after automated Pi proof |
 
 ## Live and Search
 

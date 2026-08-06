@@ -27,7 +27,7 @@ import {
 import { YOUTUBE_RAIL_LIMIT } from './constants.js';
 import type { YoutubeItem, YoutubeRail, YoutubeRailItem } from './types.js';
 
-export const YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION = 'youtube-household-v2.2';
+export const YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION = 'youtube-household-v2.3';
 export const YOUTUBE_V2_CANDIDATE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const YOUTUBE_V2_LIVE_TTL_MS = 15 * 60 * 1000;
 const V2_RESERVE_LIMIT = 120;
@@ -1061,6 +1061,68 @@ function selectWithCreatorCap(
   return best;
 }
 
+type PortfolioItem = YoutubeRailItem & {
+  provenance?: YoutubeV2Provenance;
+  provenance_ref?: string;
+};
+
+function selectRecommendationPortfolio(
+  pool: PortfolioItem[],
+  seen: ReadonlySet<string>,
+  limit: number,
+  options: {
+    creator_cap: number;
+    seed_cap: number;
+    require_source_mix: boolean;
+  },
+): YoutubeRailItem[] {
+  const eligible = pool.filter((item) => !seen.has(item.id));
+  const source = (item: PortfolioItem): 'history' | 'subscription' | 'other' => (
+    item.provenance?.startsWith('history_') ? 'history'
+      : item.provenance?.startsWith('subscription_') ? 'subscription'
+        : 'other'
+  );
+  const attempt = (creatorCap: number, seedCap: number): YoutubeRailItem[] => {
+    const selected: PortfolioItem[] = [];
+    const selectedIds = new Set<string>();
+    const creators = new Map<string, number>();
+    const seeds = new Map<string, number>();
+    const add = (item: PortfolioItem): boolean => {
+      if (selectedIds.has(item.id)) return false;
+      const creator = creatorKey(item);
+      const seed = item.provenance_ref || `item:${item.id}`;
+      if ((creators.get(creator) ?? 0) >= creatorCap) return false;
+      if ((seeds.get(seed) ?? 0) >= seedCap) return false;
+      selected.push(item);
+      selectedIds.add(item.id);
+      creators.set(creator, (creators.get(creator) ?? 0) + 1);
+      seeds.set(seed, (seeds.get(seed) ?? 0) + 1);
+      return true;
+    };
+    if (options.require_source_mix) {
+      const availableSources = new Set(eligible.map(source));
+      if (availableSources.has('history') && availableSources.has('subscription')) {
+        add(eligible.find((item) => source(item) === 'history')!);
+        add(eligible.find((item) => source(item) === 'subscription')!);
+      }
+    }
+    for (const item of eligible) {
+      add(item);
+      if (selected.length >= limit) break;
+    }
+    return selected.slice(0, limit);
+  };
+  let best: YoutubeRailItem[] = [];
+  for (let seedCap = options.seed_cap; seedCap <= limit; seedCap += 1) {
+    for (let creatorCap = options.creator_cap; creatorCap <= limit; creatorCap += 1) {
+      const selected = attempt(creatorCap, seedCap);
+      if (selected.length > best.length) best = selected;
+      if (selected.length >= limit) return selected;
+    }
+  }
+  return best;
+}
+
 function generationEntryIsCurrentlyEligible(
   entry: NonNullable<ReturnType<typeof latestYoutubeV2Generation>>['items'][number],
   subscriptions: ReturnType<typeof listYoutubeV2Subscriptions>,
@@ -1121,8 +1183,8 @@ export function youtubeV2RecommendationRails(input: {
         && !blocked.has(entry.id)
         && generationEntryIsCurrentlyEligible(entry, subscriptions)
       ));
-    let pool = entries
-      .map((entry): YoutubeRailItem => ({ ...entry, score: entry.score, reason: entry.reason }));
+    let pool: PortfolioItem[] = entries
+      .map((entry): PortfolioItem => ({ ...entry, score: entry.score, reason: entry.reason }));
     if (spec.id === 'more_like') {
       const subscriptionFallback = entries.some((entry) => entry.context_id.startsWith('subscription:'));
       const sameChannelEntries = entries.filter((entry) => subscriptionFallback
@@ -1145,7 +1207,19 @@ export function youtubeV2RecommendationRails(input: {
       pool = shuffled(pool, `${generation.generation}:${input.shuffle_epoch}:${spec.id}`);
     }
     const limit = spec.live ? Math.min(YOUTUBE_RAIL_LIMIT, pool.length) : YOUTUBE_RAIL_LIMIT;
-    const items = selectWithCreatorCap(pool, seen, limit, spec.cap, spec.relax);
+    const items = spec.id === 'for_you'
+      ? selectRecommendationPortfolio(pool, seen, limit, {
+          creator_cap: 2,
+          seed_cap: 2,
+          require_source_mix: true,
+        })
+      : spec.id === 'beyond'
+        ? selectRecommendationPortfolio(pool, seen, limit, {
+            creator_cap: 1,
+            seed_cap: 2,
+            require_source_mix: false,
+          })
+        : selectWithCreatorCap(pool, seen, limit, spec.cap, spec.relax);
     if ((!spec.live && items.length !== YOUTUBE_RAIL_LIMIT) || (spec.live && items.length === 0)) continue;
     items.forEach((item) => seen.add(item.id));
     selected.set(spec.id, {
@@ -1213,6 +1287,8 @@ export function youtubeV2Diagnostics(): Record<string, unknown> {
       beyond_creator_per_row: 1,
       subscriptions_creator_per_row: 1,
       for_you_creator_per_row: 2,
+      for_you_seed_per_row: 2,
+      beyond_seed_per_row: 2,
     },
     daily_topic_seed: getYoutubeState<PersistedTopicSeed | null>('youtube_v2_daily_topic_seed', null),
     revisions: {
