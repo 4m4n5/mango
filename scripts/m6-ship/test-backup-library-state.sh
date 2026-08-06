@@ -87,7 +87,8 @@ for index in range(5):
     shutil.copy2(root / "playability.db", state / f"library-{stamp}.db")
     snapshot = snapshots / f"deploy-pre-{stamp}"
     snapshot.mkdir()
-    shutil.copy2(root / "youtube.db", snapshot / "library.db")
+    target = "library.db" if index > 1 else "library.db.backup"
+    shutil.copy2(root / "youtube.db", snapshot / target)
     os.utime(snapshot, (index + 1, index + 1))
 (snapshots / "evidence-only").mkdir()
 PY

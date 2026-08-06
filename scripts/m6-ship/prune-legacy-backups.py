@@ -15,7 +15,10 @@ LEGACY_STATE = re.compile(r"^(library|progress)-(\d{8}-\d{6})\.db$")
 
 
 def quick_check(path: Path) -> None:
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    # Backup artifacts are standalone snapshots. Immutable read-only mode both
+    # proves that contract and prevents SQLite from creating WAL/SHM sidecars in
+    # the backup directory during verification.
+    connection = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True)
     try:
         result = connection.execute("PRAGMA quick_check").fetchone()
     finally:
@@ -29,7 +32,10 @@ def snapshot_candidates(root: Path) -> list[Path]:
         return []
     return sorted(
         (path for path in root.iterdir()
-         if path.is_dir() and (path / "library.db").is_file()),
+         if path.is_dir() and (
+             (path / "library.db").is_file()
+             or (path / "library.db.backup").is_file()
+         )),
         key=lambda path: (path.stat().st_mtime_ns, path.name),
         reverse=True,
     )
@@ -52,7 +58,12 @@ def validated_keep(paths: list[Path], retention: int) -> list[Path]:
             f"refusing prune: found {len(retained)} complete sets, need {retention}"
         )
     for backup_set in retained:
-        for database in sorted(backup_set.glob("*.db")):
+        databases = sorted(backup_set.glob("*.db")) + sorted(
+            backup_set.glob("*.db.backup")
+        )
+        if not databases:
+            raise RuntimeError(f"retained set contains no databases: {backup_set}")
+        for database in databases:
             quick_check(database)
     return retained
 
@@ -108,6 +119,18 @@ def main() -> int:
     for _, files in obsolete_state:
         for path in files:
             path.unlink()
+            for suffix in ("-wal", "-shm"):
+                sidecar = Path(f"{path}{suffix}")
+                if sidecar.exists():
+                    sidecar.unlink()
+    # Older verification tools could create zero/small WAL sidecars beside the
+    # retained standalone snapshots. They are never part of a backup set.
+    for _, files in legacy[:args.retention]:
+        for path in files:
+            for suffix in ("-wal", "-shm"):
+                sidecar = Path(f"{path}{suffix}")
+                if sidecar.exists():
+                    sidecar.unlink()
     print("prune complete")
     return 0
 
