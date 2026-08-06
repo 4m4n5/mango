@@ -19,6 +19,7 @@ import {
   listYoutubeV2Subscriptions,
   publishYoutubeV2Generation,
   setYoutubeState,
+  youtubeDbPath,
   youtubeV2CandidateProvenanceSummary,
   type YoutubeV2CandidateProvenance,
   type YoutubeV2Generation,
@@ -309,6 +310,16 @@ let exactExclusionSnapshot: YoutubeV2ExactExclusionSnapshot | null = null;
 let exactExclusionBuildCount = 0;
 let exactExclusionInvalidationCount = 0;
 
+type YoutubeV2HistorySnapshot = {
+  library_db_path: string;
+  youtube_db_path: string;
+  items: ReadonlyArray<YoutubeRailItem>;
+  built_at: number;
+};
+
+let historySnapshot: YoutubeV2HistorySnapshot | null = null;
+let historySnapshotBuildCount = 0;
+
 function loadYoutubeV2ExactExclusions(force = false): YoutubeV2ExactExclusionSnapshot {
   const dbPath = libraryDbPath();
   if (!force && exactExclusionSnapshot?.db_path === dbPath) return exactExclusionSnapshot;
@@ -353,6 +364,12 @@ export function youtubeV2ExactExclusionCacheDiagnostics(): Record<string, unknow
     built_at: snapshot?.built_at ?? null,
     build_count: exactExclusionBuildCount,
     invalidation_count: exactExclusionInvalidationCount,
+    history_ready: historySnapshot !== null
+      && historySnapshot.library_db_path === libraryDbPath()
+      && historySnapshot.youtube_db_path === youtubeDbPath(),
+    history_count: historySnapshot?.items.length ?? 0,
+    history_built_at: historySnapshot?.built_at ?? null,
+    history_build_count: historySnapshotBuildCount,
   };
 }
 
@@ -681,6 +698,37 @@ export function youtubeV2HistoryItems(
     .sort((left, right) => right.watched_at - left.watched_at || left.item.id.localeCompare(right.item.id))
     .slice(0, Math.max(1, Math.min(V2_WATCH_LIMIT, Math.floor(limit))))
     .map(({ item }, index) => ({ ...item, score: 1 - index * 0.001, reason: null }));
+}
+
+function loadYoutubeV2HistorySnapshot(force = false): YoutubeV2HistorySnapshot {
+  const libraryPath = libraryDbPath();
+  const youtubePath = youtubeDbPath();
+  if (!force
+    && historySnapshot?.library_db_path === libraryPath
+    && historySnapshot.youtube_db_path === youtubePath) {
+    return historySnapshot;
+  }
+  historySnapshot = {
+    library_db_path: libraryPath,
+    youtube_db_path: youtubePath,
+    items: youtubeV2HistoryItems(V2_WATCH_LIMIT, 'household'),
+    built_at: Date.now(),
+  };
+  historySnapshotBuildCount += 1;
+  return historySnapshot;
+}
+
+export function primeYoutubeV2HistoryItems(): void {
+  loadYoutubeV2HistorySnapshot();
+}
+
+export function youtubeV2CachedHistoryItems(
+  limit = 60,
+  profileId = 'household',
+): YoutubeRailItem[] {
+  if (profileId !== 'household') return youtubeV2HistoryItems(limit, profileId);
+  const bounded = Math.max(1, Math.min(V2_WATCH_LIMIT, Math.floor(limit)));
+  return loadYoutubeV2HistorySnapshot().items.slice(0, bounded).map((item) => ({ ...item }));
 }
 
 function stableSourceHash(
@@ -1025,6 +1073,9 @@ export function rebuildYoutubeV2Generation(options: { force?: boolean; at?: numb
   const subscriptions = authoritativeSubscriptions();
   const provenance = listYoutubeV2CandidateProvenance({ at, limit: V2_PROVENANCE_LIMIT });
   const exclusions = loadYoutubeV2ExactExclusions(true);
+  // History is chronological utility state, so publish its resolved snapshot
+  // at the same source/metadata boundary as the recommendation generation.
+  loadYoutubeV2HistorySnapshot(true);
   const watchedIds = exclusions.watched;
   const savedIds = exclusions.saved;
   const blockedIds = exclusions.blocked;

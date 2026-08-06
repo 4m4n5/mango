@@ -124,6 +124,7 @@ import {
   importYoutubeTakeoutStream,
   invalidateYoutubeV2ExactExclusions,
   primeYoutubeV2ExactExclusions,
+  primeYoutubeV2HistoryItems,
   refreshYoutubeV2AfterLocalSignal,
   resolveYoutubeImpressionSourceRevision,
   YoutubeService,
@@ -1544,6 +1545,7 @@ async function main(): Promise<void> {
   // Move the potentially multi-thousand-row exclusion read to catalog startup.
   // Cached Home/X remains database- and provider-free afterward.
   primeYoutubeV2ExactExclusions();
+  primeYoutubeV2HistoryItems();
   setRecommendationSignalChangeHook((change) => {
     if (change.stage === 'play') return;
     if (change.type === 'youtube_video') {

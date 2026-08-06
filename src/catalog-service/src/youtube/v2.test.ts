@@ -805,13 +805,20 @@ test('five X presses perform no API, quota, or rank work and keep History and Sa
   const history = stable('history');
   const saved = stable('saved');
   const quotaBefore = youtubeRefreshStatus();
+  const historyBuildsBefore = (youtubeV2ExactExclusionCacheDiagnostics() as {
+    history_build_count: number;
+  }).history_build_count;
   for (let press = 0; press < 5; press += 1) {
     const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
     assert.deepEqual(response.rails.find((rail) => rail.rail_id === 'history')?.items.map((item) => item.id), history);
     assert.deepEqual(response.rails.find((rail) => rail.rail_id === 'saved')?.items.map((item) => item.id), saved);
   }
   const quotaAfter = youtubeRefreshStatus();
+  const historyBuildsAfter = (youtubeV2ExactExclusionCacheDiagnostics() as {
+    history_build_count: number;
+  }).history_build_count;
   assert.equal(apiCalls, 0);
+  assert.equal(historyBuildsAfter, historyBuildsBefore);
   assert.equal(latestYoutubeV2GenerationRecord()?.generation, generation);
   assert.deepEqual(
     [quotaAfter.quota_used_today, quotaAfter.search_calls_today, quotaAfter.api_calls_today],

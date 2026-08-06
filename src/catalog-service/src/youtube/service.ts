@@ -57,9 +57,9 @@ import {
   invalidateYoutubeV2ExactExclusions,
   rebuildYoutubeV2Generation,
   youtubeRecommendationsV2Mode,
+  youtubeV2CachedHistoryItems,
   youtubeV2Diagnostics,
   youtubeV2DiscoverySeeds,
-  youtubeV2HistoryItems,
   youtubeV2MoreLikeSeeds,
   youtubeV2RecommendationRails,
   youtubeV2SourceStaleState,
@@ -77,6 +77,7 @@ export {
 export {
   invalidateYoutubeV2ExactExclusions,
   primeYoutubeV2ExactExclusions,
+  primeYoutubeV2HistoryItems,
   youtubePublicPersonalizationPayload,
   youtubeRecommendationsV2Mode,
 } from './v2.js';
@@ -1581,7 +1582,7 @@ export class YoutubeService {
       Boolean(options.reshuffle) && mode === 'serve',
     );
     const reservedIds = new Set<string>();
-    const historyItems = youtubeV2HistoryItems(YOUTUBE_RAIL_POOL_LIMIT, ownerProfileId)
+    const historyItems = youtubeV2CachedHistoryItems(YOUTUBE_RAIL_POOL_LIMIT, ownerProfileId)
       .filter((item) => !reservedIds.has(item.id))
       .slice(0, YOUTUBE_RAIL_LIMIT);
     const history = historyItems.length === YOUTUBE_RAIL_LIMIT
