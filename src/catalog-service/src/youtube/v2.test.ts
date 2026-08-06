@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
+import { CatalogError } from '../catalog-errors.js';
 import {
   activateViewerProfile,
   clearWatchHistoryForSource,
@@ -1032,6 +1033,49 @@ test('OAuth-connected refresh resolves account truth and covers every subscripti
     relevance_language: 'en',
     synced_at: (service.companionStatus().synced_at),
   });
+}));
+
+test('a conclusively missing uploads playlist is covered-empty, not an account sync failure', () => withTempState(async () => {
+  const now = Date.now();
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  writeFileSync(process.env.MANGO_YOUTUBE_AUTH_TOKEN_FILE!, JSON.stringify({
+    access_token: 'test-access-token', expires_at: now + 60 * 60 * 1_000,
+  }));
+  const service = new YoutubeService();
+  const api = (service as unknown as { api: {
+    authorizedChannel: () => Promise<{ id: string; title: string; thumbnail: string | null }>;
+    subscriptions: () => Promise<YoutubeItem[]>;
+    channelUploadPlaylists: () => Promise<Map<string, string>>;
+    playlistItems: () => Promise<YoutubeItem[]>;
+    search: () => Promise<{ videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[] }>;
+  } }).api;
+  api.authorizedChannel = async () => ({ id: 'owner', title: 'Owner', thumbnail: null });
+  api.subscriptions = async () => [{
+    ...video('terminated-channel', 'Terminated channel', 'terminated-channel'), kind: 'channel',
+  }];
+  api.channelUploadPlaylists = async () => new Map([['terminated-channel', 'missing-uploads']]);
+  api.playlistItems = async () => { throw new CatalogError(404, 'playlist cannot be found'); };
+  api.search = async () => ({ videos: [], channels: [], playlists: [] });
+
+  const result = await service.refresh('oauth_connected');
+  assert.equal(result.ok, true);
+  const acquisition = getYoutubeState<{
+    coverage_complete: boolean; coverage_remaining: number; unavailable_channels: number;
+    partial: boolean; error: string | null;
+  }>('youtube_v2_subscription_acquisition', {
+    coverage_complete: false, coverage_remaining: 1, unavailable_channels: 0,
+    partial: true, error: 'missing',
+  });
+  assert.deepEqual(acquisition, {
+    ...acquisition,
+    coverage_complete: true,
+    coverage_remaining: 0,
+    unavailable_channels: 1,
+    partial: false,
+    error: null,
+  });
+  assert.equal(service.companionStatus().sync_status, 'ready');
 }));
 
 test('More Like uses uploads playlists and publishes a same-channel plus thematic hybrid', () => withTempState(async () => {

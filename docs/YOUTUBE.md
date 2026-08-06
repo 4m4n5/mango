@@ -190,6 +190,8 @@ coverage pass; later refreshes rotate 24 channels while retaining generation-
 scoped coverage diagnostics. Official video category, default language/audio
 language, and tags are cached as private thematic evidence. They can strengthen
 a multi-signal relation but cannot create provenance or leak into public cards.
+A conclusively missing uploads playlist is counted as covered-but-unavailable
+with zero candidates; auth, quota, transport, and other failures remain partial.
 The YouTube step still runs when playability returns a
 quota/source/error failure, but it is skipped while another playability
 maintenance lock is active.

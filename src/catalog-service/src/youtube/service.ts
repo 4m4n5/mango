@@ -1315,7 +1315,7 @@ export class YoutubeService {
       : selectSubscriptionRefreshChannels(subscriptions);
     const { channels, nextCursor } = selection;
     setYoutubeState('subscription_refresh_cursor', nextCursor);
-    const fetchedByChannel: Array<{ channel: YoutubeItem; items: YoutubeItem[] }> = [];
+    const fetchedByChannel: Array<{ channel: YoutubeItem; items: YoutubeItem[]; unavailable: boolean }> = [];
     const failedChannels: string[] = [];
     const uploadFailures: string[] = [];
     for (let index = 0; index < channels.length; index += SUBSCRIPTION_CHANNELS_PER_REFRESH) {
@@ -1326,10 +1326,24 @@ export class YoutubeService {
           const slice = batch.slice(offset, offset + SUBSCRIPTION_PLAYLIST_CONCURRENCY);
           const results = await Promise.allSettled(slice.map(async (channel) => {
             const playlistId = uploadPlaylists.get(channel.id);
-            const items = playlistId
-              ? await this.api.playlistItems(playlistId, SUBSCRIPTION_VIDEOS_PER_CHANNEL, token)
-              : [];
-            return { channel, items };
+            if (!playlistId) return { channel, items: [] as YoutubeItem[], unavailable: true };
+            try {
+              const items = await this.api.playlistItems(
+                playlistId,
+                SUBSCRIPTION_VIDEOS_PER_CHANNEL,
+                token,
+              );
+              return { channel, items, unavailable: false };
+            } catch (error) {
+              // A deleted/terminated channel can retain an uploads-playlist ID
+              // whose playlist is now 404. The source was conclusively
+              // inspected, so account coverage is complete with zero usable
+              // candidates; auth/quota/transport failures still fail closed.
+              if (error instanceof CatalogError && error.status === 404) {
+                return { channel, items: [] as YoutubeItem[], unavailable: true };
+              }
+              throw error;
+            }
           }));
           for (let resultIndex = 0; resultIndex < results.length; resultIndex += 1) {
             const result = results[resultIndex]!;
@@ -1349,6 +1363,7 @@ export class YoutubeService {
       ? `${uploadFailures[0] || 'upload refresh failed'}; ${failedChannels.length} subscription channels failed`
       : null;
     const acquiredAt = nowMs();
+    const unavailableChannels = fetchedByChannel.filter((entry) => entry.unavailable).length;
     const priorCoverage = getYoutubeState<YoutubeSubscriptionCoverageState | null>(
       'youtube_v2_subscription_coverage',
       null,
@@ -1383,7 +1398,10 @@ export class YoutubeService {
       channels_queried: channels.length,
       authoritative_channels: subscriptions.length,
       coverage_complete: coverageComplete,
-      coverage_remaining: Math.max(0, subscriptions.length - coveredRefs.size),
+      coverage_remaining: coverageComplete
+        ? 0
+        : Math.max(failedChannels.length, subscriptions.length - coveredRefs.size),
+      unavailable_channels: unavailableChannels,
       batches: Math.ceil(channels.length / SUBSCRIPTION_CHANNELS_PER_REFRESH),
       candidates_acquired: provenance.length,
       partial: uploadError !== null,
