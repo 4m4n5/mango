@@ -20,7 +20,13 @@ for name in ("progress", "library", "playability", "youtube"):
     connection.close()
 PY
 
-for _ in 1 2 3 4 5; do
+mkdir -p "$TEST_ROOT/backups/state"
+for stamp in 20260801-010101 20260802-010101 20260803-010101; do
+  cp "$TEST_ROOT/progress.db" "$TEST_ROOT/backups/state/progress-$stamp.db"
+  cp "$TEST_ROOT/library.db" "$TEST_ROOT/backups/state/library-$stamp.db"
+done
+
+for iteration in 1 2 3 4 5; do
   MANGO_STATE_BACKUP_DIR="$TEST_ROOT/backups/state" \
   MANGO_STATE_BACKUP_RETENTION=3 \
   MANGO_PROGRESS_DB_PATH="$TEST_ROOT/progress.db" \
@@ -28,9 +34,14 @@ for _ in 1 2 3 4 5; do
   MANGO_PLAYABILITY_DB_PATH="$TEST_ROOT/playability.db" \
   MANGO_YOUTUBE_DB_PATH="$TEST_ROOT/youtube.db" \
     bash "$REPO_DIR/scripts/m6-ship/backup-library-state.sh" --quiet
+  if [[ "$iteration" == "1" ]]; then
+    [[ "$(find "$TEST_ROOT/backups/state" -mindepth 1 -maxdepth 1 -type d -name 'state-*' | wc -l | tr -d ' ')" == "1" ]]
+    [[ "$(find "$TEST_ROOT/backups/state" -maxdepth 1 -type f -name 'library-*.db' | wc -l | tr -d ' ')" == "2" ]]
+  fi
 done
 
 [[ "$(find "$TEST_ROOT/backups/state" -mindepth 1 -maxdepth 1 -type d -name 'state-*' | wc -l | tr -d ' ')" == "3" ]]
+[[ "$(find "$TEST_ROOT/backups/state" -maxdepth 1 -type f -name 'library-*.db' | wc -l | tr -d ' ')" == "0" ]]
 python3 - "$TEST_ROOT/backups/state" <<'PY'
 import json
 from pathlib import Path

@@ -99,21 +99,39 @@ trap - EXIT
 # publishes atomically. Legacy flat files are handled by the explicit migration
 # helper so an ordinary service restart cannot silently reinterpret them.
 python3 - "$BACKUP_DIR" "$RETENTION" <<'PY'
+from collections import defaultdict
 from pathlib import Path
+import re
 import shutil
 import sys
 
 root = Path(sys.argv[1]).resolve()
 retention = int(sys.argv[2])
-sets = sorted(
-    (path for path in root.iterdir()
-     if path.is_dir() and path.name.startswith("state-")
-     and (path / "manifest.json").is_file()),
-    key=lambda path: path.name,
-    reverse=True,
-)
-for obsolete in sets[retention:]:
-    shutil.rmtree(obsolete)
+legacy_pattern = re.compile(r"^(library|progress)-(\d{8}-\d{6})\.db$")
+legacy = defaultdict(list)
+entries = []
+for path in root.iterdir():
+    if (path.is_dir() and path.name.startswith("state-")
+            and (path / "manifest.json").is_file()):
+        entries.append((path.stat().st_mtime_ns, "directory", path))
+    elif path.is_file():
+        match = legacy_pattern.match(path.name)
+        if match:
+            legacy[match.group(2)].append(path)
+for files in legacy.values():
+    entries.append((max(path.stat().st_mtime_ns for path in files), "legacy", files))
+
+entries.sort(key=lambda item: item[0], reverse=True)
+for _, kind, value in entries[retention:]:
+    if kind == "directory":
+        shutil.rmtree(value)
+        continue
+    for path in value:
+        path.unlink()
+        for suffix in ("-wal", "-shm"):
+            sidecar = Path(f"{path}{suffix}")
+            if sidecar.exists():
+                sidecar.unlink()
 PY
 
 if [[ "$QUIET" != "1" ]]; then
