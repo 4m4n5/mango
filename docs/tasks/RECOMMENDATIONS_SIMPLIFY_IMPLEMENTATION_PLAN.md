@@ -1,16 +1,16 @@
 # Mango VOD Recommendations v2 — Progressive Story Frontier
 
-Status: implemented and cleaned to one executable architecture on
-`feat/native-experience`; Pi and human couch proof remain deferred.
+Status: implemented, cleaned to one executable architecture, and deployed on
+the Pi in VOD/YouTube serve mode. Human couch proof remains deferred.
 
-Reliability amendment implemented at
-`c8cfe72154eb7732a41f78417f3a63b164835078`: additive library v17,
+Reliability amendment and follow-up fixes deployed at executable target
+`93345e8e7fbefccb9bc072958918c75ce2057c7f`: additive library v17,
 content-generation/prior reuse, paged one-worker ranking, resumable job
 diagnostics, couch-preemptible maintenance leases, liveness/readiness watchdog
 separation, guarded 1280M/1536M defaults, and conditional YouTube More Like.
 All stored ratings, Saved/history/profile/playability/StoryDNA/generation data
-and historical migrations remain preserved. Pi stability and couch quality are
-not inferred from Mac tests.
+and historical migrations remain preserved. Automated Pi stability passes;
+couch quality is not inferred from it.
 
 This document supersedes the corpus-wide StoryDNA design. The bulk StoryDNA
 work-agent prompt is retained only as historical planning input and is already

@@ -1,7 +1,8 @@
 # Fire & Water ratings and For You
 
 **Branch:** `feat/native-experience`
-**State:** commit `772b3d58b53208a278da4e9d5281b46f88054b8e` makes progressive Household VOD the sole executable
+**State:** executable target `93345e8e7fbefccb9bc072958918c75ce2057c7f`
+makes progressive Household VOD the sole executable
 recommendation architecture. It contains `vod-content-profile-v2`, immutable
 compatible StoryDNA overlays, `vod-story-frontier-v2`, cached six-card dealing,
 an optional bounded frontier, exact-ID TMDB enrichment, and additive schema
@@ -9,12 +10,12 @@ migrations. The prior semantic-hash v4, cosine/KNN/MMR, strict-only publication,
 legacy rank worker/snapshot fallback, corpus-wide teacher backfill, and v4
 comparison evaluator are no longer executable. Historical rows remain intact.
 
-The latest recorded Pi is deliberately contained at `3ef1b20` with VOD and
-YouTube off, StoryDNA/teacher/TMDB work off, and 1,096 StoryDNA rows preserved.
-It does not prove current deployment or public behavior.
-Complete latest-architecture accounting, safe exact-SHA Pi deployment,
-promotion, screenshots, and human couch judgment remain **DEFERRED**. The
-offline bulk artifact/importer is absent and is not a rollout prerequisite.
+The Pi currently serves VOD and YouTube from this target while
+StoryDNA/teacher/TMDB work remains off and all 1,096 StoryDNA rows remain
+preserved. Full verified-corpus accounting, bounded memory, cached shuffle,
+launch, and automated pre-couch gates pass. Screenshots and human ten-shuffle
+thematic judgment remain **DEFERRED**. The offline bulk artifact/importer is
+absent and is not a rollout prerequisite.
 See [STATUS.md](STATUS.md).
 
 ## Rollout semantics
@@ -39,7 +40,7 @@ No mode selects a deleted recommender. Operational rollback is `serve` →
 path deletes historical state. “Source-complete” must never be read as “the
 Household rail is currently served.”
 
-Source rollout contract at `772b3d5`:
+Deployed rollout contract at `93345e8`:
 
 - Shadow and serve both use exact Household Saved while leaving all personal
   rows intact.
@@ -50,8 +51,8 @@ Source rollout contract at `772b3d5`:
   rank pointers, active story/taste/model/status/publication, public epoch, and
   promotion linkage separately from the newest attempted row.
 - Focused mode/HTTP/ownership/publication/migration/rollback replacements pass,
-  as do the full catalog and launcher suites. Pi/runtime proof is still required
-  before promotion.
+  as do the full catalog and launcher suites. Pi runtime/accounting/latency/
+  launch proof now passes; human thematic judgment remains separate.
 
 ## Serve product contract
 
@@ -84,7 +85,7 @@ The bottom sheet stays inside the 5% safe area. Its two slider rows use a 4px
 white focus ring, minimum 28px essential copy, and explicit adjustment mode:
 
 1. Up/Down chooses an axis or action.
-2. B enters an axis at 2.5 when unset.
+2. B enters an axis at the neutral `2.0` when unset.
 3. Left/Right changes exactly 0.5.
 4. B confirms that axis.
 5. Save enables only after both axes were deliberately confirmed.
@@ -218,7 +219,7 @@ window/coalescing/concurrency/restart, TMDB failure/rate-limit/credential-file/
 TV-series, and mode-aware activation/staleness still need focused proof.
 Existing tests cover worker-off/per-type daily budget and exact-ID/no-fuzzy
 TMDB mapping; the corrected activation lookup accepts
-`vod-story-frontier-v2`, but Pi activation is still unobserved.
+`vod-story-frontier-v2`; Pi activation and cached serving are now observed.
 
 The local worker fits one to three deterministic Bayesian household threads.
 Categorical families use Dirichlet-multinomial posteriors; ordinal families use

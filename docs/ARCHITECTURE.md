@@ -278,8 +278,9 @@ migration 17 adds immutable per-content-generation priors and refresh phase,
 cursor, heartbeat, deadline, generation-link, typed-error, successor, and
 phase/peak-memory diagnostics; playability
 migration 14 adds semantic revisions. The exact executable target
-`c8cfe72154eb7732a41f78417f3a63b164835078` passes the recorded focused and
-full Mac suites, but remains Pi-undeployed and couch-unaccepted. Runtime
+`93345e8e7fbefccb9bc072958918c75ce2057c7f` passes the recorded focused and
+full Mac suites and automated Pi serve/pre-couch proof. Human thematic and
+target-TV judgment remains unaccepted. Runtime
 rollback disables exposure (`shadow`/`off`);
 older ranking code requires a reviewed Git rollback and can read preserved
 historical rows.
@@ -389,16 +390,16 @@ reservoirs. Independent
 `MANGO_VOD_RECS_V2=off|shadow|serve` and
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` switches permit isolated rollout.
 
-Both latest-only architectures have their source rollout blockers closed at
-`c8cfe72154eb7732a41f78417f3a63b164835078`: YouTube `off` uses exact active
+Both latest-only architectures have their source/runtime rollout blockers
+closed at `93345e8e7fbefccb9bc072958918c75ce2057c7f`: YouTube `off` uses exact active
 personal ownership, VOD active modes use exact Household Saved, off/shadow
 cannot expose or falsely advance Shuffle, and diagnostics distinguish the
 active/previous serving pointers from the newest attempted generation. Focused
 mode/owner/publication/migration/rollback tests and the full Mac suites pass.
-The newest Pi report remains contained at `9425b1f` with both recommendation
-domains and provider work off. Exact deployment, two-cycle memory stability,
-live complete accounting, promotion, Pi latency/restart proof, and couch
-judgment remain **DEFERRED**.
+The Pi now serves both domains with provider work off, complete accounting,
+bounded memory, stable invocation, and cached latency proof. Human ten-shuffle
+relevance, screenshots, and physical picture/audio/controller judgment remain
+**DEFERRED**.
 
 ### Unified Search
 

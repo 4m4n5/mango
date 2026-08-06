@@ -435,12 +435,11 @@ Scheduled maintenance (local time):
 
 ## Household recommendations
 
-Target `772b3d5` contains one executable architecture per domain: progressive
-Household VOD and provenance-gated YouTube v2. The latest repository-recorded
-home snapshot predates that cleanup; its VOD `shadow`, YouTube `off`, and
-partial predecessor counts are historical only. Reverify the live Pi before
-relying on any mode or count. Do not record complete accounting, promotion,
-current-SHA screenshots, or couch PASS until observed on the exact revision.
+Target `93345e8` contains one executable architecture per domain: progressive
+Household VOD and provenance-gated YouTube v2. The Pi currently serves both
+with complete accounting and automated gates. Reverify live state before
+relying on any mode or count, and do not record screenshots or human couch PASS
+until directly observed on the exact revision.
 
 One-title-at-a-time autonomous StoryDNA backfill was stopped for cost/latency.
 Current VOD refresh compiles `vod-content-profile-v2` locally for the verified
@@ -456,8 +455,9 @@ rank, cached-slate, and refresh-job state; migration 13 durably adds normalized
 Takeout history and import audit; migration 14 generation-scopes cached VOD
 slates and persists low-water repair requests. Library migration 15 adds
 profiles/frontier/calibration/usage; library migration
-16 for immutable StoryDNA overlays keyed by content plus semantic-evidence hash,
-and playability migration 14 for semantic revisions. Progress migration 2
+16 adds immutable StoryDNA overlays keyed by content plus semantic-evidence hash;
+library migration 17 adds immutable priors and resumable bounded refresh state;
+playability migration 14 adds semantic revisions. Progress migration 2
 remains profile-exact.
 None rewrites historical snapshots or deletes ratings, Saved, history, profiles,
 progress, StoryDNA, provenance, or last-good state.
@@ -465,7 +465,7 @@ progress, StoryDNA, provenance, or last-good state.
 The routine `scripts/m6-ship/backup-library-state.sh` is not fail-closed
 migration proof: if SQLite online backup raises `DatabaseError`, it falls back
 to a plain copy of the main DB file, and it does not cover `playability.db`.
-Before migrations 15–16/playability 14 on a live Pi, use and verify explicit
+Before migrations 15–17/playability 14 on a live Pi, use and verify explicit
 SQLite online backups for both `/etc/mango/library.db` and
 `/etc/mango/playability.db`; reject any plain-copy fallback.
 
@@ -482,7 +482,7 @@ curl -fsS http://127.0.0.1:3020/youtube/state | python3 -m json.tool
 curl -fsS http://127.0.0.1:3020/personalization/state | python3 -m json.tool
 ```
 
-At target `772b3d5`, library versions include `4` through `16`, playability
+At target `93345e8`, library versions include `4` through `17`, playability
 includes migration `14`, and progress includes `2`. Match expectations to the exact
 committed SHA; never start a dirty checkout against live databases merely to
 advance a migration marker.
@@ -548,11 +548,10 @@ mode-aware activation/staleness and active-pointer diagnostics pass. The removed
 `MANGO_VOD_CONTENT_PROFILE` and `MANGO_STORY_DNA_AUTONOMOUS_BACKFILL` keys are
 obsolete; remove those keys from operator configuration without touching data.
 
-Target `772b3d5` reports playability schema version `14`, matching the latest
-applied migration, and covers that equality with a focused test. Re-prove both
-the migration table and public status on the Pi after deployment. The source
-remains blocked from unattended deployment by the independent helper-safety
-defects and still requires Pi/promotion proof.
+Target `93345e8` reports library/playability schema versions `17`/`14`, matching
+the applied migrations; both Pi databases pass `quick_check`. Future deploys
+must re-prove the migration table and public status. The source remains blocked
+from unattended wrapper deployment by the independent helper-safety defects.
 
 Recommendation source blockers are closed at the target:
 

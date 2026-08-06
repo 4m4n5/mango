@@ -1,23 +1,51 @@
 # Recommendations reliability recovery — home deployment runbook
 
-Status: **READY FOR HOME SHADOW DEPLOYMENT**. This is Mac source/test truth,
-not Pi, serve, or couch proof.
+Status: **DEPLOYED ON THE PI IN SERVE MODE; AUTOMATED PROOF COMPLETE.** Human
+ten-shuffle thematic judgment and physical focus/audio/picture observation
+remain explicitly pending.
 
 ```bash
-TARGET_SHA=c8cfe72154eb7732a41f78417f3a63b164835078
+TARGET_SHA=93345e8e7fbefccb9bc072958918c75ce2057c7f
 ```
 
-Do not promote `345535d`, `3ef1b20`, `772b3d5`, or `9425b1f`. This successor
-retains the sole executable recommendation architectures while addressing the
-measured VOD memory/restart failure and the empty YouTube More Like reserve.
+Do not promote `345535d`, `3ef1b20`, `772b3d5`, `9425b1f`, or `c8cfe72` as the
+current target. This successor retains the sole executable recommendation
+architectures and includes the measured VOD evaluation, memory, shuffle,
+synthetic-gate isolation, and playback-smoke corrections.
 
-- VOD: `vod-content-profile-v2` + `vod-story-frontier-v1`.
+- VOD: `vod-content-profile-v2` + `vod-story-frontier-v2`.
 - YouTube: authoritative subscription/history provenance-gated v2.
 - StoryDNA: compatible `story-dna-v1` rows remain immutable optional overlays.
 
 Cleanup is code-only. Never delete, rewrite, merge, vacuum, fresh-start, purge,
 or regenerate databases, ratings, Saved, history, profiles, playability,
 StoryDNA, generations, tables, migrations, caches, credentials, or ledgers.
+
+## 0. Current deployment record
+
+The work agent deployed and tested the target directly on `mango` on
+2026-08-05. This table supersedes the historical containment notes later in
+this runbook.
+
+| Gate | Pi evidence |
+|------|-------------|
+| Modes | VOD `serve`; YouTube `serve`; StoryDNA teacher/frontier and TMDB `off` |
+| Durable state | Library schema 17; playability schema 14; both `quick_check=ok`; 1,096 `story-dna-v1`/AI overlays preserved; no synthetic gate Saved row |
+| VOD Movies | Active/public rank 142; 224 eligible + 5,447 sparse/excluded = 5,671 verified; reserve 224; six-card cached slate; `evidence_cold_start` |
+| VOD TV | Active/public rank 143; 230 eligible + 3,644 sparse/excluded = 3,874 verified; reserve 230; six-card cached slate; `evidence_cold_start` |
+| Ratings | `<1` is a true-negative evaluation label, `1–2` is neutral, and `>2` contributes quadratic positive evidence: `((rating - 2) / 3)^2` |
+| VOD evaluation | Only thematically rankable rated profiles are labels. Current result is honestly insufficient rather than a false concordance failure; operational serving remains independently authorized |
+| Memory/liveness | One catalog invocation, zero restarts/OOM events, process and cgroup memory separated, 128-title bounded work, effective 1280M/1536M limits |
+| YouTube | `youtube-household-v2.2` ready; history-only For You/Beyond reserves 26/26; zero subscriptions valid; More Like honestly `not_applicable`; allowed provenance only |
+| Cached interaction | Five-X VOD/YouTube checks stayed below 250 ms, changed eligible slates, kept stable utility rows, and caused zero rank/provider/quota work |
+| Playback | A served `For You` movie and canonical series both launched with advancing mpv playback; smoke now tries a bounded set of verified titles so one stale cached stream cannot impersonate a player regression |
+| Backup | `~/.local/share/mango/backups/agent-snapshots/frontier-pre-deploy-20260805T222844Z` retained with verified library/playability backups |
+
+The target passed 885/885 local catalog tests, 87/87 launcher deterministic
+tests, launcher and Companion production builds, 503 current recommendation and
+YouTube tests on the Pi, migration/state preservation checks, and the exact-SHA
+pre-couch gate. Automated proof does not substitute for the user-owned physical
+couch verdict.
 
 ## 1. Source contract and proof
 
@@ -39,8 +67,8 @@ The target adds:
 Mac proof bound to `TARGET_SHA`:
 
 ```text
-catalog-service npm test: 881 pass / 0 fail
-launcher deterministic tests: 86 pass / 0 fail
+catalog-service npm test: 885 pass / 0 fail
+launcher deterministic tests: 87 pass / 0 fail
 launcher production build: pass
 companion production build: pass
 health-repair shell syntax: pass
@@ -64,7 +92,7 @@ proof in a clean detached worktree at the exact target.
 the selected SHA and the deploy wrapper can mutate private AIOMetadata state.
 Use the reviewed manual Git/build/restart path below. Do not run addon sync.
 
-## 2. Recorded Pi containment — verify, do not assume
+## 2. Historical Pi containment — retained for incident provenance
 
 The latest home report records:
 
@@ -173,7 +201,7 @@ offline evaluation.
 
 Per-domain functional gates:
 
-- `model_version=vod-story-frontier-v1`, progressive profile mode;
+- `model_version=vod-story-frontier-v2`, progressive profile mode;
 - `eligible_ranked + sparse_unresolved + other_excluded == verified` and no
   unaccounted title;
 - reserve depth at least 200 and a valid six-card cached slate;

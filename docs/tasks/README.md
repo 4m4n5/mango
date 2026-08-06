@@ -17,16 +17,18 @@ relevant subsystem doc first.
 
 ## Current source work
 
-`c8cfe72154eb7732a41f78417f3a63b164835078` is the tested recommendation
-deployment target: bounded progressive Household VOD and authoritative
+`93345e8e7fbefccb9bc072958918c75ce2057c7f` is the deployed recommendation
+target: bounded progressive Household VOD and authoritative
 subscription/history YouTube v2 are the sole executable recommenders;
-historical data/schema remains. The catalog suite passes 881/881, launcher
-deterministic tests pass 86/86, launcher and companion builds pass, and focused
+historical data/schema remains. The catalog suite passes 885/885, launcher
+deterministic tests pass 87/87, orchestrator tests pass 106/106, launcher and
+companion builds pass, and focused
 tests cover paged-score parity, generation/prior reuse, couch maintenance,
 conditional More Like, preservation, ownership, Shuffle, active pointers, and
 migrations. The
-deploy wrappers remain independently blocked by branch/SHA and implicit
-AIOMetadata-mutation defects, so the reviewed manual runbook is the active path.
+Pi deployment/accounting/memory/latency/launch gates pass. The deploy wrappers
+remain independently blocked by branch/SHA and implicit AIOMetadata-mutation
+defects, so future changes still use the reviewed manual path.
 
 ## Current design records
 

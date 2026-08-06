@@ -210,12 +210,12 @@ state transition explicitly rather than treating shadow as invisible compute.
 | F15 | Shadow identity | Personal rows/counts remain intact; profile/mood writes are typed; Continue/progress and Saved ownership match the accepted Household policy with no shadow/serve divergence | |
 | F16 | Disabled Shuffle | X/Shuffle is hidden or honest in off/shadow; it never reports a successful refresh when no For You rail changed | |
 
-The latest recorded Pi snapshot predates `772b3d5` and had only partial
-predecessor StoryDNA/rank coverage. Before claiming promotion, prove the latest progressive compiler,
-semantic migrations, bounded frontier-off/default behavior, complete audited
-coverage, offline gates, and exact-SHA Pi/couch behavior. A bulk artifact or
-importer is required only if measured progressive coverage/quality gaps justify
-that additional architecture.
+The Pi serves target `93345e8` with complete progressive accounting, bounded
+frontier-off behavior, healthy reserves, and automated exact-target gates. Do
+not turn that into a human quality claim: F1–F14 still require the physical
+ten-shuffle relevance, focus, playback-return, picture, and audio checks. A
+bulk artifact/importer is required only if measured progressive quality gaps
+justify that additional architecture.
 
 ## 6 — Native YouTube
 

@@ -221,16 +221,17 @@ See also: [`../AGENTS.md`](../AGENTS.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md)
 
 Live IPTV: [`LIVE_TV.md`](LIVE_TV.md) — gates opt-in only.
 
-Recommendation rollout is intentionally home-owned. The tested executable
-target `c8cfe72154eb7732a41f78417f3a63b164835078` adds bounded/reusable VOD
+Recommendation rollout is deployed at executable target
+`93345e8e7fbefccb9bc072958918c75ce2057c7f`, which adds bounded/reusable VOD
 refresh work, v17 checkpoints and priors, couch preemption, liveness-safe
 repair, guarded 1280M/1536M defaults, and conditional YouTube More Like. The
-newest Pi report remains contained at `9425b1f` with both domains and provider
-work off after the earlier 1100M memory boundary was crossed. The deploy/gate wrappers are
+Pi currently serves both domains with provider work off, preserved data,
+complete accounting, stable memory/invocation, and cached latency proof. The
+deploy/gate wrappers are
 still blocked by the independent exact-SHA and implicit AIOMetadata issues
-above, so the home agent must use the reviewed manual target path in
+above, so future agents must use the reviewed manual target path in
 [tasks/RECOMMENDATIONS_PROGRESSIVE_FRONTIER_DEPLOY.md](tasks/RECOMMENDATIONS_PROGRESSIVE_FRONTIER_DEPLOY.md).
-Before promoting VOD from `shadow` to `serve`, prove
+Before any future re-promotion from `shadow` to `serve`, re-prove
 explicit fail-closed SQLite online backups for both library and playability
 state (the routine helper's plain-copy fallback is insufficient), two complete
 Movies+TV cycles under the documented invocation/cgroup/RSS/pressure gates,

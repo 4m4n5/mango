@@ -2,10 +2,10 @@
 
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
-Latest recommendation deployment target: **2026-08-05**,
-`c8cfe72154eb7732a41f78417f3a63b164835078`. It is source/Mac-test truth, not
-Pi/deployment/couch truth. Use `git status`, `git rev-parse HEAD`, and the Pi
-commands below before acting.
+Latest executable recommendation deployment target: **2026-08-05**,
+`93345e8e7fbefccb9bc072958918c75ce2057c7f`. It is deployed and automated-
+gated on the Pi; human couch judgment remains separate. Use `git status`,
+`git rev-parse HEAD`, and the Pi commands below before acting.
 
 ## How to read this page
 
@@ -29,10 +29,10 @@ prove only their exact revision and contract.
 | Native launcher, Detail, Search, D-pad | Complete | Deployed and repeatedly Pi-gated on earlier revisions; later UX rounds have partial couch evidence | Final exact-revision whole-product couch pass |
 | Native mpv playback | Complete | Deferred-foreground and single-B playback were proven on selected titles on earlier revisions | Current-SHA regression matrix, failure cases, target-TV/audio proof, legacy direct-MediaFusion topology decision |
 | HUD and Streams drawer | Complete | Local fixture/source gates; home-agent deployment work recorded | Current exact-SHA screenshots and 4K dropped-frame/no-regression couch pass |
-| Mango library and Fire/Water input | Complete | Library/ratings base deployed; earlier Fire/Water UI was couch-tuned under a superseded 12-card recommender | Recommendation-v2 served quality and current six-card acceptance |
-| VOD recommendations | `c8cfe72` bounded progressive profiles + Household Story Frontier; v17 priors/checkpoints, paged worker, couch preemption, liveness watchdog, guarded memory defaults; data preserved | Pi last reported at `9425b1f`, VOD off, 1,096 StoryDNA rows preserved after an 1100M `MemoryHigh` restart | Exact-SHA shadow deploy; two-cycle 1280M/1536M stability, accounting, latency, serve, couch verdict |
+| Mango library and Fire/Water input | Complete | Deployed; unset axes start at neutral 2; `<1` negative, `1–2` neutral, `>2` quadratic positive | Human use/clarity and served recommendation quality |
+| VOD recommendations | `93345e8` bounded progressive profiles + Household Story Frontier; v17 priors/checkpoints, paged worker, couch preemption, liveness watchdog, guarded memory defaults; data preserved | Pi serves Movies/TV with complete 5,671/3,874 accounting, 224/230 reserves, stable memory/invocation, cached X, and 1,096 preserved overlays | Human ten-shuffle thematic verdict and physical couch checks |
 | Native YouTube base | Complete | Previously deployed/Pi-gated | Current exact-SHA revalidation and account-specific proof |
-| YouTube recommendations | `c8cfe72` authoritative subscription/history v2; conditional alternate-seed/exact-channel More Like with stage funnels, data preserved | Pi last reported at `9425b1f`, YouTube off; prior More Like reserve empty | Independent shadow/serve, quota/provenance and couch proof; omission is valid only with `not_applicable` |
+| YouTube recommendations | `93345e8` authoritative subscription/history v2; conditional alternate-seed/exact-channel More Like with stage funnels, data preserved | Pi serves history-only For You/Beyond 26/26; provenance clean; More Like honestly `not_applicable`; cached X/quota proof passes | Human relevance, focus/launch/offline observation |
 | Voice/phone companion | Complete for trusted-LAN development contract | Automated corpus/memory/UX gates on earlier revisions; partial couch work | Full V1–V12/current coherence plus per-device client auth/pairing before appliance release |
 | Reliability Center/nightly proof | Implemented with a known optional-Live defect | Deployed on earlier revisions | Current-SHA proof, make intentionally disabled Live neutral, controller-action UI mismatch, repeated unattended evidence |
 | Controller reconnect | Source-complete | Automated gate exists; normal-wake behavior partially exercised | Five physical power-on reconnect cycles without pairing mode |
@@ -46,7 +46,7 @@ prove only their exact revision and contract.
 
 ### Source audit
 
-- `c8cfe72154eb7732a41f78417f3a63b164835078` is the exact executable recommendation rollout target. It keeps the
+- `93345e8e7fbefccb9bc072958918c75ce2057c7f` is the exact executable recommendation rollout target. It keeps the
   latest-only architecture and preserves historical database rows and schemas.
 - VOD retains deterministic `vod-content-profile-v2`, compatible immutable
   StoryDNA overlays, local Household taste/ranking, full-corpus generations,
@@ -61,22 +61,21 @@ prove only their exact revision and contract.
   and destructive fresh-start/reset APIs. Search and user-created AI catalog
   seeds remain separate and cannot establish recommendation provenance.
 - The catalog-service build and full test suite pass locally at this revision
-  (`881/881`), as do 86 launcher deterministic tests and the launcher and
+  (`885/885`), as do 87 launcher deterministic tests, 106 orchestrator tests,
+  and the launcher and
   companion production builds. The
   cleanup intentionally removed a large legacy implementation/test surface, so
-  Pi migration/state-preservation proof, mode-aware gates, generated reserve
-  health, and human quality remain mandatory rather than inferred from test
+  Pi migration/state-preservation proof, mode-aware gates, and generated reserve
+  health pass. Human quality remains mandatory rather than inferred from test
   count alone.
 - Migrations 15–17 retain the additive progressive/overlay/runtime schema, and
   playability migration 14 remains. Focused runtime proof is still needed for
   upgrade/preservation/rollback, frontier lease/retry/rolling-window/
   coalescing/concurrency/restart behavior, TMDB failure/rate/credential/series
   cases, and exact Pi activation/staleness behavior.
-- One orphaned compatibility surface remains outside the catalog recommender:
-  the orchestrator still exposes `/recommendations/enrich`, although the
-  latest catalog architecture no longer consumes the legacy v4 enrichment
-  path. Treat removal or repurposing as cleanup work; do not expose it as a
-  supported product recommendation architecture.
+- The orphaned orchestrator `/recommendations/enrich` v4 compatibility route
+  and implementation are removed. Only the strict content-only StoryDNA
+  teacher endpoint remains; it is off for the current couch round.
 
 ### Confirmed source inconsistencies and blockers
 
@@ -111,18 +110,18 @@ prove only their exact revision and contract.
   `/stream` diagnostics can still expose raw addon fetch error details even
   though the launcher does not render them and the companion proxy blocks the
   route. Treat those DTOs as operator-only; sanitize them before widening access.
-- **Recommendation source blockers are closed at `c8cfe72`.** YouTube off now
+- **Recommendation source/runtime blockers are closed at `93345e8`.** YouTube off now
   returns exact active-profile utilities without a false 409; VOD shadow and
   serve both read exact Household Saved; off/shadow cannot advance or falsely
   report Shuffle; and diagnostics distinguish newest rows from active/previous,
-  promotion, and public pointers. Focused mode/migration/publication tests pass.
-  Pi/runtime proof is still required before promotion.
+  promotion, and public pointers. Pi serve proof now passes for both domains.
 - **Heavy VOD refresh ownership is now bounded and recoverable in source.** A
   single worker scores deterministic 128-title pages from compact priors and
   positive anchors; taste-only changes reuse complete content generations and
   persisted priors. Jobs checkpoint phase/cursor/revisions, publish memory
   diagnostics, and yield at a page boundary when authoritative couch/playback
-  activity begins. Pi two-cycle stability remains unproven.
+  activity begins. Two-cycle Pi stability, preemption, liveness, and cache-only
+  serving passed at the deployed target under 1280M/1536M limits.
 - **YouTube More Like is conditional rather than a false rollout blocker.** It
   tries alternate meaningful-history seeds, then exact-channel fallback. Four
   thematic cards render `More Like`, four fallback cards render `More from …`,
@@ -148,24 +147,28 @@ prove only their exact revision and contract.
 
 ### Latest repository-recorded recommendation runtime snapshot
 
-The newest home handoff records the Pi contained at `9425b1f` with:
+The Pi is deployed at executable target
+`93345e8e7fbefccb9bc072958918c75ce2057c7f` with:
 
 ```text
-MANGO_VOD_RECS_V2=off
-MANGO_YOUTUBE_RECS_V2=off
+MANGO_VOD_RECS_V2=serve
+MANGO_YOUTUBE_RECS_V2=serve
 MANGO_STORY_DNA=0
 MANGO_STORY_DNA_WORKER_MODE=off
 MANGO_TMDB_METADATA=off
 ```
 
-It records 1,096 preserved StoryDNA rows. Its final attempted Movies refresh
-crossed the operator `MemoryHigh=1100M` boundary by about 2.2 MiB, changed the
-catalog invocation, and did not complete cleanly; YouTube generated For
-You/Beyond but no More Like reserve. Both domains and StoryDNA/frontier/TMDB
-work were returned to `off`. These are dated runtime observations for
-`9425b1f`, not evidence for `c8cfe72`. The current target bounds/reuses VOD work
-and makes More Like conditional; both changes still require exact-target Pi
-proof.
+Library/playability schemas are 17/14 and both databases pass `quick_check`.
+All 1,096 StoryDNA overlays remain preserved. Movies accounts for 224 ranked +
+5,447 sparse/excluded = 5,671 verified titles; TV accounts for 230 + 3,644 =
+3,874. Both active/public generations have six-card cached slates and use the
+honest `evidence_cold_start` basis because no currently rated title has a
+thematically rankable profile for supervised replay. YouTube is ready with
+history-only For You/Beyond reserves of 26/26, zero subscriptions, allowed
+history provenance only, and conditional More Like recorded `not_applicable`.
+The catalog remained on one invocation with zero restarts during the final
+automated proof. Human ten-shuffle relevance, screenshots, and target-TV
+picture/audio judgment remain pending.
 
 ### Older objective playback/runtime evidence
 
@@ -242,6 +245,11 @@ or let a failed external phase erase usable local results. Detail:
 | Progress | One logical watch/progress session through retry, switch, Undo, and return |
 | HUD | Clean startup; safe-area cinematic panel; elapsed/negative remaining; proven technical line; 4/6 s contextual feedback; minimal paused badge; delayed buffering; no false Live timeline |
 | Streams | Five-choice 58%-height bottom drawer; current pinned first; best usable alternative focused; unavailable disabled; validation before explicit switch; revisioned X Undo |
+
+**Runtime profile source of truth:** on the Pi, run
+`bash scripts/m6-ship/set-playback-engine.sh status`; the supported daily profile
+is `mpv-hifi`. Repository prose and environment-file inspection are not a
+substitute for that runtime readback.
 
 ### Resolver topology
 
