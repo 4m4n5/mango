@@ -1,11 +1,12 @@
 # Recommendations reliability recovery — home deployment runbook
 
-Status: **DEPLOYED ON THE PI IN SERVE MODE; AUTOMATED PROOF COMPLETE.** Human
-ten-shuffle thematic judgment and physical focus/audio/picture observation
-remain explicitly pending.
+Status: **DEPLOYED ON THE PI IN SERVE MODE; HEADLESS-SAFE SUBSYSTEM PROOF
+COMPLETE.** The aggregate pre-couch gate stops because the physical X11 monitor
+is powered off. Human thematic, focus, audio, and picture observation remain
+explicitly pending.
 
 ```bash
-TARGET_SHA=93345e8e7fbefccb9bc072958918c75ce2057c7f
+TARGET_SHA=3aa64513c73590b006e8e3d937de750e725f014c
 ```
 
 Do not promote `345535d`, `3ef1b20`, `772b3d5`, `9425b1f`, or `c8cfe72` as the
@@ -31,21 +32,22 @@ this runbook.
 |------|-------------|
 | Modes | VOD `serve`; YouTube `serve`; StoryDNA teacher/frontier and TMDB `off` |
 | Durable state | Library schema 17; playability schema 14; both `quick_check=ok`; 1,096 `story-dna-v1`/AI overlays preserved; no synthetic gate Saved row |
-| VOD Movies | Active/public rank 142; 224 eligible + 5,447 sparse/excluded = 5,671 verified; reserve 224; six-card cached slate; `evidence_cold_start` |
-| VOD TV | Active/public rank 143; 230 eligible + 3,644 sparse/excluded = 3,874 verified; reserve 230; six-card cached slate; `evidence_cold_start` |
+| VOD Movies | Active/public rank 153; 224 eligible + 5,447 sparse/excluded = 5,671 verified; reserve 224; cyclic six-card cached slate; `evidence_cold_start` |
+| VOD TV | Active/public rank 154; 229 eligible + 3,645 sparse/excluded = 3,874 verified; reserve 229; cyclic six-card cached slate; `evidence_cold_start` |
 | Ratings | `<1` is a true-negative evaluation label, `1–2` is neutral, and `>2` contributes quadratic positive evidence: `((rating - 2) / 3)^2` |
 | VOD evaluation | Only thematically rankable rated profiles are labels. Current result is honestly insufficient rather than a false concordance failure; operational serving remains independently authorized |
 | Memory/liveness | One catalog invocation, zero restarts/OOM events, process and cgroup memory separated, 128-title bounded work, effective 1280M/1536M limits |
-| YouTube | `youtube-household-v2.2` ready; history-only For You/Beyond reserves 26/26; zero subscriptions valid; More Like honestly `not_applicable`; allowed provenance only |
-| Cached interaction | Five-X VOD/YouTube checks stayed below 250 ms, changed eligible slates, kept stable utility rows, and caused zero rank/provider/quota work |
-| Playback | A served `For You` movie and canonical series both launched with advancing mpv playback; smoke now tries a bounded set of verified titles so one stale cached stream cannot impersonate a player regression |
-| Backup | `~/.local/share/mango/backups/agent-snapshots/frontier-pre-deploy-20260805T222844Z` retained with verified library/playability backups |
+| YouTube | `youtube-household-v2.3` ready for channel `Aman`, India/en; 55 authoritative subscriptions and five Mango-local meaningful watches; reserves 120/38/6/120; exact-channel `More from …` is the honest current fallback |
+| Cached interaction | 100 X presses per VOD tab retained four-slate avoidance with p95 27/14 ms; five-X YouTube p95 stayed below 250 ms, kept utilities stable, and used zero quota/provider work |
+| Playback | Exact-SHA YouTube search/detail/`yt-dlp -> mpv` smoke passes; earlier served VOD representative launch proof remains applicable because the later executable delta is cache/dealer-only |
+| Backup | `~/.local/share/mango/backups/agent-snapshots/youtube-v23-pre-deploy-20260806T023133Z` is complete; older frontier backups remain preserved |
 
-The target passed 885/885 local catalog tests, 87/87 launcher deterministic
-tests, launcher and Companion production builds, 503 current recommendation and
-YouTube tests on the Pi, migration/state preservation checks, and the exact-SHA
-pre-couch gate. Automated proof does not substitute for the user-owned physical
-couch verdict.
+The target passed 893/893 catalog tests on both Mac and Pi, 87/87 launcher
+deterministic tests on both machines, launcher and Companion production builds,
+migration/state preservation checks, YouTube smoke, actual YouTube playback,
+and long-session cached shuffle proof. The aggregate pre-couch gate is
+DEFERRED at its first physical-display check (`X11 monitor is Off`); automated
+proof does not substitute for the user-owned physical couch verdict.
 
 ## 1. Source contract and proof
 
@@ -63,11 +65,15 @@ The target adds:
 - repo defaults `MemoryHigh=1280M`, `MemoryMax=1536M`;
 - alternate-seed thematic YouTube acquisition, exact-channel fallback, funnel
   diagnostics, More-Like-first allocation, and honest conditional omission.
+- post-auth authorized-channel truth, complete paged subscription coverage,
+  official metadata evidence, and source/seed portfolio constraints;
+- cyclic predealt VOD slates plus a cached-tab X path that replaces only For You
+  and avoids finite-queue exhaustion or curated-rail rebuild latency.
 
 Mac proof bound to `TARGET_SHA`:
 
 ```text
-catalog-service npm test: 885 pass / 0 fail
+catalog-service npm test: 893 pass / 0 fail
 launcher deterministic tests: 87 pass / 0 fail
 launcher production build: pass
 companion production build: pass

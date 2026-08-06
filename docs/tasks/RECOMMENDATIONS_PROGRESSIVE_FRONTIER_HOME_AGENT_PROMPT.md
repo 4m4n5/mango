@@ -4,7 +4,7 @@
 Work on the Mango Pi/home LAN only if the user asks for additional automated
 or physical couch evidence. The recommendation deployment is already complete.
 
-EXECUTABLE_TARGET_SHA=93345e8e7fbefccb9bc072958918c75ce2057c7f
+EXECUTABLE_TARGET_SHA=3aa64513c73590b006e8e3d937de750e725f014c
 
 Read completely before acting:
 - AGENTS.md
@@ -25,7 +25,11 @@ Current state to verify, never assume:
   story-dna-v1/AI overlays;
 - preserved companion.example dirt and all existing backups, including
   ~/.local/share/mango/backups/agent-snapshots/
-  frontier-pre-deploy-20260805T222844Z.
+  youtube-v23-pre-deploy-20260806T023133Z;
+- authenticated YouTube account `Aman`, region IN/language en, 55 authoritative
+  subscriptions, and current v2.3 reserves 120/38/6/120;
+- the aggregate pre-couch gate is still expected to stop if the physical X11
+  monitor remains powered off.
 
 Do not deploy, rebuild, refresh recommendations, change modes, change memory,
 or mutate data merely to repeat already-complete proof. Do not use rsync/scp,
@@ -49,9 +53,11 @@ Remaining user-owned acceptance work:
 3. Launch representative Movies, TV, and YouTube cards. Confirm advancing
    playback, Back restoration, picture/audio quality, and no raw provider or
    diagnostic copy.
-4. Confirm YouTube For You and Beyond feel relevant. More Like may be absent
-   only while diagnostics say not_applicable; zero subscriptions is valid for
-   this current history-only account.
+4. Confirm YouTube For You and Beyond feel relevant. The current third rail is
+   honestly `More from Them Boxer Shorts` because official topic acquisition
+   did not produce four qualifying cross-channel cards. A future `More Like`
+   hybrid/thematic rail is valid only when diagnostics and visible provenance
+   agree. Do not run a manual Takeout import unless the user separately asks.
 5. Capture screenshots only if the user requests them. Do not claim subjective
    relevance, target-TV quality, or physical-controller behavior without direct
    observation.

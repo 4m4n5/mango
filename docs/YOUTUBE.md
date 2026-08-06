@@ -1,12 +1,14 @@
 # mango — native YouTube
 
-**Milestone:** M6.2 · **Status:** the native YouTube base was previously
-Pi-deployed/gated. Commit `772b3d58b53208a278da4e9d5281b46f88054b8e` makes authoritative subscription/history v2
+**Milestone:** M6.2 · **Status:** the native YouTube base and recommendation
+v2.3 are Pi-deployed/gated. Commit `3aa64513c73590b006e8e3d937de750e725f014c` makes authoritative subscription/history v2
 the sole executable recommendation architecture behind an independent
 `off|shadow|serve` flag. The current v2.3 source adds post-auth account/sync
 truth, complete bounded subscription coverage, official metadata evidence,
 source/seed portfolio constraints, and uploads-playlist-backed conditional
-More Like recovery. Exact Pi runtime proof is recorded in [STATUS.md](STATUS.md).
+More Like recovery. The current India account is Ready with 55 subscriptions;
+manual Takeout history import was deliberately not run. Exact Pi runtime proof
+is recorded in [STATUS.md](STATUS.md).
 
 Mango treats YouTube as a first-class content source while preserving the voice
 safety contract: voice can search/open/save, but playback starts only when the

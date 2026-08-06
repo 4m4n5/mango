@@ -4,12 +4,13 @@ Status: implemented, cleaned to one executable architecture, and deployed on
 the Pi in VOD/YouTube serve mode. Human couch proof remains deferred.
 
 Reliability amendment and follow-up fixes deployed at executable target
-`93345e8e7fbefccb9bc072958918c75ce2057c7f`: additive library v17,
+`3aa64513c73590b006e8e3d937de750e725f014c`: additive library v17,
 content-generation/prior reuse, paged one-worker ranking, resumable job
 diagnostics, couch-preemptible maintenance leases, liveness/readiness watchdog
-separation, guarded 1280M/1536M defaults, and conditional YouTube More Like.
+separation, guarded 1280M/1536M defaults, cyclic cached VOD shuffle, and
+YouTube v2.3 account/subscription/metadata/portfolio improvements.
 All stored ratings, Saved/history/profile/playability/StoryDNA/generation data
-and historical migrations remain preserved. Automated Pi stability passes;
+and historical migrations remain preserved. Headless-safe Pi stability passes;
 couch quality is not inferred from it.
 
 This document supersedes the corpus-wide StoryDNA design. The bulk StoryDNA

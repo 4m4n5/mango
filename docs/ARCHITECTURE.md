@@ -278,9 +278,10 @@ migration 17 adds immutable per-content-generation priors and refresh phase,
 cursor, heartbeat, deadline, generation-link, typed-error, successor, and
 phase/peak-memory diagnostics; playability
 migration 14 adds semantic revisions. The exact executable target
-`93345e8e7fbefccb9bc072958918c75ce2057c7f` passes the recorded focused and
-full Mac suites and automated Pi serve/pre-couch proof. Human thematic and
-target-TV judgment remains unaccepted. Runtime
+`3aa64513c73590b006e8e3d937de750e725f014c` passes the recorded focused and
+full Mac suites and headless-safe Pi recommendation proof. The aggregate
+pre-couch gate remains blocked by the powered-off X11 monitor; human thematic
+and target-TV judgment remains unaccepted. Runtime
 rollback disables exposure (`shadow`/`off`);
 older ranking code requires a reviewed Git rollback and can read preserved
 historical rows.
@@ -403,13 +404,15 @@ reservoirs. Independent
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` switches permit isolated rollout.
 
 Both latest-only architectures have their source/runtime rollout blockers
-closed at `93345e8e7fbefccb9bc072958918c75ce2057c7f`: YouTube `off` uses exact active
+closed at `3aa64513c73590b006e8e3d937de750e725f014c`: YouTube `off` uses exact active
 personal ownership, VOD active modes use exact Household Saved, off/shadow
 cannot expose or falsely advance Shuffle, and diagnostics distinguish the
 active/previous serving pointers from the newest attempted generation. Focused
 mode/owner/publication/migration/rollback tests and the full Mac suites pass.
 The Pi now serves both domains with provider work off, complete accounting,
-bounded memory, stable invocation, and cached latency proof. Human ten-shuffle
+bounded memory, and cached latency proof. VOD predealt queues are cyclic, so X
+can rotate indefinitely while retaining four-slate avoidance; the tab response
+reuses cached curated/utility state and replaces only For You. Human ten-shuffle
 relevance, screenshots, and physical picture/audio/controller judgment remain
 **DEFERRED**.
 

@@ -443,7 +443,7 @@ Scheduled maintenance (local time):
 
 ## Household recommendations
 
-Target `93345e8` contains one executable architecture per domain: progressive
+Target `3aa6451` contains one executable architecture per domain: progressive
 Household VOD and provenance-gated YouTube v2. The Pi currently serves both
 with complete accounting and automated gates. Reverify live state before
 relying on any mode or count, and do not record screenshots or human couch PASS
@@ -490,7 +490,7 @@ curl -fsS http://127.0.0.1:3020/youtube/state | python3 -m json.tool
 curl -fsS http://127.0.0.1:3020/personalization/state | python3 -m json.tool
 ```
 
-At target `93345e8`, library versions include `4` through `17`, playability
+At target `3aa6451`, library versions include `4` through `17`, playability
 includes migration `14`, and progress includes `2`. Match expectations to the exact
 committed SHA; never start a dirty checkout against live databases merely to
 advance a migration marker.
@@ -556,7 +556,7 @@ mode-aware activation/staleness and active-pointer diagnostics pass. The removed
 `MANGO_VOD_CONTENT_PROFILE` and `MANGO_STORY_DNA_AUTONOMOUS_BACKFILL` keys are
 obsolete; remove those keys from operator configuration without touching data.
 
-Target `93345e8` reports library/playability schema versions `17`/`14`, matching
+Target `3aa6451` reports library/playability schema versions `17`/`14`, matching
 the applied migrations; both Pi databases pass `quick_check`. Future deploys
 must re-prove the migration table and public status. The source remains blocked
 from unattended wrapper deployment by the independent helper-safety defects.

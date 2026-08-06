@@ -17,16 +17,18 @@ relevant subsystem doc first.
 
 ## Current source work
 
-`93345e8e7fbefccb9bc072958918c75ce2057c7f` is the deployed recommendation
+`3aa64513c73590b006e8e3d937de750e725f014c` is the deployed recommendation
 target: bounded progressive Household VOD and authoritative
 subscription/history YouTube v2 are the sole executable recommenders;
-historical data/schema remains. The catalog suite passes 885/885, launcher
+historical data/schema remains. The catalog suite passes 893/893, launcher
 deterministic tests pass 87/87, orchestrator tests pass 106/106, launcher and
 companion builds pass, and focused
 tests cover paged-score parity, generation/prior reuse, couch maintenance,
 conditional More Like, preservation, ownership, Shuffle, active pointers, and
 migrations. The
-Pi deployment/accounting/memory/latency/launch gates pass. The deploy wrappers
+Pi deployment/accounting/memory/latency/launch gates pass; the current
+authenticated India YouTube account has 55 subscriptions and healthy v2.3
+reserves, and VOD cyclic shuffle proof covers 100 X presses per tab. The deploy wrappers
 remain independently blocked by branch/SHA and implicit AIOMetadata-mutation
 defects, so future changes still use the reviewed manual path.
 

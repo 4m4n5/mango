@@ -1,7 +1,7 @@
 # Fire & Water ratings and For You
 
 **Branch:** `feat/native-experience`
-**State:** executable target `93345e8e7fbefccb9bc072958918c75ce2057c7f`
+**State:** executable target `3aa64513c73590b006e8e3d937de750e725f014c`
 makes progressive Household VOD the sole executable
 recommendation architecture. It contains `vod-content-profile-v2`, immutable
 compatible StoryDNA overlays, `vod-story-frontier-v2`, cached six-card dealing,
@@ -12,8 +12,9 @@ comparison evaluator are no longer executable. Historical rows remain intact.
 
 The Pi currently serves VOD and YouTube from this target while
 StoryDNA/teacher/TMDB work remains off and all 1,096 StoryDNA rows remain
-preserved. Full verified-corpus accounting, bounded memory, cached shuffle,
-launch, and automated pre-couch gates pass. Screenshots and human ten-shuffle
+preserved. Full verified-corpus accounting, bounded memory, cyclic cached
+shuffle, and headless-safe launch gates pass. The aggregate pre-couch gate is
+blocked only by the powered-off X11 monitor. Screenshots and human ten-shuffle
 thematic judgment remain **DEFERRED**. The offline bulk artifact/importer is
 absent and is not a rollout prerequisite.
 See [STATUS.md](STATUS.md).
@@ -40,7 +41,7 @@ No mode selects a deleted recommender. Operational rollback is `serve` →
 path deletes historical state. “Source-complete” must never be read as “the
 Household rail is currently served.”
 
-Deployed rollout contract at `93345e8`:
+Deployed rollout contract at `3aa6451`:
 
 - Shadow and serve both use exact Household Saved while leaving all personal
   rows intact.
