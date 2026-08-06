@@ -492,6 +492,13 @@ provider verification, metadata enrichment, StoryDNA, or ranking work; any
 failed card is healed from already-published local state or the previous deal
 is retained.
 
+At executable Pi target `fb20baa`, Browse v3 is in `serve` with two ready
+reservoirs and 19,950 candidate rows. Forty X presses per tab stayed cache-only,
+globally deduplicated every page, and measured p95 121.9 ms Movies / 119.5 ms
+TV. Detail Related reads compatible compiler-v2/StoryDNA evidence and restricts
+rotation to the strongest 64 candidates that satisfy direct thematic admission;
+it never performs synchronous enrichment.
+
 ## Open items
 
 | Item | Why it matters |
@@ -501,6 +508,6 @@ is retained.
 | Promote/demote sources from measured grow outcomes | Runtime weights should keep healthy catalogs hot and weak catalogs on small probation budgets |
 | Keep diagnostics compact | Operators need exact stage/source/reason without exposing grow/debug status on TV |
 | Revisit full retheme cadence | Full metadata retheme is useful but can trigger many meta calls; default grow should stay lightweight |
-| Prove latest-only recommendations | `772b3d5` compiles local profiles, fixes VOD shadow/Shuffle, YouTube off ownership, active pointers, and schema diagnostics, and offers an off-by-default bounded frontier; deploy the exact SHA in independent shadow lanes and measure Pi accounting/quality/cost before promotion |
+| Human-judge current recommendations | Automated Browse v3 accounting, latency, dedupe, all-rail rotation, and cached serving pass at `fb20baa`; ten-shuffle For You plausibility, category truth, Detail Related coherence, focus, and target-TV playback remain couch-owned |
 | Prove recommendation refresh after publication | Grow completion must wait for exact VOD/YouTube jobs while preserving last-good on failure |
 | Prove AIO runtime topology separately from Git | AIOStreams `userData` is Pi-owned state; resolver/indexer/transport contribution cannot be inferred from repository config |

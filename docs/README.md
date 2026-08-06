@@ -39,8 +39,8 @@ probe performed by this documentation audit.
 | Library | Mango-owned Continue, Saved, history, finished state, Fire/Water ratings, feedback, attribution, and normalized YouTube history |
 | Voice/phone | Text/PTT librarian that searches and opens Detail; **B** still starts playback; no TTS in the current couch contract |
 | Operations | Reliability Center, nightly proof ledger, safe repair, controller link/router split, and a Git-only deploy contract; the current wrappers are blocked for unattended agents because branch pinning and an implicit AIOMetadata mutation are not fail-closed |
-| VOD recommendations | `06487cd` is latest-only and Pi-served: deterministic `vod-content-profile-v2`, immutable compatible StoryDNA overlays, local Household Story Frontier ranking, cyclic cached six-card dealing, and cached active-tab category Shuffle. Complete 5,930/3,974 accounting and 308/285 reserves pass; current proof changed every category rail and `For You` with fresh membership in 77.7 ms Movies / 48.3 ms TV. Human thematic judgment remains open |
-| YouTube recommendations | `06487cd` / `youtube-household-v2.6` is Pi-served for the authenticated India account with 55 authoritative subscriptions plus 2,872 normalized Takeout events (2,548 unique videos). Those are the only taste/acquisition inputs; Mango-local viewing is History/progress plus a 30-day exact-video cooldown. Generation-16 reserves are 120/80/103/120; six official-history seeds built More Like and five cached X calls measured p95 212.2 ms with stable utilities and no quota work. Exported Search history remains unused |
+| VOD recommendations | `fb20baa` is Pi-served: precise Household Story Frontier `For You`, full-corpus positive-weight Explore, trusted weighted category/AI rails, atomic all-rail tab deals, and StoryDNA-first Detail Related. Complete 5,930/3,974 accounting and 720/675 rank reserves pass. Forty X presses per tab exposed 2,121/1,897 unique cards at p95 121.9/119.5 ms with no provider/rank work. Human thematic judgment remains open |
+| YouTube recommendations | `fb20baa` retains Pi-served `youtube-household-v2.6` for the authenticated India account with 55 authoritative subscriptions plus 2,872 normalized Takeout events (2,548 unique videos). Those are the only taste/acquisition inputs; Mango-local viewing is History/progress plus a 30-day exact-video cooldown. Generation-16 reserves are 120/80/103/120; six official-history seeds built More Like and cached X stays quota-free. Exported Search history remains unused |
 | Display sleep | The intentional Settings-driven policy is locked but not implemented/proven. A recorded Pi inspection still found accidental Xorg 600-second DPMS values |
 | Stateful addon helpers | AIO diff/apply and AIOMetadata import/sync currently leave or expose secret-bearing state; `pi-deploy.sh` can invoke the AIOMetadata sync implicitly, so the wrapper and direct mutation helpers are blocked for unattended agents until secure-temp/redaction/explicit-opt-in hardening |
 | 4K/HDR | 1080p is the safe fallback; compatible 4K SDR HEVC is integrated and older-proven but needs the current exact-TV matrix; native HDR is unsupported on the current X11/mpv path |
@@ -80,7 +80,7 @@ product specification. Their lifecycle index is
 | M3 Play | Shipped; resolver/grow/target-TV reliability still hardening |
 | M4 Addons | Shipped |
 | M5 Voice + AI | Implemented; comprehensive phone/voice couch sign-off remains |
-| M6 Ship | In progress: recommendation promotion, display sleep, target-TV fidelity, final couch acceptance, and first-boot wizard |
+| M6 Ship | In progress: recommendation couch acceptance, display sleep, target-TV fidelity, final whole-product acceptance, and first-boot wizard |
 
 ## Standard pre-couch gates
 

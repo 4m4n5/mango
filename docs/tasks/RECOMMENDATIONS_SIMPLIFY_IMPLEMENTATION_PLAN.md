@@ -44,11 +44,24 @@ available; Saved is `0.8`, a meaningful partial watch `0.55`, and completion
 The six-card `2/2/2`, `3/3`, or one-thread portfolio remains. Within a thread:
 
 ```text
-q = clamp((rank_score - 2.5) / (thread_q95 - 2.5), 0, 1)
+effective_fit_floor =
+  2.5, when at least 200 candidates meet 2.5
+  otherwise the 200th-strongest finite risk-adjusted rank score
+
+q = clamp(
+  (rank_score - effective_fit_floor)
+  / (thread_q95 - effective_fit_floor),
+  0,
+  1
+)
 weight = 1 + 31 * q^2
 ```
 
-Below-floor candidates remain auditable but cannot serve. Predealt slates use
+The calibrated fallback is needed because `rank_score` subtracts posterior
+uncertainty and is not guaranteed to share the 0–5 predicted-axis scale. It
+still admits only the strongest ranker-produced reserve; it never imports an
+Explore candidate or weakens exact exclusions. Below-floor candidates remain
+auditable but cannot serve. Predealt slates use
 deterministic Gumbel/exponential-race sampling without replacement, four-slate
 avoidance, and at most two titles from one franchise. No Explore candidate is
 used to repair a weak taste thread.
@@ -134,11 +147,17 @@ related_weight = 1 + 15 * normalized_relation_score^2
 ```
 
 Families receive equal mass and multi-value evidence divides its family mass.
-Matches require at least two independent shared families and at least one
-semantic family. Exact exclusions, current Home cards, and unverified titles
-cannot serve. A slate permits at most two franchise siblings and otherwise one
-title per creator. Sparse/factual coincidences that cannot meet this standard
-omit the rail honestly; the launcher no longer substitutes random Home cards.
+For an enriched anchor, broad ontology parents and ordinal facets may refine
+ordering but cannot admit a candidate: admission requires an exact direct genre
+overlap plus three direct core families from genre, story engine, theme,
+character dynamic, and tone, with either story-engine overlap or four total
+core families. Sparse anchors require exact genre/category plus an independent
+creator, director, writer, country, language, decade, format, franchise, or
+studio fact. Rotation is restricted to the strongest 64 qualified semantic
+matches. Exact exclusions, current Home cards, and unverified titles cannot
+serve. A slate permits at most two franchise siblings and otherwise one title
+per creator. Sparse/factual coincidences that cannot meet this standard omit
+the rail honestly; the launcher no longer substitutes random Home cards.
 
 ## Derived persistence and diagnostics
 
@@ -146,7 +165,7 @@ Playability migrations 16–17 add only replaceable state:
 
 - trusted category membership and component weights;
 - Explore session rows;
-- active/previous atomic tab deals.
+- active/previous atomic tab deals;
 - atomic active/previous sampling reservoirs containing compact category,
   AI-catalog, and Explore candidates and weights.
 
@@ -174,3 +193,35 @@ category truth, Explore freshness, six-of-eight Related coherence, focus, and
 playback.
 
 YouTube remains unchanged and provenance-isolated.
+
+## Implemented and deployed evidence
+
+Executable source `fb20baa344daa37585141096e55f47bedb87de0e` is deployed on
+the Pi with VOD Story Frontier, VOD Browse v3, and YouTube in `serve`; the
+StoryDNA teacher, frontier worker, and TMDB client remain disabled. No provider
+or teacher call was needed to build v3.
+
+- Mac exact-SHA proof: 918 catalog tests, 87 launcher tests, and launcher plus
+  Companion production builds pass.
+- Pi state: library and playability schema 17; all 1,096 historical StoryDNA
+  documents remain stored, with 1,088 identity/evidence-compatible overlays
+  attached and eight incompatible artifacts retained but diagnosed.
+- Full accounting: Movies 720 ranked plus 5,210 excluded equals 5,930 verified;
+  TV 675 ranked plus 3,299 excluded equals 3,974 verified. Both public pointers
+  are active, complete, unstale, and serve from the evidence-cold-start basis
+  because the current explicit evaluation set is too small for supervised
+  promotion evidence.
+- Browse state: two active and two previous atomic tab deals, two ready
+  reservoirs, 19,950 candidate rows, and 9,992 trusted memberships. Forty
+  exact-SHA X presses per tab produced 2,121 unique Movies cards and 1,897
+  unique TV cards, with global deduplication on every page, stable ordinary
+  reloads, zero provider/rank work, and p95 121.9 ms / 119.5 ms.
+- The exact-SHA Pi pre-couch gate passes after applying the existing display
+  wake policy. It includes 530 Pi catalog tests, 87 launcher tests, live movie
+  and series playback, voice/Companion, UX smoke, and playback-policy checks.
+  Reliability remains yellow—not failed—for five thin grow rails and four
+  broken titles in a 32-title served-title sample.
+
+Human ten-shuffle For You judgment, category truthfulness, six-of-eight Related
+coherence, physical focus restoration, and target-TV picture/audio remain
+explicitly deferred to couch acceptance.

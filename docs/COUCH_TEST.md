@@ -212,12 +212,12 @@ state transition explicitly rather than treating shadow as invisible compute.
 | F17 | Explore breadth | Across twenty epochs, Explore and large categories materially exceed the old stable-head unique-title exposure; every card is verified, poster-bearing, unseen, and launchable | |
 | F18 | Related | Enriched Detail samples judge at least six of eight cards recognizably thematic; sparse titles omit honestly; current Home cards, known titles, and unverified titles are absent | |
 
-The Pi serves target `06487cd` with complete progressive accounting, bounded
-frontier-off behavior, healthy reserves, and an aggregate pre-couch PASS.
-Current exact-SHA proof refreshed Movies/TV generations 170/171 and showed one
-Shuffle per tab changing every category rail and `For You` with fresh
-membership, stable utilities, and 77.7 ms Movies / 48.3 ms TV service time. Do
-not turn automated proof into
+The Pi serves target `fb20baa` with complete progressive accounting, bounded
+frontier-off behavior, healthy reserves, Browse v3, and an aggregate pre-couch
+PASS. Current exact-SHA proof uses Movies/TV generations 173/174; forty X
+presses per tab exposed 2,121/1,897 unique cards, globally deduplicated every
+page, with p95 121.9/119.5 ms and zero provider/rank work. Do not turn
+automated proof into
 a human quality claim: F1–F14 still require the physical
 ten-shuffle relevance, focus, playback-return, picture, and audio checks. A
 bulk artifact/importer is required only if measured progressive quality gaps

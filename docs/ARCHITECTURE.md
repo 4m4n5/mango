@@ -298,9 +298,13 @@ Saved, meaningfully watched, hidden, blocked, exact Not-for-me,
 artwork-deficient, and currently unverified titles
 cannot render, although retained evidence may still inform taste where the
 contract permits. A six-card cached dealer allocates strongest fits `2/2/2`,
-`3/3`, or all six across the supported threads, samples within fit by
-`1 / rank^1.5`, and avoids the preceding four slates when supply permits. There
-is no close/adjacent/surprise slot, bridge, cooled-rewatch lane, MMR repair, or
+`3/3`, or all six across the supported threads and samples within fit using a
+bounded 1x–32x quadratic relevance weight. It uses the absolute 2.5 risk-score
+floor when that supplies the 200-title reserve; otherwise it calibrates to the
+200th-strongest finite risk score because uncertainty-adjusted rank scores are
+not on the predicted-axis scale. It avoids the preceding four slates when
+supply permits. There is no close/adjacent/surprise slot, bridge,
+cooled-rewatch lane, MMR repair, or
 visible explanation. If six cards cannot be healed, the prior valid slate stays
 active.
 
@@ -330,7 +334,12 @@ that reservoir and never waits for reclassification, enrichment, graph, scan,
 ranking, metadata, or network work; a failed deal cannot replace the previous
 complete page. Shadow preparation is asynchronous and cannot delay the older
 visible Home response. The launcher reports success only when returned
-membership/order changes. An
+membership/order changes.
+Detail uses `vod-related-v1`: it admits enriched candidates only on direct
+genre plus strong direct StoryDNA-family overlap, bounds weighted rotation to
+the strongest 64 qualified matches, and uses Household affinity only as a
+tie-break. Sparse anchors require exact thematic/category overlap plus an
+independent factual family; insufficient evidence omits Related honestly. An
 opaque server-issued token binds the immutable served Household owner,
 domain, rail, served revision, exact membership, source revision, and bounded
 context. Public cards carry opaque content IDs needed for actions, but the TV
@@ -412,8 +421,8 @@ reservoirs. Independent
 `MANGO_VOD_RECS_V2=off|shadow|serve` and
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` switches permit isolated rollout.
 
-Both latest-only architectures have their source/runtime rollout blockers
-closed at `06487cde605977126ae4a4685b6d29700656d1bf`: YouTube `off` uses exact active
+Both recommendation architectures have their source/runtime rollout blockers
+closed at `fb20baa344daa37585141096e55f47bedb87de0e`: YouTube `off` uses exact active
 personal ownership, VOD active modes use exact Household Saved, off/shadow
 cannot expose or falsely advance Shuffle, and diagnostics distinguish the
 active/previous serving pointers from the newest attempted generation. Focused
@@ -422,7 +431,7 @@ The Pi now serves both domains with provider work off, complete accounting,
 bounded memory, and cached latency proof. VOD predealt queues are cyclic, so X
 can rotate `For You` indefinitely while retaining four-slate avoidance; the
 same tab-scoped request also deals fresh cached selections for every category
-rail while leaving Continue and Saved stable. YouTube's exact
+rail and recency-rotates Continue and Saved. YouTube's exact
 meaningful-watch veto lasts 30 days after the most recent watch; older events
 remain durable History/taste evidence and can re-enter ranked reserves. Human ten-shuffle
 relevance, screenshots, and physical picture/audio/controller judgment remain

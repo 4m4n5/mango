@@ -17,22 +17,18 @@ relevant subsystem doc first.
 
 ## Current source work
 
-`f24fcda240581758bf70ec9cb045973e2570c3e6` is the deployed recommendation
-target: bounded progressive Household VOD and authoritative
-subscription/history YouTube v2 are the sole executable recommenders;
-historical data/schema remains. The catalog suite passes 897/897; all 87
-launcher deterministic tests and its build pass at identical-launcher ancestor
-`9fa23c8`, with 12 focused launcher tests repeated on the exact target.
-Orchestrator 106/106 and the Companion build remain ancestor evidence from
-`7a8bc1b`; focused current-target
-tests cover paged-score parity, generation/prior reuse, couch maintenance,
-conditional More Like, preservation, ownership, Shuffle, active pointers, and
-migrations. The
-Pi deployment/accounting/memory/latency/launch gates pass; the current
-authenticated India YouTube account has 55 subscriptions, 2,872 Takeout watch
-events, and healthy v2.4 reserves with a rolling 30-day exact-video cooldown;
-VOD proof covers cyclic `For You` plus five current-target X presses per tab
-that change every category rail at p95 140 ms without rank/provider work. The deploy wrappers
+`fb20baa344daa37585141096e55f47bedb87de0e` is the deployed executable
+recommendation target: bounded progressive Household VOD, Browse v3, and
+authoritative subscription/official-history YouTube v2 are the sole executable
+recommenders; all historical data/schema remains. The exact target passes
+918/918 catalog tests, 87/87 launcher tests, launcher and Companion builds, and
+the standard Pi pre-couch gate. VOD accounts for all 5,930/3,974 verified
+titles with 720/675 rank reserves; two Browse v3 reservoirs contain 19,950
+candidates. Forty X presses per tab exposed 2,121/1,897 unique cards at p95
+121.9/119.5 ms without provider/rank work. The current authenticated India
+YouTube account has 55 subscriptions, 2,872 Takeout watch events, and healthy
+v2.6 reserves with a rolling 30-day exact-video cooldown. Human VOD thematic,
+Related, focus, and target-TV checks remain deferred. The deploy wrappers
 remain independently blocked by branch/SHA and implicit AIOMetadata-mutation
 defects, so future changes still use the reviewed manual path.
 
