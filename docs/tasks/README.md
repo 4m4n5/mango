@@ -17,20 +17,22 @@ relevant subsystem doc first.
 
 ## Current source work
 
-`a60d1c0c25d2bbe3b2cc1cd7704da20325039630` is the deployed recommendation
+`f24fcda240581758bf70ec9cb045973e2570c3e6` is the deployed recommendation
 target: bounded progressive Household VOD and authoritative
 subscription/history YouTube v2 are the sole executable recommenders;
-historical data/schema remains. The catalog suite passes 895/895, launcher
-deterministic tests pass 87/87, orchestrator tests pass 106/106, and launcher/
-companion builds pass at executable ancestor `7a8bc1b`; focused current-target
+historical data/schema remains. The catalog suite passes 897/897; all 87
+launcher deterministic tests and its build pass at identical-launcher ancestor
+`9fa23c8`, with 12 focused launcher tests repeated on the exact target.
+Orchestrator 106/106 and the Companion build remain ancestor evidence from
+`7a8bc1b`; focused current-target
 tests cover paged-score parity, generation/prior reuse, couch maintenance,
 conditional More Like, preservation, ownership, Shuffle, active pointers, and
 migrations. The
 Pi deployment/accounting/memory/latency/launch gates pass; the current
 authenticated India YouTube account has 55 subscriptions, 2,872 Takeout watch
 events, and healthy v2.4 reserves with a rolling 30-day exact-video cooldown;
-VOD cyclic shuffle proof covers 100 X
-presses per tab. The deploy wrappers
+VOD proof covers cyclic `For You` plus five current-target X presses per tab
+that change every category rail at p95 140 ms without rank/provider work. The deploy wrappers
 remain independently blocked by branch/SHA and implicit AIOMetadata-mutation
 defects, so future changes still use the reviewed manual path.
 

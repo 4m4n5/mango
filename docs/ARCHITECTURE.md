@@ -406,7 +406,7 @@ reservoirs. Independent
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` switches permit isolated rollout.
 
 Both latest-only architectures have their source/runtime rollout blockers
-closed at `a60d1c0c25d2bbe3b2cc1cd7704da20325039630`: YouTube `off` uses exact active
+closed at `f24fcda240581758bf70ec9cb045973e2570c3e6`: YouTube `off` uses exact active
 personal ownership, VOD active modes use exact Household Saved, off/shadow
 cannot expose or falsely advance Shuffle, and diagnostics distinguish the
 active/previous serving pointers from the newest attempted generation. Focused

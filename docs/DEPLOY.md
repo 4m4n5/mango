@@ -222,9 +222,10 @@ See also: [`../AGENTS.md`](../AGENTS.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md)
 Live IPTV: [`LIVE_TV.md`](LIVE_TV.md) — gates opt-in only.
 
 Recommendation rollout is deployed at executable target
-`a60d1c0c25d2bbe3b2cc1cd7704da20325039630`, which retains bounded/reusable VOD
+`f24fcda240581758bf70ec9cb045973e2570c3e6`, which retains bounded/reusable VOD
 refresh work, v17 checkpoints and priors, couch preemption, liveness-safe
-repair, guarded 1280M/1536M defaults, cyclic cached VOD shuffle, and YouTube
+repair, guarded 1280M/1536M defaults, cyclic `For You` plus active-tab cached
+category Shuffle, and YouTube
 v2.4 account/subscription/metadata/portfolio improvements plus cached History
 serving and a rolling 30-day exact-video rewatch cooldown. The
 Pi currently serves both domains with provider work off, preserved data,

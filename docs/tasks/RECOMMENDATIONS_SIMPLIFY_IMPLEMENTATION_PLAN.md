@@ -4,7 +4,7 @@ Status: implemented, cleaned to one executable architecture, and deployed on
 the Pi in VOD/YouTube serve mode. Human couch proof remains deferred.
 
 Reliability amendment and follow-up fixes are deployed at executable target
-`a60d1c0c25d2bbe3b2cc1cd7704da20325039630`: additive library v17,
+`f24fcda240581758bf70ec9cb045973e2570c3e6`: additive library v17,
 content-generation/prior reuse, paged one-worker ranking, resumable job
 diagnostics, couch-preemptible maintenance leases, liveness/readiness watchdog
 separation, guarded 1280M/1536M defaults, cyclic cached VOD shuffle, and

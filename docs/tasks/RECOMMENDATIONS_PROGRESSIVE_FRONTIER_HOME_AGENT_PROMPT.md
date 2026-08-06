@@ -4,7 +4,7 @@
 Work on the Mango Pi/home LAN only if the user asks for additional automated
 or physical couch evidence. The recommendation deployment is already complete.
 
-EXECUTABLE_TARGET_SHA=a60d1c0c25d2bbe3b2cc1cd7704da20325039630
+EXECUTABLE_TARGET_SHA=f24fcda240581758bf70ec9cb045973e2570c3e6
 
 Read completely before acting:
 - AGENTS.md
@@ -23,7 +23,12 @@ Current state to verify, never assume:
 - MemoryHigh=1280M and MemoryMax=1536M;
 - library schema 17, playability schema 14, and 1,096 preserved
   story-dna-v1/AI overlays;
+- Movies/TV X advances `For You` plus every category rail only in the active
+  tab; exact-target five-X proof measured p50 114 ms/p95 140 ms, held
+  Continue/Saved and the inactive tab stable, and moved no rank/provider work;
 - preserved companion.example dirt and all existing backups, including
+  ~/.local/share/mango/backups/agent-snapshots/
+  vod-shuffle-pre-deploy-20260806T065502Z and
   ~/.local/share/mango/backups/agent-snapshots/
   youtube-takeout-pre-import-20260806T051951Z;
 - authenticated YouTube account `Aman`, region IN/language en, 55 authoritative

@@ -1,14 +1,15 @@
 # Recommendations reliability recovery — home deployment runbook
 
-Status: **DEPLOYED ON THE PI IN SERVE MODE; YOUTUBE COOLDOWN GATES PASS.**
-The exact target passes the full local catalog suite, focused Pi YouTube suite,
-YouTube smoke, generation refresh, and cached 50-X proof. Launcher, playback,
-voice, stream, Reliability, and aggregate pre-couch proof remain bound to the
-executable ancestor `7a8bc1b`; they were not re-run for this YouTube-only delta.
+Status: **DEPLOYED ON THE PI IN SERVE MODE; VOD TAB-WIDE SHUFFLE AND YOUTUBE
+COOLDOWN GATES PASS.** The exact target passes the full local catalog suite,
+focused Pi VOD/playability and launcher suites, and cached five-X-per-tab proof.
+YouTube smoke/generation/50-X proof remains bound to executable ancestor
+`a60d1c0`; playback, voice, stream, Reliability, and aggregate pre-couch proof
+remain bound to executable ancestor `7a8bc1b`.
 Human thematic, focus, audio, and picture judgment remains explicitly pending.
 
 ```bash
-TARGET_SHA=a60d1c0c25d2bbe3b2cc1cd7704da20325039630
+TARGET_SHA=f24fcda240581758bf70ec9cb045973e2570c3e6
 ```
 
 Do not promote `345535d`, `3ef1b20`, `772b3d5`, `9425b1f`, or `c8cfe72` as the
@@ -40,15 +41,15 @@ this runbook.
 | VOD evaluation | Only thematically rankable rated profiles are labels. Current result is honestly insufficient rather than a false concordance failure; operational serving remains independently authorized |
 | Memory/liveness | One catalog invocation, zero restarts/OOM events, process and cgroup memory separated, 128-title bounded work, effective 1280M/1536M limits |
 | YouTube | `youtube-household-v2.4` ready for channel `Aman`, India/en; 55 subscriptions; 2,872 Takeout events covering 2,548 unique videos plus six Mango-local anchors; generation-13 reserves 120/63/13/120; More Like thematic; exact meaningful watches cool down for 30 days |
-| Cached interaction | 100 X presses per VOD tab retained four-slate avoidance with p95 27/14 ms; generation-13 YouTube 50-X was p50 49 ms/p95 106 ms, changed every successive recommendation slate, kept History stable, admitted 11 older imported videos into ranked reserves, excluded all 663 recent unique watches, and used zero quota/provider work |
+| Cached interaction | Earlier 100-X proof retained cyclic `For You` four-slate avoidance. At exact target, five X presses per VOD tab changed all six category rails and `For You`, held Continue/Saved and the inactive tab stable, retained category cross-rail uniqueness, moved no full-reserve/rank/dealer counter, and measured p50 114 ms/p95 140 ms/max 140 ms. Generation-13 YouTube 50-X ancestor proof was p50 49 ms/p95 106 ms with stable History, no recent-watch leaks, and zero quota/provider work |
 | Playback | Exact-SHA YouTube search/detail/`yt-dlp -> mpv` smoke passes; earlier served VOD representative launch proof remains applicable because the later executable delta is cache/dealer-only |
-| Backup | `~/.local/share/mango/backups/agent-snapshots/youtube-takeout-pre-import-20260806T051951Z` is complete; older recommendation/frontier backups remain preserved |
+| Backup | Fresh pre-shuffle-deploy SQLite online backup: `~/.local/share/mango/backups/agent-snapshots/vod-shuffle-pre-deploy-20260806T065502Z`; Takeout and all older recommendation/frontier backups remain preserved |
 
-The target passed 895/895 catalog tests on the Mac, 45/45 focused YouTube tests
-on the Pi, migration/state preservation checks, YouTube smoke, an atomic v2.4
-refresh, and cached 50-X proof. The 87/87 launcher tests, launcher/Companion
-builds, lite movie/series playback, and aggregate pre-couch pass remain valid
-ancestor evidence for `7a8bc1b`, not fresh exact-target proof.
+The target passed 897/897 catalog tests on the Mac plus 27 focused
+VOD/playability and 12 focused launcher tests on the Pi. The full 87/87
+launcher suite and production build passed at `9fa23c8`, whose launcher tree is
+identical to this target. The 45/45 YouTube tests, smoke, atomic v2.4 refresh,
+and cached 50-X proof remain valid ancestor evidence from `a60d1c0`.
 Reliability is yellow because five curated VOD rails are thin and 2/28 sampled
 served titles were broken; automated proof does not substitute for the
 user-owned physical couch verdict.
@@ -84,10 +85,11 @@ The target adds:
 Mac proof bound to `TARGET_SHA`:
 
 ```text
-catalog-service npm test: 895 pass / 0 fail
-launcher deterministic tests: 87 pass / 0 fail
-launcher production build: pass
-companion production build: pass
+catalog-service npm test at TARGET_SHA: 897 pass / 0 fail
+launcher focused tests at TARGET_SHA: 12 pass / 0 fail
+launcher deterministic tests at identical-tree 9fa23c8: 87 pass / 0 fail
+launcher production build at identical-tree 9fa23c8: pass
+companion production build at ancestor 7a8bc1b: pass
 health-repair shell syntax: pass
 ```
 

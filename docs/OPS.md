@@ -443,7 +443,7 @@ Scheduled maintenance (local time):
 
 ## Household recommendations
 
-Target `a60d1c0` contains one executable architecture per domain: progressive
+Target `f24fcda` contains one executable architecture per domain: progressive
 Household VOD and provenance-gated YouTube v2. The Pi currently serves both
 with complete accounting and automated gates. Reverify live state before
 relying on any mode or count, and do not record screenshots or human couch PASS

@@ -1,9 +1,9 @@
 # Fire & Water ratings and For You
 
 **Branch:** `feat/native-experience`
-**State:** VOD executable baseline `7a8bc1bd6f08928270ff092a8a9dad26c02419bf`,
-currently deployed unchanged within recommendation target
-`a60d1c0c25d2bbe3b2cc1cd7704da20325039630`,
+**State:** VOD ranking baseline `7a8bc1bd6f08928270ff092a8a9dad26c02419bf`,
+currently deployed with active-tab category Shuffle at recommendation target
+`f24fcda240581758bf70ec9cb045973e2570c3e6`,
 makes progressive Household VOD the sole executable
 recommendation architecture. It contains `vod-content-profile-v2`, immutable
 compatible StoryDNA overlays, `vod-story-frontier-v2`, cached six-card dealing,
@@ -15,7 +15,8 @@ comparison evaluator are no longer executable. Historical rows remain intact.
 The Pi currently serves VOD and YouTube from the current target while
 StoryDNA/teacher/TMDB work remains off and all 1,096 StoryDNA rows remain
 preserved. Full verified-corpus accounting, bounded memory, cyclic cached
-shuffle, and aggregate pre-couch gates pass. Screenshots and human ten-shuffle
+`For You`, cache-only category Shuffle, and automated pre-couch gates pass.
+Screenshots and human ten-shuffle
 thematic judgment remain **DEFERRED**. The offline bulk artifact/importer is
 absent and is not a rollout prerequisite.
 See [STATUS.md](STATUS.md).

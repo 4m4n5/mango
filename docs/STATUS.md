@@ -3,9 +3,10 @@
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
 Latest executable recommendation deployment target: **2026-08-05**,
-`a60d1c0c25d2bbe3b2cc1cd7704da20325039630`. It is deployed; the full local
-catalog suite, focused Pi YouTube suite, YouTube smoke, generation refresh, and
-50-X cache/latency proof pass. Whole-product playback/launcher/voice/aggregate
+`f24fcda240581758bf70ec9cb045973e2570c3e6`. It is deployed; the full local
+catalog suite, focused Pi VOD/launcher suites, active-tab category shuffle, and
+cache/latency proof pass. YouTube v2.4 proof remains bound to executable
+ancestor `a60d1c0`; whole-product playback/voice/aggregate
 proof remains bound to the executable ancestor `7a8bc1b`, so human thematic
 and target-TV judgment remain separate. Use `git status`,
 `git rev-parse HEAD`, and the Pi commands below before acting.
@@ -33,7 +34,7 @@ prove only their exact revision and contract.
 | Native mpv playback | Complete | Deferred-foreground and single-B playback were proven on selected titles on earlier revisions | Current-SHA regression matrix, failure cases, target-TV/audio proof, legacy direct-MediaFusion topology decision |
 | HUD and Streams drawer | Complete | Local fixture/source gates; home-agent deployment work recorded | Current exact-SHA screenshots and 4K dropped-frame/no-regression couch pass |
 | Mango library and Fire/Water input | Complete | Deployed; unset axes start at neutral 2; `<1` negative, `1–2` neutral, `>2` quadratic positive | Human use/clarity and served recommendation quality |
-| VOD recommendations | Bounded progressive profiles + Household Story Frontier; cyclic predealt `For You` plus cache-only active-tab category Shuffle; data preserved | Prior Pi proof serves Movies/TV with complete 5,671/3,874 accounting, 224/229 reserves and 1,096 preserved overlays; prior 100-X proof covers `For You`, while the successor category-rail behavior requires exact-SHA Pi re-proof | Exact-SHA category freshness/tab isolation/latency, then human thematic and physical focus/picture/audio checks |
+| VOD recommendations | `f24fcda` bounded progressive profiles + Household Story Frontier; cyclic predealt `For You` plus cache-only active-tab category Shuffle; data preserved | Pi serves complete 5,671/3,874 accounting with 224/229 reserves and 1,096 overlays. Five exact-SHA X presses per tab changed all category rails and `For You`, held utilities/inactive tab stable, caused zero rank/provider work, and measured p95 140 ms | Human thematic verdict and physical focus/picture/audio checks |
 | Native YouTube base | Complete | Previously deployed/Pi-gated | Current exact-SHA revalidation and account-specific proof |
 | YouTube recommendations | `a60d1c0` `youtube-household-v2.4`; subscriptions plus Takeout/Mango-local meaningful history only; exact meaningful watches cool down for 30 days while History/taste remain durable | Authenticated India account is Ready with 55 subscriptions and 2,554 meaningful anchors; generation 13 reserves are 120/63/13/120 and More Like is thematic. The cooldown snapshot contains 663 recent unique videos; 11 older imported videos are present in ranked reserves, zero recent watched videos leak, and 50-X p95 is 106 ms with unchanged quota | Human relevance, focus/Back, offline, and picture/audio observation; Search-history export remains intentionally unused |
 | Voice/phone companion | Complete for trusted-LAN development contract | Automated corpus/memory/UX gates on earlier revisions; partial couch work | Full V1–V12/current coherence plus per-device client auth/pairing before appliance release |
@@ -49,11 +50,11 @@ prove only their exact revision and contract.
 
 ### Source audit
 
-- `a60d1c0c25d2bbe3b2cc1cd7704da20325039630` is the current executable
+- `f24fcda240581758bf70ec9cb045973e2570c3e6` is the current executable
   recommendation target. It preserves the latest-only architecture and all
   historical database rows/schemas while adding YouTube's 30-day rewatch
-  cooldown. The pending successor additionally restores active-tab category
-  rail shuffle without changing VOD ranking or stored data.
+  cooldown plus active-tab category rail shuffle without changing VOD ranking
+  or stored data.
 - VOD retains deterministic `vod-content-profile-v2`, compatible immutable
   StoryDNA overlays, local Household taste/ranking, full-corpus generations,
   cached six-card slates, optional exact-ID TMDB, and an opt-in bounded frontier.
@@ -67,10 +68,11 @@ prove only their exact revision and contract.
   and destructive fresh-start/reset APIs. Search and user-created AI catalog
   seeds remain separate and cannot establish recommendation provenance.
 - The catalog-service build and full test suite pass locally at this revision
-  (`895/895`), and the focused YouTube suite passes on the Pi (`45/45`). The 87
-  launcher deterministic tests, 106 orchestrator tests, and launcher/Companion
-  production builds remain ancestor evidence from `7a8bc1b`; those surfaces
-  were not changed or re-run for the cooldown-only revision. The
+  (`897/897`). The Pi passes 27 focused playability/category policy tests and
+  12 focused launcher shuffle-state tests. All 87 launcher deterministic tests
+  and its production build passed at executable ancestor `9fa23c8`, whose
+  launcher tree is identical to this target; the 106 orchestrator tests and
+  Companion production build remain ancestor evidence from `7a8bc1b`. The
   cleanup intentionally removed a large legacy implementation/test surface, so
   Pi migration/state-preservation proof, mode-aware gates, and generated reserve
   health pass. Human quality remains mandatory rather than inferred from test
@@ -117,7 +119,7 @@ prove only their exact revision and contract.
   `/stream` diagnostics can still expose raw addon fetch error details even
   though the launcher does not render them and the companion proxy blocks the
   route. Treat those DTOs as operator-only; sanitize them before widening access.
-- **Recommendation source/runtime blockers remain closed at `a60d1c0`.** YouTube off now
+- **Recommendation source/runtime blockers remain closed at `f24fcda`.** YouTube off now
   returns exact active-profile utilities without a false 409; VOD shadow and
   serve both read exact Household Saved; off/shadow cannot advance a public
   recommendation epoch but can honestly reshuffle cached category rails; and
@@ -156,7 +158,7 @@ prove only their exact revision and contract.
 ### Latest repository-recorded recommendation runtime snapshot
 
 The Pi is deployed at executable target
-`a60d1c0c25d2bbe3b2cc1cd7704da20325039630` with:
+`f24fcda240581758bf70ec9cb045973e2570c3e6` with:
 
 ```text
 MANGO_VOD_RECS_V2=serve
