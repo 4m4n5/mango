@@ -2397,6 +2397,51 @@ export class CatalogCore {
       return { value: { ...cachedTab.payload, cached: true } };
     }
 
+    const cachedTabUsable = cachedTab
+      && cachedTab.expiresAt > now
+      && cachedTab.profileId === personalization.active_profile_id
+      && cachedTab.personalizationUpdatedAt === personalization.updated_at
+      && cachedTab.payload.rails.every((rail) => rail.playability?.low_water !== true);
+    if (reshuffle && cachedTabUsable && (tab === 'movies' || tab === 'series')) {
+      const started = Date.now();
+      const railId = tab === 'movies' ? 'for-you-movies' : 'for-you-series';
+      const forYouRail = await loadForYouRail(tab, {
+        reshuffle: true,
+        profileId: personalization.active_profile_id,
+        personalizationUpdatedAt: personalization.updated_at,
+      });
+      const rails = [...cachedTab.payload.rails];
+      const currentIndex = rails.findIndex((rail) => rail.rail_id === railId);
+      if (currentIndex >= 0) {
+        if (forYouRail) rails.splice(currentIndex, 1, forYouRail);
+        else rails.splice(currentIndex, 1);
+      } else if (forYouRail) {
+        const savedIndex = rails.findIndex((rail) => rail.rail_id === 'saved');
+        const continueIndex = rails.findIndex((rail) => rail.rail_id === 'continue-watching');
+        rails.splice(Math.max(savedIndex, continueIndex) + 1, 0, forYouRail);
+      }
+      const payload: TabRailItemsResponse = {
+        tab,
+        rails,
+        resolve_ms: Date.now() - started,
+      };
+      return {
+        value: payload,
+        commit: () => {
+          if (recommendationRevision !== null
+            && !this.recommendationRevisionFence.isCurrent(tab, recommendationRevision)) return;
+          this.tabRailItemsCache.set(cacheKey, {
+            tab,
+            profileId: personalization.active_profile_id,
+            personalizationUpdatedAt: personalization.updated_at,
+            payload,
+            expiresAt: Date.now() + RAIL_ITEMS_CACHE_TTL_MS,
+          });
+        },
+        rollback: () => this.tabRailItemsCache.delete(cacheKey),
+      };
+    }
+
     const started = Date.now();
     const rails = this.browsableRailsForTab(tab);
     const sessions = await allocateTabRailSessions({
