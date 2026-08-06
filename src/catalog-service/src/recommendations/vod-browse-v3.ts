@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 export const VOD_BROWSE_MODEL_VERSION = 'vod-browse-v3' as const;
 export const VOD_RELATED_MODEL_VERSION = 'vod-related-v1' as const;
 
@@ -22,11 +20,22 @@ export function clampUnit(value: number): number {
 }
 
 function stableUnit(seed: string): number {
-  const digest = createHash('sha256').update(seed).digest();
-  const high = digest.readUInt32BE(0);
-  const low = digest.readUInt32BE(4);
-  const integer = high * 0x1_0000_0000 + low;
-  return Math.max(Number.MIN_VALUE, (integer + 1) / 0x1_0000_0000_0000);
+  // cyrb53-style integer mixing is deterministic and allocation-free. This is
+  // sampling entropy, not a security boundary; a cryptographic digest added
+  // substantial couch-time CPU/GC without improving the weighted distribution.
+  let high = 0xdeadbeef ^ seed.length;
+  let low = 0x41c6ce57 ^ seed.length;
+  for (let index = 0; index < seed.length; index += 1) {
+    const code = seed.charCodeAt(index);
+    high = Math.imul(high ^ code, 2_654_435_761);
+    low = Math.imul(low ^ code, 1_597_334_677);
+  }
+  high = Math.imul(high ^ (high >>> 16), 2_246_822_507)
+    ^ Math.imul(low ^ (low >>> 13), 3_266_489_909);
+  low = Math.imul(low ^ (low >>> 16), 2_246_822_507)
+    ^ Math.imul(high ^ (high >>> 13), 3_266_489_909);
+  const integer = (2_097_151 & low) * 0x1_0000_0000 + (high >>> 0);
+  return Math.max(Number.MIN_VALUE, (integer + 1) / 0x20_0000_0000_0000);
 }
 
 /** Deterministic Gumbel/exponential-race weighted sampling without replacement. */

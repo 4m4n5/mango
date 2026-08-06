@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import test from 'node:test';
 
 import {
@@ -62,9 +61,19 @@ test('bounded top-k dealer is order-identical to the full weighted permutation',
   }));
   const seed = 'weighted-reference:17';
   const unit = (value: string): number => {
-    const digest = createHash('sha256').update(value).digest();
-    const integer = digest.readUInt32BE(0) * 0x1_0000_0000 + digest.readUInt32BE(4);
-    return Math.max(Number.MIN_VALUE, (integer + 1) / 0x1_0000_0000_0000);
+    let high = 0xdeadbeef ^ value.length;
+    let low = 0x41c6ce57 ^ value.length;
+    for (let index = 0; index < value.length; index += 1) {
+      const code = value.charCodeAt(index);
+      high = Math.imul(high ^ code, 2_654_435_761);
+      low = Math.imul(low ^ code, 1_597_334_677);
+    }
+    high = Math.imul(high ^ (high >>> 16), 2_246_822_507)
+      ^ Math.imul(low ^ (low >>> 13), 3_266_489_909);
+    low = Math.imul(low ^ (low >>> 16), 2_246_822_507)
+      ^ Math.imul(high ^ (high >>> 13), 3_266_489_909);
+    return (((2_097_151 & low) * 0x1_0000_0000 + (high >>> 0)) + 1)
+      / 0x20_0000_0000_0000;
   };
   const reference = [...items].map((item) => ({
     item,
