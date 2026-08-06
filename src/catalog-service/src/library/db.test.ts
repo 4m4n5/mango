@@ -38,6 +38,7 @@ import {
   recordRecommendationPlayStart,
   recordRecommendationProgress,
   registerRecommendationServedSlate,
+  registerRecommendationServedSlates,
   recordSearchQuery,
   recordSearchSelection,
   renameViewerProfile,
@@ -1155,6 +1156,65 @@ test('served-slate tokens bind exact membership to an immutable owner and never 
     slate_revision: first.slate_revision,
     now: 40 * 24 * 60 * 60 * 1_000,
   }), /unknown or expired/);
+}));
+
+test('served-slate batches preserve per-rail attribution and reject duplicate rails atomically', () => withTempLibrary(() => {
+  const household = getPersonalizationState().active_profile_id;
+  const served = registerRecommendationServedSlates([
+    {
+      profile_id: household,
+      domain: 'youtube',
+      rail_id: 'for_you',
+      source_revision: 41,
+      now: 1_000,
+      items: [{ type: 'youtube_video', id: 'video-one', rank: 0 }],
+    },
+    {
+      profile_id: household,
+      domain: 'youtube',
+      rail_id: 'more_like',
+      source_revision: 41,
+      context_id: 'seed-one',
+      now: 1_000,
+      items: [{ type: 'youtube_video', id: 'video-two', rank: 0 }],
+    },
+  ]);
+  assert.deepEqual(served.map((row) => row.rail_id), ['for_you', 'more_like']);
+  for (const row of served) {
+    const resolved = resolveRecommendationServedSlate({
+      attribution_token: row.attribution_token,
+      domain: 'youtube',
+      rail_id: row.rail_id,
+      slate_revision: row.slate_revision,
+      items: row.items,
+      now: 2_000,
+    });
+    assert.equal(resolved.profile_id, household);
+    assert.equal(resolved.source_revision, 41);
+  }
+  const before = libraryDatabase().prepare(
+    'SELECT COUNT(*) AS count FROM profile_recommendation_served_slates',
+  ).get() as { count: number };
+  assert.throws(() => registerRecommendationServedSlates([
+    {
+      profile_id: household,
+      domain: 'youtube',
+      rail_id: 'beyond',
+      source_revision: 42,
+      items: [{ type: 'youtube_video', id: 'video-three', rank: 0 }],
+    },
+    {
+      profile_id: household,
+      domain: 'youtube',
+      rail_id: 'beyond',
+      source_revision: 42,
+      items: [{ type: 'youtube_video', id: 'video-four', rank: 0 }],
+    },
+  ]), /unique rails/);
+  const after = libraryDatabase().prepare(
+    'SELECT COUNT(*) AS count FROM profile_recommendation_served_slates',
+  ).get() as { count: number };
+  assert.equal(after.count, before.count);
 }));
 
 test('captured playback ownership survives an active-profile switch before progress writes', () => withTempLibrary(() => {

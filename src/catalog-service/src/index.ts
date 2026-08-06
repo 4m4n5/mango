@@ -60,7 +60,7 @@ import {
   recordLibraryWatch,
   recordRecommendationDetailOpen,
   recordRecommendationImpressions,
-  registerRecommendationServedSlate,
+  registerRecommendationServedSlates,
   resolveRecommendationServedSlate,
   renameViewerProfile,
   saveLibraryItem,
@@ -2700,26 +2700,29 @@ async function main(): Promise<void> {
             throw new CatalogError(409, 'profile changed while YouTube recommendations were loading');
           }
           const { attribution_contexts: attributionContexts, ...publicYoutubeResult } = result;
+          const servedSlates = registerRecommendationServedSlates(result.rails.map((rail) => {
+            const attributionContext = attributionContexts[rail.rail_id];
+            if (!attributionContext
+              || attributionContext.source_revision !== result.slate_sequence) {
+              throw new CatalogError(500, 'YouTube recommendation attribution context is unavailable');
+            }
+            return {
+              profile_id: result.profile_id,
+              domain: 'youtube' as const,
+              rail_id: rail.rail_id,
+              source_revision: attributionContext.source_revision,
+              context_id: attributionContext.context_id,
+              items: rail.items.map((item, rank) => ({
+                type: `youtube_${item.kind}`,
+                id: item.id,
+                rank,
+              })),
+            };
+          }));
           const publicResult = youtubePublicPersonalizationPayload({
             ...publicYoutubeResult,
-            rails: result.rails.map((rail) => {
-              const attributionContext = attributionContexts[rail.rail_id];
-              if (!attributionContext
-                || attributionContext.source_revision !== result.slate_sequence) {
-                throw new CatalogError(500, 'YouTube recommendation attribution context is unavailable');
-              }
-              const served = registerRecommendationServedSlate({
-                profile_id: result.profile_id,
-                domain: 'youtube',
-                rail_id: rail.rail_id,
-                source_revision: attributionContext.source_revision,
-                context_id: attributionContext.context_id,
-                items: rail.items.map((item, rank) => ({
-                  type: `youtube_${item.kind}`,
-                  id: item.id,
-                  rank,
-                })),
-              });
+            rails: result.rails.map((rail, index) => {
+              const served = servedSlates[index]!;
               return {
                 ...rail,
                 slate_sequence: served.slate_revision,

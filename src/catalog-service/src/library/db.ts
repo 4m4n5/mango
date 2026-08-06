@@ -2093,7 +2093,7 @@ function normalizeServedItems(
  * client. The opaque token is the authority for later impression/action/play
  * attribution; callers never get to nominate a profile id.
  */
-export function registerRecommendationServedSlate(input: {
+export type RecommendationServedSlateInput = {
   profile_id: string;
   domain: 'vod' | 'youtube';
   rail_id: string;
@@ -2101,72 +2101,112 @@ export function registerRecommendationServedSlate(input: {
   context_id?: string;
   items: Array<{ type: string; id: string; rank: number }>;
   now?: number;
-}): RecommendationServedSlate {
-  const profileId = normalizeViewerProfileId(input.profile_id);
-  if (!getViewerProfile(profileId)) throw new Error('unknown viewer profile');
-  const railId = input.rail_id.trim().slice(0, 120);
-  const sourceRevision = Math.max(0, Math.floor(input.source_revision));
-  const contextId = input.context_id?.trim().slice(0, 240) ?? '';
-  if (!railId || !Number.isFinite(input.source_revision)) {
-    throw new Error('invalid served recommendation slate');
+};
+
+/**
+ * Persist a rendered set of rails in one SQLite transaction. A Home/X response
+ * can contain several recommendation rails; committing each rail separately
+ * turns durable attribution into several SD-card fsyncs on the couch path.
+ */
+export function registerRecommendationServedSlates(
+  inputs: RecommendationServedSlateInput[],
+): RecommendationServedSlate[] {
+  const prepared = inputs.map((input) => {
+    const profileId = normalizeViewerProfileId(input.profile_id);
+    if (!getViewerProfile(profileId)) throw new Error('unknown viewer profile');
+    const railId = input.rail_id.trim().slice(0, 120);
+    const sourceRevision = Math.max(0, Math.floor(input.source_revision));
+    const contextId = input.context_id?.trim().slice(0, 240) ?? '';
+    if (!railId || !Number.isFinite(input.source_revision)) {
+      throw new Error('invalid served recommendation slate');
+    }
+    if (input.domain === 'youtube' && railId === 'because_you_watched' && !contextId) {
+      throw new Error('Because You Watched served slate requires an attribution context');
+    }
+    const createdAt = input.now ?? nowMs();
+    return {
+      input,
+      profileId,
+      railId,
+      sourceRevision,
+      contextId,
+      items: normalizeServedItems(input.items),
+      createdAt,
+      expiresAt: createdAt + RECOMMENDATION_SERVED_SLATE_TTL_MS,
+      attributionToken: randomUUID(),
+    };
+  });
+  const identities = new Set(prepared.map((row) => (
+    `${row.profileId}\u0000${row.input.domain}\u0000${row.railId}`
+  )));
+  if (identities.size !== prepared.length) {
+    throw new Error('served recommendation batch requires unique rails');
   }
-  if (input.domain === 'youtube' && railId === 'because_you_watched' && !contextId) {
-    throw new Error('Because You Watched served slate requires an attribution context');
-  }
-  const items = normalizeServedItems(input.items);
-  const createdAt = input.now ?? nowMs();
-  const expiresAt = createdAt + RECOMMENDATION_SERVED_SLATE_TTL_MS;
-  const attributionToken = randomUUID();
+  if (prepared.length === 0) return [];
   const db = ensureDb();
   return db.transaction(() => {
-    const revisionMetric = `served_slate_revision:${input.domain}:${railId}`;
-    const revisionRow = db.prepare(`
+    db.prepare('DELETE FROM profile_recommendation_served_slates WHERE expires_at < ?')
+      .run(Math.max(...prepared.map((row) => row.createdAt)));
+    const bumpRevision = db.prepare(`
 INSERT INTO profile_recommendation_metrics(profile_id, metric_name, metric_value, updated_at)
 VALUES (?, ?, 1, ?)
 ON CONFLICT(profile_id, metric_name) DO UPDATE SET
   metric_value = profile_recommendation_metrics.metric_value + 1,
   updated_at = excluded.updated_at
 RETURNING metric_value AS revision
-`).get(profileId, revisionMetric, createdAt) as { revision: number };
-    db.prepare('DELETE FROM profile_recommendation_served_slates WHERE expires_at < ?')
-      .run(createdAt);
-    db.prepare(`
+`);
+    const insertSlate = db.prepare(`
 INSERT INTO profile_recommendation_served_slates(
   attribution_token, profile_id, domain, rail_id, slate_revision,
   source_revision, context_id, created_at, expires_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-`).run(
-      attributionToken,
-      profileId,
-      input.domain,
-      railId,
-      revisionRow.revision,
-      sourceRevision,
-      contextId,
-      createdAt,
-      expiresAt,
-    );
+`);
     const insertItem = db.prepare(`
 INSERT INTO profile_recommendation_served_items(
   attribution_token, item_type, item_id, rank
 ) VALUES (?, ?, ?, ?)
 `);
-    for (const item of items) {
-      insertItem.run(attributionToken, item.type, item.id, item.rank);
-    }
-    return {
-      attribution_token: attributionToken,
-      profile_id: profileId,
-      domain: input.domain,
-      rail_id: railId,
-      slate_revision: revisionRow.revision,
-      source_revision: sourceRevision,
-      context_id: contextId,
-      items,
-      created_at: createdAt,
-      expires_at: expiresAt,
-    };
+    return prepared.map((row) => {
+      const revisionMetric = `served_slate_revision:${row.input.domain}:${row.railId}`;
+      const revisionRow = bumpRevision.get(
+        row.profileId,
+        revisionMetric,
+        row.createdAt,
+      ) as { revision: number };
+      insertSlate.run(
+        row.attributionToken,
+        row.profileId,
+        row.input.domain,
+        row.railId,
+        revisionRow.revision,
+        row.sourceRevision,
+        row.contextId,
+        row.createdAt,
+        row.expiresAt,
+      );
+      for (const item of row.items) {
+        insertItem.run(row.attributionToken, item.type, item.id, item.rank);
+      }
+      return {
+        attribution_token: row.attributionToken,
+        profile_id: row.profileId,
+        domain: row.input.domain,
+        rail_id: row.railId,
+        slate_revision: revisionRow.revision,
+        source_revision: row.sourceRevision,
+        context_id: row.contextId,
+        items: row.items,
+        created_at: row.createdAt,
+        expires_at: row.expiresAt,
+      };
+    });
   })();
+}
+
+export function registerRecommendationServedSlate(
+  input: RecommendationServedSlateInput,
+): RecommendationServedSlate {
+  return registerRecommendationServedSlates([input])[0]!;
 }
 
 /** Validate an opaque served-slate token and recover its immutable owner. */
