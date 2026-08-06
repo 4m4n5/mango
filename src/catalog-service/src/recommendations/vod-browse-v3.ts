@@ -192,10 +192,6 @@ export function relatedWeight(score: number): number {
 
 const RELATED_DIRECT_CORE_FAMILIES = new Set([
   'genre-subgenre', 'story-engine', 'theme', 'character-dynamic', 'tone',
-  'compound',
-]);
-const RELATED_STORY_IDENTITY_FAMILIES = new Set([
-  'genre-subgenre', 'story-engine',
 ]);
 const RELATED_SPARSE_FACT_FAMILIES = new Set([
   'creator', 'director', 'writer', 'country', 'language', 'decade', 'format',
@@ -211,8 +207,9 @@ export function relatedEvidenceQualifies(input: {
   const families = new Set(direct.map((edge) => edge.family));
   if (input.anchorEnriched) {
     const core = [...families].filter((family) => RELATED_DIRECT_CORE_FAMILIES.has(family));
-    return core.length >= 3
-      && core.some((family) => RELATED_STORY_IDENTITY_FAMILIES.has(family));
+    const hasGenre = families.has('genre-subgenre');
+    const hasStoryEngine = families.has('story-engine');
+    return core.length >= 3 && (hasStoryEngine || (hasGenre && core.length >= 4));
   }
   const hasGenreOrCategory = families.has('genre-subgenre') || families.has('curated-list');
   return hasGenreOrCategory

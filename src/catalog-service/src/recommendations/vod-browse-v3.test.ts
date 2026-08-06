@@ -150,4 +150,13 @@ test('Related admission rejects parent and facet coincidences but preserves rich
       { family: 'tone', nodeKey: 'tone:warm' },
     ],
   }), false);
+  assert.equal(relatedEvidenceQualifies({
+    anchorEnriched: true,
+    shared: [
+      { family: 'genre-subgenre', nodeKey: 'genre-subgenre:drama' },
+      { family: 'character-dynamic', nodeKey: 'character-dynamic:ensemble' },
+      { family: 'tone', nodeKey: 'tone:witty' },
+      { family: 'compound', nodeKey: 'compound:genre%3Ddrama%26pace%3D3' },
+    ],
+  }), false);
 });
