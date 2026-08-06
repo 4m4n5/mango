@@ -6,9 +6,9 @@ export type PersonalizationSnapshot = {
 export type StagedPersonalizationResult<T> = {
   value: T;
   /** Commit request-owned cache writes only after the captured owner is current. */
-  commit?: () => void;
+  commit?: () => unknown | Promise<unknown>;
   /** Remove writes if the owner changes during the synchronous commit boundary. */
-  rollback?: () => void;
+  rollback?: () => unknown | Promise<unknown>;
 };
 
 export class PersonalizationChangedDuringRequestError extends Error {
@@ -54,9 +54,9 @@ export async function runPersonalizationCoherentRequest<T>(input: {
     if (!samePersonalizationSnapshot(snapshot, input.readSnapshot())) {
       continue;
     }
-    staged.commit?.();
+    await staged.commit?.();
     if (!samePersonalizationSnapshot(snapshot, input.readSnapshot())) {
-      staged.rollback?.();
+      await staged.rollback?.();
       continue;
     }
     return { value: staged.value, snapshot };

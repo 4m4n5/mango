@@ -1,3 +1,5 @@
+import { weightedDeal } from '../recommendations/vod-browse-v3.js';
+
 export function titleKey(type: string, id: string): string {
   return `${type}:${id}`;
 }
@@ -81,6 +83,9 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
     anchorRailCount?: number;
     stableRatio?: number;
     rng?: () => number;
+    seed?: string;
+    weightForItem?: (railId: string, item: T, index: number, poolSize: number) => number;
+    initiallyOccupiedKeys?: ReadonlySet<string>;
   } = {},
 ): Map<string, SessionSelectedItem<T>[]> {
   const floor = options.reserveFloor ?? TAB_SESSION_RESERVE_FLOOR;
@@ -90,7 +95,7 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
     railsInYamlOrder.length,
   );
   const rng = options.rng;
-  const tabOccupied = new Set<string>();
+  const tabOccupied = new Set<string>(options.initiallyOccupiedKeys ?? []);
   const selections = new Map<string, SessionSelectedItem<T>[]>();
 
   const reserveForRail = (rail: TabSessionRailRequest): void => {
@@ -102,6 +107,10 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
       occupiedKeys: tabOccupied,
       stableRatio,
       rng,
+      seed: `${options.seed ?? 'tab'}:${rail.railId}:reserve`,
+      weightForItem: options.weightForItem
+        ? (item, index) => options.weightForItem!(rail.railId, item, index, pool.length)
+        : undefined,
     });
     const existing = selections.get(rail.railId) ?? [];
     const merged = [...existing, ...picked].slice(0, reserve);
@@ -133,6 +142,10 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
       occupiedKeys: tabOccupied,
       stableRatio,
       rng,
+      seed: `${options.seed ?? 'tab'}:${rail.railId}:topup`,
+      weightForItem: options.weightForItem
+        ? (item, index) => options.weightForItem!(rail.railId, item, index, pool.length)
+        : undefined,
     });
     const merged = [...existing, ...extra].slice(0, rail.displayLimit);
     selections.set(rail.railId, merged);
@@ -158,6 +171,8 @@ export function selectRailSessionItems<T extends { type: string; id: string }>(
     stableRatio?: number;
     now?: number;
     rng?: () => number;
+    seed?: string;
+    weightForItem?: (item: T, index: number) => number;
   },
 ): SessionSelectedItem<T>[] {
   const {
@@ -167,6 +182,8 @@ export function selectRailSessionItems<T extends { type: string; id: string }>(
     stableRatio = 0.7,
     now = Date.now(),
     rng = Math.random,
+    seed = `rail:${now}`,
+    weightForItem,
   } = options;
 
   const blocked = (item: T): boolean => occupiedKeys.has(titleKey(item.type, item.id));
@@ -178,7 +195,18 @@ export function selectRailSessionItems<T extends { type: string; id: string }>(
   const chosen = new Map(stable.map((item) => [titleKey(item.type, item.id), item]));
   const freshPool = available.filter((item) => !chosen.has(titleKey(item.type, item.id)));
   const freshSlots = Math.max(0, displayLimit - stable.length);
-  const fresh = weightedSampleWithoutReplacement(freshPool, freshSlots, now, rng);
+  const fresh = weightForItem
+    ? weightedDeal(
+      freshPool.map((item, index) => ({
+        item,
+        type: item.type,
+        id: item.id,
+        weight: weightForItem(item, index),
+      })),
+      freshSlots,
+      seed,
+    ).map((entry) => entry.item)
+    : weightedSampleWithoutReplacement(freshPool, freshSlots, now, rng);
 
   return [
     ...stable.map((item) => ({ ...item, mix_bucket: 'stable' as const })),

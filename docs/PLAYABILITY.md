@@ -482,6 +482,16 @@ never waits for AI. Playing
 a For You card uses the exact same play-session and playback ladder as every
 curated rail, including the existing 4K policy and proof boundary.
 
+`MANGO_VOD_BROWSE_V3` is a separate presentation rollout. Its Explore pool is
+the complete current verified, poster-bearing corpus after the same exact-title
+exclusions; every eligible row has positive weight. Category and AI-catalog
+deals only read existing verified pools and never mutate membership. The active
+tab deal is persisted atomically with one previous fallback, globally
+deduplicated, and revalidated before reuse. Browse-v3 Home/X performs no
+provider verification, metadata enrichment, StoryDNA, or ranking work; any
+failed card is healed from already-published local state or the previous deal
+is retained.
+
 ## Open items
 
 | Item | Why it matters |

@@ -99,12 +99,16 @@ native HDR through X11/mpv is not a supported claim. See
   `vod-content-profile-v2`, optional compatible StoryDNA overlays, an
   off-by-default bounded frontier, and local Story Frontier ranking. YouTube
   uses only authoritative subscriptions and qualifying Takeout/Mango history.
-- In `serve`, VOD For You is exactly six current verified cards. YouTube normal
+- In `serve`, VOD For You is exactly six current verified cards. Optional
+  `MANGO_VOD_BROWSE_V3=shadow|serve` adds derived full-corpus Explore, weighted
+  all-rail tab deals, and StoryDNA-first Detail Related without new teacher
+  calls. YouTube normal
   rows require exactly four cards and may be absent; Live Now allows one to four.
 - Serve-mode Home/X returns from cached atomic generations and does not wait for
   model/acquisition/network work. VOD low-water detection may enqueue background
   recovery after the read. Independent flags are
   `MANGO_VOD_RECS_V2=off|shadow|serve` and
+  `MANGO_VOD_BROWSE_V3=off|shadow|serve` and
   `MANGO_YOUTUBE_RECS_V2=off|shadow|serve`.
 
 `off` disables recommendations, `shadow` builds only the latest architecture

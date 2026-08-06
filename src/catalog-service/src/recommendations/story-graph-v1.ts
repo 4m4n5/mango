@@ -5,6 +5,7 @@ import {
   type StoryDnaDocument,
   type StoryDnaGraphEdge,
 } from './story-dna.js';
+import { forYouRelevanceWeight } from './vod-browse-v3.js';
 
 /** The v2 model consumes typed StoryDNA graph edges through a local posterior. */
 export const VOD_STORY_GRAPH_MODEL_VERSION = 'vod-story-graph-v2' as const;
@@ -14,6 +15,7 @@ export const STORY_GRAPH_WATCH_HALF_LIFE_DAYS = 180;
 export const STORY_GRAPH_MAX_THREADS = 3;
 export const STORY_GRAPH_VISIBLE_LIMIT = 6;
 export const STORY_GRAPH_DEALER_EXPONENT = 1.5;
+export type StoryDealerWeightPolicy = 'rank' | 'relevance';
 
 /** Two is neutral; only values below one are negative and values above two propagate. */
 const PREFERENCE_FLOOR = 2;
@@ -211,6 +213,7 @@ export type StoryDealerCacheItem = {
 
 export type StoryDealerCache = {
   model_version: typeof VOD_STORY_GRAPH_MODEL_VERSION;
+  weight_policy: StoryDealerWeightPolicy;
   thread_order: string[];
   items: StoryDealerCacheItem[];
 };
@@ -1546,10 +1549,24 @@ export function storyDealerRankWeight(rank: number): number {
 export function buildStoryDealerCache(
   rankedInput: StoryGraphScoredRecommendation[],
   threadOrder: string[] = [],
+  weightPolicy: StoryDealerWeightPolicy = 'rank',
 ): StoryDealerCache {
   const ranked = [...rankedInput].sort(scoredRecommendationCompare);
   const seen = new Set<StoryGraphContentId>();
   const perThreadRank = new Map<string, number>();
+  const fitFloor = 2.5;
+  const perThreadScores = new Map<string, number[]>();
+  for (const recommendation of ranked) {
+    const thread = recommendation.best_thread_id ?? 'unassigned';
+    const scores = perThreadScores.get(thread) ?? [];
+    if (recommendation.rank_score >= fitFloor) scores.push(recommendation.rank_score);
+    perThreadScores.set(thread, scores);
+  }
+  const q95ByThread = new Map([...perThreadScores].map(([thread, scores]) => {
+    const ordered = [...scores].sort((left, right) => left - right);
+    const index = Math.max(0, Math.ceil(ordered.length * 0.95) - 1);
+    return [thread, ordered[index] ?? fitFloor] as const;
+  }));
   const items: StoryDealerCacheItem[] = [];
   for (const recommendation of ranked) {
     const identity = contentKey(recommendation.type, recommendation.id);
@@ -1561,12 +1578,19 @@ export function buildStoryDealerCache(
     perThreadRank.set(thread, denseThreadRank);
     items.push({
       rank,
-      dealer_weight: storyDealerRankWeight(denseThreadRank),
+      dealer_weight: weightPolicy === 'relevance'
+        ? forYouRelevanceWeight({
+          rankScore: recommendation.rank_score,
+          fitFloor,
+          threadQ95: q95ByThread.get(thread) ?? fitFloor,
+        })
+        : storyDealerRankWeight(denseThreadRank),
       recommendation,
     });
   }
   return {
     model_version: VOD_STORY_GRAPH_MODEL_VERSION,
+    weight_policy: weightPolicy,
     thread_order: activePortfolioThreads(ranked, threadOrder),
     items,
   };
@@ -1595,6 +1619,8 @@ export function dealStoryRecommendations(
     visible_limit?: number;
     exclude_ids?: StoryGraphContentId[];
     minimum_rank_score?: number;
+    group_keys_by_id?: ReadonlyMap<StoryGraphContentId, readonly string[]>;
+    max_per_group?: number;
   },
 ): StoryGraphScoredRecommendation[] {
   if (cache.model_version !== VOD_STORY_GRAPH_MODEL_VERSION) {
@@ -1607,14 +1633,40 @@ export function dealStoryRecommendations(
       && item.recommendation.rank_score >= (options.minimum_rank_score ?? Number.NEGATIVE_INFINITY)
   ));
   const weighted = dealerOrder(eligible, options.seed);
+  const maxPerGroup = Math.max(1, Math.floor(options.max_per_group ?? Number.MAX_SAFE_INTEGER));
+  const groupCounts = new Map<string, number>();
+  const canSelect = (item: StoryDealerCacheItem): boolean => (
+    (options.group_keys_by_id?.get(contentKey(
+      item.recommendation.type,
+      item.recommendation.id,
+    )) ?? []).every((group) => (groupCounts.get(group) ?? 0) < maxPerGroup)
+  );
+  const recordGroups = (item: StoryDealerCacheItem): void => {
+    for (const group of options.group_keys_by_id?.get(contentKey(
+      item.recommendation.type,
+      item.recommendation.id,
+    )) ?? []) {
+      groupCounts.set(group, (groupCounts.get(group) ?? 0) + 1);
+    }
+  };
   const threads = cache.thread_order.filter((thread) => weighted.some(
     (item) => item.recommendation.best_thread_id === thread,
   )).slice(0, STORY_GRAPH_MAX_THREADS);
   if (threads.length === 0) return weighted.slice(0, limit).map((item) => item.recommendation);
   const quotas = portfolioQuotas(threads.length, limit);
-  const buckets = threads.map((thread) => weighted.filter(
-    (item) => item.recommendation.best_thread_id === thread,
-  ).slice(0, quotas[threads.indexOf(thread)]!));
+  const buckets = threads.map((thread) => {
+    const bucket: StoryDealerCacheItem[] = [];
+    for (const item of weighted) {
+      if (item.recommendation.best_thread_id !== thread || !canSelect(item)) continue;
+      bucket.push(item);
+      recordGroups(item);
+      if (bucket.length >= quotas[threads.indexOf(thread)]!) break;
+    }
+    return bucket;
+  });
+  // Recount in actual rendered order; the provisional per-thread pass above
+  // exists only to find quota-capable buckets.
+  groupCounts.clear();
   const output: StoryGraphScoredRecommendation[] = [];
   const selected = new Set<StoryGraphContentId>();
   const rounds = Math.max(0, ...buckets.map((items) => items.length));
@@ -1623,16 +1675,18 @@ export function dealStoryRecommendations(
       const item = bucket[round];
       if (!item) continue;
       const identity = contentKey(item.recommendation.type, item.recommendation.id);
-      if (selected.has(identity)) continue;
+      if (selected.has(identity) || !canSelect(item)) continue;
       selected.add(identity);
+      recordGroups(item);
       output.push(item.recommendation);
     }
   }
   for (const item of weighted) {
     if (output.length >= limit) break;
     const identity = contentKey(item.recommendation.type, item.recommendation.id);
-    if (selected.has(identity)) continue;
+    if (selected.has(identity) || !canSelect(item)) continue;
     selected.add(identity);
+    recordGroups(item);
     output.push(item.recommendation);
   }
   return output;

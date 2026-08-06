@@ -13,6 +13,11 @@ import {
   storyGraphServingWorkSnapshot,
   type StoryGraphForYouRail,
 } from './story-graph-service.js';
+import {
+  VOD_BROWSE_MODEL_VERSION,
+  VOD_RELATED_MODEL_VERSION,
+  vodBrowseV3Mode,
+} from './vod-browse-v3.js';
 
 export type ForYouTab = 'movies' | 'series';
 export type ForYouRail = StoryGraphForYouRail;
@@ -119,6 +124,7 @@ export async function loadForYouRail(
     reshuffle?: boolean;
     profileId?: string;
     personalizationUpdatedAt?: number;
+    excludeKeys?: ReadonlySet<string>;
   } = {},
 ): Promise<ForYouRail | null> {
   void options.personalizationUpdatedAt;
@@ -126,7 +132,10 @@ export async function loadForYouRail(
   if (options.profileId && options.profileId !== 'household') return null;
   if (!hasPublishedStoryGraphGeneration(tab) || storyGraphPublishedHasNoTaste(tab)) return null;
   if (!storyGraphServeAuthorized(tab)) return null;
-  return loadStoryGraphForYouRail(tab, { reshuffle: options.reshuffle });
+  return loadStoryGraphForYouRail(tab, {
+    reshuffle: options.reshuffle,
+    exclude_keys: options.excludeKeys,
+  });
 }
 
 type AttributionRollup = {
@@ -148,6 +157,11 @@ export function recommendationDiagnostics(): {
   metrics: Record<string, { value: number; updated_at: number }>;
   refresh_jobs: RecommendationRefreshJob[];
   vod_mode: ReturnType<typeof vodRecommendationsV2Mode>;
+  browse_v3: {
+    mode: ReturnType<typeof vodBrowseV3Mode>;
+    browse_model_version: typeof VOD_BROWSE_MODEL_VERSION;
+    related_model_version: typeof VOD_RELATED_MODEL_VERSION;
+  };
   story_frontier: ReturnType<typeof storyGraphDiagnostics>;
   serving_work: ReturnType<typeof storyGraphServingWorkSnapshot>;
   attribution_rollup: AttributionRollup[];
@@ -221,6 +235,11 @@ LIMIT 40
     ])),
     refresh_jobs: listRecommendationRefreshJobs(20),
     vod_mode: vodMode,
+    browse_v3: {
+      mode: vodBrowseV3Mode(),
+      browse_model_version: VOD_BROWSE_MODEL_VERSION,
+      related_model_version: VOD_RELATED_MODEL_VERSION,
+    },
     story_frontier: storyGraphDiagnostics(),
     serving_work: storyGraphServingWorkSnapshot(),
     attribution_rollup: attributionRollup,

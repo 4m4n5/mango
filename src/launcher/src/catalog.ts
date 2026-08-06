@@ -450,12 +450,10 @@ export async function loadRailRelatedCards(
   limit = 8,
 ): Promise<ContentCard[]> {
   const railId = card.railId;
-  if (!railId) {
-    return pickRelatedFallback(homeVisible, card, limit);
-  }
   const exclude = buildExcludeParam(homeVisible, card);
   try {
     if (tab === "youtube" || card.source === "youtube") {
+      if (!railId) return pickRelatedFallback(homeVisible, card, limit);
       const data = await fetchJson<{ items: YoutubeItem[] }>(
         `/api/catalog/youtube/related?rail_id=${encodeURIComponent(railId)}&exclude=${encodeURIComponent(exclude)}&limit=${limit}`,
         undefined,
@@ -467,7 +465,7 @@ export async function loadRailRelatedCards(
       }
     } else {
       const data = await fetchJson<RailItemsResponse>(
-        `/api/catalog/rails/${encodeURIComponent(railId)}/related?exclude=${encodeURIComponent(exclude)}&limit=${limit}`,
+        `/api/catalog/catalog/${encodeURIComponent(card.type)}/${encodeURIComponent(card.id)}/related?rail_id=${encodeURIComponent(railId ?? "")}&exclude=${encodeURIComponent(exclude)}&limit=${limit}`,
         undefined,
         8000,
       );
@@ -475,9 +473,10 @@ export async function loadRailRelatedCards(
       if (mapped.length > 0) {
         return mapped;
       }
+      return [];
     }
   } catch {
-    // fall through to local shuffle
+    if (tab !== "youtube" && card.source !== "youtube") return [];
   }
   return pickRelatedFallback(homeVisible, card, limit);
 }

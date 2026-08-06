@@ -262,18 +262,21 @@ generation remains active. A taste mutation may first publish a priority
 bootstrap drawn from a default roughly 240-row reserve, then publish a separate
 full-corpus follow-up generation. The dealer
 precomputes up to 32 cached six-card slates. Three supported threads deal 2/2/2
-cards, two deal 3/3, and one deals all six. Within a thread, deterministic
-weighted sampling without replacement uses `1 / rank^1.5`; the prior four
-rendered slates are avoided when supply permits. X scans a default eight cached
-slates, bounded from 1 to 32, to advance `For You`. The same active-tab X
-request re-deals every VOD category rail from its existing verified pool,
-preferring titles not shown in that rail during the seven-day session window
-before relaxing to repeats. Continue and Saved retain their order. Load-time DB revalidation
-checks verified state, artwork, uniqueness, and exact exclusions. If six cannot be healed,
-Mango retains the previous valid slate. Home and X return from cached state and
-never wait for network, metadata, enrichment, graph, corpus scan, or ranking work.
-Low-water detection may enqueue asynchronous reserve recovery after the read;
-measure it separately from couch-path latency.
+cards, two deal 3/3, and one deals all six. Browse v3 replaces rank-only
+sampling with `1 + 31q²` relevance weighting above the 2.5 fit floor and caps a
+franchise at two cards; the prior four rendered slates remain avoided when
+supply permits. One atomic active-tab X deal also recency-shuffles Continue and
+Saved, re-deals every trusted category and AI catalog, and fills Explore last
+from every eligible verified title. Global same-page deduplication applies.
+Load-time DB revalidation checks verified state, artwork, uniqueness, and exact
+exclusions. If a complete tab deal cannot be persisted, Mango retains the
+previous active deal and returns a typed failure. Home and X never wait for
+network, metadata, enrichment, graph, corpus scan, or ranking work.
+
+Detail `Related Titles` is `vod-related-v1`: compatible StoryDNA/content-profile
+semantic edges own 65%, factual content matches 25%, and Household affinity is
+only a 10% tie-break. A semantic plus an independent shared family is required;
+the rail omits instead of substituting random same-rail cards.
 
 Writes commit first and enqueue one serialized, coalescing job per media type.
 The refresh response is HTTP 202 with job ID, trigger reasons, and captured

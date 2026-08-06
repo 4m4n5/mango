@@ -3512,6 +3512,21 @@ async function main(): Promise<void> {
         return;
       }
 
+      if (req.method === 'GET' && parts.length === 4 && parts[0] === 'catalog' && parts[3] === 'related') {
+        const contentType = parts[1];
+        const contentId = normalizeResourceId(parts[2]);
+        const exclude = parseTitleExcludeQuery(url.searchParams.get('exclude'));
+        const limit = Number(url.searchParams.get('limit') || 8);
+        sendJson(res, 200, await core.contentRelated(
+          contentType,
+          contentId,
+          url.searchParams.get('rail_id'),
+          exclude,
+          Number.isFinite(limit) ? limit : 8,
+        ));
+        return;
+      }
+
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'meta') {
         const contentType = parts[1];
         const contentId = normalizeResourceId(parts[2]);

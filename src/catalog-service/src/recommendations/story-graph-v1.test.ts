@@ -512,6 +512,44 @@ test('dealer caches the full pool and deals deterministic rank^-1.5 portfolios w
   assert.equal(next.some((item) => excluded.includes(identity(item.id))), false);
 });
 
+test('Browse v3 dealer keeps thread portfolios but samples only above fit floor by calibrated relevance', () => {
+  const ranked = ['a', 'b', 'c'].flatMap((thread) => (
+    Array.from({ length: 8 }, (_, index) => syntheticScore(
+      `${thread}-${index}`,
+      thread,
+      index === 7 ? 2.4 : 5 - index * 0.25,
+    ))
+  ));
+  const cache = buildStoryDealerCache(ranked, ['a', 'b', 'c'], 'relevance');
+  assert.equal(cache.weight_policy, 'relevance');
+  assert.ok(cache.items.some((item) => item.dealer_weight === 0));
+  assert.ok(Math.max(...cache.items.map((item) => item.dealer_weight)) <= 32);
+  const deal = dealStoryRecommendations(cache, {
+    seed: 'browse-v3',
+    minimum_rank_score: 2.5,
+  });
+  assert.equal(deal.length, 6);
+  assert.ok(deal.every((item) => item.rank_score >= 2.5));
+  assert.deepEqual(
+    Object.fromEntries(['a', 'b', 'c'].map((thread) => [
+      thread, deal.filter((item) => item.best_thread_id === thread).length,
+    ])),
+    { a: 2, b: 2, c: 2 },
+  );
+  const franchiseKeys = new Map(ranked.map((item, index) => [
+    identity(item.id),
+    [index < 12 ? 'franchise:shared' : `franchise:${item.id}`],
+  ]));
+  const capped = dealStoryRecommendations(cache, {
+    seed: 'browse-v3-franchise-cap',
+    minimum_rank_score: 2.5,
+    group_keys_by_id: franchiseKeys,
+    max_per_group: 2,
+  });
+  assert.equal(capped.length, 6);
+  assert.ok(capped.filter((item) => franchiseKeys.get(identity(item.id))?.includes('franchise:shared')).length <= 2);
+});
+
 test('rank output covers the entire requested corpus and uses the exact risk formula', () => {
   const documents = Array.from({ length: 250 }, (_, index) => storyTitle(
     `title-${String(index).padStart(3, '0')}`,

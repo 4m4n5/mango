@@ -21,6 +21,7 @@ CATALOG_DIR="${1:?catalog-service path}"
     -u MANGO_FIRE_WATER_RATINGS \
     -u MANGO_FOR_YOU \
     -u MANGO_VOD_RECS_V2 \
+    -u MANGO_VOD_BROWSE_V3 \
     -u MANGO_YOUTUBE_RECS_V2 \
     -u MANGO_STORY_DNA \
     -u MANGO_STORY_DNA_WORKER_MODE \

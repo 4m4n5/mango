@@ -249,7 +249,7 @@ viewer. Idle health expects neither to be running.
 | Surfaces | Search magnifier, Movies, TV Shows, Live, YouTube |
 | Layout | Normal VOD rails use six posters; normal YouTube/landscape rails use four cards |
 | Input | L/R change tabs; B selects; Y backs out; X is owned by the visible context |
-| Home X | Advances only the current published recommendation/discovery slate; Continue, Saved, YouTube History, and YouTube Saved stay stable |
+| Home X | VOD Browse v3 advances every visible rail atomically; YouTube advances recommendation/discovery rails while History and Saved stay stable |
 | Search X | Tap deletes one character; hold at least 600 ms clears |
 | Search execution | Immediate local/cached results plus isolated explicit external VOD, unknown Live, YouTube, and optional structured-AI phases |
 | Search persistence | Recents/selection/SafeSearch in `library.db`; YouTube query cache in `youtube.db`; bounded jobs in memory |
@@ -382,6 +382,15 @@ predates this latest-only implementation, so its visible rail is historical.
 | Removed behavior | No executable 4/1/1 buckets, forced surprise, bridge, semantic-hash v4, cosine/KNN/MMR, cooled rewatch lane, or strict-only publication path |
 | Serving | Atomic current/previous generations, cached slates, stale/tamper-safe opaque attribution, last-good fallback, cache-only X response with separately observable asynchronous low-water recovery |
 | Rollout | `MANGO_VOD_RECS_V2=off\|shadow\|serve`, independent of YouTube |
+
+Browse presentation has its own `MANGO_VOD_BROWSE_V3=off|shadow|serve` flag.
+V3 keeps the precise six-card Story Frontier rail, adds full-corpus Explore,
+uses positive-weight trusted category/AI deals, recency-shuffles Continue and
+Saved, and persists one globally deduplicated active/previous tab deal. Detail
+uses `vod-related-v1` StoryDNA/content-profile matching rather than random
+same-rail cards. This is source truth until an exact-SHA Pi proof below records
+deployment; human freshness and thematic coherence remain unproven until couch
+acceptance.
 
 ### Progressive profile source state
 

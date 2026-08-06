@@ -41,7 +41,7 @@ defects, so future changes still use the reviewed manual path.
 | File | Scope |
 |------|-------|
 | [RECOMMENDATIONS_LATEST_ONLY_CLEANUP.md](RECOMMENDATIONS_LATEST_ONLY_CLEANUP.md) | Exact source-cleanup record for `345535d`; source truth, not Pi/couch proof |
-| [RECOMMENDATIONS_SIMPLIFY_IMPLEMENTATION_PLAN.md](RECOMMENDATIONS_SIMPLIFY_IMPLEMENTATION_PLAN.md) | Approved Household Story Graph and YouTube v2 product design |
+| [RECOMMENDATIONS_SIMPLIFY_IMPLEMENTATION_PLAN.md](RECOMMENDATIONS_SIMPLIFY_IMPLEMENTATION_PLAN.md) | Current VOD Discovery v3 design: precise For You, broad all-rail shuffle, Explore, and StoryDNA Related; YouTube remains isolated |
 | [RECOMMENDATIONS_SIMPLIFY_WORK_AGENT_PROMPT.md](RECOMMENDATIONS_SIMPLIFY_WORK_AGENT_PROMPT.md) | Source implementation contract that produced the current redesign |
 | [RECOMMENDATIONS_STORYDNA_BULK_WORK_AGENT_PROMPT.md](RECOMMENDATIONS_STORYDNA_BULK_WORK_AGENT_PROMPT.md) | Superseded whole-corpus bulk/import proposal; retain as planning input only if measured progressive coverage/quality gaps justify it |
 | [m6-4k-fidelity.md](m6-4k-fidelity.md) | Detailed 4K SDR/HDR experiments and native architecture boundary |

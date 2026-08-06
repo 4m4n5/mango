@@ -64,6 +64,26 @@ test('For You is system-owned after Continue and Saved without consuming discove
   ]);
 });
 
+test('Browse v3 renders Explore after precise For You and before every specialized rail', () => {
+  const ordered = mergeUserStateRails(
+    [rail('category-a', 9), rail('ai-slot-1', 6)],
+    rail('continue-watching', 4),
+    rail('saved', 5),
+    {
+      forYouRail: rail('for-you-movies', 6),
+      exploreRail: rail('explore-movies', 9),
+    },
+  );
+  assert.deepEqual(ordered.map((entry) => entry.rail_id), [
+    'continue-watching',
+    'saved',
+    'for-you-movies',
+    'explore-movies',
+    'category-a',
+    'ai-slot-1',
+  ]);
+});
+
 test('Saved rail appears first when Continue is empty and is absent when empty', () => {
   assert.deepEqual(
     mergeUserStateRails([rail('discover', 1)], rail('continue-watching', 0), rail('saved', 1))
@@ -96,7 +116,7 @@ test('user-state rails keep source order when no reshuffle was requested', () =>
   assert.deepEqual(savedIds, Array.from({ length: 9 }, (_, i) => `saved-${i}`));
 });
 
-test('Home shuffle leaves chronological Continue and Saved rails stable', () => {
+test('legacy utility merge keeps chronological Continue and Saved rails stable', () => {
   for (const count of [6, 9, 20]) {
     const { continueIds, savedIds } = userStateIds(count, count);
     assert.deepEqual(continueIds, Array.from({ length: count }, (_, i) => `continue-watching-${i}`));
@@ -113,7 +133,7 @@ test('X does not rotate the global session or start metadata warming', () => {
   assert.equal(catalogTabLoadPolicy(false, 100, 100).rotatePlayabilitySession, true);
 });
 
-test('X deals every VOD category rail from cached pools and prefers unseen titles', () => {
+test('legacy off-mode X policy still deals category rails from cached pools', () => {
   assert.deepEqual(vodDiscoveryShufflePolicy('movies', true), {
     forceCuratedReshuffle: true,
     stableRatio: 1,

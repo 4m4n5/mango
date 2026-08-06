@@ -38,6 +38,7 @@ import {
 import {
   VOD_STORY_GRAPH_MODEL_VERSION,
   buildStoryGraphBackground,
+  buildStoryDealerCache,
   buildStoryTasteModelWithBackground,
   dealStoryRecommendations,
   positiveRatingEvidence,
@@ -87,6 +88,13 @@ import {
   type StoryFrontierCalibrationBand,
   type StoryFrontierCalibrationSample,
 } from './story-frontier-calibration.js';
+import {
+  clampUnit,
+  relatedScore,
+  relatedWeight,
+  vodBrowseV3Mode,
+  weightedDeal,
+} from './vod-browse-v3.js';
 
 export type StoryGraphTab = 'movies' | 'series';
 export type VodContentProfileMode = 'progressive-v2';
@@ -1581,20 +1589,11 @@ function persistedRankToRecommendation(row: PersistedRankRow): StoryGraphScoredR
 }
 
 function dealerCacheFromRows(rows: PersistedRankRow[], selectedK: number): StoryDealerCache {
-  const perThreadRank = new Map<number, number>();
-  return {
-    model_version: VOD_STORY_GRAPH_MODEL_VERSION,
-    thread_order: Array.from({ length: selectedK }, (_, index) => `thread-index:${index}`),
-    items: rows.map((row) => {
-      const denseThreadRank = (perThreadRank.get(row.best_thread) ?? 0) + 1;
-      perThreadRank.set(row.best_thread, denseThreadRank);
-      return {
-        rank: row.rank,
-        dealer_weight: denseThreadRank ** -1.5,
-        recommendation: persistedRankToRecommendation(row),
-      };
-    }),
-  };
+  return buildStoryDealerCache(
+    rows.map(persistedRankToRecommendation),
+    Array.from({ length: selectedK }, (_, index) => `thread-index:${index}`),
+    vodBrowseV3Mode() === 'off' ? 'rank' : 'relevance',
+  );
 }
 
 function selectCachedSlateIds(input: {
@@ -1603,6 +1602,7 @@ function selectCachedSlateIds(input: {
   seed: string;
   recentSlates: Array<{ epoch: number; ids: StoryGraphContentId[] }>;
   fixedExcludeIds?: readonly StoryGraphContentId[];
+  franchiseKeysById?: ReadonlyMap<StoryGraphContentId, readonly string[]>;
 }): StoryGraphScoredRecommendation[] {
   storyGraphServingWorkCounters.dealer_calls += 1;
   const cache = dealerCacheFromRows(input.rows, input.selectedK);
@@ -1616,6 +1616,8 @@ function selectCachedSlateIds(input: {
       seed: input.seed,
       exclude_ids: excluded,
       minimum_rank_score: fitFloor,
+      group_keys_by_id: input.franchiseKeysById,
+      max_per_group: 2,
     });
     if (preferred.length === VISIBLE_LIMIT) return preferred;
     if (retained.length === 0) break;
@@ -1623,17 +1625,15 @@ function selectCachedSlateIds(input: {
     retained.pop();
   }
 
-  // The fit floor is a quality preference, not permission to discard a healthy
-  // reserve. If it exhausts the pool, retry the same newest-to-oldest history
-  // relaxation without the floor before permitting repeats. This remains
-  // entirely offline/predealt and preserves four-slate avoidance whenever the
-  // eligible reserve can actually supply it.
+  if (vodBrowseV3Mode() !== 'off') return [];
   const relaxed = [...input.recentSlates];
   while (true) {
     const excluded = [...new Set([...fixed, ...relaxed.flatMap((slate) => slate.ids)])];
     const preferred = dealStoryRecommendations(cache, {
       seed: input.seed,
       exclude_ids: excluded,
+      group_keys_by_id: input.franchiseKeysById,
+      max_per_group: 2,
     });
     if (preferred.length === VISIBLE_LIMIT) return preferred;
     if (relaxed.length === 0) return [];
@@ -1743,6 +1743,7 @@ INSERT INTO vod_cached_slate_items(
 
 function createPredealtSlateQueue(input: {
   type: RatingContentType;
+  storyGenerationId: number;
   rankGenerationId: number;
   rows: PersistedRankRow[];
   selectedK: number;
@@ -1759,6 +1760,19 @@ function createPredealtSlateQueue(input: {
   const threadIndex = new Map(input.threadIds.map((_thread, index) => [
     `thread-index:${index}`, index,
   ]));
+  const franchiseRows = libraryDatabase().prepare(`
+SELECT content_id, node_key
+FROM vod_content_profile_edges
+WHERE generation_id = ? AND content_type = ? AND family = 'franchise'
+ORDER BY content_id, node_key
+`).all(input.storyGenerationId, input.type) as Array<{ content_id: string; node_key: string }>;
+  const franchiseKeysById = new Map<StoryGraphContentId, string[]>();
+  for (const row of franchiseRows) {
+    const identity = contentKey(input.type, row.content_id);
+    const keys = franchiseKeysById.get(identity) ?? [];
+    keys.push(row.node_key);
+    franchiseKeysById.set(identity, keys);
+  }
   libraryDatabase().prepare(`
 DELETE FROM vod_cached_slates WHERE rank_generation_id = ? AND content_type = ?
 `).run(input.rankGenerationId, input.type);
@@ -1777,6 +1791,7 @@ DELETE FROM vod_cached_slates WHERE rank_generation_id = ? AND content_type = ?
       seed: `${input.type}:${input.rankGenerationId}:${epoch}`,
       recentSlates: generated.slice(-4).reverse(),
       fixedExcludeIds,
+      franchiseKeysById,
     });
     if (items.length !== VISIBLE_LIMIT) break;
     persistCachedSlate({
@@ -2799,6 +2814,7 @@ SELECT active_rank_generation_id FROM vod_active_generations WHERE content_type 
   if (published) {
     epoch = createPredealtSlateQueue({
       type,
+      storyGenerationId,
       rankGenerationId: rankGeneration.rank_generation_id,
       rows: eligibleRows,
       selectedK: ranked.selected_k,
@@ -3293,9 +3309,266 @@ WHERE active.content_type = ? AND ranks.status IN ('bootstrap', 'complete')
   return row?.selected_k === 0;
 }
 
+export type VodBrowseAffinity = {
+  taste_adjacency: number;
+  profile_confidence: number | null;
+  rank_score: number | null;
+  profile_status: string | null;
+};
+
+/** Compact, read-only household affinity hints for cached Browse-v3 dealing. */
+export function loadVodBrowseAffinity(tab: StoryGraphTab): Map<string, VodBrowseAffinity> {
+  const type = contentTypeForTab(tab);
+  const rows = libraryDatabase().prepare(`
+SELECT ri.content_id, ri.rank, ri.rank_score, ri.feature_confidence, ri.profile_status
+FROM vod_active_generations active
+JOIN vod_rank_items ri ON ri.rank_generation_id = active.active_rank_generation_id
+WHERE active.content_type = ? AND ri.content_type = ?
+ORDER BY CASE WHEN ri.rank IS NULL THEN 1 ELSE 0 END, ri.rank ASC, ri.content_id ASC
+`).all(type, type) as Array<{
+    content_id: string;
+    rank: number | null;
+    rank_score: number | null;
+    feature_confidence: number | null;
+    profile_status: string | null;
+  }>;
+  const rankedCount = rows.filter((row) => row.rank !== null).length;
+  return new Map(rows.map((row) => {
+    const adjacency = row.rank === null || rankedCount <= 1
+      ? 0.5
+      : clampUnit(1 - (row.rank - 1) / (rankedCount - 1));
+    return [contentKey(type, row.content_id), {
+      taste_adjacency: adjacency,
+      profile_confidence: row.feature_confidence,
+      rank_score: row.rank_score,
+      profile_status: row.profile_status,
+    }];
+  }));
+}
+
+export function householdVodDiscoveryExclusions(tab: StoryGraphTab): Set<string> {
+  return new Set(currentExactExclusions(contentTypeForTab(tab)));
+}
+
+type RelatedEdgeRow = {
+  content_id: string;
+  family: string;
+  node_key: string;
+  intensity: number;
+  confidence: number;
+  node_frequency: number;
+  title: string | null;
+  poster: string | null;
+  year: string | null;
+  rank: number | null;
+};
+
+export type StoryGraphRelatedItem = {
+  id: string;
+  type: RatingContentType;
+  title: string;
+  poster: string;
+  year: string | null;
+  source: 'vod-related-v1';
+};
+
+const RELATED_SEMANTIC_FAMILIES = new Set([
+  'genre-subgenre', 'story-engine', 'theme', 'character-dynamic', 'tone',
+  'setting-era', 'geographic-scope', 'social-setting', 'narrative-structure',
+  'ending-emotional-arc', 'compound',
+  'facet.pace', 'facet.action', 'facet.tension', 'facet.spectacle',
+  'facet.humor', 'facet.romance', 'facet.fear', 'facet.tenderness',
+  'facet.sadness', 'facet.hope', 'facet.realism', 'facet.narrative_complexity',
+  'facet.moral_ambiguity', 'facet.violence', 'facet.family_accessibility',
+]);
+
+/** StoryDNA/content-profile item-to-item relation. No provider or teacher call occurs here. */
+export async function loadStoryGraphRelatedTitles(input: {
+  tab: StoryGraphTab;
+  content_id: string;
+  exclude_keys?: ReadonlySet<string>;
+  limit?: number;
+}): Promise<StoryGraphRelatedItem[]> {
+  const type = contentTypeForTab(input.tab);
+  const limit = Math.max(1, Math.min(24, Math.floor(input.limit ?? 8)));
+  const db = libraryDatabase();
+  const active = db.prepare(`
+SELECT active.active_story_generation_id AS story_generation_id,
+       active.active_rank_generation_id AS rank_generation_id,
+       ranks.eligible_count
+FROM vod_active_generations active
+JOIN vod_rank_generations ranks ON ranks.rank_generation_id = active.active_rank_generation_id
+WHERE active.content_type = ? AND ranks.status IN ('bootstrap', 'complete')
+`).get(type) as {
+    story_generation_id: number;
+    rank_generation_id: number;
+    eligible_count: number;
+  } | undefined;
+  if (!active) return [];
+
+  const anchorEdges = db.prepare(`
+SELECT family, node_key, intensity, confidence
+FROM vod_content_profile_edges
+WHERE generation_id = ? AND content_type = ? AND content_id = ?
+ORDER BY family, node_key
+`).all(active.story_generation_id, type, input.content_id) as Array<{
+    family: string;
+    node_key: string;
+    intensity: number;
+    confidence: number;
+  }>;
+  if (anchorEdges.length === 0) return [];
+  const nodeKeys = [...new Set(anchorEdges.map((edge) => edge.node_key))];
+  const placeholders = nodeKeys.map(() => '?').join(', ');
+  const rows = db.prepare(`
+WITH node_frequency AS (
+  SELECT family, node_key, COUNT(DISTINCT content_id) AS frequency
+  FROM vod_content_profile_edges
+  WHERE generation_id = ? AND content_type = ? AND node_key IN (${placeholders})
+  GROUP BY family, node_key
+)
+SELECT edges.content_id, edges.family, edges.node_key, edges.intensity, edges.confidence,
+       frequency.frequency AS node_frequency,
+       ranks.title, ranks.poster, ranks.year, ranks.rank
+FROM vod_content_profile_edges edges
+JOIN node_frequency frequency
+  ON frequency.family = edges.family AND frequency.node_key = edges.node_key
+JOIN vod_rank_items ranks
+  ON ranks.rank_generation_id = ? AND ranks.content_type = edges.content_type
+ AND ranks.content_id = edges.content_id
+WHERE edges.generation_id = ? AND edges.content_type = ?
+  AND edges.content_id != ? AND edges.node_key IN (${placeholders})
+  AND ranks.poster IS NOT NULL AND ranks.poster != ''
+ORDER BY edges.content_id, edges.family, edges.node_key
+`).all(
+    active.story_generation_id,
+    type,
+    ...nodeKeys,
+    active.rank_generation_id,
+    active.story_generation_id,
+    type,
+    input.content_id,
+    ...nodeKeys,
+  ) as RelatedEdgeRow[];
+  if (rows.length === 0) return [];
+
+  const anchorByNode = new Map(anchorEdges.map((edge) => [`${edge.family}\u0000${edge.node_key}`, edge]));
+  const anchorFamilyCounts = new Map<string, number>();
+  for (const edge of anchorEdges) {
+    anchorFamilyCounts.set(edge.family, (anchorFamilyCounts.get(edge.family) ?? 0) + 1);
+  }
+  const byCandidate = new Map<string, RelatedEdgeRow[]>();
+  for (const row of rows) {
+    const candidate = byCandidate.get(row.content_id) ?? [];
+    candidate.push(row);
+    byCandidate.set(row.content_id, candidate);
+  }
+  const excluded = new Set([
+    ...currentExactExclusions(type),
+    ...(input.exclude_keys ?? []),
+    contentKey(type, input.content_id),
+  ]);
+  const candidates = [...byCandidate].flatMap(([contentId, edges]) => {
+    if (excluded.has(contentKey(type, contentId))) return [];
+    const familyTotals = new Map<string, { total: number; count: number }>();
+    for (const edge of edges) {
+      const anchor = anchorByNode.get(`${edge.family}\u0000${edge.node_key}`);
+      if (!anchor) continue;
+      const confidence = Math.min(anchor.confidence, edge.confidence);
+      const intensity = 1 - Math.min(4, Math.abs(anchor.intensity - edge.intensity)) / 4;
+      const rarity = 1 + Math.min(
+        1,
+        Math.log((Math.max(1, active.eligible_count) + 1) / (edge.node_frequency + 1)) / 4,
+      );
+      const current = familyTotals.get(edge.family) ?? { total: 0, count: 0 };
+      current.total += confidence * intensity * rarity;
+      current.count += 1;
+      familyTotals.set(edge.family, current);
+    }
+    const families = [...familyTotals].map(([family, value]) => ({
+      family,
+      score: clampUnit(value.total / Math.max(1, anchorFamilyCounts.get(family) ?? value.count)),
+      semantic: RELATED_SEMANTIC_FAMILIES.has(family),
+    }));
+    const householdAffinity = edges[0]?.rank === null || active.eligible_count <= 1
+      ? 0.5
+      : clampUnit(1 - ((edges[0]!.rank ?? active.eligible_count) - 1) / (active.eligible_count - 1));
+    const relation = relatedScore({ families, householdAffinity });
+    // Enriched and sparse fallbacks both require one content-bearing semantic
+    // family (genre is semantic); factual coincidences alone are not Related.
+    if (relation.sharedFamilies < 2 || relation.semanticFamilies < 1) return [];
+    const first = edges[0]!;
+    if (!first.poster) return [];
+    return [{
+      type,
+      id: contentId,
+      weight: relatedWeight(relation.score),
+      title: first.title ?? contentId,
+      poster: first.poster,
+      year: first.year,
+      relation_score: relation.score,
+    }];
+  });
+  if (candidates.length === 0) return [];
+  const playability = await getTitlesPlayabilityBulk(candidates.map((candidate) => ({
+    type,
+    id: candidate.id,
+  })));
+  const eligible = candidates.filter((candidate) => (
+    playability.get(contentKey(type, candidate.id))?.status === 'verified'
+  ));
+  const day = Math.floor(Date.now() / (24 * 60 * 60 * 1_000));
+  const ordered = weightedDeal(
+    eligible,
+    Math.min(eligible.length, Math.max(limit * 8, 64)),
+    `${type}:${input.content_id}:${active.story_generation_id}:${day}`,
+  );
+
+  const identityRows = ordered.length === 0 ? [] : db.prepare(`
+SELECT content_id, family, node_key
+FROM vod_content_profile_edges
+WHERE generation_id = ? AND content_type = ?
+  AND content_id IN (${ordered.map(() => '?').join(', ')})
+  AND family IN ('franchise', 'creator')
+ORDER BY content_id, family, node_key
+`).all(active.story_generation_id, type, ...ordered.map((item) => item.id)) as Array<{
+    content_id: string;
+    family: 'franchise' | 'creator';
+    node_key: string;
+  }>;
+  const identityByCandidate = new Map<string, typeof identityRows>();
+  for (const row of identityRows) {
+    const list = identityByCandidate.get(row.content_id) ?? [];
+    list.push(row);
+    identityByCandidate.set(row.content_id, list);
+  }
+  const franchiseCounts = new Map<string, number>();
+  const creatorCounts = new Map<string, number>();
+  const selected: typeof ordered = [];
+  for (const candidate of ordered) {
+    const identities = identityByCandidate.get(candidate.id) ?? [];
+    const franchises = identities.filter((row) => row.family === 'franchise').map((row) => row.node_key);
+    const creators = identities.filter((row) => row.family === 'creator').map((row) => row.node_key);
+    if (franchises.some((key) => (franchiseCounts.get(key) ?? 0) >= 2)) continue;
+    if (franchises.length === 0 && creators.some((key) => (creatorCounts.get(key) ?? 0) >= 1)) continue;
+    selected.push(candidate);
+    franchises.forEach((key) => franchiseCounts.set(key, (franchiseCounts.get(key) ?? 0) + 1));
+    creators.forEach((key) => creatorCounts.set(key, (creatorCounts.get(key) ?? 0) + 1));
+    if (selected.length >= limit) break;
+  }
+  return selected.map((candidate) => ({
+    id: candidate.id,
+    type,
+    title: candidate.title,
+    poster: candidate.poster,
+    year: candidate.year,
+    source: 'vod-related-v1',
+  }));
+}
+
 export async function loadStoryGraphForYouRail(
   tab: StoryGraphTab,
-  options: { reshuffle?: boolean } = {},
+  options: { reshuffle?: boolean; exclude_keys?: ReadonlySet<string> } = {},
 ): Promise<StoryGraphForYouRail | null> {
   const startedAt = Date.now();
   const type = contentTypeForTab(tab);
@@ -3320,7 +3593,11 @@ SELECT eligible_count FROM vod_rank_generations WHERE rank_generation_id = ?
 `).get(active.rank_generation_id) as { eligible_count: number } | undefined)?.eligible_count ?? 0;
   let epoch = active.shuffle_epoch;
   let rows = cachedSlateRows(type, epoch, active.rank_generation_id);
-  let currentValid = await validateSlateRows(rows, type);
+  const externalExclusions = options.exclude_keys ?? new Set<string>();
+  const hasExternalExclusion = (candidateRows: PersistedRankRow[]): boolean => candidateRows.some(
+    (row) => externalExclusions.has(contentKey(type, row.content_id)),
+  );
+  let currentValid = !hasExternalExclusion(rows) && await validateSlateRows(rows, type);
   let lowWater = false;
   if (options.reshuffle || !currentValid) {
     const scanLimit = boundedInteger(
@@ -3344,7 +3621,7 @@ SELECT eligible_count FROM vod_rank_generations WHERE rank_generation_id = ?
       const cached = validation.get(candidate.epoch);
       if (cached !== undefined) return cached;
       storyGraphServingWorkCounters.queue_slates_scanned += 1;
-      const result = await validateSlateRows(candidate.rows, type);
+      const result = !hasExternalExclusion(candidate.rows) && await validateSlateRows(candidate.rows, type);
       validation.set(candidate.epoch, result);
       return result;
     };
@@ -3375,7 +3652,7 @@ SELECT eligible_count FROM vod_rank_generations WHERE rank_generation_id = ?
       for (const previous of rendered.filter((slate) => slate.epoch !== epoch).slice(0, scanLimit)) {
         storyGraphServingWorkCounters.queue_slates_scanned += 1;
         const candidateRows = cachedSlateRows(type, previous.epoch, active.rank_generation_id);
-        if (await validateSlateRows(candidateRows, type)) {
+        if (!hasExternalExclusion(candidateRows) && await validateSlateRows(candidateRows, type)) {
           replacement = { epoch: previous.epoch, rows: candidateRows };
           break;
         }
@@ -3401,7 +3678,7 @@ FROM vod_active_generations WHERE content_type = ?
         if (!current || current.rank_generation_id !== active.rank_generation_id) return null;
         epoch = current.shuffle_epoch;
         rows = cachedSlateRows(type, epoch, active.rank_generation_id);
-        currentValid = await validateSlateRows(rows, type);
+        currentValid = !hasExternalExclusion(rows) && await validateSlateRows(rows, type);
       }
     }
     if (!replacement || !currentValid) {

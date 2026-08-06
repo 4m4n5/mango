@@ -34,6 +34,7 @@ import {
 
 export type PlayableRail = BrowsableRail | AiCatalogRail;
 import {
+  allocateVodExploreSession,
   allocateTabRailSessions,
   getOrCreateRailSession,
   getPlayabilityStatus,
@@ -41,6 +42,8 @@ import {
   listRailPoolMissingDisplay,
   patchRailPoolDisplay,
   pickRailRelatedFromPool,
+  persistVodTabDealV3,
+  readVodTabDealV3,
   type PlayabilityStatus,
   type RailSessionPoolItem,
   type RailSessionSnapshot,
@@ -95,6 +98,17 @@ import {
   type SavedLibraryItem,
 } from './library/db.js';
 import { loadForYouRail } from './recommendations/service.js';
+import {
+  householdVodDiscoveryExclusions,
+  loadStoryGraphRelatedTitles,
+  loadVodBrowseAffinity,
+  type VodBrowseAffinity,
+} from './recommendations/story-graph-service.js';
+import {
+  recencyWeight,
+  vodBrowseV3Mode,
+  weightedDeal,
+} from './recommendations/vod-browse-v3.js';
 import { vodRecommendationsV2Mode } from './recommendations/v2-mode.js';
 import {
   PersonalizationChangedDuringRequestError,
@@ -374,7 +388,10 @@ export function mergeUserStateRails(
   discoveryRails: RailItemsResponse[],
   continueRail: RailItemsResponse,
   savedRail: RailItemsResponse,
-  options: { forYouRail?: RailItemsResponse | null } = {},
+  options: {
+    forYouRail?: RailItemsResponse | null;
+    exploreRail?: RailItemsResponse | null;
+  } = {},
 ): RailItemsResponse[] {
   const visibleRails = discoveryRails.filter((rail) => rail.items.length > 0);
   const prefix: RailItemsResponse[] = [];
@@ -386,6 +403,9 @@ export function mergeUserStateRails(
   }
   if (options.forYouRail && options.forYouRail.items.length > 0) {
     prefix.push(options.forYouRail);
+  }
+  if (options.exploreRail && options.exploreRail.items.length > 0) {
+    prefix.push(options.exploreRail);
   }
   return [...prefix, ...visibleRails];
 }
@@ -1210,6 +1230,7 @@ export class CatalogCore {
     expiresAt: number;
   }>();
   private readonly recommendationRevisionFence = new RecommendationTabRevisionFence();
+  private readonly vodBrowseAffinityCache = new Map<VodRecommendationTab, Map<string, VodBrowseAffinity>>();
   private liveTabRailItemsCache: {
     payload: TabRailItemsResponse;
     expiresAt: number;
@@ -1644,6 +1665,7 @@ export class CatalogCore {
   /** Invalidate only one VOD recommendation hand, leaving curated/user rails intact. */
   invalidateRecommendationTab(tab: VodRecommendationTab): void {
     this.recommendationRevisionFence.bump(tab);
+    this.vodBrowseAffinityCache.delete(tab);
     this.clearTabRailItemsCacheForTab(tab);
   }
 
@@ -2227,15 +2249,29 @@ export class CatalogCore {
   private async buildSavedRail(
     tab: CatalogTab,
     profileId = activeViewerProfileId(),
-    options: { cachedOnly?: boolean } = {},
+    options: {
+      cachedOnly?: boolean;
+      shuffleSeed?: string;
+      excludeKeys?: ReadonlySet<string>;
+    } = {},
   ): Promise<RailItemsResponse> {
     const started = Date.now();
     const savedItems = listSavedLibraryItems(tab, undefined, {
       profile_id: profileId,
       household_blend: vodUtilityHouseholdBlend(tab, profileId),
-    });
+    }).filter((item) => !options.excludeKeys?.has(titleKey(item.type, item.id)));
+    const selectedSavedItems = options.shuffleSeed
+      ? weightedDeal(
+        savedItems.map((item) => ({
+          ...item,
+          weight: recencyWeight(item.saved_at, 180, started),
+        })),
+        Math.min(9, savedItems.length),
+        `${options.shuffleSeed}:saved`,
+      )
+      : savedItems;
     const items = await mapInBatches(
-      savedItems,
+      selectedSavedItems,
       RAIL_META_CONCURRENCY,
       async (item) => this.resolveSavedRailItem(item, options),
       RAIL_META_STAGGER_MS,
@@ -2260,9 +2296,21 @@ export class CatalogCore {
   private async buildContinueRail(
     tab: CatalogTab,
     profileId = activeViewerProfileId(),
+    options: { shuffleSeed?: string } = {},
   ): Promise<RailItemsResponse> {
     const started = Date.now();
-    const items = listContinueItems(tab, undefined, { profile_id: profileId }).map((candidate) => ({
+    const candidates = listContinueItems(tab, undefined, { profile_id: profileId });
+    const selected = options.shuffleSeed
+      ? weightedDeal(
+        candidates.map((candidate) => ({
+          ...candidate,
+          weight: recencyWeight(candidate.activity_at, 30, started),
+        })),
+        Math.min(9, candidates.length),
+        `${options.shuffleSeed}:continue`,
+      )
+      : candidates;
+    const items = selected.map((candidate) => ({
       id: candidate.id,
       type: candidate.type,
       title: candidate.title,
@@ -2321,7 +2369,7 @@ export class CatalogCore {
     rail: PlayableRail,
     session: RailSessionSnapshot,
     started: number,
-    options: { cachedOnly?: boolean } = {},
+    options: { cachedOnly?: boolean; suppressRepair?: boolean } = {},
   ): Promise<RailItemsResponse> {
     const poolSnapshotItems = session.items.every(
       (item) => this.railItemFromPoolSnapshot(item) !== null,
@@ -2339,14 +2387,14 @@ export class CatalogCore {
     const pending = Math.max(0, rail.playability.min_display - items.length);
     const lowWater = items.length < rail.playability.min_display;
     const poolTarget = effectivePoolTarget(rail.playability, session.verified_pool);
-    if (lowWater) {
+    if (lowWater && !options.suppressRepair) {
       void enqueuePlayabilityTrigger({
         trigger_type: 'display_low',
         rail_id: rail.id,
         reason: `displayed=${items.length} min=${rail.playability.min_display}`,
       }).catch(() => undefined);
       schedulePlayabilityTopUp(rail.id);
-    } else if (session.verified_pool < poolTarget * 0.5) {
+    } else if (!options.suppressRepair && session.verified_pool < poolTarget * 0.5) {
       void enqueuePlayabilityTrigger({
         trigger_type: 'pool_low',
         rail_id: rail.id,
@@ -2365,6 +2413,29 @@ export class CatalogCore {
         verified_pool: session.verified_pool,
         pending,
         low_water: lowWater,
+        session_id: session.session_id,
+      },
+    };
+  }
+
+  private buildExploreRailResponse(
+    session: RailSessionSnapshot,
+    started: number,
+  ): RailItemsResponse {
+    const items = session.items
+      .map((item) => this.railItemFromPoolSnapshot(item))
+      .filter((item): item is RailItem => item !== null);
+    return {
+      rail_id: session.rail_id,
+      label: 'Explore',
+      items,
+      resolve_ms: Date.now() - started,
+      skipped: session.items.length - items.length,
+      playability: {
+        displayed: items.length,
+        verified_pool: session.verified_pool,
+        pending: Math.max(0, 6 - items.length),
+        low_water: items.length < 6,
         session_id: session.session_id,
       },
     };
@@ -2398,6 +2469,233 @@ export class CatalogCore {
     ).catch(() => undefined);
   }
 
+  private async vodBrowseStoredDealUsable(
+    tab: VodRecommendationTab,
+    payload: TabRailItemsResponse,
+    profileId: string,
+  ): Promise<boolean> {
+    if (payload.tab !== tab || payload.rails.length === 0) return false;
+    const seen = new Set<string>();
+    const exclusions = householdVodDiscoveryExclusions(tab);
+    const currentSaved = new Set(listSavedLibraryItems(tab, undefined, {
+      profile_id: profileId,
+      household_blend: vodUtilityHouseholdBlend(tab, profileId),
+    }).map((item) => titleKey(item.type, item.id)));
+    const currentContinue = new Set(listContinueItems(tab, undefined, {
+      profile_id: profileId,
+    }).map((item) => titleKey(item.type, item.id)));
+    const dealableSaved = new Set([...currentSaved].filter((key) => !currentContinue.has(key)));
+    const savedRail = payload.rails.find((rail) => rail.rail_id === SAVED_RAIL_ID);
+    const continueRail = payload.rails.find((rail) => rail.rail_id === CONTINUE_RAIL_ID);
+    if ((savedRail?.items.length ?? 0) !== Math.min(9, dealableSaved.size)) return false;
+    if ((continueRail?.items.length ?? 0) !== Math.min(9, currentContinue.size)) return false;
+    const discovery: Array<{ type: string; id: string }> = [];
+    for (const rail of payload.rails) {
+      for (const item of rail.items) {
+        const key = titleKey(item.type, item.id);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        if (rail.rail_id === SAVED_RAIL_ID) {
+          if (!dealableSaved.has(key)) return false;
+          continue;
+        }
+        if (rail.rail_id === CONTINUE_RAIL_ID) {
+          if (!currentContinue.has(key)) return false;
+          continue;
+        }
+        if (exclusions.has(key)) return false;
+        discovery.push({ type: item.type, id: item.id });
+      }
+    }
+    const states = await getTitlesPlayabilityBulk(discovery);
+    return discovery.every((item) => states.get(titleKey(item.type, item.id))?.status === 'verified');
+  }
+
+  private async stageVodBrowseV3(
+    tab: VodRecommendationTab,
+    reshuffle: boolean,
+    personalization: PersonalizationSnapshot,
+    recommendationRevision: number | null,
+    cacheKey: string,
+    cachedTab: typeof this.tabRailItemsCache extends Map<string, infer V> ? V | undefined : never,
+    started: number,
+    options: {
+      publishCache?: boolean;
+      forYouOverride?: RailItemsResponse | null;
+    } = {},
+  ): Promise<StagedPersonalizationResult<TabRailItemsResponse>> {
+    const stored = await readVodTabDealV3(tab);
+    if (!reshuffle && stored) {
+      try {
+        const payload = JSON.parse(stored.payload_json) as TabRailItemsResponse;
+        const utilityProfileId = vodUtilityProfileId(tab, personalization.active_profile_id);
+        if (await this.vodBrowseStoredDealUsable(tab, payload, utilityProfileId)) {
+          const expiresAt = Date.now() + RAIL_ITEMS_CACHE_TTL_MS;
+          return {
+            value: { ...payload, cached: true },
+            commit: () => {
+              if (options.publishCache === false) return;
+              this.tabRailItemsCache.set(cacheKey, {
+                tab,
+                profileId: personalization.active_profile_id,
+                personalizationUpdatedAt: personalization.updated_at,
+                payload,
+                expiresAt,
+              });
+            },
+          };
+        }
+      } catch {
+        // A corrupt derived deal is replaceable. Historical rows remain intact.
+      }
+    }
+
+    const nextEpoch = (stored?.deal_epoch ?? -1) + 1;
+    const dealSeed = `${tab}:deal:${nextEpoch}`;
+    const sessionId = `${this.playabilitySessionId}:v3:${tab}:${nextEpoch}`;
+    const utilityProfileId = vodUtilityProfileId(tab, personalization.active_profile_id);
+    try {
+      const continueRail = await this.buildContinueRail(tab, utilityProfileId, {
+        shuffleSeed: dealSeed,
+      });
+      const continueKeys = new Set(continueRail.items.map((item) => titleKey(item.type, item.id)));
+      const savedRail = await this.buildSavedRail(tab, utilityProfileId, {
+        cachedOnly: true,
+        shuffleSeed: dealSeed,
+        excludeKeys: continueKeys,
+      });
+      const utilityKeys = new Set([
+        ...continueKeys,
+        ...savedRail.items.map((item) => titleKey(item.type, item.id)),
+      ]);
+      const forYouRail = options.forYouOverride !== undefined
+        ? options.forYouOverride
+        : await loadForYouRail(tab, {
+          reshuffle: reshuffle || stored !== null,
+          profileId: personalization.active_profile_id,
+          personalizationUpdatedAt: personalization.updated_at,
+          excludeKeys: utilityKeys,
+        });
+      const occupied = new Set<string>();
+      for (const rail of [continueRail, savedRail, forYouRail].filter(Boolean) as RailItemsResponse[]) {
+        rail.items.forEach((item) => occupied.add(titleKey(item.type, item.id)));
+      }
+      const exclusions = householdVodDiscoveryExclusions(tab);
+      let affinity = this.vodBrowseAffinityCache.get(tab);
+      if (!affinity) {
+        affinity = loadVodBrowseAffinity(tab);
+        this.vodBrowseAffinityCache.set(tab, affinity);
+      }
+      const rails = this.browsableRailsForTab(tab);
+      const sessions = await allocateTabRailSessions({
+        sessionId,
+        rails: rails.map((rail) => ({
+          railId: rail.id,
+          displayLimit: Math.min(9, rail.playability.display_limit),
+          minDisplay: 6,
+          playability: rail.playability,
+        })),
+        forceReshuffle: true,
+        stableRatio: 0,
+        browseV3: true,
+        seed: dealSeed,
+        excludedKeys: exclusions,
+        initiallyOccupiedKeys: occupied,
+        affinityByKey: affinity,
+      });
+      const specialized: RailItemsResponse[] = [];
+      for (const rail of rails) {
+        const session = sessions.get(rail.id);
+        if (!session) continue;
+        const response = await this.buildRailItemsResponse(rail, session, started, {
+          cachedOnly: true,
+          suppressRepair: true,
+        });
+        const aiCatalog = rail.type === 'ai_catalog';
+        if ((aiCatalog && response.items.length > 0) || response.items.length >= 6) {
+          specialized.push(response);
+          response.items.forEach((item) => occupied.add(titleKey(item.type, item.id)));
+        }
+      }
+      const exploreSession = await allocateVodExploreSession({
+        tab,
+        sessionId,
+        displayLimit: 9,
+        seed: `${dealSeed}:explore`,
+        excludedKeys: exclusions,
+        occupiedKeys: occupied,
+        affinityByKey: affinity,
+      });
+      const exploreRail = this.buildExploreRailResponse(exploreSession, started);
+      if (exploreRail.items.length < 6) {
+        throw new CatalogError(503, `Explore could deal only ${exploreRail.items.length} verified titles`, undefined, {
+          couchMessage: 'Shuffle is keeping the previous complete page',
+        });
+      }
+      const visibleRails = mergeUserStateRails(specialized, continueRail, savedRail, {
+        forYouRail,
+        exploreRail,
+      });
+      const allKeys = visibleRails.flatMap((rail) => rail.items.map((item) => titleKey(item.type, item.id)));
+      if (new Set(allKeys).size !== allKeys.length) {
+        throw new CatalogError(503, 'VOD tab deal contains duplicate titles', undefined, {
+          couchMessage: 'Shuffle is keeping the previous complete page',
+        });
+      }
+      const payload: TabRailItemsResponse = {
+        tab,
+        rails: visibleRails,
+        resolve_ms: Date.now() - started,
+      };
+      const expiresAt = Date.now() + RAIL_ITEMS_CACHE_TTL_MS;
+      return {
+        value: payload,
+        commit: async () => {
+          if (recommendationRevision !== null
+            && !this.recommendationRevisionFence.isCurrent(tab, recommendationRevision)) {
+            throw new Error('recommendation inputs changed before VOD tab deal commit');
+          }
+          try {
+            await persistVodTabDealV3({
+              tab,
+              session_id: sessionId,
+              recommendation_revision: recommendationRevision,
+              payload_json: JSON.stringify(payload),
+              expected_previous_epoch: stored?.deal_epoch ?? null,
+            });
+          } catch (error) {
+            throw new CatalogError(409, `VOD tab deal commit rejected: ${
+              error instanceof Error ? error.message : String(error)
+            }`, undefined, {
+              couchMessage: 'Shuffle changed concurrently — try again',
+            });
+          }
+          if (options.publishCache !== false) {
+            for (const response of specialized) {
+              this.railItemsCache.set(response.rail_id, { payload: response, expiresAt });
+            }
+            this.tabRailItemsCache.set(cacheKey, {
+              tab,
+              profileId: personalization.active_profile_id,
+              personalizationUpdatedAt: personalization.updated_at,
+              payload,
+              expiresAt,
+            });
+          }
+        },
+        rollback: () => this.tabRailItemsCache.delete(cacheKey),
+      };
+    } catch (error) {
+      if (!reshuffle && cachedTab) {
+        const utilityProfileId = vodUtilityProfileId(tab, personalization.active_profile_id);
+        if (await this.vodBrowseStoredDealUsable(tab, cachedTab.payload, utilityProfileId)) {
+          return { value: { ...cachedTab.payload, cached: true } };
+        }
+      }
+      throw error;
+    }
+  }
+
   private async stageTabRailItems(
     tab: CatalogTab,
     reshuffle: boolean,
@@ -2424,6 +2722,17 @@ export class CatalogCore {
     }
 
     const started = Date.now();
+    if ((tab === 'movies' || tab === 'series') && vodBrowseV3Mode() === 'serve') {
+      return this.stageVodBrowseV3(
+        tab,
+        reshuffle,
+        personalization,
+        recommendationRevision,
+        cacheKey,
+        cachedTab,
+        started,
+      );
+    }
     const rails = this.browsableRailsForTab(tab);
     const shufflePolicy = vodDiscoveryShufflePolicy(tab, reshuffle);
     const cachedUtilityRail = (railId: string): RailItemsResponse | null => (
@@ -2482,10 +2791,29 @@ export class CatalogCore {
       rails: visibleRails,
       resolve_ms: Date.now() - started,
     };
+    let shadowBrowse: StagedPersonalizationResult<TabRailItemsResponse> | null = null;
+    if ((tab === 'movies' || tab === 'series') && vodBrowseV3Mode() === 'shadow') {
+      try {
+        shadowBrowse = await this.stageVodBrowseV3(
+          tab,
+          reshuffle,
+          personalization,
+          recommendationRevision,
+          `${cacheKey}\u0000browse-v3-shadow`,
+          undefined,
+          started,
+          { publishCache: false, forYouOverride: forYouRail },
+        );
+      } catch (error) {
+        console.warn(`Browse v3 shadow deal retained visible v2 page: ${
+          error instanceof Error ? error.message : String(error)
+        }`);
+      }
+    }
     const expiresAt = Date.now() + RAIL_ITEMS_CACHE_TTL_MS;
     return {
       value: payload,
-      commit: () => {
+      commit: async () => {
         if (recommendationRevision !== null
           && !this.recommendationRevisionFence.isCurrent(tab as VodRecommendationTab, recommendationRevision)) {
           return;
@@ -2500,6 +2828,13 @@ export class CatalogCore {
           payload,
           expiresAt,
         });
+        try {
+          await shadowBrowse?.commit?.();
+        } catch (error) {
+          console.warn(`Browse v3 shadow deal commit retained visible v2 page: ${
+            error instanceof Error ? error.message : String(error)
+          }`);
+        }
       },
       rollback: () => this.tabRailItemsCache.delete(cacheKey),
     };
@@ -2643,6 +2978,62 @@ export class CatalogCore {
       playability: {
         displayed: items.length,
         verified_pool: poolRows.length,
+        pending: 0,
+        low_water: false,
+        session_id: '',
+      },
+    };
+  }
+
+  async contentRelated(
+    type: string,
+    id: string,
+    railId: string | null,
+    exclude: Array<{ type: string; id: string }>,
+    limit = 8,
+  ): Promise<RailItemsResponse> {
+    if ((type === 'movie' || type === 'series') && vodBrowseV3Mode() === 'serve') {
+      const tab: VodRecommendationTab = type === 'series' ? 'series' : 'movies';
+      const rows = await loadStoryGraphRelatedTitles({
+        tab,
+        content_id: id,
+        exclude_keys: new Set(exclude.map((item) => titleKey(item.type, item.id))),
+        limit,
+      });
+      const items: RailItem[] = rows.map((row) => ({
+        id: row.id,
+        type: row.type,
+        title: row.title,
+        subtitle: row.year ?? row.type,
+        poster: row.poster,
+        year: row.year ?? undefined,
+        source: row.source,
+      }));
+      return {
+        rail_id: `related-${type}-${id}`,
+        label: 'Related Titles',
+        items,
+        resolve_ms: 0,
+        skipped: 0,
+        playability: {
+          displayed: items.length,
+          verified_pool: items.length,
+          pending: 0,
+          low_water: false,
+          session_id: '',
+        },
+      };
+    }
+    if (railId) return this.railRelated(railId, exclude, limit);
+    return {
+      rail_id: `related-${type}-${id}`,
+      label: 'Related Titles',
+      items: [],
+      resolve_ms: 0,
+      skipped: 0,
+      playability: {
+        displayed: 0,
+        verified_pool: 0,
         pending: 0,
         low_water: false,
         session_id: '',

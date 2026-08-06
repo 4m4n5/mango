@@ -319,16 +319,15 @@ next idle window.
 Rating/Save/meaningful-watch mutations commit first, immediately evict the exact
 known item, and enqueue a serialized/coalesced rescore followed by a full scan.
 Manual refresh returns HTTP 202 with a job ID, captured revisions, and trigger
-reasons. On Movies/TV, the X response path advances the cached `For You` slate
-and deals fresh selections for every category rail in the active tab from its
-existing verified pool. Continue and Saved remain stable. X never waits for
-enrichment, graph, scan, ranking, metadata, or network work. Low-water detection may
-enqueue asynchronous reserve recovery after a cached read, so operator counters
-must distinguish response-path latency from background work. The launcher shows
-X/Shuffle only when the current tab contains a non-empty shuffleable discovery
-rail, and reports success only when returned discovery membership/order changes.
-Off/shadow cannot advance a public recommendation epoch or expose `For You`, but
-their category rails remain honestly shuffleable. An
+reasons. `MANGO_VOD_BROWSE_V3=off|shadow|serve` independently stages the couch
+browse dealer. In serve, Movies/TV X atomically advances every visible rail:
+recency-weighted Continue/Saved, the cached six-card `For You`, trusted category
+and AI-catalog samples, and full-corpus `Explore`. The deal is epoch-seeded,
+globally deduplicated, and persisted as active/previous state. X never waits for
+enrichment, graph, scan, ranking, metadata, or network work, and a failed deal
+cannot replace the previous complete page. Shadow persists the same derived
+deal while leaving the older Home visible. The launcher reports success only
+when returned membership/order changes. An
 opaque server-issued token binds the immutable served Household owner,
 domain, rail, served revision, exact membership, source revision, and bounded
 context. Public cards carry opaque content IDs needed for actions, but the TV

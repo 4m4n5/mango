@@ -49,6 +49,8 @@ export type ContinueRailItem = {
   year?: number | string;
   description?: string;
   source: string;
+  /** Internal ordering signal for cached utility-rail deals. */
+  activity_at: number;
   progress: {
     play_id: string;
     position_sec: number;
@@ -345,6 +347,7 @@ LIMIT ?
     poster: row.poster || '',
     description: undefined,
     source: CONTINUE_RAIL_ID,
+    activity_at: row.updated_at,
     progress: {
       play_id: row.play_id,
       position_sec: row.position_sec,

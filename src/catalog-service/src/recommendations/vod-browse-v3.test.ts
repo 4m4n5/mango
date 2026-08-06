@@ -1,0 +1,85 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {
+  aiCatalogWeight,
+  categoryWeight,
+  exploreWeight,
+  forYouRelevanceWeight,
+  recencyWeight,
+  relatedScore,
+  relatedWeight,
+  weightedDeal,
+} from './vod-browse-v3.js';
+
+test('Browse v3 keeps every eligible discovery candidate at finite positive weight', () => {
+  const sparseExplore = exploreWeight({});
+  const weakestCategory = categoryWeight({
+    sourcePosition: 0,
+    themeConfidence: 0,
+    tasteAffinity: 0,
+    novelty: 0,
+  });
+  const weakestAi = aiCatalogWeight({ catalogRelevance: 0, tasteAffinity: 0 });
+  for (const weight of [sparseExplore, weakestCategory, weakestAi]) {
+    assert.ok(Number.isFinite(weight));
+    assert.ok(weight > 0);
+  }
+  assert.ok(sparseExplore >= 0.6 && sparseExplore <= 1);
+  assert.ok(weakestCategory >= 0.35 && weakestCategory <= 1);
+});
+
+test('For You relevance weights enforce the fit floor and calibrated 32x ceiling', () => {
+  assert.equal(forYouRelevanceWeight({ rankScore: 2.49, fitFloor: 2.5, threadQ95: 5 }), 0);
+  assert.equal(forYouRelevanceWeight({ rankScore: 2.5, fitFloor: 2.5, threadQ95: 5 }), 1);
+  assert.equal(forYouRelevanceWeight({ rankScore: 5, fitFloor: 2.5, threadQ95: 5 }), 32);
+  const middle = forYouRelevanceWeight({ rankScore: 3.75, fitFloor: 2.5, threadQ95: 5 });
+  assert.equal(middle, 8.75);
+});
+
+test('deterministic weighted deal is stable, unique, epoch-sensitive, and does not mutate input', () => {
+  const items = Array.from({ length: 80 }, (_, index) => ({
+    type: 'movie',
+    id: `title-${String(index).padStart(3, '0')}`,
+    weight: 0.6 + index / 200,
+  }));
+  const original = structuredClone(items);
+  const first = weightedDeal(items, 9, 'movies:deal:7');
+  const replay = weightedDeal(items, 9, 'movies:deal:7');
+  const next = weightedDeal(items, 9, 'movies:deal:8');
+  assert.deepEqual(first, replay);
+  assert.deepEqual(items, original);
+  assert.equal(new Set(first.map((item) => item.id)).size, 9);
+  assert.notDeepEqual(first.map((item) => item.id), next.map((item) => item.id));
+});
+
+test('utility recency weighting is bounded and rewards recent activity without excluding old rows', () => {
+  const now = Date.UTC(2026, 7, 6);
+  const recent = recencyWeight(now, 30, now);
+  const old = recencyWeight(now - 365 * 24 * 60 * 60 * 1_000, 30, now);
+  assert.equal(recent, 1);
+  assert.ok(old >= 0.25 && old < recent);
+});
+
+test('Related requires independently scored families and gives semantics most of the mass', () => {
+  const semantic = relatedScore({
+    families: [
+      { family: 'theme', score: 1, semantic: true },
+      { family: 'tone', score: 0.8, semantic: true },
+      { family: 'director', score: 0.5, semantic: false },
+    ],
+    householdAffinity: 0,
+  });
+  const factual = relatedScore({
+    families: [
+      { family: 'director', score: 1, semantic: false },
+      { family: 'decade', score: 0.8, semantic: false },
+    ],
+    householdAffinity: 0,
+  });
+  assert.equal(semantic.sharedFamilies, 3);
+  assert.equal(semantic.semanticFamilies, 2);
+  assert.ok(semantic.score > factual.score);
+  assert.equal(relatedWeight(0), 1);
+  assert.equal(relatedWeight(1), 16);
+});

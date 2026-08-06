@@ -126,17 +126,19 @@ explicit product approval.
 | Identity | VOD `shadow` and `serve` use Household; `off` restores personal-profile state but has no recommender. Existing personal/mood rows remain recoverable in every mode |
 | Ratings | Fire and Water both required; 0 valid; 0–5 in 0.5 steps; movies title-level, series show-level |
 | Seed | Approved stable identities only; idempotent; never overwrite later couch history |
-| System rail | One six-card For You after Continue/Saved; no AI-catalog slot consumed |
+| System rails | One six-card For You after Continue/Saved plus one full-corpus Explore rail; every existing category rail and AI-catalog slot remains |
 | Eligibility | Current verified/playable/poster-bearing; exclude exact rated, Saved, meaningful watch, hidden, blocked, and Not-for-me |
 | Taste | Up to three deterministic positive Bayesian threads; `<1` is negative, `1–2` is neutral, and `>2` contributes quadratically increasing positive evidence. Negative ratings exclude their exact title but do not become broad thematic vetoes |
 | Mix | Six, 3+3, or 2+2+2 across supported threads; no v4 12-card/4-1-1/forced-surprise/bridge/cosine/KNN/MMR/cooled-rewatch behavior |
 | Content profile | `vod-content-profile-v2` is the sole executable profile: deterministic metadata/rule profiles with immutable compatible StoryDNA overlays and sparse-profile exclusion |
 | Content teacher | Stateless and selective only; canonical title evidence in, no household/companion state, and no score/rank/select/publish authority |
 | Ranker | Local deterministic uncertainty-aware story graph over the complete verified corpus |
-| Serve | Atomic current/previous generations, last-good fallback, opaque revision-bound attribution; X advances cached `For You` plus every active-tab category rail while Continue/Saved stay stable; low-water recovery may enqueue asynchronously |
-| Rollout | `off` disables For You; `shadow` builds latest-only and hides For You; `serve` exposes only a promotion-eligible Household generation. Operational rollback is shadow/off; older ranking requires reviewed Git rollback |
+| Browse dealer | For You uses fit-floor relevance weighting and taste-thread quotas; Explore gives every eligible verified title positive probability; categories use trusted/theme membership; AI catalogs retain their own relevance |
+| Serve | Atomic current/previous generations and tab deals, last-good fallback, opaque revision-bound attribution; X advances Continue, Saved, For You, Explore, every active category, and every AI catalog without inline network/ranking work |
+| Related | Detail uses compatible StoryDNA/content-profile graph edges, requires a semantic plus independent shared family, and omits rather than showing random same-rail cards |
+| Rollout | `MANGO_VOD_RECS_V2` controls the Household ranker and `MANGO_VOD_BROWSE_V3` independently controls browse presentation. Both use off/shadow/serve and preserve every historical row |
 | Promotion | Current source minimum: at least 15 eligible ratings/five folds, non-null nDCG, same-fold strong-vs-lower-preference concordance ≥0.5 when measurable, true-negative (`Fire<1` and `Water<1`) top-six intrusion ≤1/3, complete accounting, deterministic replay, cached p95 ≤250 ms. Release also requires active-pointer proof, Pi restart/offline/resource proof, and a human couch verdict |
-| Current blockers | Shadow changes live Household identity and has divergent Saved ownership; launcher falsely reports Shuffle success in off/shadow; diagnostics describe the latest row rather than proving active/previous pointers; the absolute promotion gate has no accepted-baseline uplift/CI, reserve/calibration/teacher-cost, or worker-latency threshold; focused mode/HTTP/migration/publication tests and Pi/couch proof remain open |
+| Acceptance boundary | Automated source/Pi gates do not establish thematic quality. Human ten-shuffle For You plausibility, Explore/category freshness, Detail coherence, focus, and playback remain explicit couch checks |
 
 ## YouTube
 

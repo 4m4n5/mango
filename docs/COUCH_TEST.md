@@ -200,15 +200,17 @@ state transition explicitly rather than treating shadow as invisible compute.
 | F5 | Durability | Set/edit/clear survives restart; append-only history and seed precedence remain intact | |
 | F6 | Privacy | Teacher/network request contains canonical content evidence only—no ratings, Saved/history, profile, mood, conversation, or memory | |
 | F7 | Corpus/pointer | `scored + excluded == verified`, `unscored == 0`, coverage 1 for a complete publish; `/recommendations/state` must show newest diagnostics separately from matching active/previous/public pointers and epoch | |
-| F8 | Rail shape | One For You after Continue/Saved; exactly six current verified/poster-bearing cards | |
+| F8 | Rail shape | Continue, Saved, one exact six-card For You, Explore, every configured truthful category, then AI catalogs | |
 | F9 | Mix | Six, 3+3, or 2+2+2 across supported threads; no v4 12-card/4-1-1/forced-surprise/rewatch behavior | |
 | F10 | Exclusions | Exact rated, Saved, meaningful watch, hidden, blocked, and Not-for-me absent | |
-| F11 | X | On the active Movies/TV tab, response advances `For You` and every category rail from cached verified pools without network/metadata/teacher/graph/corpus/rank work; Continue/Saved and the other tab remain stable; `For You` avoids four prior slates and category rails prefer not-recent titles when supply permits; any asynchronous low-water job is separately attributed | |
+| F11 | X | On the active Movies/TV tab, one atomic response advances Continue, Saved, `For You`, Explore, every category, and every AI catalog with global deduplication and no network/metadata/teacher/graph/corpus/rank work; the other tab stays stable and a failed deal preserves the previous page | |
 | F12 | Last good | Teacher/offline/restart/job failure retains prior valid six-card rail | |
 | F13 | Rollback | serve → shadow/off removes For You without data loss; reviewed Git rollback is required for older ranking behavior | |
 | F14 | Quality | Human compares relevance, diversity, familiarity, novelty, multilingual fit, and repetition across Movies/TV | |
 | F15 | Shadow identity | Personal rows/counts remain intact; profile/mood writes are typed; Continue/progress and Saved ownership match the accepted Household policy with no shadow/serve divergence | |
 | F16 | Recommendation-disabled Shuffle | Off/shadow expose no `For You` or public recommendation epoch, but X still honestly changes cached category rails; no-op/exhausted pools never report false success | |
+| F17 | Explore breadth | Across twenty epochs, Explore and large categories materially exceed the old stable-head unique-title exposure; every card is verified, poster-bearing, unseen, and launchable | |
+| F18 | Related | Enriched Detail samples judge at least six of eight cards recognizably thematic; sparse titles omit honestly; current Home cards, known titles, and unverified titles are absent | |
 
 The Pi serves target `06487cd` with complete progressive accounting, bounded
 frontier-off behavior, healthy reserves, and an aggregate pre-couch PASS.
