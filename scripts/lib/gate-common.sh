@@ -109,6 +109,87 @@ if max_attempts is not None and attempts > max_attempts:
 PY
 }
 
+gate_print_play_failure_summary() {
+  python3 - "$1" <<'PY' >&2 || true
+import json
+import math
+import re
+import sys
+
+try:
+    data = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    raise SystemExit(0)
+
+attempts = data.get("attempts") if isinstance(data.get("attempts"), list) else []
+categories = {}
+total_ms = 0
+for attempt in attempts:
+    if not isinstance(attempt, dict):
+        continue
+    error = str(attempt.get("error") or "")
+    if re.search(r"play cancelled|play epoch", error, re.I):
+        category = "cancelled"
+    elif re.search(r"debrid_(?:copyright_block|status_clip|nfo_sidecar)", error, re.I):
+        category = "garbage"
+    elif re.search(r"rate[- ]?limit|too many requests|HTTP\s*429", error, re.I):
+        category = "rate_limited"
+    elif re.search(r"no_playable_stream|no streams|no http streams|no_stream", error, re.I):
+        category = "no_stream"
+    elif re.search(r"timeout|timed out|unreadable|supplemental_or_short_release|HTTP 5\d\d|fetch failed", error, re.I):
+        category = "transient"
+    else:
+        category = "unknown"
+    categories[category] = categories.get(category, 0) + 1
+    value = attempt.get("ms")
+    if isinstance(value, (int, float)) and value > 0:
+        total_ms += round(value)
+
+def bounded_count(value, fallback):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return fallback
+    if not math.isfinite(value) or value < 0:
+        return fallback
+    return round(value)
+
+allowed_categories = {
+    "garbage",
+    "transient",
+    "rate_limited",
+    "no_stream",
+    "cancelled",
+    "unknown",
+}
+public_categories = data.get("error_categories")
+if isinstance(public_categories, dict):
+    categories = {
+        key: bounded_count(value, 0)
+        for key, value in public_categories.items()
+        if key in allowed_categories
+        and not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+        and value >= 0
+    }
+
+summary = {
+    "error_present": bool(data.get("error")),
+    "attempt_count": bounded_count(data.get("attempt_count"), len(attempts)),
+    "attempt_total_ms": bounded_count(data.get("attempt_total_ms"), total_ms),
+    "error_categories": categories,
+}
+candidate_count = data.get("candidate_count", data.get("candidates"))
+if (
+    not isinstance(candidate_count, bool)
+    and isinstance(candidate_count, (int, float))
+    and math.isfinite(candidate_count)
+    and candidate_count >= 0
+):
+    summary["candidate_count"] = bounded_count(candidate_count, 0)
+print(json.dumps(summary, sort_keys=True))
+PY
+}
+
 gate_post_play() {
   local label="$1" type="$2" id="$3" out="$4" max_total="${5:-}" max_attempts="${6:-}" rail_id="${7:-}"
   local severity="${8:-fail}"
@@ -148,15 +229,7 @@ gate_post_play() {
   fi
   if [[ "$severity" == "attempt" ]]; then
     if [[ -s "$out" && "${MANGO_GATE_QUIET:-0}" != "1" ]]; then
-      python3 - "$out" <<'PY' >&2 || true
-import json
-import sys
-try:
-    data = json.load(open(sys.argv[1], encoding="utf-8"))
-except Exception:
-    raise SystemExit(0)
-print(json.dumps(data, sort_keys=True)[:600])
-PY
+      gate_print_play_failure_summary "$out"
     fi
     return 1
   fi
@@ -166,15 +239,7 @@ PY
     gate_fail "$label play $id http=${status:-unknown}"
   fi
   if [[ -s "$out" && "${MANGO_GATE_QUIET:-0}" != "1" ]]; then
-    python3 - "$out" <<'PY' >&2 || true
-import json
-import sys
-try:
-    data = json.load(open(sys.argv[1], encoding="utf-8"))
-except Exception:
-    raise SystemExit(0)
-print(json.dumps(data, sort_keys=True)[:600])
-PY
+    gate_print_play_failure_summary "$out"
   fi
   return 1
 }

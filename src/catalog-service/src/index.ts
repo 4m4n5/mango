@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { CatalogCore, CatalogError, normalizeResourceId } from './core.js';
-import { couchPlayFailureMessage } from './catalog-errors.js';
+import { couchPlayFailureMessage, publicPlayFailureDetails } from './catalog-errors.js';
 import { isMpvActive, playUrl } from './mpv.js';
 import { playWithLadder } from './play-orchestrator.js';
 import { assertPlayEpoch, bumpPlayEpoch, isPlayEpochStale, PlayCancelledError } from './play-cancel.js';
@@ -3805,6 +3805,16 @@ async function main(): Promise<void> {
           );
           requestSucceeded = true;
           sendJson(res, 200, result);
+        } catch (error) {
+          if (error instanceof CatalogError) {
+            throw new CatalogError(
+              error.status,
+              error.message,
+              publicPlayFailureDetails(error.details),
+              { couchMessage: error.couchMessage },
+            );
+          }
+          throw error;
         } finally {
           if (requestEpoch !== undefined) {
             finishPlayRequest(requestId, requestEpoch, requestSucceeded);

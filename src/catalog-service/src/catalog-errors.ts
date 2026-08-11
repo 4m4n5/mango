@@ -4,6 +4,7 @@ import {
   classifyPlayError,
   garbageKind,
   isRateLimitPlaceholderUrl,
+  type PlayErrorClass,
 } from './play-error-classify.js';
 
 /** True when addon text must never appear as a browse title or description. */
@@ -49,6 +50,61 @@ type CouchPlayFailureAttempt = {
 type CouchPlayFailureContext = {
   candidates?: number;
 };
+
+type PublicPlayFailureSummary = {
+  attempt_count: number;
+  attempts_succeeded: number;
+  attempts_failed: number;
+  attempt_total_ms: number;
+  error_categories: Partial<Record<PlayErrorClass, number>>;
+  candidate_count?: number;
+  obligation_floor_ran?: boolean;
+};
+
+/**
+ * Reduce internal playback diagnostics to aggregate, fixed-category evidence.
+ *
+ * PlayAttempt intentionally carries the transport URL so the ladder can retry
+ * and switch candidates. That value must never cross the HTTP error boundary:
+ * it can contain a signed debrid token, provider path, or filename. Raw
+ * provider error strings are similarly internal. The launcher and gates need
+ * only bounded outcome/timing evidence plus the couch-safe top-level message.
+ */
+export function publicPlayFailureDetails(details: unknown): PublicPlayFailureSummary | undefined {
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return undefined;
+  const record = details as Record<string, unknown>;
+  const attempts = Array.isArray(record.attempts) ? record.attempts : [];
+  const errorCategories: Partial<Record<PlayErrorClass, number>> = {};
+  let succeeded = 0;
+  let failed = 0;
+  let totalMs = 0;
+
+  for (const value of attempts) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const attempt = value as Record<string, unknown>;
+    if (attempt.ok === true) succeeded += 1;
+    else failed += 1;
+    if (typeof attempt.ms === 'number' && Number.isFinite(attempt.ms) && attempt.ms > 0) {
+      totalMs += Math.round(attempt.ms);
+    }
+    const category = classifyPlayError(typeof attempt.error === 'string' ? attempt.error : '');
+    errorCategories[category] = (errorCategories[category] ?? 0) + 1;
+  }
+
+  const candidateCount = [record.candidate_count, record.candidates]
+    .find((value) => typeof value === 'number' && Number.isFinite(value) && value >= 0);
+  return {
+    attempt_count: attempts.length,
+    attempts_succeeded: succeeded,
+    attempts_failed: failed,
+    attempt_total_ms: totalMs,
+    error_categories: errorCategories,
+    ...(typeof candidateCount === 'number' ? { candidate_count: Math.round(candidateCount) } : {}),
+    ...(typeof record.obligation_floor_ran === 'boolean'
+      ? { obligation_floor_ran: record.obligation_floor_ran }
+      : {}),
+  };
+}
 
 function normalizeDebridService(value: unknown): string | null {
   if (typeof value !== 'string') return null;

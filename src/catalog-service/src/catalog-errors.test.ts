@@ -7,6 +7,7 @@ import {
   isBlockedCatalogText,
   isAddonRateLimitMessage,
   isRateLimitedStreamUrl,
+  publicPlayFailureDetails,
 } from './catalog-errors.js';
 
 test('isBlockedCatalogText catches rate-limit copy', () => {
@@ -96,4 +97,37 @@ test('couchPlayFailureMessage differentiates debrid transient and exhausted case
 test('couchSafeCatalogMessage keeps provider failures as catalog failures', () => {
   assert.equal(couchSafeCatalogMessage('AIOStreams: fetch failed'), 'catalog temporarily unavailable');
   assert.equal(couchSafeCatalogMessage('AIOStreams: timeout after 12000ms'), 'catalog timed out — try again');
+});
+
+test('public play failure details retain aggregate evidence without transports or provider text', () => {
+  const serialized = JSON.stringify(publicPlayFailureDetails({
+    candidates: 4,
+    obligation_floor_ran: true,
+    filters: { secret: 'must-not-cross' },
+    attempts: [
+      {
+        ok: false,
+        ms: 26106.2,
+        error: 'supplemental_or_short_release https://provider.invalid/token=SECRET',
+        url: 'https://provider.invalid/token=SECRET',
+        source: 'private-provider-text',
+      },
+      {
+        ok: false,
+        ms: 10,
+        error: 'HTTP 429 token=SECRET',
+        url: 'http://127.0.0.1/private-signed-path',
+      },
+    ],
+  }));
+  assert.deepEqual(JSON.parse(serialized), {
+    attempt_count: 2,
+    attempts_succeeded: 0,
+    attempts_failed: 2,
+    attempt_total_ms: 26116,
+    error_categories: { transient: 1, rate_limited: 1 },
+    candidate_count: 4,
+    obligation_floor_ran: true,
+  });
+  assert.doesNotMatch(serialized, /https?:|SECRET|provider|filters|url/i);
 });
