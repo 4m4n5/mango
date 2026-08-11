@@ -141,9 +141,11 @@ work, and exhausted deadlines are never immediately retried. Detail stream
 lists, Live, and in-player picker refreshes do not inherit this retry policy.
 AIOStreams therefore exposes stream-resource errors to catalog-service. Mango
 filters diagnostic rows from playable/display candidates and uses fixed-category,
-credential-free copy/counters on couch surfaces. This is not yet a universal DTO
-sanitization guarantee: loopback `/stream` operator diagnostics may include raw
-error details. URL-less nested error rows are normalized first into
+credential-free copy/counters on couch surfaces. The compatibility `POST /play`
+boundary now reduces internal ladder failure details to allowlisted aggregate
+counts/timing/categories, and gate tooling prints only that projection. This is
+not yet a universal DTO sanitization guarantee: loopback `/stream` operator
+diagnostics may include raw error details. URL-less nested error rows are normalized first into
 credential-free internal category placeholders so they remain classifiable. The
 companion proxy denies `/stream`; do not widen access until the remaining raw
 DTO details are sanitized.
@@ -184,11 +186,11 @@ the table and API on the Pi.
 ### Mango library state
 
 Mango is the user-library source of truth. `progress.db` v2 owns profile-exact
-Continue/resume, while current source migrates `/etc/mango/library.db` through
-v18. The later read-only Pi runtime observation at `4a175197` predates migration
-18, while `fb20baa` remains the last fully gated runtime; migration-18
-preservation/readback and couch placement proof are deferred until the next
-deployment. V12 was the original Story Graph milestone; later additive
+Continue/resume, while `/etc/mango/library.db` is deployed through v18. At final
+Pi SHA `04171bb`, migration 18 repaired 12 noncanonical tabs to zero, all live
+databases passed `quick_check`, audited user-state keys/counts were preserved,
+and Saved runtime purity was Movies 6 / Series 8 / wrong-tab 0. The physical
+Dune-from-TV-Search placement check remains deferred. V12 was the original Story Graph milestone; later additive
 migrations add Takeout, generation scoping, progressive
 profiles/frontier/calibration/usage, immutable overlays, persisted corpus
 priors, and resumable refresh diagnostics.
@@ -449,8 +451,8 @@ published first, with at most 64 weaker-but-eligible C candidates and a hard
 `MANGO_VOD_RECS_V2=off|shadow|serve` and
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` switches permit isolated rollout.
 
-The prior recommendation runtime closed its rollout blockers at
-`fb20baa344daa37585141096e55f47bedb87de0e`: YouTube `off` uses exact active
+The recommendation runtime closed its original rollout blockers at historical
+target `fb20baa344daa37585141096e55f47bedb87de0e`: YouTube `off` uses exact active
 personal ownership, VOD active modes use exact Household Saved, off/shadow
 cannot expose or falsely advance Shuffle, and diagnostics distinguish the
 active/previous serving pointers from the newest attempted generation. Focused
@@ -461,11 +463,16 @@ can rotate `For You` indefinitely while retaining four-slate avoidance; the
 same tab-scoped request also deals fresh cached selections for every category
 rail and recency-rotates Continue and Saved. YouTube's exact
 meaningful-watch veto lasts 30 days after the most recent watch; older events
-remain durable History/taste evidence and can re-enter ranked reserves. Human ten-shuffle
+remain durable History/taste evidence and can re-enter ranked reserves.
+
+Final Pi SHA `04171bb` deploys the v2.7 quality/depth/independent-shuffle model,
+YouTube migration 17, and library migration 18. Generation 22 has 1,441
+candidates with reserves 512 For You / 405 Subscriptions / 274 Beyond / 250
+More Like / 0 Live. Fifty cache-only X requests kept quota and generation flat,
+preserved History, and measured p50 58.83 ms / p95 174.66 ms; Saved was absent
+in that snapshot and cross-shuffle repeats remain valid. Human ten-shuffle
 relevance, screenshots, and physical picture/audio/controller judgment remain
-**DEFERRED**. The v2.7 quality/depth/independent-shuffle model, YouTube migration
-17, and library migration 18 are newer source work; their Pi migration,
-deployment, automated runtime, and couch proof remain **DEFERRED**.
+**DEFERRED**.
 
 ### Unified Search
 
@@ -585,7 +592,11 @@ The status model is Green/Yellow/Red:
 
 Mutating Reliability APIs are localhost-only. Safe repair is intentionally
 narrow and delegates to `scripts/mango-health-repair.sh`; it never rebuilds DBs
-or clears caches. Detail: [RELIABILITY.md](RELIABILITY.md).
+or clears caches. Active-rail accounting uses the rails actually served for the
+loaded mode rather than penalizing inactive historical surfaces. At final Pi
+SHA `04171bb`, this removed the false Library warning: all core components were
+green, while proof freshness and rail growth kept the overall state honestly
+yellow. Detail: [RELIABILITY.md](RELIABILITY.md).
 
 ---
 

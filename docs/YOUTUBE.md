@@ -1,10 +1,11 @@
 # mango — native YouTube
 
-**Milestone:** M6.2 · **Status:** the native YouTube base and recommendation
-v2.6 have recorded Pi proof; exact revision evidence is in
-[STATUS.md](STATUS.md). Current source advances the model to
-`youtube-household-v2.7`, deeper quality-gated reservoirs, and independent
-weighted cached shuffles. That source is not Pi-deployed or couch-observed.
+**Milestone:** M6.2 · **Status:** the native YouTube base and
+`youtube-household-v2.7` are deployed on final Pi SHA `04171bb`; exact revision
+evidence is in [STATUS.md](STATUS.md). V2.7 uses deeper quality-gated reservoirs
+and independent weighted cached shuffles. Automated Pi proof is current;
+subjective recommendation quality and physical-TV behavior are not yet
+couch-observed.
 The latest model keeps authoritative subscription/history v2
 as the sole executable recommendation architecture behind an independent
 `off|shadow|serve` flag and replaces the lifetime exact-watch veto with a
@@ -20,12 +21,12 @@ removed 986 Mango-local YouTube history rows without changing Takeout, Saved,
 progress, ratings, profiles, VOD history, or StoryDNA. Search-history HTML was not imported and cannot affect
 recommendations. Exact Pi runtime proof is recorded in [STATUS.md](STATUS.md).
 
-The latest read-only Pi observation is `4a175197` on v2.6 generation 21: 480
-candidates across 120 For You / 120 Beyond / 120 More Like / 120 From
-Subscriptions, with 999 active provenance rows, 55 subscriptions, and 2,548
-Takeout anchors. It did not repeat the full gate or couch acceptance.
-`fb20baa` generation 16 remains the last fully gated proof, where five cached X
-calls measured p95 212.2 ms without API or quota movement.
+The current Pi runs v2.7 generation 22 with 1,441 candidates: 512 For You, 405
+From Subscriptions, 274 Beyond, 250 More Like, and 0 Live, with 55 authoritative
+subscriptions. Fifty cached X requests preserved generation, quota counters,
+and History at p50 58.83 ms / p95 174.66 ms; Saved was absent in this snapshot,
+so no stability claim is invented for it. The protected 25-call interactive
+Search reserve remained intact. Cross-shuffle repeats are valid.
 
 Mango treats YouTube as a first-class content source while preserving the voice
 safety contract: voice can search/open/save, but playback starts only when the
@@ -464,15 +465,15 @@ the shuffle selector.
 
 ### Current rollout boundary
 
-The base YouTube product and the latest recommendation model have different
-proof status. Base metadata/search/OAuth/Takeout/`yt-dlp` behavior has older Pi
-evidence. The later read-only runtime observation is `4a175197`, serving v2.6
-generation 21; `fb20baa` generation 16 remains the last fully gated proof. The
-v2.7 rail/depth/privacy contract above is newer tested source behavior and is
-not Pi-deployed or couch-observed. Its next exact revision still requires
-state-preserving migration, authoritative refresh, Pi gates, safe diagnostics,
-and couch observation. A Saved-only or otherwise thin account is a valid setup
-state; documentation and tests must not assume five visible rails.
+The base product and v2.7 model are deployed at exact Pi SHA `04171bb`.
+YouTube migration 17 passed `quick_check`; the nightly-class refresh completed
+all six phases and published generation 22. The standard pre-couch gate passed
+at `2a93582`, then cache and Reliability-only follow-ups received final targeted
+YouTube/library smoke and real Movie + Series lite playback. The first full N3c
+attempt stopped at 31/36 and was not rerun, so this is not a final-SHA full-gate
+PASS. A Saved-only or otherwise thin account is valid; documentation and tests
+must not assume five visible rails. Human relevance, focus/Back, offline, and
+physical picture/audio observation remain deferred.
 
 ## Serve recommendation constraints
 
@@ -535,8 +536,10 @@ search when no API key is configured and skips playback unless
 `MANGO_YOUTUBE_PLAY=1`. Focused
 source tests cover mode/identity combinations, utility ownership, refresh
 failure/last-good behavior, generation publication, quota-free weighted
-reshuffle, and the intended absence of removed acquisition paths; Pi/runtime
-proof still belongs to the next exact deployment.
+reshuffle, and the intended absence of removed acquisition paths. Final Pi
+runtime proof covers successful v2.7 publication and quota-free cached
+reshuffle; forced failure/last-good retention remains source-tested rather than
+claimed from the successful runtime refresh.
 
 ---
 

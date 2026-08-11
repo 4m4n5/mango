@@ -2,17 +2,20 @@
 
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
-Last fully gated executable recommendation target: **2026-08-06**,
-`fb20baa344daa37585141096e55f47bedb87de0e`. It is deployed with VOD Story
-Frontier, VOD Browse v3, and YouTube serving independently. Exact-SHA Mac tests
-and builds, Pi source isolation, all-rail atomic VOD Shuffle, bounded multi-seed
-YouTube acquisition, cache/latency proof, and the standard pre-couch gate pass.
-Reliability is yellow for five thin grow rails and four broken titles in its
-32-title served sample; human thematic and target-TV judgment remain separate.
-A later read-only Pi observation at `4a175197` found YouTube v2.6 generation 21
-with 480 candidates, but it did not repeat the full gate or couch acceptance and
-does not prove the newer v2.7 source contract.
-Use `git status`,
+Latest recorded Pi deployment: **2026-08-11**,
+`04171bb1c771f5fc713d192e50e0fc79e966c3cc`. Its release line is `e7b7c57`
+(Saved integrity + YouTube v2.7), `2a93582` (sanitized compatibility-play
+diagnostics), `5a0dc7e` (cached Shuffle read optimization), and `04171bb`
+(active-rail Reliability accounting). Library migration 18 and YouTube migration
+17 applied with `quick_check` OK; 12 stale tab classifications became zero
+without changing durable user-state keys/counts. YouTube v2.7 generation 22
+serves 1,441 candidates and passed a quota-flat 50-X cache test at p95
+174.66 ms. The standard pre-couch gate passed at `2a93582`, and final-SHA
+targeted library/YouTube smoke plus one real Movie and Series lite play passed.
+The first full N3c run stopped at 31/36 and was not rerun by user direction;
+there is no final-SHA full-gate or human couch verdict. Reliability is usable
+yellow: every core component is green, with only proof freshness and rail growth
+yellow. Use `git status`,
 `git rev-parse HEAD`, and the Pi commands below before acting.
 
 ## How to read this page
@@ -34,15 +37,15 @@ prove only their exact revision and contract.
 
 | Area | Source | Latest recorded runtime/proof | Remaining |
 |------|--------|-------------------------------|-----------|
-| Native launcher, Detail, Search, D-pad | Complete | Deployed and repeatedly Pi-gated on earlier revisions; later UX rounds have partial couch evidence | Final exact-revision whole-product couch pass |
-| Native mpv playback | Complete | Deferred-foreground and single-B playback were proven on selected titles on earlier revisions | Current-SHA regression matrix, failure cases, target-TV/audio proof, legacy direct-MediaFusion topology decision |
+| Native launcher, Detail, Search, D-pad | Complete | Final SHA deployed; standard pre-couch passed at `2a93582`, with final targeted smoke after the cache/Reliability-only follow-ups | Final exact-revision whole-product couch pass |
+| Native mpv playback | Complete | Final-SHA real Movie and Series lite plays passed; compatibility-play diagnostics are couch-safe at `2a93582` | Full failure matrix, target-TV/audio proof, legacy direct-MediaFusion topology decision |
 | HUD and Streams drawer | Complete | Local fixture/source gates; home-agent deployment work recorded | Current exact-SHA screenshots and 4K dropped-frame/no-regression couch pass |
-| Mango library and Fire/Water input | Current source adds canonical Saved placement and tab-only library migration 18; ratings remain complete | `fb20baa` is the last fully gated library-v17 runtime; the later `4a175197` source observation also predates migration 18 | Migration-18 preservation/readback, Saved rail-purity proof, and a human Dune-from-TV-Search check |
+| Mango library and Fire/Water input | Canonical Saved placement and tab-only library migration 18; ratings remain complete | Final Pi migration/readback passed: 12 misclassified tabs repaired to 0, user-state keys/counts preserved, Movies Saved 6 / Series Saved 8 / wrong-tab 0 | Human Dune-from-TV-Search placement and physical UI check |
 | VOD recommendations | `fb20baa` progressive profiles + Household Story Frontier + Browse v3 + StoryDNA Related; all historical data preserved | Pi serves complete 5,930/3,974 accounting with 720/675 rank reserves. Two active atomic browse reservoirs contain 19,950 candidate rows. Forty X presses per tab yielded 2,121/1,897 unique cards at p95 121.9/119.5 ms with global dedupe and zero provider/rank work | Human For You/category/Related verdict and physical focus/picture/audio checks |
 | Native YouTube base | Complete | Previously deployed/Pi-gated | Current exact-SHA revalidation and account-specific proof |
-| YouTube recommendations | Current source is `youtube-household-v2.7`: quality-gated reserves up to 512 per rail and independent weighted cache-only X | Later read-only `4a175197` v2.6: generation 21, 480 candidates, 120/120/120/120 reserves, 999 active provenance rows, 55 subscriptions, and 2,548 Takeout anchors. `fb20baa` generation 16 remains the last fully gated proof | Deploy/migrate/refresh v2.7; safe depth/quality/quota/latency proof; human relevance, focus/Back, offline, picture/audio observation |
+| YouTube recommendations | `youtube-household-v2.7`: quality-gated reserves up to 512 per rail and independent weighted cache-only X | Final Pi generation 22: 1,441 candidates; reserves 512 For You / 405 Subscriptions / 274 Beyond / 250 More Like / 0 Live; 55 subscriptions; 50 X p50 58.83 ms, p95 174.66 ms with quota/generation flat and History stable | Human relevance, perceived repetition, focus/Back, offline, picture/audio observation |
 | Voice/phone companion | Complete for trusted-LAN development contract | Automated corpus/memory/UX gates on earlier revisions; partial couch work | Full V1–V12/current coherence plus per-device client auth/pairing before appliance release |
-| Reliability Center/nightly proof | Implemented with a known optional-Live defect | Deployed on earlier revisions | Current-SHA proof, make intentionally disabled Live neutral, controller-action UI mismatch, repeated unattended evidence |
+| Reliability Center/nightly proof | Implemented; active-rail accounting fixed at `04171bb`; known optional-Live policy gap remains | Final Pi state `ok=true`, yellow only for proof and rail growth; all core components green and prior Library false-yellow removed | Fresh successful nightly/grow proof, intentionally-disabled-Live policy, controller-action UI mismatch |
 | Controller reconnect | Source-complete | Automated gate exists; normal-wake behavior partially exercised | Five physical power-on reconnect cycles without pairing mode |
 | Display sleep | **Not implemented** | Recorded Pi still exposed accidental Xorg 600-second DPMS values | Implement locked Settings/idle/mpv/DPMS/CEC contract and prove on TV |
 | Library grow | Complete, hardening | Large verified corpus exists; older successful/aborted runs are recorded | Repeated unattended publishability and thin-rail source yield |
@@ -54,8 +57,8 @@ prove only their exact revision and contract.
 
 ### Source audit
 
-- `fb20baa344daa37585141096e55f47bedb87de0e` is the last fully gated executable
-  recommendation target. It preserves the progressive Story Frontier and all
+- `fb20baa344daa37585141096e55f47bedb87de0e` is the historical 2026-08-06
+  fully gated recommendation target. It preserves the progressive Story Frontier and all
   historical database rows/schemas while adding immutable verified browse
   reservoirs, atomic tab deals, calibrated weighted sampling, and bounded
   StoryDNA-first Related matching.
@@ -71,8 +74,12 @@ prove only their exact revision and contract.
   scoring, generic reservoirs, AI Home rails, chart/legacy-live acquisition,
   and destructive fresh-start/reset APIs. Search and user-created AI catalog
   seeds remain separate and cannot establish recommendation provenance.
-- The catalog-service build and full test suite pass locally at this revision
-  (`918/918`). All 87 launcher deterministic tests and both launcher and
+- At final release SHA `04171bb`, the catalog-service suite passes `969/969`.
+  The launcher and Companion production builds passed on the feature release;
+  final follow-ups touch only catalog diagnostics/cache/Reliability code. The
+  final Pi also passed targeted library and YouTube smoke plus one real Movie
+  and Series lite play. Historical target `fb20baa` passed all 87 launcher
+  deterministic tests and both launcher and
   Companion production builds pass on the same exact revision. The
   cleanup intentionally removed a large legacy implementation/test surface, so
   Pi migration/state-preservation proof, mode-aware gates, and generated reserve
@@ -84,10 +91,10 @@ prove only their exact revision and contract.
   upgrade/preservation/rollback, frontier lease/retry/rolling-window/
   coalescing/concurrency/restart behavior, TMDB failure/rate/credential/series
   cases, and exact Pi activation/staleness behavior.
-- Current source adds library migration 18, which changes only canonical
-  `library_items.tab` placement. Its migration/preservation readback and TV
-  Saved-rail proof are not part of the `fb20baa` Pi evidence and remain
-  **DEFERRED**.
+- Library migration 18 changes only canonical `library_items.tab` placement.
+  Final Pi readback repaired 12 stale classifications to zero, preserved the
+  audited user-state keys/counts, and found Movies Saved 6 / Series Saved 8 /
+  wrong-tab 0. The physical Dune-from-TV-Search check remains **DEFERRED**.
 - The orphaned orchestrator `/recommendations/enrich` v4 compatibility route
   and implementation are removed. Only the strict content-only StoryDNA
   teacher endpoint remains; it is off for the current couch round.
@@ -117,13 +124,16 @@ prove only their exact revision and contract.
   marks `live_config_ready=false` red and folds that component into overall red.
   There is no intentionally-disabled-Live regression test. Until fixed, a
   Live-off box can be falsely reported as not couch-ready.
-- **Resolver DTO sanitization is incomplete.** URL-less nested AIO error rows are
+- **Resolver DTO sanitization is incomplete but couch compatibility failures are
+  bounded.** At `2a93582`, `POST /play` converts internal ladder details to
+  fixed aggregate counts/timing/categories and gate output allowlists that
+  projection instead of printing response bodies. URL-less nested AIO error rows are
   now normalized into credential-free category placeholders before URL
   validation, so they participate in retry/backoff accounting. However, loopback
   `/stream` diagnostics can still expose raw addon fetch error details even
   though the launcher does not render them and the companion proxy blocks the
   route. Treat those DTOs as operator-only; sanitize them before widening access.
-- **Recommendation source/runtime blockers remain closed at `fb20baa`.** YouTube off now
+- **Recommendation source/runtime blockers remain closed through `04171bb`.** YouTube off now
   returns exact active-profile utilities without a false 409; VOD shadow and
   serve both read exact Household Saved; off/shadow cannot advance a public
   recommendation epoch but can honestly reshuffle cached category rails; and
@@ -151,8 +161,9 @@ prove only their exact revision and contract.
   rows remain bound to that published membership snapshot and Live stays
   current-membership/TTL fenced. The clean 90-second acquisition wall discards
   the late response and may publish earlier eligible work instead of inventing
-  a source failure. Pi refresh/failure proof for this v2.7 behavior remains
-  **DEFERRED**.
+  a source failure. The final Pi completed every v2.7 refresh phase and
+  published generation 22; forced Pi failure/last-good retention remains
+  **DEFERRED** rather than inferred from that successful run.
 - **VOD serving authorization and supervised evaluation are separate.** A
   complete deterministic cached generation may use the narrow
   `evidence_cold_start` basis when its only missing evidence is stratified
@@ -171,9 +182,39 @@ prove only their exact revision and contract.
   `serve_eligible` as operational authorization, and neither as the human couch
   verdict.
 
-### Last fully gated recommendation runtime snapshot
+### Current exact-SHA Pi deployment
 
-The Pi is deployed at executable target
+The Pi was read back at
+`04171bb1c771f5fc713d192e50e0fc79e966c3cc` after a Git-only exact-SHA
+fast-forward and controlled restart. The verified pre-migration online backup
+set is
+`/home/aman/.local/share/mango/backups/state/state-20260811T210222.463866Z`.
+Library migration 18, YouTube migration 17, playability migration 17, and
+progress migration 2 all applied; all four live databases passed
+`quick_check`. The 12 pre-existing noncanonical library tabs became zero while
+the audited Saved/watch/rating/profile keys and counts remained unchanged.
+
+YouTube v2.7 published generation 22 with 1,441 candidates and 55 authoritative
+subscriptions. Published reserves were 512 For You, 405 From Subscriptions,
+274 Beyond, 250 More Like, and 0 Live. The protected interactive Search reserve
+remained 25 calls. Fifty cached X requests held generation and quota counters
+flat, preserved History, returned p50 58.83 ms / p95 174.66 ms, and sampled
+without duplicates inside a slate. Cross-shuffle repeats are expected; Saved
+was absent in this runtime snapshot, so stability was not fabricated.
+
+The catalog suite passed 969/969. The standard pre-couch gate passed at
+`2a93582`; the two later commits change only cached YouTube reads and active-rail
+Reliability accounting, after which targeted library/YouTube smoke and real
+Movie + Series lite plays passed at final SHA. The first full N3c attempt
+reached 31/36 and failed; it was stopped and not rerun by user direction. Final
+Reliability was `ok=true` yellow with only proof freshness and rail growth
+yellow; all core components were green and the Library false-yellow was fixed.
+No full-gate PASS, physical-TV, controller, audio, CEC, or subjective
+recommendation verdict is inferred.
+
+### Historical 2026-08-06 fully gated recommendation snapshot
+
+The Pi was deployed at executable target
 `fb20baa344daa37585141096e55f47bedb87de0e` with:
 
 ```text
@@ -226,7 +267,7 @@ backup or user data was deleted by this rollout.
 Human relevance, screenshots, focus/Back, and target-TV picture/audio judgment
 remain pending.
 
-### Later read-only YouTube runtime observation
+### Historical later read-only YouTube runtime observation
 
 The Pi was subsequently read at `4a175197` with v2.6 generation 21 active:
 `candidate_count=480`, four 120-title For You/Beyond/More Like/Subscriptions
@@ -400,8 +441,9 @@ as routine deploy or repair.
 | `shadow` | Build and diagnose only the latest Household Story Frontier; no For You rail is public |
 | `serve` | Expose only a promotion-eligible published Household Story Frontier generation. If none exists, For You is absent; there is no legacy fallback |
 
-The following table is the **serve contract**. The latest recorded Pi snapshot
-predates this latest-only implementation, so its visible rail is historical.
+The following table is the **serve contract**. The final Pi deployment runs the
+latest-only implementation; current automated proof does not replace its still
+open human relevance verdict.
 
 | Area | V2 serve implementation |
 |------|-------------------------|
@@ -425,7 +467,7 @@ Playability migration 17 keeps classification and full-corpus Explore work in
 an atomic background/shadow reservoir so Home/X only deal published local
 candidates. Detail
 uses `vod-related-v1` StoryDNA/content-profile matching rather than random
-same-rail cards. This is deployed Pi truth at `fb20baa`; human freshness and
+same-rail cards. This remains deployed Pi behavior through `04171bb`; human freshness and
 thematic coherence remain unproven until couch acceptance.
 
 ### Progressive profile source state
@@ -497,9 +539,9 @@ Detail: [FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md).
 | `shadow` | Build and diagnose only the authoritative Household v2 generation; recommendation rails remain hidden |
 | `serve` | Expose only the authoritative Household v2 generation; there is no legacy recommendation fallback |
 
-The latest read-only Pi mode observation is `serve` on v2.6 at `4a175197`; the
-last fully gated proof is `fb20baa`. The following rails describe current v2.7
-source; that newer model is not Pi-deployed or couch-observed.
+The latest Pi mode observation is `serve` on v2.7 generation 22 at `04171bb`.
+The following rails are deployed and automated-runtime-proven, but not yet
+couch-observed for relevance or physical-TV behavior.
 
 | Rail | Contract |
 |------|----------|
@@ -636,18 +678,18 @@ Detail: [DEPLOY.md](DEPLOY.md) · [DEPLOY-SPLIT-MACHINE.md](DEPLOY-SPLIT-MACHINE
 
 ## Current priority queue
 
-1. Fix and test deploy branch/SHA enforcement plus the implicit AIOMetadata
-   mutation/security path; then deploy/prove one exact revision.
-2. Fix the optional-Live reliability mismatch; the playability schema marker is
+1. Complete the minimal human couch pass for Saved placement, YouTube relevance
+   and perceived repetition, focus/Back, playback return, picture, and audio on
+   exact final SHA `04171bb`.
+2. Fix and test deploy branch/SHA enforcement plus the implicit AIOMetadata
+   mutation/security path.
+3. Obtain a fresh successful nightly/grow proof; keep the current usable-yellow
+   Reliability state explicit until proof and rail-growth warnings clear.
+4. Fix the optional-Live reliability mismatch; the playability schema marker is
    reconciled in the target.
-3. Commit and deploy the next reviewed exact revision containing library
-   migration 18, YouTube migration 17, and v2.7; read back the exact Pi SHA and
-   prove every runtime database was preserved.
-4. Refresh authoritative YouTube inputs on v2.7, run the current Pi gates, and
-   record safe 50-X depth/quality/quota/latency diagnostics before the minimal
-   Saved-placement and recommendation couch pass.
-5. Implement and prove intentional display sleep/CEC.
-6. Close resolver/provider topology, repeated grow, and nightly proof gaps.
+5. Implement and prove intentional display sleep/CEC and remove the independent
+   accidental Xorg 600-second path.
+6. Close resolver/provider topology and repeated grow gaps.
 7. Close five-cycle controller reconnect and full phone/TV couch acceptance.
 8. Publish the final target-TV SDR/HDR/audio support boundary.
 9. Build the no-SSH first-boot wizard and merge only after release acceptance.
