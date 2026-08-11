@@ -325,6 +325,10 @@ CREATE TABLE IF NOT EXISTS youtube_v2_candidate_provenance (
   source_generation TEXT NOT NULL,
   acquired_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
+  relation_type TEXT CHECK(relation_type IS NULL OR relation_type IN (
+    'direct', 'same_topic', 'deeper_dive', 'wildcard'
+  )),
+  source_rank INTEGER CHECK(source_rank IS NULL OR source_rank >= 0),
   PRIMARY KEY(kind, id, provenance, provenance_ref, source_generation),
   FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
 );
@@ -571,6 +575,34 @@ CREATE INDEX idx_youtube_v2_candidate_source
     }
     db.prepare('INSERT INTO youtube_migrations(version, applied_at) VALUES (16, ?)')
       .run(nowMs());
+  }
+  const provenanceQualityColumns = db.prepare('PRAGMA table_info(youtube_v2_candidate_provenance)')
+    .all() as Array<{ name: string }>;
+  const provenanceQualityColumnNames = new Set(provenanceQualityColumns.map((column) => column.name));
+  const provenanceQualityMigration = db.prepare(
+    'SELECT 1 FROM youtube_migrations WHERE version = 17',
+  ).get();
+  if (!provenanceQualityMigration
+    || !provenanceQualityColumnNames.has('relation_type')
+    || !provenanceQualityColumnNames.has('source_rank')) {
+    db.transaction(() => {
+      if (!provenanceQualityColumnNames.has('relation_type')) {
+        db.exec(`
+ALTER TABLE youtube_v2_candidate_provenance
+ADD COLUMN relation_type TEXT CHECK(relation_type IS NULL OR relation_type IN (
+  'direct', 'same_topic', 'deeper_dive', 'wildcard'
+));
+`);
+      }
+      if (!provenanceQualityColumnNames.has('source_rank')) {
+        db.exec(`
+ALTER TABLE youtube_v2_candidate_provenance
+ADD COLUMN source_rank INTEGER CHECK(source_rank IS NULL OR source_rank >= 0);
+`);
+      }
+      db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (17, ?)')
+        .run(nowMs());
+    })();
   }
 }
 
@@ -1463,6 +1495,12 @@ export type YoutubeV2Provenance =
   | 'history_channel'
   | 'history_topic';
 
+export type YoutubeV2RelationType =
+  | 'direct'
+  | 'same_topic'
+  | 'deeper_dive'
+  | 'wildcard';
+
 export type YoutubeV2CandidateProvenance = {
   item: YoutubeItem;
   provenance: YoutubeV2Provenance;
@@ -1470,29 +1508,56 @@ export type YoutubeV2CandidateProvenance = {
   source_generation: string;
   acquired_at: number;
   expires_at: number;
+  relation_type?: YoutubeV2RelationType | null;
+  source_rank?: number | null;
 };
 
 export function upsertYoutubeV2CandidateProvenance(
   candidates: YoutubeV2CandidateProvenance[],
 ): { upserted: number } {
-  const valid = candidates.filter((candidate) => (
-    candidate.item.kind === 'video'
-    && candidate.item.id.trim()
-    && candidate.provenance_ref.trim()
-    && candidate.source_generation.trim()
-    && Number.isFinite(candidate.acquired_at)
-    && Number.isFinite(candidate.expires_at)
-    && candidate.expires_at > candidate.acquired_at
-  ));
+  const relationTypes = new Set<YoutubeV2RelationType>([
+    'direct', 'same_topic', 'deeper_dive', 'wildcard',
+  ]);
+  const valid = candidates.filter((candidate) => {
+    const relation = candidate.relation_type ?? null;
+    const rank = candidate.source_rank ?? null;
+    return candidate.item.kind === 'video'
+      && Boolean(candidate.item.id.trim())
+      && Boolean(candidate.provenance_ref.trim())
+      && Boolean(candidate.source_generation.trim())
+      && Number.isFinite(candidate.acquired_at)
+      && Number.isFinite(candidate.expires_at)
+      && candidate.expires_at > candidate.acquired_at
+      && (relation === null || relationTypes.has(relation))
+      && (rank === null || (Number.isFinite(rank) && rank >= 0));
+  });
   upsertYoutubeItems(valid.map((candidate) => candidate.item));
   const db = ensureDb();
   const insert = db.prepare(`
 INSERT INTO youtube_v2_candidate_provenance(
-  kind, id, provenance, provenance_ref, source_generation, acquired_at, expires_at
-) VALUES ('video', ?, ?, ?, ?, ?, ?)
+  kind, id, provenance, provenance_ref, source_generation, acquired_at, expires_at,
+  relation_type, source_rank
+) VALUES ('video', ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(kind, id, provenance, provenance_ref, source_generation) DO UPDATE SET
-  acquired_at = excluded.acquired_at,
-  expires_at = excluded.expires_at
+  acquired_at = MAX(youtube_v2_candidate_provenance.acquired_at, excluded.acquired_at),
+  expires_at = MAX(youtube_v2_candidate_provenance.expires_at, excluded.expires_at),
+  relation_type = CASE
+    WHEN youtube_v2_candidate_provenance.relation_type IS NULL THEN excluded.relation_type
+    WHEN excluded.relation_type IS NULL THEN youtube_v2_candidate_provenance.relation_type
+    WHEN (CASE excluded.relation_type
+      WHEN 'direct' THEN 4 WHEN 'same_topic' THEN 3
+      WHEN 'deeper_dive' THEN 2 WHEN 'wildcard' THEN 1 ELSE 0 END)
+      > (CASE youtube_v2_candidate_provenance.relation_type
+        WHEN 'direct' THEN 4 WHEN 'same_topic' THEN 3
+        WHEN 'deeper_dive' THEN 2 WHEN 'wildcard' THEN 1 ELSE 0 END)
+      THEN excluded.relation_type
+    ELSE youtube_v2_candidate_provenance.relation_type
+  END,
+  source_rank = CASE
+    WHEN youtube_v2_candidate_provenance.source_rank IS NULL THEN excluded.source_rank
+    WHEN excluded.source_rank IS NULL THEN youtube_v2_candidate_provenance.source_rank
+    ELSE MIN(youtube_v2_candidate_provenance.source_rank, excluded.source_rank)
+  END
 `);
   const upserted = db.transaction(() => {
     let changes = 0;
@@ -1504,6 +1569,10 @@ ON CONFLICT(kind, id, provenance, provenance_ref, source_generation) DO UPDATE S
         candidate.source_generation.trim(),
         Math.floor(candidate.acquired_at),
         Math.floor(candidate.expires_at),
+        candidate.relation_type ?? null,
+        candidate.source_rank === null || candidate.source_rank === undefined
+          ? null
+          : Math.floor(candidate.source_rank),
       ).changes;
     }
     return changes;
@@ -1520,7 +1589,7 @@ export function listYoutubeV2CandidateProvenance(options: {
   const rows = ensureDb().prepare(`
 SELECT
   cp.provenance, cp.provenance_ref, cp.source_generation,
-  cp.acquired_at, cp.expires_at,
+  cp.acquired_at, cp.expires_at, cp.relation_type, cp.source_rank,
   yi.id, yi.kind, yi.title, yi.subtitle, yi.description, yi.thumbnail,
   yi.channel_id, yi.channel_title, yi.published_at, yi.duration_sec,
   yi.live_status, yi.playlist_id, yi.category_id, yi.default_language,
@@ -1557,6 +1626,8 @@ LIMIT ?
     source_generation: row.source_generation,
     acquired_at: row.acquired_at,
     expires_at: row.expires_at,
+    relation_type: row.relation_type ?? null,
+    source_rank: row.source_rank ?? null,
   }));
 }
 
@@ -1748,11 +1819,23 @@ ORDER BY gi.rail_id, gi.rank
   };
 }
 
+export const YOUTUBE_V2_SERVING_POLICY_VERSION = 'independent_weighted_v1';
+
 export function youtubeV2ServingEpoch(
   generation: number | null,
   advance: boolean,
-): { generation: number | null; shuffle_epoch: number; slate_sequence: number } {
-  type ServingEpoch = { generation: number | null; shuffle_epoch: number; slate_sequence: number };
+): {
+  generation: number | null;
+  shuffle_epoch: number;
+  slate_sequence: number;
+  serving_policy: string;
+} {
+  type ServingEpoch = {
+    generation: number | null;
+    shuffle_epoch: number;
+    slate_sequence: number;
+    serving_policy: string;
+  };
   const db = ensureDb();
   const key = 'youtube_v2_serving_epoch';
   return db.transaction(() => {
@@ -1766,21 +1849,40 @@ export function youtubeV2ServingEpoch(
             generation: Number.isInteger(value.generation) ? Number(value.generation) : null,
             shuffle_epoch: Math.max(0, Number(value.shuffle_epoch)),
             slate_sequence: Math.max(0, Number(value.slate_sequence)),
+            serving_policy: typeof value.serving_policy === 'string' ? value.serving_policy : '',
           };
         }
       } catch {
         current = null;
       }
     }
-    const next = current === null
-      ? { generation, shuffle_epoch: advance ? 1 : 0, slate_sequence: 1 }
+    const next: ServingEpoch = current === null
+      ? {
+          generation,
+          shuffle_epoch: advance ? 1 : 0,
+          slate_sequence: 1,
+          serving_policy: YOUTUBE_V2_SERVING_POLICY_VERSION,
+        }
+      : current.serving_policy !== YOUTUBE_V2_SERVING_POLICY_VERSION
+        ? {
+            generation,
+            shuffle_epoch: 0,
+            slate_sequence: current.slate_sequence + 1,
+            serving_policy: YOUTUBE_V2_SERVING_POLICY_VERSION,
+          }
       : current.generation !== generation
-        ? { generation, shuffle_epoch: 0, slate_sequence: current.slate_sequence + 1 }
+        ? {
+            generation,
+            shuffle_epoch: 0,
+            slate_sequence: current.slate_sequence + 1,
+            serving_policy: YOUTUBE_V2_SERVING_POLICY_VERSION,
+          }
         : advance
           ? {
               generation,
               shuffle_epoch: current.shuffle_epoch + 1,
               slate_sequence: current.slate_sequence + 1,
+              serving_policy: YOUTUBE_V2_SERVING_POLICY_VERSION,
             }
           : current;
     if (next !== current) {

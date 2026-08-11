@@ -47,6 +47,9 @@ import {
   getLibraryContext,
   getLibraryState,
   initLibraryDb,
+  isLibrarySaveAllowed,
+  libraryDomainForItem,
+  libraryTabForItem,
   backupLibraryDbBeforeFireWaterMigration,
   activeViewerProfileId,
   activateViewerProfile,
@@ -57,6 +60,7 @@ import {
   listProfileLibraryFeedback,
   listViewerProfiles,
   listWatchHistory,
+  normalizeLibraryIdentity,
   recordLibraryWatch,
   recordRecommendationDetailOpen,
   recordRecommendationImpressions,
@@ -227,6 +231,8 @@ let activeStreams: ActiveStreamService | null = null;
 type PlayBody = StreamFilterOverrides & {
   request_id?: string;
   source?: PlaybackSessionSource;
+  /** Durable library identity; playback transport remains `source`. */
+  library_source?: string;
   type?: string;
   id?: string;
   title?: string;
@@ -271,9 +277,13 @@ function libraryItemFromRecord(body: Record<string, unknown>): LibraryItemInput 
   if (typeof body.type !== 'string' || typeof body.id !== 'string') {
     return null;
   }
+  const identity = normalizeLibraryIdentity(
+    typeof body.source === 'string' ? body.source : undefined,
+    body.type,
+  );
   return {
-    source: typeof body.source === 'string' ? body.source : undefined,
-    type: body.type,
+    source: identity.source,
+    type: identity.type,
     id: body.id,
     title: typeof body.title === 'string' ? body.title : undefined,
     poster: typeof body.poster === 'string' ? body.poster : undefined,
@@ -309,7 +319,14 @@ async function resolveLibraryTarget(
 
   if (typeof body.title === 'string' && body.title.trim()) {
     const title = body.title.trim();
-    if (body.source === 'youtube') {
+    const requestedSource = typeof body.source === 'string' ? body.source : undefined;
+    const requestedType = typeof body.type === 'string' ? body.type : undefined;
+    if (libraryDomainForItem(requestedSource, requestedType ?? '') === 'youtube') {
+      if (requestedType && !isLibrarySaveAllowed(requestedSource, requestedType)) {
+        throw new CatalogError(400, 'only YouTube videos can be saved', undefined, {
+          couchMessage: 'only YouTube videos can be saved',
+        });
+      }
       const hits = searchCachedYoutubeItems(title, 12).filter((hit) => {
         if (hit.kind !== 'video') {
           return false;
@@ -325,9 +342,10 @@ async function resolveLibraryTarget(
         );
       }
       const hit = hits[0];
+      const identity = normalizeLibraryIdentity(requestedSource, 'youtube_video');
       return {
-        source: 'youtube',
-        type: 'youtube_video',
+        source: identity.source,
+        type: identity.type,
         id: hit.id,
         title: hit.title,
         poster: hit.thumbnail,
@@ -335,7 +353,9 @@ async function resolveLibraryTarget(
         tab: 'youtube',
       };
     }
-    const type = typeof body.type === 'string' ? body.type.trim().toLowerCase() : null;
+    const type = requestedType
+      ? normalizeLibraryIdentity(requestedSource, requestedType).type
+      : null;
     const hits = await searchVerifiedLibrary(title, 12, core);
     const exact = hits.filter((hit) => {
       if (type && hit.type !== type) {
@@ -365,11 +385,22 @@ async function resolveLibraryTarget(
 }
 
 function assertSaveAllowed(target: LibraryItemInput): void {
-  if (target.source === 'youtube' && target.type !== 'youtube_video') {
+  if (!isLibrarySaveAllowed(target.source, target.type)) {
     throw new CatalogError(400, 'only YouTube videos can be saved', undefined, {
       couchMessage: 'only YouTube videos can be saved',
     });
   }
+}
+
+function libraryTargetDomain(target: LibraryItemInput): 'vod' | 'youtube' {
+  return libraryDomainForItem(target.source, target.type);
+}
+
+function libraryTargetStateOwner(target: LibraryItemInput, activeProfileId: string): string {
+  const tab = libraryTabForItem(target.source, target.type, target.tab);
+  if (tab === 'youtube') return recommendationOwnerForRollout('youtube', activeProfileId);
+  if (tab === 'movies' || tab === 'series') return recommendationOwnerForRollout('vod', activeProfileId);
+  return activeProfileId;
 }
 
 function parseYoutubeKind(value: string | null): YoutubeItemKind {
@@ -1314,6 +1345,7 @@ async function startPlaybackSession(
             id: body.id,
             title: body.title,
             poster: body.poster,
+            library_source: body.library_source,
             recommendation: acceptedYoutubeAttribution ?? undefined,
           }, { playEpoch })
           : await handlePlay(
@@ -1780,11 +1812,7 @@ async function main(): Promise<void> {
               source: context.source,
               type: context.type,
               id: context.id,
-              profile_id: context.source === 'youtube'
-                ? recommendationOwnerForRollout('youtube', activeViewerProfileId())
-                : context.type === 'movie' || context.type === 'series'
-                  ? recommendationOwnerForRollout('vod', activeViewerProfileId())
-                  : activeViewerProfileId(),
+              profile_id: libraryTargetStateOwner(context, activeViewerProfileId()),
             }),
           });
           return;
@@ -1795,11 +1823,7 @@ async function main(): Promise<void> {
           throw new CatalogError(400, 'GET /library/state requires type and id, or current=true');
         }
         const source = url.searchParams.get('source') || undefined;
-        const stateOwner = source === 'youtube'
-          ? recommendationOwnerForRollout('youtube', activeViewerProfileId())
-          : type === 'movie' || type === 'series'
-            ? recommendationOwnerForRollout('vod', activeViewerProfileId())
-            : activeViewerProfileId();
+        const stateOwner = libraryTargetStateOwner({ source, type, id }, activeViewerProfileId());
         sendJson(res, 200, {
           ok: true,
           state: getLibraryState({
@@ -2260,13 +2284,14 @@ async function main(): Promise<void> {
           personalization,
           'before Saved state changed',
         );
+        const savedDomain = libraryTargetDomain(target);
         const savedOwner = recommendationOwnerForRollout(
-          target.source === 'youtube' ? 'youtube' : 'vod',
+          savedDomain,
           personalization.active_profile_id,
         );
         validateOptionalRecommendationMutationAttribution(
           body,
-          target.source === 'youtube' ? 'youtube' : 'vod',
+          savedDomain,
           { type: target.type, id: target.id },
         );
         assertSaveAllowed(target);
@@ -2275,7 +2300,7 @@ async function main(): Promise<void> {
           saved_by: typeof body.saved_by === 'string' ? body.saved_by : 'user',
           profile_id: savedOwner,
         });
-        if (saved.source === 'youtube') {
+        if (savedDomain === 'youtube') {
           invalidateYoutubeV2ExactExclusions();
           core.clearRailItemsCache();
         } else if (saved.source !== SYNTHETIC_LIBRARY_SOURCE
@@ -2314,13 +2339,14 @@ async function main(): Promise<void> {
           personalization,
           'before Saved state changed',
         );
+        const savedDomain = libraryTargetDomain(target);
         const savedOwner = recommendationOwnerForRollout(
-          target.source === 'youtube' ? 'youtube' : 'vod',
+          savedDomain,
           personalization.active_profile_id,
         );
         validateOptionalRecommendationMutationAttribution(
           body,
-          target.source === 'youtube' ? 'youtube' : 'vod',
+          savedDomain,
           { type: target.type, id: target.id },
         );
         const removed = unsaveLibraryItem({
@@ -2329,7 +2355,7 @@ async function main(): Promise<void> {
           id: target.id,
           profile_id: savedOwner,
         });
-        if (target.source === 'youtube') {
+        if (savedDomain === 'youtube') {
           invalidateYoutubeV2ExactExclusions();
           core.clearRailItemsCache();
         } else if (target.source !== SYNTHETIC_LIBRARY_SOURCE
@@ -2366,12 +2392,21 @@ async function main(): Promise<void> {
             personalization,
             'before hidden-title state loaded',
           );
-          const source = url.searchParams.get('source')?.trim() || undefined;
-          const type = url.searchParams.get('type')?.trim() || null;
+          const requestedSource = url.searchParams.get('source')?.trim() || undefined;
+          const requestedType = url.searchParams.get('type')?.trim() || null;
           const id = url.searchParams.get('id')?.trim() || null;
-          const feedbackOwner = source === 'youtube'
-            ? recommendationOwnerForRollout('youtube', personalization.active_profile_id)
-            : recommendationOwnerForRollout('vod', personalization.active_profile_id);
+          const identity = normalizeLibraryIdentity(requestedSource, requestedType ?? 'movie');
+          const source = requestedSource ? identity.source : undefined;
+          const type = requestedType ? identity.type : null;
+          const feedbackDomain = libraryTargetDomain({
+            source,
+            type: type ?? 'movie',
+            id: id ?? '',
+          });
+          const feedbackOwner = recommendationOwnerForRollout(
+            feedbackDomain,
+            personalization.active_profile_id,
+          );
           const feedback = listProfileLibraryFeedback('not_interested', source, {
             profile_id: feedbackOwner,
             household_blend: false,
@@ -2396,13 +2431,14 @@ async function main(): Promise<void> {
         );
         const target = libraryItemFromRecord(body);
         if (!target) throw new CatalogError(400, 'Not for me requires { type, id }');
+        const feedbackDomain = libraryTargetDomain(target);
         const feedbackOwner = recommendationOwnerForRollout(
-          target.source === 'youtube' ? 'youtube' : 'vod',
+          feedbackDomain,
           personalization.active_profile_id,
         );
         validateOptionalRecommendationMutationAttribution(
           body,
-          target.source === 'youtube' ? 'youtube' : 'vod',
+          feedbackDomain,
           { type: target.type, id: target.id },
         );
         if (req.method === 'POST') {
@@ -2412,7 +2448,7 @@ async function main(): Promise<void> {
             reason: typeof body.reason === 'string' ? body.reason : null,
             profile_id: feedbackOwner,
           });
-          if (target.source === 'youtube') {
+          if (feedbackDomain === 'youtube') {
             invalidateYoutubeV2ExactExclusions();
             core.clearRailItemsCache();
           }
@@ -2437,7 +2473,7 @@ async function main(): Promise<void> {
             feedback: 'not_interested',
             profile_id: feedbackOwner,
           });
-          if (target.source === 'youtube') {
+          if (feedbackDomain === 'youtube') {
             invalidateYoutubeV2ExactExclusions();
             core.clearRailItemsCache();
           }
@@ -2896,6 +2932,9 @@ async function main(): Promise<void> {
             id: typeof body.id === 'string' ? body.id : undefined,
             title: typeof body.title === 'string' ? body.title : undefined,
             poster: typeof body.poster === 'string' ? body.poster : undefined,
+            library_source: typeof body.library_source === 'string'
+              ? body.library_source
+              : undefined,
             recommendation: attribution ?? undefined,
           }));
           return;

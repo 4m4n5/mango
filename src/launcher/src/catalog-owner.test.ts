@@ -11,6 +11,7 @@ import {
 } from "./catalog.js";
 import { loadFireWaterRating } from "./ratings.js";
 import {
+  cardSavedKey,
   fetchSavedIds,
   publishCurrentLibraryContext,
   saveCard,
@@ -162,6 +163,100 @@ test("YouTube setup_required survives alongside a non-empty Saved utility rail",
   });
 });
 
+test("legacy-source YouTube cards preserve their durable key on Saved and normal rails", async () => {
+  const result = await withMockFetch(async () => jsonResponse({
+    slate_sequence: 5,
+    profile_id: "alice",
+    personalization_updated_at: 17,
+    rails: [{
+      rail_id: "history",
+      label: "History",
+      items: [{
+        id: "LegacyHistoryCase",
+        kind: "video",
+        title: "Legacy history video",
+        subtitle: "Legacy channel",
+        thumbnail: "https://img.example/legacy.jpg",
+        library_source: "mango",
+      }],
+    }, {
+      rail_id: "saved",
+      label: "Saved",
+      items: [{
+        id: "LegacySavedCase",
+        kind: "video",
+        title: "Legacy Saved video",
+        subtitle: "Legacy channel",
+        thumbnail: "https://img.example/legacy-saved.jpg",
+        library_source: "mango",
+      }],
+    }],
+  }), () => loadCatalogRails("youtube", { expectedOwner: owner }));
+  const card = result.rails.find((rail) => rail.id === "history")?.cards[0];
+  const savedCard = result.rails.find((rail) => rail.id === "saved")?.cards[0];
+  assert.ok(card);
+  assert.ok(savedCard);
+  assert.equal(card.source, "youtube");
+  assert.equal(card.librarySource, "mango");
+  assert.equal(cardSavedKey(card), "mango:youtube_video:LegacyHistoryCase");
+  assert.equal(cardSavedKey(savedCard), "mango:youtube_video:LegacySavedCase");
+  const savedIds = await withMockFetch(async () => jsonResponse({
+    profile_id: "alice",
+    personalization_updated_at: 17,
+    saved: [{
+      source: "mango", tab: "youtube", type: "youtube_video",
+      id: "LegacyHistoryCase", title: "Legacy history video", poster: null, saved_at: 1,
+    }],
+  }), () => fetchSavedIds("youtube", owner));
+  assert.equal(savedIds.has(cardSavedKey(card)), true);
+
+  const mutations: Array<{ path: string; body: Record<string, unknown> }> = [];
+  await withMockFetch(async (input, init) => {
+    mutations.push({
+      path: new URL(String(input), "http://launcher.test").pathname,
+      body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+    });
+    return jsonResponse({
+      ok: true,
+      profile_id: "alice",
+      personalization_updated_at: 17,
+    });
+  }, async () => {
+    await saveCard("youtube", card, owner);
+    await unsaveCard(card, owner);
+    await notInterestedCard(card, "youtube", owner);
+    await undoNotInterestedCard(card, "youtube", owner);
+  });
+  assert.deepEqual(mutations.map(({ path, body }) => ({
+    path, source: body.source, type: body.type, id: body.id, tab: body.tab,
+  })), [
+    { path: "/api/catalog/library/saved", source: "mango", type: "youtube_video", id: "LegacyHistoryCase", tab: "youtube" },
+    { path: "/api/catalog/library/saved", source: "mango", type: "youtube_video", id: "LegacyHistoryCase", tab: undefined },
+    { path: "/api/catalog/library/not-interested", source: "mango", type: "youtube_video", id: "LegacyHistoryCase", tab: "youtube" },
+    { path: "/api/catalog/library/not-interested", source: "mango", type: "youtube_video", id: "LegacyHistoryCase", tab: "youtube" },
+  ]);
+
+  let playbackBody: Record<string, unknown> | null = null;
+  await withMockFetch(async (_input, init) => {
+    playbackBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return jsonResponse({
+      ok: true,
+      profile_id: "alice",
+      personalization_updated_at: 17,
+      session: {
+        session_id: "legacy-youtube-play",
+        version: 1,
+        state: "playing",
+        ever_ready: true,
+        error: null,
+        result: { ok: true },
+      },
+    }, 202);
+  }, () => playCard(card, { expectedOwner: owner }));
+  assert.equal(playbackBody?.source, "youtube");
+  assert.equal(playbackBody?.library_source, "mango");
+});
+
 test("Saved IDs on every personalized tab use the same owner handshake", async () => {
   const calls: string[] = [];
   await withMockFetch(async (input) => {
@@ -264,6 +359,38 @@ test("Detail Saved and current-context mutations require the captured owner echo
       id: "tt-one", type: "movie", title: "One", subtitle: "2026",
     }, owner), CatalogOwnershipChangedError);
   });
+});
+
+test("Saved and context payloads canonicalize card identity instead of Search origin", async () => {
+  const payloads: Array<Record<string, unknown>> = [];
+  await withMockFetch(async (_input, init) => {
+    payloads.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    return jsonResponse({
+      ok: true,
+      profile_id: "alice",
+      personalization_updated_at: 17,
+    });
+  }, async () => {
+    const dune = { id: "tt1160419", type: "movie", title: "Dune", subtitle: "2021" };
+    await saveCard("series", dune, owner);
+    await publishCurrentLibraryContext("series", dune, owner, 1_000);
+    await saveCard("movies", {
+      id: "VideoCase", type: "youtube_video", title: "Video", subtitle: "Channel",
+    }, owner);
+    await saveCard("movies", {
+      id: "LegacyVideoCase", type: "youtube_video", source: "mango",
+      title: "Legacy video", subtitle: "Channel",
+    }, owner);
+  });
+  assert.deepEqual(
+    payloads.map(({ source, type, tab }) => ({ source, type, tab })),
+    [
+      { source: "mango", type: "movie", tab: "movies" },
+      { source: "mango", type: "movie", tab: "movies" },
+      { source: "youtube", type: "youtube_video", tab: "youtube" },
+      { source: "mango", type: "youtube_video", tab: "youtube" },
+    ],
+  );
 });
 
 test("Not-for-me reads and mutations are owner-bound independently of attribution", async () => {

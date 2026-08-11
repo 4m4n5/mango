@@ -178,6 +178,45 @@ test('playlistItems paginates uploads and enriches videos without search', () =>
   assert.deepEqual(paths, ['playlistItems', 'playlistItems', 'videos']);
 }));
 
+test('recommendation uploads retain provider positions through missing, filtered, and reordered metadata', () => withApiTest(async (config) => {
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.pathname.endsWith('/playlistItems')) {
+      if (!url.searchParams.get('pageToken')) {
+        return jsonResponse({
+          nextPageToken: 'next',
+          items: [
+            { snippet: {} },
+            { contentDetails: { videoId: 'missing' } },
+            { contentDetails: { videoId: 'kept-b' } },
+          ],
+        });
+      }
+      return jsonResponse({
+        items: ['short', 'kept-a'].map((videoId) => ({
+          contentDetails: { videoId },
+        })),
+      });
+    }
+    assert.ok(url.pathname.endsWith('/videos'));
+    return jsonResponse({
+      // videos.list ordering is not used as source rank.
+      items: [
+        { id: 'kept-a', snippet: { title: 'Kept A' }, contentDetails: { duration: 'PT20M' } },
+        { id: 'short', snippet: { title: 'Three minute tail' }, contentDetails: { duration: 'PT3M' } },
+        { id: 'kept-b', snippet: { title: 'Kept B' }, contentDetails: { duration: 'PT20M' } },
+      ],
+    });
+  }) as typeof fetch;
+
+  const ranked = await new YoutubeApiClient(config)
+    .playlistRecommendationVideos('uploads-ranked', 4, 'token');
+  assert.deepEqual(ranked.map((entry) => [entry.item.id, entry.source_rank]), [
+    ['kept-b', 2],
+    ['kept-a', 4],
+  ]);
+}));
+
 test('search forwards bounded discovery filters and records quota', () => withApiTest(async (config) => {
   const calls: URL[] = [];
   globalThis.fetch = (async (input: string | URL | Request) => {
@@ -235,6 +274,112 @@ test('search forwards bounded discovery filters and records quota', () => withAp
   assert.equal(youtubeRefreshStatus().api_calls_today, 2);
 }));
 
+test('recommendation Search retains original provider positions after enrichment and Shorts filtering', () => withApiTest(async (config) => {
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.pathname.endsWith('/search')) {
+      return jsonResponse({
+        items: ['missing', 'short', 'kept-a', 'kept-b'].map((id) => ({
+          id: { kind: 'youtube#video', videoId: id },
+          snippet: { title: id, channelId: `channel-${id}`, channelTitle: `Channel ${id}` },
+        })),
+      });
+    }
+    return jsonResponse({
+      items: [
+        { id: 'kept-b', snippet: { title: 'Kept B' }, contentDetails: { duration: 'PT20M' } },
+        { id: 'short', snippet: { title: 'Three minute tail' }, contentDetails: { duration: 'PT3M' } },
+        { id: 'kept-a', snippet: { title: 'Kept A' }, contentDetails: { duration: 'PT20M' } },
+      ],
+    });
+  }) as typeof fetch;
+
+  const ranked = await new YoutubeApiClient(config).searchRecommendationVideos('ranked search', {
+    limit: 50,
+  });
+  assert.deepEqual(ranked.map((entry) => [entry.item.id, entry.source_rank]), [
+    ['kept-a', 2],
+    ['kept-b', 3],
+  ]);
+}));
+
+test('recommendation enrichment fails closed while interactive Search keeps snippet fallback', () => withApiTest(async (config) => {
+  let fetchCalls = 0;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    fetchCalls += 1;
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.pathname.endsWith('/search')) {
+      return jsonResponse({
+        items: [{
+          id: { kind: 'youtube#video', videoId: 'snippet-only' },
+          snippet: { title: 'Snippet only', channelId: 'channel-1', channelTitle: 'Channel One' },
+        }],
+      });
+    }
+    return new Response(JSON.stringify({ error: { message: 'metadata unavailable' } }), {
+      status: 503,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  const api = new YoutubeApiClient(config);
+  await assert.rejects(
+    api.searchRecommendationVideos('must enrich'),
+    /metadata unavailable/,
+  );
+  const interactive = await api.search('can fall back', { purpose: 'interactive' });
+  assert.deepEqual(interactive.videos.map((item) => item.id), ['snippet-only']);
+  assert.equal(fetchCalls, 4);
+}));
+
+test('expired recommendation deadline starts no provider or quota work', () => withApiTest(async (config) => {
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return jsonResponse({ items: [] });
+  }) as typeof fetch;
+  const before = youtubeRefreshStatus();
+  await assert.rejects(
+    new YoutubeApiClient(config).searchRecommendationVideos('deadline', {
+      deadline_at: Date.now() - 1,
+    }),
+    /deadline exhausted/,
+  );
+  assert.equal(fetchCalls, 0);
+  const after = youtubeRefreshStatus();
+  assert.deepEqual(
+    [after.search_calls_today, after.api_calls_today],
+    [before.search_calls_today, before.api_calls_today],
+  );
+}));
+
+test('background requests cap their timeout at eight seconds and honor a nearer wall deadline', () => withApiTest(async (config) => {
+  const originalTimeout = Object.getOwnPropertyDescriptor(AbortSignal, 'timeout');
+  assert.ok(originalTimeout);
+  const observedTimeouts: number[] = [];
+  Object.defineProperty(AbortSignal, 'timeout', {
+    ...originalTimeout,
+    value: (delay: number) => {
+      observedTimeouts.push(delay);
+      return new AbortController().signal;
+    },
+  });
+  globalThis.fetch = (async () => jsonResponse({ items: [] })) as typeof fetch;
+  try {
+    const api = new YoutubeApiClient(config);
+    await api.searchRecommendationVideos('default request timeout');
+    await api.searchRecommendationVideos('remaining wall timeout', {
+      deadline_at: Date.now() + 1_500,
+    });
+  } finally {
+    Object.defineProperty(AbortSignal, 'timeout', originalTimeout);
+  }
+
+  assert.equal(observedTimeouts[0], 8_000);
+  assert.ok((observedTimeouts[1] ?? 0) > 0);
+  assert.ok((observedTimeouts[1] ?? Number.POSITIVE_INFINITY) <= 1_500);
+}));
+
 test('videos maps live streaming details to live, completed, and upcoming', () => withApiTest(async (config) => {
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
@@ -249,7 +394,7 @@ test('videos maps live streaming details to live, completed, and upcoming', () =
           publishedAt: '2026-07-01T00:00:00Z',
           liveBroadcastContent: 'live',
         },
-        contentDetails: { duration: 'PT2M' },
+        contentDetails: { duration: 'PT4M' },
         liveStreamingDetails: { actualStartTime: '2026-07-01T01:00:00Z' },
       }, {
         id: 'completed-video',
@@ -285,7 +430,7 @@ test('videos maps live streaming details to live, completed, and upcoming', () =
           publishedAt: '2026-07-01T00:00:00Z',
           liveBroadcastContent: 'upcoming',
         },
-        contentDetails: { duration: 'PT2M' },
+        contentDetails: { duration: 'PT4M' },
         liveStreamingDetails: { scheduledStartTime: '2026-07-02T01:00:00Z' },
       }],
     });

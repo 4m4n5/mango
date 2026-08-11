@@ -1,5 +1,6 @@
 import type { BrowseTab, ContentCard } from "./types";
 import { fetchLibraryContext } from "./saved";
+import { tabForCard } from "./library-tab";
 import {
   personalizationOwnerFromPayload,
   type PersonalizationOwner,
@@ -18,6 +19,7 @@ export interface PlaybackReturnSnapshot {
   cardTitle: string;
   cardPoster?: string;
   cardSource?: string;
+  cardLibrarySource?: string;
   episodeId?: string;
   returnSurface: PlaybackReturnSurface;
   origin?: PlaybackOrigin;
@@ -28,21 +30,7 @@ export interface PlaybackReturnSnapshot {
   savedAt: number;
 }
 
-export function tabForCard(
-  card: Pick<ContentCard, "type" | "source">,
-  fallback?: BrowseTab,
-): BrowseTab {
-  if (card.source === "youtube" || card.type.startsWith("youtube_")) {
-    return "youtube";
-  }
-  if (card.type === "tv") {
-    return "live";
-  }
-  if (card.type === "series") {
-    return "series";
-  }
-  return fallback ?? "movies";
-}
+export { tabForCard };
 
 export function playbackReturnSurface(
   card: ContentCard,
@@ -52,7 +40,7 @@ export function playbackReturnSurface(
   if (origin === "search") {
     return "detail";
   }
-  if (card.type === "tv" || tab === "live") {
+  if (tabForCard(card, tab) === "live") {
     return "tab_home";
   }
   return "detail";
@@ -73,6 +61,7 @@ export function savePlaybackReturnSnapshot(
     cardTitle: card.title,
     cardPoster: card.posterUrl,
     cardSource: card.source,
+    cardLibrarySource: card.librarySource,
     episodeId,
     returnSurface: playbackReturnSurface(card, tab, origin),
     origin,
@@ -135,7 +124,23 @@ export function readPlaybackReturnSnapshot(): PlaybackReturnSnapshot | null {
         clearPlaybackReturnSnapshot();
         return null;
       }
-      return snapshot;
+      const fallback = ["movies", "series", "live", "youtube"].includes(snapshot.tab)
+        ? snapshot.tab
+        : "movies";
+      const canonicalTab = tabForCard({
+        type: snapshot.cardType,
+        source: snapshot.cardSource,
+      }, fallback);
+      const effectiveOrigin = snapshot.origin === "search" || snapshot.searchState
+        ? "search"
+        : "home";
+      return {
+        ...snapshot,
+        tab: canonicalTab,
+        returnSurface: effectiveOrigin === "search" || canonicalTab !== "live"
+          ? "detail"
+          : "tab_home",
+      };
     } catch {
       // Try the other storage copy before giving up.
     }
@@ -164,6 +169,7 @@ export function cardFromPlaybackSnapshot(snapshot: PlaybackReturnSnapshot): Cont
     subtitle: "",
     posterUrl: snapshot.cardPoster,
     source: snapshot.cardSource,
+    librarySource: snapshot.cardLibrarySource,
   };
 }
 
@@ -180,7 +186,8 @@ export async function readPlaybackReturnFromContext(
     title: ctx.title,
     subtitle: "",
     posterUrl: ctx.poster || undefined,
-    source: ctx.source === "youtube" ? "youtube" : undefined,
+    source: ctx.tab === "youtube" || ctx.type.startsWith("youtube_") ? "youtube" : undefined,
+    librarySource: ctx.source,
   };
   const tab = ctx.tab as BrowseTab;
   return {
@@ -190,6 +197,7 @@ export async function readPlaybackReturnFromContext(
     cardTitle: ctx.title,
     cardPoster: ctx.poster || undefined,
     cardSource: card.source,
+    cardLibrarySource: card.librarySource,
     returnSurface: playbackReturnSurface(card, tab),
     origin: "home",
     profileId: expectedOwner.profileId,

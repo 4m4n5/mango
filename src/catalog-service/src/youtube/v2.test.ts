@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
 import { CatalogError } from '../catalog-errors.js';
@@ -26,8 +26,10 @@ import {
   migrateLegacyYoutubeV2TakeoutToLibrary,
   recordYoutubeV2TakeoutImport,
   publishYoutubeV2Generation,
+  recordYoutubeImpressions,
   replaceYoutubeV2Subscriptions,
   resetYoutubeDbForTests,
+  setYoutubeState,
   upsertYoutubeItems,
   upsertYoutubeV2CandidateProvenance,
   upsertYoutubeV2ImportedHistory,
@@ -40,18 +42,28 @@ import {
   youtubeV2AcquisitionQueryBudget,
 } from './service.js';
 import {
+  createYoutubeV2CandidateQualityEvaluator,
   invalidateYoutubeV2ExactExclusions,
   rebuildYoutubeV2Generation,
   YOUTUBE_V2_MORE_LIKE_QUERY_SIZE,
   YOUTUBE_V2_MORE_LIKE_TARGET,
+  YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION,
+  YOUTUBE_V2_C_TIER_LIMIT,
+  YOUTUBE_V2_RESERVE_LIMIT,
   YOUTUBE_V2_WATCH_COOLDOWN_MS,
   youtubePublicPersonalizationPayload,
   youtubeRecommendationsV2Mode,
   youtubeV2HistoryItems,
   youtubeV2ExactExclusionCacheDiagnostics,
+  youtubeV2Diagnostics,
   youtubeV2MoreLikeSeeds,
   youtubeV2RecommendationRails,
+  youtubeV2RecommendationRailsFromSnapshot,
+  youtubeV2SourceStaleState,
   youtubeV2TopicSeed,
+  youtubeV2QualityTier,
+  youtubeV2WeightedPoolDiagnostics,
+  youtubeV2WeightedShuffle,
   weightedDailyHistorySeedId,
 } from './v2.js';
 import type { YoutubeItem, YoutubeRail } from './types.js';
@@ -77,6 +89,10 @@ function video(
     playlist_id: null,
     updated_at: Date.now(),
   };
+}
+
+function rankedVideos(items: YoutubeItem[]) {
+  return items.map((item, source_rank) => ({ item, source_rank }));
 }
 
 function importOfficialHistory(
@@ -113,6 +129,7 @@ function withTempState<T>(fn: () => T | Promise<T>): T | Promise<T> {
     delete process.env.MANGO_YOUTUBE_OAUTH_CLIENT_FILE;
     delete process.env.MANGO_YOUTUBE_AUTH_TOKEN_FILE;
     delete process.env.MANGO_YOUTUBE_RECS_V2;
+    delete process.env.MANGO_YTDLP_COMMAND;
     rmSync(dir, { recursive: true, force: true });
   };
   try {
@@ -320,15 +337,18 @@ test('daily More Like selection is deterministic and weighted by decayed watch s
 });
 
 test('triggered and nightly discovery budgets fund ten More Like seeds without touching couch reserve', () => {
-  assert.deepEqual(youtubeV2AcquisitionQueryBudget('meaningful_watch'), {
+  assert.deepEqual(youtubeV2AcquisitionQueryBudget('meaningful_watch', 75), {
     more_like: 10, beyond: 2, total: 12,
   });
-  assert.deepEqual(youtubeV2AcquisitionQueryBudget('nightly'), {
-    more_like: 10, beyond: 8, total: 18,
+  assert.deepEqual(youtubeV2AcquisitionQueryBudget('nightly', 75, 8), {
+    more_like: 10, beyond: 57, total: 67,
+  });
+  assert.deepEqual(youtubeV2AcquisitionQueryBudget('oauth_connected', 75), {
+    more_like: 10, beyond: 2, total: 12,
   });
 });
 
-test('More Like uses six distinct official-history seeds and grows a 64-title thematic reserve', () => withTempState(async () => {
+test('More Like seeks eight contributing topics and uses all ten seeds toward the 512 cap', () => withTempState(async () => {
   const now = Date.now();
   process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
   process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
@@ -344,29 +364,25 @@ test('More Like uses six distinct official-history seeds and grows a 64-title th
   const service = new YoutubeService();
   let moreLikeSearches = 0;
   const api = (service as unknown as { api: {
-    search: (query: string, options: { limit?: number; eventType?: string }) => Promise<{
-      videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[];
-    }>;
+    searchRecommendationVideos: (
+      query: string, options: { limit?: number; eventType?: string },
+    ) => Promise<ReturnType<typeof rankedVideos>>;
   } }).api;
-  api.search = async (query, options) => {
+  api.searchRecommendationVideos = async (query, options) => {
     if (options.eventType || options.limit !== YOUTUBE_V2_MORE_LIKE_QUERY_SIZE) {
-      return { videos: [], channels: [], playlists: [] };
+      return [];
     }
     const call = moreLikeSearches++;
-    return {
-      videos: Array.from({ length: 12 }, (_, index) => video(
+    return rankedVideos(Array.from({ length: 32 }, (_, index) => video(
         `MultiCandidate${call}-${index}`,
         `${query} analysis ${call} ${index}`,
         `candidate-channel-${call}-${index}`,
-      )),
-      channels: [],
-      playlists: [],
-    };
+      )));
   };
 
   const result = await service.refresh('manual_multi_seed');
   assert.equal(result.ok, true);
-  assert.equal(moreLikeSearches, 6);
+  assert.ok(moreLikeSearches <= 12);
   const acquisition = getYoutubeState<{
     more_like_search_calls: number;
     more_like_attempted_seeds: number;
@@ -382,16 +398,17 @@ test('More Like uses six distinct official-history seeds and grows a 64-title th
   });
   assert.deepEqual(acquisition, {
     ...acquisition,
-    more_like_search_calls: 6,
-    more_like_attempted_seeds: 6,
-    more_like_contributing_seeds: 6,
-    more_like_candidate_count: 72,
-    more_like_target_reached: true,
+    more_like_search_calls: 10,
+    more_like_attempted_seeds: 10,
+    more_like_contributing_seeds: 10,
+    more_like_candidate_count: 320,
+    more_like_target_reached: false,
   });
   const generation = latestYoutubeV2Generation()!;
   const reserve = generation.items.filter((item) => item.rail_id === 'more_like');
-  assert.ok(reserve.length >= YOUTUBE_V2_MORE_LIKE_TARGET);
-  assert.ok(new Set(reserve.map((item) => item.provenance_ref)).size >= 6);
+  assert.equal(reserve.length, 320);
+  assert.ok(reserve.length < YOUTUBE_V2_MORE_LIKE_TARGET);
+  assert.equal(new Set(reserve.map((item) => item.provenance_ref)).size, 10);
   const rail = youtubeV2RecommendationRails({ shuffle_epoch: 0 })
     .find((entry) => entry.rail_id === 'more_like')!;
   assert.equal(rail.items.length, 4);
@@ -550,7 +567,7 @@ test('Saved-only cold start keeps setup_required and the stable Saved utility ra
   ));
   upsertYoutubeItems(items);
   items.forEach((item, index) => saveLibraryItem({
-    source: 'youtube', type: 'youtube_video', id: item.id, title: item.title,
+    source: index === 0 ? 'mango' : 'youtube', type: 'youtube_video', id: item.id, title: item.title,
     poster: item.thumbnail, tab: 'youtube', saved_at: Date.now() + index,
   }));
   assert.equal(rebuildYoutubeV2Generation({ force: true }), null);
@@ -563,6 +580,10 @@ test('Saved-only cold start keeps setup_required and the stable Saved utility ra
   assert.equal(response.recommendations_status, 'empty');
   assert.deepEqual(response.rails.map((rail) => rail.rail_id), ['saved']);
   assert.equal(response.rails[0]?.items.length, 4);
+  assert.equal(
+    response.rails[0]?.items.find((item) => item.id === items[0]?.id)?.library_source,
+    'mango',
+  );
 }));
 
 test('clearing Mango history preserves official history and an official empty source tombstone supersedes ready', () => withTempState(() => {
@@ -682,7 +703,7 @@ test('watched cooldown is exhaustive for 30 days and expires without discarding 
     'subscribed-channel-1',
   );
   saveLibraryItem({
-    source: 'youtube', type: 'youtube_video', id: savedTarget.id,
+    source: 'mango', type: 'youtube_video', id: savedTarget.id,
     title: savedTarget.title, tab: 'youtube', saved_at: now - 100_000,
   });
   for (let index = 1; index <= 500; index += 1) {
@@ -742,27 +763,23 @@ test('More Like acquisition can reacquire an official-history video after the 30
   const service = new YoutubeService();
   let moreLikeCall = 0;
   const api = (service as unknown as { api: {
-    search: (query: string, options: { limit?: number; eventType?: string }) => Promise<{
-      videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[];
-    }>;
+    searchRecommendationVideos: (
+      query: string, options: { limit?: number; eventType?: string },
+    ) => Promise<ReturnType<typeof rankedVideos>>;
   } }).api;
-  api.search = async (query, options) => {
+  api.searchRecommendationVideos = async (query, options) => {
     if (options.eventType || options.limit !== YOUTUBE_V2_MORE_LIKE_QUERY_SIZE) {
-      return { videos: [], channels: [], playlists: [] };
+      return [];
     }
     const call = moreLikeCall++;
-    return {
-      videos: [
+    return rankedVideos([
         ...(call === 0 ? [eligibleOld] : []),
         ...Array.from({ length: 4 }, (_, index) => video(
           `CooldownFresh${call}-${index}`,
           `${query} documentary ${call} ${index}`,
           `cooldown-fresh-channel-${call}-${index}`,
         )),
-      ],
-      channels: [],
-      playlists: [],
-    };
+      ]);
   };
   const result = await service.refresh('cooldown_reacquisition');
   assert.equal(result.ok, true);
@@ -805,6 +822,8 @@ test('official Takeout history alone drives taste while Mango-local viewing stay
     source_generation: 'history-acquisition',
     acquired_at: now,
     expires_at: now + 30 * 24 * 60 * 60 * 1000,
+    relation_type: 'same_topic',
+    source_rank: 0,
   })));
   const generation = rebuildYoutubeV2Generation({ force: true, at: now });
   assert.ok(generation);
@@ -852,8 +871,8 @@ test('materially distinct repeat watches increase affinity while History keeps o
     { video_id: single.id, title: single.title, title_url: null, channel_id: single.channel_id, channel_title: single.channel_title, watched_at: now },
   ], { source_generation: 'takeout-repeats', imported_at: now });
   upsertYoutubeV2CandidateProvenance([
-    { item: repeatedCandidate, provenance: 'history_topic', provenance_ref: repeated.id, source_generation: 'repeat-topic', acquired_at: now, expires_at: now + 1_000_000 },
-    { item: singleCandidate, provenance: 'history_topic', provenance_ref: single.id, source_generation: 'single-topic', acquired_at: now, expires_at: now + 1_000_000 },
+    { item: repeatedCandidate, provenance: 'history_topic', provenance_ref: repeated.id, source_generation: 'repeat-topic', acquired_at: now, expires_at: now + 1_000_000, relation_type: 'same_topic', source_rank: 0 },
+    { item: singleCandidate, provenance: 'history_topic', provenance_ref: single.id, source_generation: 'single-topic', acquired_at: now, expires_at: now + 1_000_000, relation_type: 'same_topic', source_rank: 0 },
   ]);
   const generation = rebuildYoutubeV2Generation({ force: true, at: now })!;
   const scores = new Map(generation.items
@@ -863,7 +882,7 @@ test('materially distinct repeat watches increase affinity while History keeps o
   assert.equal(youtubeV2HistoryItems().filter((item) => item.id === repeated.id).length, 1);
 }));
 
-test('60/40 history/subscription affinity is renormalized without non-source influence', () => withTempState(() => {
+test('independent supporting sources boost quality without restoring the retired 60/40 blend', () => withTempState(() => {
   const now = Date.now();
   const seed = video('BlendSeed', 'Blend seed', 'watched-channel');
   const both = video('BlendBoth', 'Blend both', 'subscribed-channel');
@@ -881,16 +900,17 @@ test('60/40 history/subscription affinity is renormalized without non-source inf
     channel_title: 'Channel subscribed-channel', channel_url: null, source: 'oauth', subscribed_at: null,
   }], { source_generation: 'subscription-blend' });
   upsertYoutubeV2CandidateProvenance([
-    { item: both, provenance: 'history_topic', provenance_ref: seed.id, source_generation: 'history', acquired_at: now, expires_at: now + 1_000_000 },
-    { item: both, provenance: 'subscription_upload', provenance_ref: 'subscribed-channel', source_generation: 'subscription', acquired_at: now, expires_at: now + 1_000_000 },
-    { item: historyOnly, provenance: 'history_topic', provenance_ref: seed.id, source_generation: 'history', acquired_at: now, expires_at: now + 1_000_000 },
-    { item: subscriptionOnly, provenance: 'subscription_upload', provenance_ref: 'subscribed-channel', source_generation: 'subscription', acquired_at: now, expires_at: now + 1_000_000 },
+    { item: both, provenance: 'history_topic', provenance_ref: seed.id, source_generation: 'history', acquired_at: now, expires_at: now + 1_000_000, relation_type: 'same_topic', source_rank: 0 },
+    { item: both, provenance: 'subscription_upload', provenance_ref: 'subscribed-channel', source_generation: 'subscription', acquired_at: now, expires_at: now + 1_000_000, relation_type: 'direct', source_rank: 0 },
+    { item: historyOnly, provenance: 'history_topic', provenance_ref: seed.id, source_generation: 'history', acquired_at: now, expires_at: now + 1_000_000, relation_type: 'same_topic', source_rank: 0 },
+    { item: subscriptionOnly, provenance: 'subscription_upload', provenance_ref: 'subscribed-channel', source_generation: 'subscription', acquired_at: now, expires_at: now + 1_000_000, relation_type: 'direct', source_rank: 0 },
   ]);
   const generation = rebuildYoutubeV2Generation({ force: true, at: now });
   assert.ok(generation);
   const scores = new Map(generation.items.filter((item) => item.rail_id === 'for_you').map((item) => [item.id, item.score]));
-  assert.ok(scores.get(both.id)! > scores.get(historyOnly.id)!);
-  assert.ok(scores.get(historyOnly.id)! > scores.get(subscriptionOnly.id)!);
+  assert.ok(scores.get(both.id)! > Math.max(scores.get(historyOnly.id)!, scores.get(subscriptionOnly.id)!));
+  assert.ok(scores.get(historyOnly.id)! >= 0.20);
+  assert.ok(scores.get(subscriptionOnly.id)! >= 0.20);
 }));
 
 test('subscription-only cold start builds Beyond and thematic More fallback from auditable subscription topic seeds', () => withTempState(() => {
@@ -925,13 +945,15 @@ test('subscription-only cold start builds Beyond and thematic More fallback from
     })),
     ...channels.flatMap((channel) => topic
       .filter((item) => item.id.startsWith(`ColdTopic-${channel}-`))
-      .map((item) => ({
+      .map((item, index) => ({
         item,
         provenance: 'history_topic' as const,
         provenance_ref: `subscription:${channel}`,
         source_generation: `cold-topic:${channel}`,
         acquired_at: now,
         expires_at: now + 1_000_000,
+        relation_type: 'same_topic' as const,
+        source_rank: index,
       }))),
   ]);
   const generation = rebuildYoutubeV2Generation({ force: true, at: now });
@@ -950,14 +972,15 @@ test('subscription-only cold start builds Beyond and thematic More fallback from
   assert.equal(more?.items.filter((item) => channels.includes(item.channel_id || '')).length, 1);
 }));
 
-test('From Your Subscriptions is newest-unwatched before stable fallback ordering', () => withTempState(() => {
+test('From Your Subscriptions uses explicit freshness bands before stable fallback ordering', () => withTempState(() => {
   const now = Date.now();
+  const publishedDaysAgo = (days: number) => new Date(now - days * 24 * 60 * 60 * 1000).toISOString();
   const items = [
-    { item: video('LexicalZ', 'Old upload', 'newest-channel-0'), published: '2026-01-01T00:00:00Z' },
-    { item: video('LexicalA', 'Newest upload', 'newest-channel-1'), published: '2026-06-01T00:00:00Z' },
-    { item: video('LexicalY', 'Second newest', 'newest-channel-2'), published: '2026-05-01T00:00:00Z' },
-    { item: video('LexicalB', 'Third newest', 'newest-channel-3'), published: '2026-04-01T00:00:00Z' },
-    { item: video('LexicalX', 'Fourth newest', 'newest-channel-4'), published: '2026-03-01T00:00:00Z' },
+    { item: video('LexicalZ', 'Old upload', 'newest-channel-0'), published: publishedDaysAgo(400) },
+    { item: video('LexicalA', 'Newest upload', 'newest-channel-1'), published: publishedDaysAgo(2) },
+    { item: video('LexicalY', 'Second newest', 'newest-channel-2'), published: publishedDaysAgo(20) },
+    { item: video('LexicalB', 'Third newest', 'newest-channel-3'), published: publishedDaysAgo(60) },
+    { item: video('LexicalX', 'Fourth newest', 'newest-channel-4'), published: publishedDaysAgo(200) },
   ].map(({ item, published }) => ({ ...item, published_at: published }));
   replaceYoutubeV2Subscriptions(items.map((item) => ({
     channel_key: item.channel_id!, channel_id: item.channel_id!, channel_title: item.channel_title!,
@@ -970,6 +993,8 @@ test('From Your Subscriptions is newest-unwatched before stable fallback orderin
     source_generation: 'newest-subscriptions',
     acquired_at: now,
     expires_at: now + 1_000_000,
+    relation_type: 'direct' as const,
+    source_rank: 0,
   })));
   const generation = rebuildYoutubeV2Generation({ force: true, at: now })!;
   assert.deepEqual(
@@ -1013,7 +1038,7 @@ test('Home and X are latest-generation-only; ordinary reload epoch is stable', (
   assert.equal(apiCalls, 0);
 }));
 
-test('five X presses perform no API, quota, or rank work and keep History and Saved stable', () => withTempState(async () => {
+test('fifty X presses stay cache-only under the latency bound and keep History and Saved stable', () => withTempState(async () => {
   seedV2();
   process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
   rebuildYoutubeV2Generation({ force: true });
@@ -1021,7 +1046,10 @@ test('five X presses perform no API, quota, or rank work and keep History and Sa
   const service = new YoutubeService();
   let apiCalls = 0;
   const api = (service as unknown as { api: Record<string, (...args: unknown[]) => Promise<unknown>> }).api;
-  for (const method of ['search', 'subscriptions', 'channelUploadPlaylists', 'playlistItems', 'videos']) {
+  for (const method of [
+    'search', 'searchRecommendationVideos', 'subscriptions', 'channelUploadPlaylists',
+    'playlistItems', 'playlistRecommendationVideos', 'videos',
+  ]) {
     api[method] = async () => { apiCalls += 1; throw new Error(`unexpected ${method}`); };
   }
   const initial = await service.rails() as { rails: YoutubeRail[] };
@@ -1033,8 +1061,11 @@ test('five X presses perform no API, quota, or rank work and keep History and Sa
   const historyBuildsBefore = (youtubeV2ExactExclusionCacheDiagnostics() as {
     history_build_count: number;
   }).history_build_count;
-  for (let press = 0; press < 5; press += 1) {
+  const durationsMs: number[] = [];
+  for (let press = 0; press < 50; press += 1) {
+    const startedAt = process.hrtime.bigint();
     const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+    durationsMs.push(Number(process.hrtime.bigint() - startedAt) / 1_000_000);
     assert.deepEqual(response.rails.find((rail) => rail.rail_id === 'history')?.items.map((item) => item.id), history);
     assert.deepEqual(response.rails.find((rail) => rail.rail_id === 'saved')?.items.map((item) => item.id), saved);
   }
@@ -1045,9 +1076,127 @@ test('five X presses perform no API, quota, or rank work and keep History and Sa
   assert.equal(apiCalls, 0);
   assert.equal(historyBuildsAfter, historyBuildsBefore);
   assert.equal(latestYoutubeV2GenerationRecord()?.generation, generation);
+  const p95 = [...durationsMs].sort((left, right) => left - right)[Math.ceil(durationsMs.length * 0.95) - 1]!;
+  assert.ok(p95 <= 250, `cached X p95=${p95.toFixed(2)}ms`);
   assert.deepEqual(
     [quotaAfter.quota_used_today, quotaAfter.search_calls_today, quotaAfter.api_calls_today],
     [quotaBefore.quota_used_today, quotaBefore.search_calls_today, quotaBefore.api_calls_today],
+  );
+}));
+
+test('fifty cache-only X presses stay fast with four complete 512-candidate pools', () => withTempState(async () => {
+  const now = Date.now();
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  replaceYoutubeV2Subscriptions([{
+    channel_key: 'depth-subscription',
+    channel_id: 'depth-subscription',
+    channel_title: 'Depth Subscription',
+    channel_url: null,
+    source: 'oauth',
+    subscribed_at: null,
+  }], { source_generation: 'depth-subscriptions', imported_at: now });
+  const scoreAt = (index: number) => index < 320
+    ? 0.65 + 0.35 * (1 - index / 319)
+    : index < 448
+      ? 0.38 + 0.269 * (1 - (index - 320) / 127)
+      : 0.20 + 0.179 * (1 - (index - 448) / 63);
+  const railIds = ['for_you', 'beyond', 'more_like', 'new_from_subscriptions'] as const;
+  publishYoutubeV2Generation({
+    model_version: YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION,
+    source_hash: 'complete-512-pools',
+    watch_count: 64,
+    subscription_count: 1,
+    generated_at: now,
+    items: railIds.flatMap((railId) => Array.from({ length: 512 }, (_, index) => {
+      const subscription = railId === 'new_from_subscriptions';
+      const item = video(
+        `Depth-${railId}-${index}`,
+        `Depth ${railId} candidate ${index}`,
+        subscription ? 'depth-subscription' : `depth-${railId}-creator-${index}`,
+      );
+      if (subscription) item.channel_title = 'Depth Subscription';
+      return {
+        rail_id: railId,
+        item,
+        score: scoreAt(index),
+        reason: 'youtube_v2:depth_fixture',
+        provenance: subscription ? 'subscription_upload' as const : 'history_topic' as const,
+        provenance_ref: subscription ? 'depth-subscription' : `depth-seed-${index % 64}`,
+        source_expires_at: now + 24 * 60 * 60 * 1_000,
+        context_id: railId === 'more_like' ? 'multi_history:depth' : '',
+      };
+    })),
+  });
+  const service = new YoutubeService();
+  let apiCalls = 0;
+  const api = (service as unknown as { api: Record<string, (...args: unknown[]) => Promise<unknown>> }).api;
+  for (const method of [
+    'search', 'searchRecommendationVideos', 'subscriptions', 'channelUploadPlaylists',
+    'playlistItems', 'playlistRecommendationVideos', 'videos',
+  ]) {
+    api[method] = async () => { apiCalls += 1; throw new Error(`unexpected ${method}`); };
+  }
+  const initial = await service.rails() as { rails: YoutubeRail[] };
+  assert.deepEqual(
+    initial.rails.filter((rail) => railIds.includes(rail.rail_id as typeof railIds[number]))
+      .map((rail) => rail.rail_id),
+    [...railIds],
+  );
+  const diagnostics = youtubeV2Diagnostics() as {
+    reserve_depths: Record<string, number>;
+  };
+  assert.ok(railIds.every((railId) => diagnostics.reserve_depths[railId] === 512));
+  const quotaBefore = youtubeRefreshStatus();
+  const durationsMs: number[] = [];
+  for (let press = 0; press < 50; press += 1) {
+    const startedAt = process.hrtime.bigint();
+    const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+    durationsMs.push(Number(process.hrtime.bigint() - startedAt) / 1_000_000);
+    assert.ok(railIds.every((railId) => (
+      response.rails.find((rail) => rail.rail_id === railId)?.items.length === 4
+    )));
+  }
+  const p95 = [...durationsMs].sort((left, right) => left - right)[
+    Math.ceil(durationsMs.length * 0.95) - 1
+  ]!;
+  assert.ok(p95 <= 250, `complete 512-pool cached X p95=${p95.toFixed(2)}ms`);
+  assert.equal(apiCalls, 0);
+  const quotaAfter = youtubeRefreshStatus();
+  assert.deepEqual(
+    [quotaAfter.quota_used_today, quotaAfter.search_calls_today, quotaAfter.api_calls_today],
+    [quotaBefore.quota_used_today, quotaBefore.search_calls_today, quotaBefore.api_calls_today],
+  );
+}));
+
+test('concurrent X calls serialize epochs and ordinary reload reproduces the latest slate', () => withTempState(async () => {
+  seedV2();
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  rebuildYoutubeV2Generation({ force: true });
+  const service = new YoutubeService();
+  await service.rails();
+  const before = getYoutubeState<{
+    shuffle_epoch: number;
+    slate_sequence: number;
+  }>('youtube_v2_serving_epoch', { shuffle_epoch: -1, slate_sequence: -1 });
+  const responses = await Promise.all(Array.from({ length: 8 }, () => (
+    service.rails({ reshuffle: true }) as Promise<{ slate_sequence: number; rails: YoutubeRail[] }>
+  )));
+  const sequences = responses.map((response) => response.slate_sequence);
+  assert.equal(new Set(sequences).size, responses.length);
+  assert.deepEqual([...sequences].sort((left, right) => left - right),
+    Array.from({ length: 8 }, (_, index) => before.slate_sequence + index + 1));
+  const after = getYoutubeState<{
+    shuffle_epoch: number;
+    slate_sequence: number;
+  }>('youtube_v2_serving_epoch', { shuffle_epoch: -1, slate_sequence: -1 });
+  assert.equal(after.shuffle_epoch, before.shuffle_epoch + 8);
+  assert.equal(after.slate_sequence, before.slate_sequence + 8);
+  const latestResponse = responses.find((response) => response.slate_sequence === after.slate_sequence)!;
+  const reload = await service.rails();
+  assert.equal(reload.slate_sequence, after.slate_sequence);
+  assert.deepEqual(
+    reload.rails.map((rail) => [rail.rail_id, rail.items.map((item) => item.id)]),
+    latestResponse.rails.map((rail) => [rail.rail_id, rail.items.map((item) => item.id)]),
   );
 }));
 
@@ -1147,8 +1296,10 @@ test('v2 refresh runs only subscription/history acquisition and bounded publish 
     authorizedChannel: () => Promise<{ id: string; title: string; thumbnail: string | null }>;
     subscriptions: () => Promise<YoutubeItem[]>;
     channelUploadPlaylists: (ids: string[]) => Promise<Map<string, string>>;
-    playlistItems: (playlist: string) => Promise<YoutubeItem[]>;
-    search: (query: string, options: { channelId?: string }) => Promise<{ videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[] }>;
+    playlistRecommendationVideos: (playlist: string) => Promise<ReturnType<typeof rankedVideos>>;
+    searchRecommendationVideos: (
+      query: string, options: { channelId?: string },
+    ) => Promise<ReturnType<typeof rankedVideos>>;
   } }).api;
   api.authorizedChannel = async () => ({ id: 'owner', title: 'Owner', thumbnail: null });
   api.subscriptions = async () => [{
@@ -1156,19 +1307,15 @@ test('v2 refresh runs only subscription/history acquisition and bounded publish 
     kind: 'channel',
   }];
   api.channelUploadPlaylists = async () => new Map([['subscribed-channel', 'uploads']]);
-  api.playlistItems = async () => Array.from({ length: 8 }, (_, index) => video(
+  api.playlistRecommendationVideos = async () => rankedVideos(Array.from({ length: 8 }, (_, index) => video(
     `RefreshSubscription${index}`,
     `Fermentation subscription ${index}`,
     'subscribed-channel',
-  ));
-  api.search = async (_query, options) => {
+  )));
+  api.searchRecommendationVideos = async (_query, options) => {
     const call = searchCalls++;
     const channel = options.channelId || `refresh-topic-channel-${call}`;
-    return {
-      videos: [video(`RefreshHistory${call}`, `Fermentation science analysis ${call}`, channel)],
-      channels: [],
-      playlists: [],
-    };
+    return rankedVideos([video(`RefreshHistory${call}`, `Fermentation science analysis ${call}`, channel)]);
   };
   const result = await service.refresh('triggered');
   assert.equal(result.ok, true);
@@ -1190,7 +1337,7 @@ test('v2 refresh runs only subscription/history acquisition and bounded publish 
   });
   assert.ok(acquisition.queries_attempted <= 12);
   assert.ok(acquisition.more_like_queries <= 10);
-  assert.ok(acquisition.beyond_queries <= 2);
+  assert.ok(acquisition.more_like_queries + acquisition.beyond_queries <= 12);
   assert.ok(acquisition.distinct_seed_refs.length >= 1);
   assert.equal(acquisition.more_like_status, 'not_applicable');
   assert.ok(acquisition.funnels.every((funnel) => (
@@ -1221,8 +1368,8 @@ test('shadow refresh builds only the provenance-gated v2 phases', () => withTemp
     authorizedChannel: () => Promise<{ id: string; title: string; thumbnail: string | null }>;
     subscriptions: () => Promise<YoutubeItem[]>;
     channelUploadPlaylists: () => Promise<Map<string, string>>;
-    playlistItems: () => Promise<YoutubeItem[]>;
-    search: () => Promise<{ videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[] }>;
+    playlistRecommendationVideos: () => Promise<ReturnType<typeof rankedVideos>>;
+    searchRecommendationVideos: () => Promise<ReturnType<typeof rankedVideos>>;
     videos: () => Promise<YoutubeItem[]>;
   } }).api;
   api.authorizedChannel = async () => ({ id: 'owner', title: 'Owner', thumbnail: null });
@@ -1230,8 +1377,8 @@ test('shadow refresh builds only the provenance-gated v2 phases', () => withTemp
     ...video('shadow-subscription', 'Shadow subscription', 'shadow-subscription'), kind: 'channel',
   }];
   api.channelUploadPlaylists = async () => new Map();
-  api.playlistItems = async () => [];
-  api.search = async () => ({ videos: [], channels: [], playlists: [] });
+  api.playlistRecommendationVideos = async () => [];
+  api.searchRecommendationVideos = async () => [];
   api.videos = async () => [];
 
   const result = await service.refresh('triggered-shadow');
@@ -1257,8 +1404,8 @@ test('OAuth-connected refresh resolves account truth and covers every subscripti
     authorizedChannel: () => Promise<{ id: string; title: string; thumbnail: string | null }>;
     subscriptions: () => Promise<YoutubeItem[]>;
     channelUploadPlaylists: (ids: string[]) => Promise<Map<string, string>>;
-    playlistItems: (playlist: string) => Promise<YoutubeItem[]>;
-    search: () => Promise<{ videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[] }>;
+    playlistRecommendationVideos: (playlist: string) => Promise<ReturnType<typeof rankedVideos>>;
+    searchRecommendationVideos: () => Promise<ReturnType<typeof rankedVideos>>;
   } }).api;
   api.authorizedChannel = async () => ({
     id: 'owner-channel', title: 'Aman', thumbnail: 'https://img.example/owner.jpg',
@@ -1270,11 +1417,11 @@ test('OAuth-connected refresh resolves account truth and covers every subscripti
     uploadBatches.push(ids.length);
     return new Map(ids.map((id) => [id, `uploads-${id}`]));
   };
-  api.playlistItems = async (playlist) => {
+  api.playlistRecommendationVideos = async (playlist) => {
     const channel = playlist.slice('uploads-'.length);
-    return [video(`upload-${channel}`, `Official upload ${channel}`, channel)];
+    return rankedVideos([video(`upload-${channel}`, `Official upload ${channel}`, channel)]);
   };
-  api.search = async () => ({ videos: [], channels: [], playlists: [] });
+  api.searchRecommendationVideos = async () => [];
 
   const result = await service.refresh('oauth_connected');
   assert.equal(result.ok, true);
@@ -1320,16 +1467,16 @@ test('a conclusively missing uploads playlist is covered-empty, not an account s
     authorizedChannel: () => Promise<{ id: string; title: string; thumbnail: string | null }>;
     subscriptions: () => Promise<YoutubeItem[]>;
     channelUploadPlaylists: () => Promise<Map<string, string>>;
-    playlistItems: () => Promise<YoutubeItem[]>;
-    search: () => Promise<{ videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[] }>;
+    playlistRecommendationVideos: () => Promise<ReturnType<typeof rankedVideos>>;
+    searchRecommendationVideos: () => Promise<ReturnType<typeof rankedVideos>>;
   } }).api;
   api.authorizedChannel = async () => ({ id: 'owner', title: 'Owner', thumbnail: null });
   api.subscriptions = async () => [{
     ...video('terminated-channel', 'Terminated channel', 'terminated-channel'), kind: 'channel',
   }];
   api.channelUploadPlaylists = async () => new Map([['terminated-channel', 'missing-uploads']]);
-  api.playlistItems = async () => { throw new CatalogError(404, 'playlist cannot be found'); };
-  api.search = async () => ({ videos: [], channels: [], playlists: [] });
+  api.playlistRecommendationVideos = async () => { throw new CatalogError(404, 'playlist cannot be found'); };
+  api.searchRecommendationVideos = async () => [];
 
   const result = await service.refresh('oauth_connected');
   assert.equal(result.ok, true);
@@ -1366,28 +1513,25 @@ test('More Like uses uploads playlists and publishes a same-channel plus themati
   const searchOptions: Array<{ channelId?: string }> = [];
   const api = (service as unknown as { api: {
     channelUploadPlaylists: (ids: string[]) => Promise<Map<string, string>>;
-    playlistItems: () => Promise<YoutubeItem[]>;
-    search: (query: string, options: { channelId?: string }) => Promise<{
-      videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[];
-    }>;
+    playlistRecommendationVideos: () => Promise<ReturnType<typeof rankedVideos>>;
+    searchRecommendationVideos: (
+      query: string, options: { channelId?: string },
+    ) => Promise<ReturnType<typeof rankedVideos>>;
   } }).api;
   api.channelUploadPlaylists = async (ids) => {
     uploadsCalls += 1;
     return new Map([[ids[0]!, 'seed-uploads']]);
   };
-  api.playlistItems = async () => [
+  api.playlistRecommendationVideos = async () => rankedVideos([
     video('same-channel-1', 'Ceramic craft studio visit', 'seed-channel'),
     video('same-channel-2', 'Ceramic craft firing guide', 'seed-channel'),
-  ];
-  api.search = async (_query, options) => {
+  ]);
+  api.searchRecommendationVideos = async (_query, options) => {
     searchOptions.push(options);
-    return {
-      videos: [
+    return rankedVideos([
         video('thematic-1', 'Ceramic craft science analysis', 'thematic-one'),
         video('thematic-2', 'Ceramic craft science documentary', 'thematic-two'),
-      ],
-      channels: [], playlists: [],
-    };
+      ]);
   };
   const result = await service.refresh('triggered-hybrid');
   assert.equal(result.ok, true);
@@ -1421,14 +1565,14 @@ test('More Like reports and labels an exact-channel fallback honestly when topic
   const service = new YoutubeService();
   const api = (service as unknown as { api: {
     channelUploadPlaylists: (ids: string[]) => Promise<Map<string, string>>;
-    playlistItems: () => Promise<YoutubeItem[]>;
-    search: () => Promise<{ videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[] }>;
+    playlistRecommendationVideos: () => Promise<ReturnType<typeof rankedVideos>>;
+    searchRecommendationVideos: () => Promise<ReturnType<typeof rankedVideos>>;
   } }).api;
   api.channelUploadPlaylists = async (ids) => new Map([[ids[0]!, 'boxing-uploads']]);
-  api.playlistItems = async () => Array.from({ length: 6 }, (_, index) => (
+  api.playlistRecommendationVideos = async () => rankedVideos(Array.from({ length: 6 }, (_, index) => (
     video(`same-channel-${index}`, `Boxing footwork episode ${index}`, 'boxing-channel')
-  ));
-  api.search = async () => ({ videos: [], channels: [], playlists: [] });
+  )));
+  api.searchRecommendationVideos = async () => [];
 
   const result = await service.refresh('triggered-exact-channel');
   assert.equal(result.ok, true);
@@ -1455,19 +1599,228 @@ test('an all-query discovery failure retains the last-good generation and blocks
     authorizedChannel: () => Promise<{ id: string; title: string; thumbnail: string | null }>;
     subscriptions: () => Promise<YoutubeItem[]>;
     channelUploadPlaylists: () => Promise<Map<string, string>>;
-    search: () => Promise<{ videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[] }>;
+    searchRecommendationVideos: () => Promise<ReturnType<typeof rankedVideos>>;
   } }).api;
   api.authorizedChannel = async () => ({ id: 'owner', title: 'Owner', thumbnail: null });
   api.subscriptions = async () => [...seedV2().subscriptionChannels].map((channel) => ({
     ...video(channel, `Channel ${channel}`, channel), kind: 'channel',
   }));
   api.channelUploadPlaylists = async () => new Map();
-  api.search = async () => { throw new Error('search unavailable'); };
+  api.searchRecommendationVideos = async () => { throw new Error('search unavailable'); };
   const result = await service.refresh('triggered-failure');
   assert.equal(result.ok, false);
   assert.equal(result.phases?.find((phase) => phase.phase === 'v2_history_acquisition')?.ok, false);
   assert.equal(result.phases?.find((phase) => phase.phase === 'v2_publish')?.ok, false);
   assert.equal(latestYoutubeV2GenerationRecord()?.generation, published.generation);
+  const retained = await service.rails();
+  assert.equal(retained.recommendations_status, 'stale');
+  assert.equal(retained.stale_reason, 'discovery_acquisition_failed');
+  assert.ok(retained.rails
+    .filter((rail) => !['history', 'saved'].includes(rail.rail_id))
+    .every((rail) => rail.stale));
+}));
+
+test('Takeout-only discovery failure marks retained recommendations stale until a clean publish', () => withTempState(async () => {
+  const now = Date.now();
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  const seed = video('takeout-only-seed', 'History craft documentary seed', 'takeout-seed-channel');
+  const candidates = Array.from({ length: 6 }, (_, index) => video(
+    `takeout-only-candidate-${index}`,
+    `History craft documentary candidate ${index}`,
+    `takeout-candidate-channel-${index}`,
+  ));
+  upsertYoutubeItems([seed]);
+  importOfficialHistory([seed], now, 'takeout-only-history');
+  upsertYoutubeV2CandidateProvenance(candidates.map((item, sourceRank) => ({
+    item,
+    provenance: 'history_topic' as const,
+    provenance_ref: seed.id,
+    source_generation: 'takeout-only-candidates',
+    acquired_at: now,
+    expires_at: now + 1_000_000,
+    relation_type: 'same_topic' as const,
+    source_rank: sourceRank,
+  })));
+  const published = rebuildYoutubeV2Generation({ force: true, at: now })!;
+  const service = new YoutubeService();
+  const api = (service as unknown as { api: {
+    channelUploadPlaylists: () => Promise<Map<string, string>>;
+    searchRecommendationVideos: () => Promise<ReturnType<typeof rankedVideos>>;
+    videos: () => Promise<YoutubeItem[]>;
+  } }).api;
+  api.channelUploadPlaylists = async () => new Map();
+  api.videos = async () => [seed];
+  api.searchRecommendationVideos = async () => { throw new Error('takeout discovery unavailable'); };
+
+  const failed = await service.refresh('takeout-only-failure');
+  assert.equal(failed.ok, false);
+  assert.equal(latestYoutubeV2GenerationRecord()?.generation, published.generation);
+  const stale = await service.rails();
+  assert.equal(stale.recommendations_status, 'stale');
+  assert.equal(stale.stale_reason, 'discovery_acquisition_failed');
+
+  api.searchRecommendationVideos = async () => [];
+  const recovered = await service.refresh('takeout-only-recovery');
+  assert.equal(recovered.ok, true);
+  const ready = await service.rails();
+  assert.equal(ready.recommendations_status, 'ready');
+  assert.equal(ready.stale_reason, null);
+}));
+
+test('Takeout-only publication failure keeps the last-good generation explicitly stale', () => withTempState(async () => {
+  const now = Date.now();
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  const seed = video('publish-failure-seed', 'Woodworking design history seed', 'publish-seed-channel');
+  const candidates = Array.from({ length: 6 }, (_, index) => video(
+    `publish-failure-candidate-${index}`,
+    `Woodworking design history candidate ${index}`,
+    `publish-candidate-channel-${index}`,
+  ));
+  upsertYoutubeItems([seed]);
+  importOfficialHistory([seed], now, 'publish-failure-history');
+  upsertYoutubeV2CandidateProvenance(candidates.map((item, sourceRank) => ({
+    item,
+    provenance: 'history_topic' as const,
+    provenance_ref: seed.id,
+    source_generation: 'publish-failure-candidates',
+    acquired_at: now,
+    expires_at: now + 1_000_000,
+    relation_type: 'same_topic' as const,
+    source_rank: sourceRank,
+  })));
+  const published = rebuildYoutubeV2Generation({ force: true, at: now })!;
+  const faultDb = new Database(process.env.MANGO_YOUTUBE_DB_PATH!);
+  faultDb.exec(`
+CREATE TRIGGER fail_youtube_v2_generation_publish
+BEFORE INSERT ON youtube_v2_generations
+BEGIN
+  SELECT RAISE(ABORT, 'forced publication failure');
+END;
+`);
+  faultDb.close();
+
+  const service = new YoutubeService();
+  const api = (service as unknown as { api: {
+    channelUploadPlaylists: () => Promise<Map<string, string>>;
+    searchRecommendationVideos: () => Promise<ReturnType<typeof rankedVideos>>;
+    videos: () => Promise<YoutubeItem[]>;
+  } }).api;
+  api.channelUploadPlaylists = async () => new Map();
+  api.searchRecommendationVideos = async () => [];
+  api.videos = async () => [seed];
+
+  const failed = await service.refresh('takeout-only-publication-failure');
+  assert.equal(failed.ok, false);
+  assert.equal(failed.phases?.find((phase) => phase.phase === 'v2_publish')?.ok, false);
+  assert.equal(latestYoutubeV2GenerationRecord()?.generation, published.generation);
+  const stale = await service.rails();
+  assert.equal(stale.recommendations_status, 'stale');
+  assert.equal(stale.stale_reason, 'publication_failed');
+
+  const repairDb = new Database(process.env.MANGO_YOUTUBE_DB_PATH!);
+  repairDb.exec('DROP TRIGGER fail_youtube_v2_generation_publish');
+  repairDb.close();
+  const recovered = await service.refresh('takeout-only-publication-recovery');
+  assert.equal(recovered.ok, true);
+  const ready = await service.rails();
+  assert.equal(ready.recommendations_status, 'ready');
+  assert.equal(ready.stale_reason, null);
+}));
+
+test('one failed discovery request retains the complete last-good generation', () => withTempState(async () => {
+  const now = Date.now();
+  const seeded = seedV2();
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  writeFileSync(process.env.MANGO_YOUTUBE_AUTH_TOKEN_FILE!, JSON.stringify({
+    access_token: 'test-access-token', expires_at: now + 60 * 60 * 1_000,
+  }));
+  const published = rebuildYoutubeV2Generation({ force: true, at: now })!;
+  const publishedItems = published.items.map((item) => ({ ...item }));
+  const service = new YoutubeService();
+  let discoveryCalls = 0;
+  const api = (service as unknown as { api: {
+    authorizedChannel: () => Promise<{ id: string; title: string; thumbnail: string | null }>;
+    subscriptions: () => Promise<YoutubeItem[]>;
+    channelUploadPlaylists: () => Promise<Map<string, string>>;
+    searchRecommendationVideos: (
+      query: string, options: { eventType?: string },
+    ) => Promise<ReturnType<typeof rankedVideos>>;
+    videos: () => Promise<YoutubeItem[]>;
+  } }).api;
+  api.authorizedChannel = async () => ({ id: 'owner', title: 'Owner', thumbnail: null });
+  api.subscriptions = async () => [...seeded.subscriptionChannels].map((channel) => ({
+    ...video(channel, `Channel ${channel}`, channel), kind: 'channel',
+  }));
+  api.channelUploadPlaylists = async () => new Map();
+  api.videos = async () => [];
+  api.searchRecommendationVideos = async (query, options) => {
+    if (options.eventType) return [];
+    const call = discoveryCalls++;
+    if (call === 1) throw new Error('one discovery shard timed out');
+    return call === 0
+      ? rankedVideos([video('partial-good', `${query} documentary analysis`, 'partial-good-channel')])
+      : [];
+  };
+
+  const result = await service.refresh('partial-discovery');
+  assert.equal(result.ok, false);
+  assert.equal(result.phases?.find((phase) => phase.phase === 'v2_history_acquisition')?.ok, false);
+  assert.equal(result.phases?.find((phase) => phase.phase === 'v2_publish')?.ok, false);
+  assert.equal(latestYoutubeV2GenerationRecord()?.generation, published.generation);
+  assert.deepEqual(latestYoutubeV2Generation()!.items, publishedItems);
+  const retained = await service.rails();
+  assert.equal(retained.recommendations_status, 'stale');
+  assert.equal(retained.stale_reason, 'discovery_acquisition_failed');
+}));
+
+test('one failed Live probe retains the complete last-good generation', () => withTempState(async () => {
+  const now = Date.now();
+  const seeded = seedV2();
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  writeFileSync(process.env.MANGO_YOUTUBE_AUTH_TOKEN_FILE!, JSON.stringify({
+    access_token: 'test-access-token', expires_at: now + 60 * 60 * 1_000,
+  }));
+  const published = rebuildYoutubeV2Generation({ force: true, at: now })!;
+  const publishedItems = published.items.map((item) => ({ ...item }));
+  const service = new YoutubeService();
+  let liveCalls = 0;
+  const api = (service as unknown as { api: {
+    authorizedChannel: () => Promise<{ id: string; title: string; thumbnail: string | null }>;
+    subscriptions: () => Promise<YoutubeItem[]>;
+    channelUploadPlaylists: () => Promise<Map<string, string>>;
+    searchRecommendationVideos: (
+      query: string, options: { eventType?: string; channelId?: string },
+    ) => Promise<ReturnType<typeof rankedVideos>>;
+    videos: () => Promise<YoutubeItem[]>;
+  } }).api;
+  api.authorizedChannel = async () => ({ id: 'owner', title: 'Owner', thumbnail: null });
+  api.subscriptions = async () => [...seeded.subscriptionChannels].map((channel) => ({
+    ...video(channel, `Channel ${channel}`, channel), kind: 'channel',
+  }));
+  api.channelUploadPlaylists = async () => new Map();
+  api.videos = async () => [];
+  api.searchRecommendationVideos = async (_query, options) => {
+    if (options.eventType !== 'live') return [];
+    const call = liveCalls++;
+    if (call === 1) throw new Error('one live probe timed out');
+    return call === 0
+      ? rankedVideos([video('partial-live', 'Partial live', options.channelId!, 'live')])
+      : [];
+  };
+
+  const result = await service.refresh('nightly');
+  assert.equal(result.ok, false);
+  assert.equal(result.phases?.find((phase) => phase.phase === 'v2_live_acquisition')?.ok, false);
+  assert.equal(result.phases?.find((phase) => phase.phase === 'v2_publish')?.ok, false);
+  assert.equal(latestYoutubeV2GenerationRecord()?.generation, published.generation);
+  assert.deepEqual(latestYoutubeV2Generation()!.items, publishedItems);
+  const retained = await service.rails();
+  assert.equal(retained.recommendations_status, 'stale');
+  assert.equal(retained.stale_reason, 'live_acquisition_failed');
 }));
 
 test('nightly probes at most eight authoritative subscribed channels for live streams just before publish', () => withTempState(async () => {
@@ -1485,23 +1838,22 @@ test('nightly probes at most eight authoritative subscribed channels for live st
     authorizedChannel: () => Promise<{ id: string; title: string; thumbnail: string | null }>;
     subscriptions: () => Promise<YoutubeItem[]>;
     channelUploadPlaylists: () => Promise<Map<string, string>>;
-    search: (query: string, options: { eventType?: string; channelId?: string }) => Promise<{
-      videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[];
-    }>;
+    searchRecommendationVideos: (
+      query: string, options: { eventType?: string; channelId?: string },
+    ) => Promise<ReturnType<typeof rankedVideos>>;
   } }).api;
   api.authorizedChannel = async () => ({ id: 'owner', title: 'Owner', thumbnail: null });
   api.subscriptions = async () => channels.map((channel) => ({
     ...video(channel, `Channel ${channel}`, channel), kind: 'channel',
   }));
   api.channelUploadPlaylists = async () => new Map();
-  api.search = async (_query, options) => {
-    if (options.eventType !== 'live') return { videos: [], channels: [], playlists: [] };
+  api.searchRecommendationVideos = async (_query, options) => {
+    if (options.eventType !== 'live') return [];
     liveProbes += 1;
     probedChannels.push(options.channelId!);
-    return {
-      videos: [video(`LiveProbe${liveProbes}`, `Live probe ${liveProbes}`, options.channelId!, 'live')],
-      channels: [], playlists: [],
-    };
+    return rankedVideos([
+      video(`LiveProbe${liveProbes}`, `Live probe ${liveProbes}`, options.channelId!, 'live'),
+    ]);
   };
   const result = await service.refresh('nightly');
   assert.equal(result.ok, true);
@@ -1581,7 +1933,7 @@ test('OAuth-disconnected stale mode can serve expired non-live last-good rows bu
   }
 }));
 
-test('complete OAuth enumeration replaces membership even when upload acquisition fails', () => withTempState(async () => {
+test('complete OAuth enumeration preserves new membership but upload failure retains the last-good generation', () => withTempState(async () => {
   seedV2();
   process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
   process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
@@ -1590,12 +1942,16 @@ test('complete OAuth enumeration replaces membership even when upload acquisitio
     expires_at: Date.now() + 60 * 60 * 1_000,
   }));
   const published = rebuildYoutubeV2Generation({ force: true })!;
+  const publishedItems = published.items.map((item) => ({ ...item }));
+  const servedBefore = youtubeV2RecommendationRails({ shuffle_epoch: 17 })
+    .filter((rail) => rail.rail_id !== 'live_now')
+    .map((rail) => [rail.rail_id, rail.items.map((item) => item.id)] as const);
   const service = new YoutubeService();
   const api = (service as unknown as { api: {
     authorizedChannel: () => Promise<{ id: string; title: string; thumbnail: string | null }>;
     subscriptions: () => Promise<YoutubeItem[]>;
     channelUploadPlaylists: () => Promise<Map<string, string>>;
-    search: () => Promise<{ videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[] }>;
+    searchRecommendationVideos: () => Promise<ReturnType<typeof rankedVideos>>;
   } }).api;
   api.authorizedChannel = async () => ({ id: 'owner', title: 'Owner', thumbnail: null });
   api.subscriptions = async () => [{
@@ -1603,15 +1959,25 @@ test('complete OAuth enumeration replaces membership even when upload acquisitio
     kind: 'channel',
   }];
   api.channelUploadPlaylists = async () => { throw new Error('uploads unavailable'); };
-  api.search = async () => ({ videos: [], channels: [], playlists: [] });
+  api.searchRecommendationVideos = async () => [];
 
   const result = await service.refresh('partial-oauth-source');
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, false);
   assert.equal(result.phases?.find((phase) => phase.phase === 'subscriptions')?.ok, true);
   assert.equal(result.phases?.find((phase) => phase.phase === 'v2_subscription_acquisition')?.ok, false);
-  assert.equal(result.phases?.find((phase) => phase.phase === 'v2_publish')?.ok, true);
-  assert.ok(latestYoutubeV2GenerationRecord()!.generation > published.generation);
+  assert.equal(result.phases?.find((phase) => phase.phase === 'v2_publish')?.ok, false);
+  assert.equal(latestYoutubeV2GenerationRecord()!.generation, published.generation);
+  assert.deepEqual(latestYoutubeV2Generation()!.items, publishedItems);
   assert.deepEqual(listYoutubeV2Subscriptions().map((row) => row.channel_key), ['new-subscription']);
+  const retainedRails = youtubeV2RecommendationRails({ shuffle_epoch: 17 });
+  assert.deepEqual(
+    retainedRails
+      .filter((rail) => rail.rail_id !== 'live_now')
+      .map((rail) => [rail.rail_id, rail.items.map((item) => item.id)] as const),
+    servedBefore,
+  );
+  assert.equal(retainedRails.some((rail) => rail.rail_id === 'live_now'), false);
+  assert.ok(retainedRails.every((rail) => rail.stale));
   const stale = getYoutubeState<{ stale: boolean; reason: string | null }>(
     'youtube_v2_source_stale',
     { stale: false, reason: '' },
@@ -1651,7 +2017,7 @@ test('refresh resolves missing Takeout metadata in one bounded background videos
   let resolvedIds: string[] = [];
   const api = (service as unknown as { api: {
     videos: (ids: string[]) => Promise<YoutubeItem[]>;
-    search: () => Promise<{ videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[] }>;
+    searchRecommendationVideos: () => Promise<ReturnType<typeof rankedVideos>>;
   } }).api;
   api.videos = async (ids) => {
     resolvedIds = ids;
@@ -1662,7 +2028,7 @@ test('refresh resolves missing Takeout metadata in one bounded background videos
     upsertYoutubeItems(resolved);
     return resolved;
   };
-  api.search = async () => ({ videos: [], channels: [], playlists: [] });
+  api.searchRecommendationVideos = async () => [];
   const result = await service.refresh('takeout-metadata');
   assert.equal(result.phases?.find((phase) => phase.phase === 'v2_history_metadata')?.ok, true);
   assert.deepEqual(resolvedIds, ['TakeoutNeedsMetadata']);
@@ -1690,7 +2056,7 @@ test('refresh also queues unresolved Mango-local History launches for metadata r
   let resolvedIds: string[] = [];
   const api = (service as unknown as { api: {
     videos: (ids: string[]) => Promise<YoutubeItem[]>;
-    search: () => Promise<{ videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[] }>;
+    searchRecommendationVideos: () => Promise<ReturnType<typeof rankedVideos>>;
   } }).api;
   api.videos = async (ids) => {
     resolvedIds = ids;
@@ -1698,7 +2064,7 @@ test('refresh also queues unresolved Mango-local History launches for metadata r
     upsertYoutubeItems(resolved);
     return resolved;
   };
-  api.search = async () => ({ videos: [], channels: [], playlists: [] });
+  api.searchRecommendationVideos = async () => [];
   await service.refresh('local-history-metadata');
   assert.deepEqual(resolvedIds, ['LocalNeedsMetadata']);
   assert.equal(youtubeV2HistoryItems().some((item) => item.id === 'LocalNeedsMetadata'), true);
@@ -1706,6 +2072,10 @@ test('refresh also queues unresolved Mango-local History launches for metadata r
 
 test('serve order, labels, card counts, creator caps, and global dedupe match the couch contract', () => withTempState(async () => {
   const seeded = seedV2();
+  saveLibraryItem({
+    source: 'mango', type: 'youtube_video', id: seeded.history[0]!.id,
+    title: seeded.history[0]!.title, tab: 'youtube', saved_at: Date.now() + 10_000,
+  });
   process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
   rebuildYoutubeV2Generation({ force: true });
   const response = await new YoutubeService().rails() as {
@@ -1726,6 +2096,11 @@ test('serve order, labels, card counts, creator caps, and global dedupe match th
     if (rail.rail_id === 'live_now') assert.ok(rail.items.length >= 1 && rail.items.length <= 4);
     else assert.equal(rail.items.length, 4, rail.rail_id);
   }
+  assert.equal(
+    response.rails.find((rail) => rail.rail_id === 'history')?.items
+      .find((item) => item.id === seeded.history[0]!.id)?.library_source,
+    'mango',
+  );
   const ids = response.rails.flatMap((rail) => rail.items.map((item) => item.id));
   assert.equal(new Set(ids).size, ids.length);
   const creators = (railId: string) => response.rails.find((rail) => rail.rail_id === railId)!.items
@@ -1953,4 +2328,662 @@ test('published Live Now membership disappears when its source TTL expires witho
   } finally {
     Date.now = originalNow;
   }
+}));
+
+test('v2.7 quality factors and independent support boost match the locked product weights', () => withTempState(() => {
+  const at = Date.UTC(2026, 7, 11, 12);
+  const anchors = Array.from({ length: 6 }, (_, index) => video(
+    `QualityFactorAnchor${index}`,
+    `Quality factor anchor ${index}`,
+    `quality-anchor-channel-${index}`,
+  ));
+  upsertYoutubeItems(anchors);
+  upsertYoutubeV2ImportedHistory(anchors.map((item) => ({
+    video_id: item.id,
+    title: item.title,
+    title_url: null,
+    channel_id: item.channel_id,
+    channel_title: item.channel_title,
+    watched_at: at,
+  })), { source_generation: 'quality-factor-history', imported_at: at });
+  replaceYoutubeV2Subscriptions([{
+    channel_key: 'quality-subscription',
+    channel_id: 'quality-subscription',
+    channel_title: 'Quality Subscription',
+    channel_url: null,
+    source: 'oauth',
+    subscribed_at: null,
+  }], { source_generation: 'quality-factor-subscriptions', imported_at: at });
+  const evaluator = createYoutubeV2CandidateQualityEvaluator(at);
+  const expiresAt = at + 1_000_000;
+  const historyItem = video('QualityFactorHistoryCandidate', 'History candidate', 'novel-channel');
+  const historyRow = (provenanceRef: string, overrides: Record<string, unknown> = {}) => ({
+    item: historyItem,
+    provenance: 'history_topic' as const,
+    provenance_ref: provenanceRef,
+    source_generation: `quality:${provenanceRef}:${String(overrides.source_generation ?? 'base')}`,
+    acquired_at: at,
+    expires_at: expiresAt,
+    relation_type: 'same_topic' as const,
+    source_rank: 0,
+    ...overrides,
+  });
+  const historyAffinity = 0.6 + 0.4 * (0.55 / 3);
+  assert.ok(Math.abs(evaluator.quality([historyRow(anchors[0]!.id)]) - historyAffinity) < 1e-12);
+  assert.ok(Math.abs(evaluator.quality([historyRow(anchors[0]!.id, {
+    relation_type: 'deeper_dive',
+  })]) - 0.85 * historyAffinity) < 1e-12);
+  assert.ok(Math.abs(evaluator.quality([historyRow(anchors[0]!.id, {
+    relation_type: 'wildcard',
+  })]) - 0.55 * historyAffinity) < 1e-12);
+  assert.ok(Math.abs(evaluator.quality([historyRow(anchors[0]!.id, {
+    relation_type: null,
+    source_generation: 'legacy',
+  })]) - 0.35 * historyAffinity) < 1e-12);
+  assert.ok(Math.abs(evaluator.quality([historyRow(anchors[0]!.id, {
+    source_rank: 49,
+  })]) - 0.55 * historyAffinity) < 1e-12);
+  assert.ok(Math.abs(evaluator.quality([historyRow(anchors[0]!.id, {
+    source_rank: null,
+  })]) - 0.75 * historyAffinity) < 1e-12);
+
+  const sameAnchorTwice = [
+    historyRow(anchors[0]!.id),
+    historyRow(anchors[0]!.id, {
+      provenance: 'history_channel',
+      relation_type: 'direct',
+      source_generation: 'same-anchor-channel',
+    }),
+  ];
+  assert.ok(Math.abs(evaluator.quality(sameAnchorTwice) - historyAffinity) < 1e-12);
+  assert.ok(Math.abs(evaluator.quality([
+    ...sameAnchorTwice,
+    historyRow(anchors[1]!.id),
+  ]) - (historyAffinity + 0.03)) < 1e-12);
+  assert.ok(Math.abs(evaluator.quality(anchors.map((anchor) => historyRow(anchor.id)))
+    - (historyAffinity + 0.12)) < 1e-12);
+
+  const subscriptionQuality = (ageMs: number, sourceRank: number | null = 0) => {
+    const item = {
+      ...video(`SubscriptionAt${ageMs}`, 'Subscription quality', 'quality-subscription'),
+      published_at: new Date(at - ageMs).toISOString(),
+    };
+    return evaluator.quality([{
+      item,
+      provenance: 'subscription_upload',
+      provenance_ref: 'quality-subscription',
+      source_generation: 'quality-subscription-generation',
+      acquired_at: at,
+      expires_at: expiresAt,
+      relation_type: 'direct',
+      source_rank: sourceRank,
+    }]);
+  };
+  const day = 24 * 60 * 60 * 1_000;
+  assert.equal(subscriptionQuality(7 * day), 1);
+  assert.equal(subscriptionQuality(7 * day + 1), 0.9);
+  assert.equal(subscriptionQuality(30 * day), 0.9);
+  assert.equal(subscriptionQuality(30 * day + 1), 0.75);
+  assert.equal(subscriptionQuality(90 * day), 0.75);
+  assert.equal(subscriptionQuality(90 * day + 1), 0.55);
+  assert.equal(subscriptionQuality(365 * day), 0.55);
+  assert.equal(subscriptionQuality(365 * day + 1), 0.35);
+  assert.equal(subscriptionQuality(0, 49), 0.55);
+  assert.equal(subscriptionQuality(0, null), 0.75);
+}));
+
+test('v2.7 quality gates bound exploration and publish the full honest reserve', () => withTempState(() => {
+  const now = Date.now();
+  const anchor = video('QualityAnchor', 'Deep ocean science', 'anchor-channel');
+  importOfficialHistory([anchor], now, 'quality-history');
+  const strong = Array.from({ length: 448 }, (_, index) => ({
+    item: video(`StrongCandidate${index}`, `Deep ocean analysis ${index}`, `strong-channel-${index}`),
+    provenance: 'history_topic' as const,
+    provenance_ref: anchor.id,
+    source_generation: 'more_like:quality',
+    acquired_at: now,
+    expires_at: now + 1_000_000,
+    relation_type: 'same_topic' as const,
+    source_rank: 0,
+  }));
+  const exploration = Array.from({ length: 152 }, (_, index) => ({
+    item: video(`ExploreCandidate${index}`, `Ocean adjacent wildcard ${index}`, `explore-channel-${index}`),
+    provenance: 'history_topic' as const,
+    provenance_ref: anchor.id,
+    source_generation: 'more_like:quality',
+    acquired_at: now,
+    expires_at: now + 1_000_000,
+    relation_type: 'wildcard' as const,
+    source_rank: 0,
+  }));
+  upsertYoutubeV2CandidateProvenance([...strong, ...exploration]);
+  rebuildYoutubeV2Generation({ force: true, at: now });
+  const generation = latestYoutubeV2Generation()!;
+  assert.equal(generation.model_version, YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION);
+  for (const railId of ['for_you', 'more_like']) {
+    const pool = generation.items.filter((item) => item.rail_id === railId);
+    assert.equal(pool.length, YOUTUBE_V2_RESERVE_LIMIT);
+    assert.equal(pool.filter((item) => youtubeV2QualityTier(item.score) === 'C').length, YOUTUBE_V2_C_TIER_LIMIT);
+    assert.equal(pool.filter((item) => youtubeV2QualityTier(item.score) === 'rejected').length, 0);
+  }
+  assert.deepEqual([
+    youtubeV2QualityTier(0.65), youtubeV2QualityTier(0.649999),
+    youtubeV2QualityTier(0.38), youtubeV2QualityTier(0.379999),
+    youtubeV2QualityTier(0.20), youtubeV2QualityTier(0.199999),
+  ], ['A', 'B', 'B', 'C', 'C', 'rejected']);
+}));
+
+test('production selector has deep weighted exposure, modest overlap, and no cross-epoch memory', () => withTempState(() => {
+  const now = Date.now();
+  const candidates = [
+    ...Array.from({ length: 320 }, (_, index) => ({
+      id: `A-${index.toString().padStart(3, '0')}`,
+      score: 0.65 + 0.35 * (1 - index / 319),
+    })),
+    ...Array.from({ length: 128 }, (_, index) => ({
+      id: `B-${index.toString().padStart(3, '0')}`,
+      score: 0.38 + 0.269 * (1 - index / 127),
+    })),
+    ...Array.from({ length: 64 }, (_, index) => ({
+      id: `C-${index.toString().padStart(3, '0')}`,
+      score: 0.20 + 0.179 * (1 - index / 63),
+    })),
+  ];
+  const first = youtubeV2WeightedShuffle(candidates, {
+    generation: 7, shuffle_epoch: 0, rail_id: 'for_you',
+  });
+  assert.deepEqual(youtubeV2WeightedShuffle(candidates, {
+    generation: 7, shuffle_epoch: 0, rail_id: 'for_you',
+  }), first);
+  assert.notDeepEqual(youtubeV2WeightedShuffle(candidates, {
+    generation: 7, shuffle_epoch: 1, rail_id: 'for_you',
+  }).slice(0, 4), first.slice(0, 4));
+
+  const shallow = Array.from({ length: 4 }, (_, index) => ({ id: `shallow-${index}`, score: 0.8 }));
+  const shallowInitial = youtubeV2WeightedShuffle(shallow, {
+    generation: 7, shuffle_epoch: 0, rail_id: 'beyond',
+  }).slice(0, 4);
+  const shallowNext = youtubeV2WeightedShuffle(shallow, {
+    generation: 7, shuffle_epoch: 1, rail_id: 'beyond',
+  }).slice(0, 4);
+  const shallowRollover = youtubeV2WeightedShuffle(shallow, {
+    generation: 8, shuffle_epoch: 0, rail_id: 'beyond',
+  }).slice(0, 4);
+  assert.deepEqual(new Set(shallowNext.map((item) => item.id)), new Set(shallowInitial.map((item) => item.id)));
+  assert.deepEqual(new Set(shallowRollover.map((item) => item.id)), new Set(shallowInitial.map((item) => item.id)));
+
+  const candidateById = new Map(candidates.map((candidate, index) => [candidate.id, {
+    ...candidate,
+    item: video(
+      candidate.id,
+      `Production weighted candidate ${index}`,
+      `production-creator-${Math.floor(index / 4)}`,
+    ),
+    provenance_ref: `production-seed-${Math.floor(index / 4)}`,
+  }] as const));
+  publishYoutubeV2Generation({
+    model_version: YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION,
+    source_hash: 'production-weighted-distribution',
+    watch_count: 128,
+    subscription_count: 0,
+    generated_at: now,
+    items: [...candidateById.values()].map((candidate) => ({
+      rail_id: 'for_you' as const,
+      item: candidate.item,
+      score: candidate.score,
+      reason: 'youtube_v2:distribution_fixture',
+      provenance: 'history_topic' as const,
+      provenance_ref: candidate.provenance_ref,
+      source_expires_at: now + 1_000_000,
+    })),
+  });
+  const productionGeneration = latestYoutubeV2Generation()!;
+  const productionSlate = (epoch: number) => {
+    const rail = youtubeV2RecommendationRailsFromSnapshot({
+      generation: productionGeneration,
+      subscriptions: [],
+      source_stale: { stale: false, reason: null, at: null },
+      serving_at: now,
+      shuffle_epoch: epoch,
+    })
+      .find((entry) => entry.rail_id === 'for_you');
+    assert.ok(rail);
+    assert.equal(rail.items.length, 4);
+    return rail.items;
+  };
+  assert.deepEqual(
+    productionSlate(0).map((item) => item.id),
+    productionSlate(0).map((item) => item.id),
+  );
+
+  const exposure = new Map<string, number>();
+  let abSelections = 0;
+  let overlap = 0;
+  let previous = new Set<string>();
+  for (let epoch = 0; epoch < 10_000; epoch += 1) {
+    const slate = productionSlate(epoch);
+    assert.equal(new Set(slate.map((item) => item.id)).size, 4);
+    const creatorCounts = new Map<string, number>();
+    const seedCounts = new Map<string, number>();
+    for (const item of slate) {
+      exposure.set(item.id, (exposure.get(item.id) ?? 0) + 1);
+      const fixture = candidateById.get(item.id)!;
+      if (youtubeV2QualityTier(fixture.score) !== 'C') abSelections += 1;
+      if (previous.has(item.id)) overlap += 1;
+      creatorCounts.set(item.channel_id!, (creatorCounts.get(item.channel_id!) ?? 0) + 1);
+      seedCounts.set(
+        fixture.provenance_ref,
+        (seedCounts.get(fixture.provenance_ref) ?? 0) + 1,
+      );
+    }
+    assert.ok(Math.max(...creatorCounts.values()) <= 2);
+    assert.ok(Math.max(...seedCounts.values()) <= 2);
+    previous = new Set(slate.map((item) => item.id));
+  }
+  const totalSelections = 40_000;
+  const observedEffectivePoolSize = 1 / [...exposure.values()]
+    .reduce((sum, count) => sum + (count / totalSelections) ** 2, 0);
+  const metrics = youtubeV2WeightedPoolDiagnostics(candidates);
+  assert.ok(metrics.effective_pool_size >= 320, JSON.stringify(metrics));
+  assert.ok(observedEffectivePoolSize >= 320, `observed effective pool=${observedEffectivePoolSize}`);
+  assert.ok(metrics.top_quartile_sampling_share > metrics.bottom_quartile_sampling_share);
+  assert.ok(metrics.bottom_quartile_sampling_share > 0);
+  assert.ok(metrics.minimum_sampling_weight > 0);
+  assert.ok(overlap / 9_999 <= 0.10, `mean adjacent overlap=${overlap / 9_999}`);
+  assert.ok(abSelections / 40_000 >= 0.90, `A/B share=${abSelections / 40_000}`);
+  assert.equal(exposure.size, candidates.length);
+  assert.ok([...exposure.entries()].filter(([id]) => id.startsWith('A-'))
+    .reduce((sum, [, count]) => sum + count, 0)
+    > [...exposure.entries()].filter(([id]) => id.startsWith('C-'))
+      .reduce((sum, [, count]) => sum + count, 0));
+  assert.ok(Math.min(...[...exposure.entries()]
+    .filter(([id]) => id.startsWith('C-')).map(([, count]) => count)) > 0);
+}));
+
+test('rendered impression counters do not influence a weighted v2 slate', () => withTempState(() => {
+  seedV2();
+  rebuildYoutubeV2Generation({ force: true });
+  const before = youtubeV2RecommendationRails({ shuffle_epoch: 73 });
+  for (const rail of before) {
+    recordYoutubeImpressions({
+      profile_id: 'household',
+      slate_sequence: 91,
+      rail_id: rail.rail_id,
+      item_ids: rail.items.map((item) => item.id),
+      impressed_at: Date.now(),
+    });
+  }
+  assert.deepEqual(
+    youtubeV2RecommendationRails({ shuffle_epoch: 73 })
+      .map((rail) => [rail.rail_id, rail.items.map((item) => item.id)]),
+    before.map((rail) => [rail.rail_id, rail.items.map((item) => item.id)]),
+  );
+}));
+
+test('YouTube state exposes only allowlisted yt-dlp command descriptors', () => withTempState(() => {
+  process.env.MANGO_YTDLP_COMMAND = 'yt-dlp';
+  assert.deepEqual(new YoutubeService().state().configured, {
+    api_key: false,
+    oauth_client: false,
+    yt_dlp_command: 'yt-dlp',
+    yt_dlp_command_kind: 'yt_dlp',
+  });
+
+  process.env.MANGO_YTDLP_COMMAND = '/private/bin/scripts/m6-ship/youtube-yt-dlp.sh';
+  assert.deepEqual(new YoutubeService().state().configured, {
+    api_key: false,
+    oauth_client: false,
+    yt_dlp_command: 'mango_wrapper',
+    yt_dlp_command_kind: 'mango_wrapper',
+  });
+
+  process.env.MANGO_YTDLP_COMMAND = 'https://operator:custom-command-secret@private.example/runner';
+  const customState = new YoutubeService().state();
+  assert.deepEqual(customState.configured, {
+    api_key: false,
+    oauth_client: false,
+    yt_dlp_command: '',
+    yt_dlp_command_kind: 'custom',
+  });
+  assert.equal(JSON.stringify(customState).includes('custom-command-secret'), false);
+}));
+
+test('full YouTube state and rails sanitize config, refresh, import, acquisition, and stale diagnostics', () => withTempState(async () => {
+  const now = Date.now();
+  const anchor = video('DiagnosticAnchorSecret', 'raw diagnostic query secret', 'diagnostic-anchor-channel');
+  const candidate = {
+    ...video('DiagnosticCandidateSecret', 'credential marker secret', 'diagnostic-candidate-channel'),
+    thumbnail: 'https://private.example/watch?token=credential-marker-secret',
+  };
+  upsertYoutubeItems([anchor]);
+  importOfficialHistory([anchor], now, 'diagnostic-history-generation');
+  upsertYoutubeV2CandidateProvenance([{
+    item: candidate,
+    provenance: 'history_topic',
+    provenance_ref: anchor.id,
+    source_generation: 'more_like:diagnostic-safe-generation',
+    acquired_at: now,
+    expires_at: now + 1_000_000,
+    relation_type: 'same_topic',
+    source_rank: 0,
+  }]);
+  rebuildYoutubeV2Generation({ force: true, at: now });
+
+  recordYoutubeV2TakeoutImport({
+    generation: 'takeout-generation-secret-marker',
+    format: 'zip',
+    source_filename: '/private/imports/takeout-filename-secret-marker.zip',
+    source_hash: 'takeout-source-hash-secret-marker',
+    status: 'partial',
+    history_count: 17,
+    subscription_count: 9,
+    imported_at: now,
+    warnings: ['warning echoed https://private.example/watch?q=takeout-query-secret-marker'],
+    errors: ['provider HTTP 403 echoed access-token-secret-marker'],
+  });
+  setYoutubeState('last_refresh_at', now - 500);
+  setYoutubeState('last_success_at', now - 1_000);
+  setYoutubeState('last_error', 'HTTP 403 token refresh-error-secret-marker at https://private.example');
+  setYoutubeState('last_reason', 'manual raw-refresh-query-secret-marker');
+  setYoutubeState('last_phase_results', [{
+    phase: 'v2_publish',
+    ok: false,
+    started_at: now - 100,
+    ended_at: now,
+    duration_ms: 100,
+    error: 'provider HTTP 403 token phase-error-secret-marker',
+  }, {
+    phase: 'raw-phase-secret-marker',
+    ok: false,
+    started_at: now - 50,
+    ended_at: now,
+    duration_ms: 50,
+    error: 'network fetch https://private.example?q=phase-query-secret-marker',
+  }]);
+  setYoutubeState('youtube_v2_subscription_acquisition', {
+    stale: true,
+    reason: 'oauth_subscription_refresh_failed',
+    channels_queried: 3,
+    authoritative_channels: 4,
+    channel_ids: ['subscription-channel-secret-marker'],
+    error: 'OAuth token subscription-error-secret-marker',
+    acquired_at: now,
+  });
+  setYoutubeState('youtube_v2_history_metadata', {
+    attempted: 5,
+    resolved: 4,
+    unresolved: 1,
+    video_ids: ['history-video-secret-marker'],
+    error: 'metadata-error-secret-marker',
+    at: now,
+  });
+  setYoutubeState('youtube_v2_history_acquisition', {
+    queries_attempted: 1,
+    search_calls_attempted: 1,
+    query_budget: { more_like: 1, beyond: 0, total: 1 },
+    more_like_queries: 1,
+    more_like_search_calls: 1,
+    more_like_status: 'thematic',
+    more_like_min_seeds: 8,
+    more_like_attempted_seeds: 1,
+    more_like_contributing_seeds: 1,
+    more_like_candidate_count: 4,
+    more_like_target: 512,
+    more_like_target_reached: false,
+    funnels: [{
+      query: 'history-funnel-query-secret-marker',
+      seed_ref: 'history-funnel-seed-secret-marker',
+      returned: 5,
+      persisted: 4,
+      error: 'HTTP 429 funnel-error-secret-marker',
+    }],
+    distinct_seed_refs: ['history-funnel-seed-secret-marker'],
+    query_failures: 1,
+    candidates_acquired: 4,
+    unique_candidates_acquired: 4,
+    low_yield_streak: 2,
+    low_yield_stop_after: 8,
+    low_yield_min_new: 4,
+    stop_reason: 'search_budget',
+    wall_limit_ms: 90_000,
+    duration_ms: 2_500,
+    acquired_at: now,
+    expires_at: now + 1_000,
+  });
+  setYoutubeState('youtube_v2_more_like_status', {
+    status: 'thematic',
+    seed_refs: ['more-like-seed-secret-marker'],
+    attempted_seed_count: 1,
+    contributing_seed_count: 1,
+    candidate_count: 4,
+    target: 512,
+    target_reached: false,
+    at: now,
+  });
+  setYoutubeState('youtube_v2_daily_topic_seed', {
+    day: 'daily-topic-day-secret-marker',
+    kind: 'daily-topic-kind-secret-marker',
+    provenance_ref: 'daily-topic-ref-secret-marker',
+    item_id: 'daily-topic-item-secret-marker',
+    source_generation: 'daily-topic-generation-secret-marker',
+    selected_at: 'daily-topic-time-secret-marker',
+  });
+  setYoutubeState('youtube_v2_daily_more_like_seed_set', {
+    day: 'daily-set-day-secret-marker',
+    seeds: [{
+      provenance_ref: 'daily-set-ref-secret-marker',
+      item_id: 'daily-set-item-secret-marker',
+      source_generation: 'daily-set-generation-secret-marker',
+    }],
+    selected_at: 'daily-set-time-secret-marker',
+  });
+  setYoutubeState('youtube_v2_live_acquisition', {
+    channels_probed: 2,
+    channel_ids: ['live-channel-secret-marker'],
+    query_cap: 8,
+    query_failures: 1,
+    candidates_acquired: 1,
+    error: 'live-provider-error-secret-marker',
+    acquired_at: now,
+    expires_at: now + 1_000,
+  });
+  setYoutubeState('youtube_v2_source_stale', {
+    stale: true,
+    reason: 'source-stale-reason-secret-marker',
+    error: 'OAuth token source-stale-error-secret-marker',
+    at: now,
+    authoritative_subscription_count: 4,
+  });
+  setYoutubeState('youtube_v2_last_error', {
+    error: 'provider HTTP 403 token v2-last-error-secret-marker',
+    at: now,
+  });
+  assert.deepEqual(
+    { ...youtubeV2SourceStaleState(), error: undefined },
+    {
+      stale: true,
+      reason: null,
+      at: now,
+      authoritative_subscription_count: 4,
+      error: undefined,
+    },
+  );
+
+  process.env.MANGO_YOUTUBE_API_KEY = 'api-key-secret-marker';
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  process.env.MANGO_YTDLP_COMMAND = 'https://operator:command-secret-marker@private.example/runner';
+  const stateDir = dirname(process.env.MANGO_YOUTUBE_DB_PATH!);
+  const oauthClientPath = join(stateDir, 'oauth-client-file-secret-marker.json');
+  const tokenPath = join(stateDir, 'token-file-secret-marker.json');
+  process.env.MANGO_YOUTUBE_OAUTH_CLIENT_FILE = oauthClientPath;
+  process.env.MANGO_YOUTUBE_AUTH_TOKEN_FILE = tokenPath;
+  writeFileSync(oauthClientPath, JSON.stringify({
+    installed: {
+      client_id: 'oauth-client-id-secret-marker',
+      client_secret: 'oauth-client-secret-marker',
+    },
+  }));
+  writeFileSync(tokenPath, JSON.stringify({
+    access_token: 'access-token-secret-marker',
+    refresh_token: 'refresh-token-secret-marker',
+    expires_at: now + 10_000,
+    scope: 'scope-token-secret-marker https://private.example/auth/scope',
+  }));
+
+  const service = new YoutubeService();
+  const state = service.state();
+  const rails = await service.rails();
+  assert.equal(rails.recommendations_status, 'stale');
+  assert.equal(rails.stale_reason, null);
+  assert.equal(JSON.stringify(rails).includes('source-stale-reason-secret-marker'), false);
+  assert.deepEqual(state.configured, {
+    api_key: true,
+    oauth_client: true,
+    yt_dlp_command: '',
+    yt_dlp_command_kind: 'custom',
+  });
+  assert.deepEqual(state.auth, {
+    configured: true,
+    authenticated: true,
+    expires_at: now + 10_000,
+    scope_count: 2,
+  });
+  const refresh = state.refresh as {
+    last_error: string | null;
+    last_reason: string | null;
+    phase_results: Array<Record<string, unknown>>;
+  };
+  assert.equal(refresh.last_error, 'auth');
+  assert.equal(refresh.last_reason, 'triggered');
+  assert.deepEqual(refresh.phase_results.map((phase) => [phase.phase, phase.error_category]), [
+    ['v2_publish', 'auth'],
+    ['unknown', 'network'],
+  ]);
+
+  const diagnostics = state.recommendations_v2 as {
+    sampling: Record<string, unknown>;
+    pool_quality: Record<string, unknown>;
+    latest_takeout_import: Record<string, unknown>;
+    history_acquisition: Record<string, unknown>;
+    more_like_status: Record<string, unknown>;
+    daily_topic_seed: Record<string, unknown>;
+    daily_more_like_seed_set: Record<string, unknown>;
+    source_stale: Record<string, unknown>;
+    last_error: Record<string, unknown>;
+  };
+  assert.deepEqual(diagnostics.sampling, {
+    policy: 'independent_weighted_v1',
+    independent_epoch_draws: true,
+    without_replacement_scope: 'visible_slate',
+    impression_aware: false,
+    recent_slate_state: false,
+  });
+  assert.ok(diagnostics.pool_quality.for_you);
+  assert.deepEqual(Object.keys(diagnostics.latest_takeout_import).sort(), [
+    'error_categories',
+    'error_count',
+    'format',
+    'history_count',
+    'imported_at',
+    'status',
+    'subscription_count',
+    'warning_count',
+  ]);
+  assert.equal(diagnostics.latest_takeout_import.warning_count, 1);
+  assert.equal(diagnostics.latest_takeout_import.error_count, 1);
+  assert.equal(diagnostics.history_acquisition.stop_reason, 'search_budget');
+  assert.equal(diagnostics.history_acquisition.distinct_seed_count, 1);
+  assert.equal((diagnostics.history_acquisition.funnel_totals as Record<string, unknown>).persisted, 4);
+  assert.equal((diagnostics.more_like_status.seed_refs as string[]).length, 1);
+  assert.deepEqual(diagnostics.daily_topic_seed, {
+    day: null,
+    kind: 'unknown',
+    seed_ref: diagnostics.daily_topic_seed.seed_ref,
+    selected_at: null,
+  });
+  assert.match(String(diagnostics.daily_topic_seed.seed_ref), /^[a-f0-9]{16}$/);
+  assert.deepEqual(diagnostics.daily_more_like_seed_set, {
+    day: null,
+    seed_count: 1,
+    seed_refs: diagnostics.daily_more_like_seed_set.seed_refs,
+    selected_at: null,
+  });
+  assert.match(
+    String((diagnostics.daily_more_like_seed_set.seed_refs as string[])[0]),
+    /^[a-f0-9]{16}$/,
+  );
+  assert.deepEqual(diagnostics.source_stale, {
+    stale: true,
+    reason: null,
+    error_category: 'auth',
+    at: now,
+    authoritative_subscription_count: 4,
+  });
+  assert.deepEqual(diagnostics.last_error, { category: 'auth', at: now });
+
+  const serialized = JSON.stringify(state);
+  for (const forbidden of [
+    anchor.id,
+    anchor.title,
+    candidate.id,
+    candidate.title,
+    candidate.thumbnail!,
+    anchor.channel_id!,
+    'raw diagnostic query secret',
+    'credential-marker-secret',
+    'api-key-secret-marker',
+    'oauth-client-file-secret-marker',
+    'oauth-client-id-secret-marker',
+    'oauth-client-secret-marker',
+    'token-file-secret-marker',
+    'access-token-secret-marker',
+    'refresh-token-secret-marker',
+    'scope-token-secret-marker',
+    'command-secret-marker',
+    'refresh-error-secret-marker',
+    'raw-refresh-query-secret-marker',
+    'phase-error-secret-marker',
+    'phase-query-secret-marker',
+    'raw-phase-secret-marker',
+    'subscription-channel-secret-marker',
+    'subscription-error-secret-marker',
+    'history-video-secret-marker',
+    'metadata-error-secret-marker',
+    'history-funnel-query-secret-marker',
+    'history-funnel-seed-secret-marker',
+    'funnel-error-secret-marker',
+    'more-like-seed-secret-marker',
+    'daily-topic-day-secret-marker',
+    'daily-topic-kind-secret-marker',
+    'daily-topic-ref-secret-marker',
+    'daily-topic-item-secret-marker',
+    'daily-topic-generation-secret-marker',
+    'daily-topic-time-secret-marker',
+    'daily-set-day-secret-marker',
+    'daily-set-ref-secret-marker',
+    'daily-set-item-secret-marker',
+    'daily-set-generation-secret-marker',
+    'daily-set-time-secret-marker',
+    'live-channel-secret-marker',
+    'live-provider-error-secret-marker',
+    'source-stale-reason-secret-marker',
+    'source-stale-error-secret-marker',
+    'v2-last-error-secret-marker',
+    'takeout-generation-secret-marker',
+    'takeout-filename-secret-marker',
+    'takeout-source-hash-secret-marker',
+    'takeout-query-secret-marker',
+    'more_like:diagnostic-safe-generation',
+  ]) {
+    assert.equal(serialized.includes(forbidden), false, `state leaked ${forbidden}`);
+  }
+
+  writeFileSync(tokenPath, JSON.stringify({
+    access_token: 'malformed-access-token-secret-marker',
+    expires_at: 'malformed-expiry-secret-marker',
+  }));
+  const malformedAuthState = new YoutubeService().state();
+  assert.equal((malformedAuthState.auth as Record<string, unknown>).expires_at, null);
+  assert.equal(JSON.stringify(malformedAuthState).includes('malformed-expiry-secret-marker'), false);
+  assert.equal(JSON.stringify(malformedAuthState).includes('malformed-access-token-secret-marker'), false);
 }));

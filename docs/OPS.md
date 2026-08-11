@@ -370,8 +370,11 @@ Successful Connect must show the authorized channel title/avatar, authoritative
 subscription count, and `ready`. `connected · recommendations paused` is valid
 only when `MANGO_YOUTUBE_RECS_V2=off`; `sync needs attention` means the token was
 kept but the authoritative refresh did not complete. For the India household,
-verify `/youtube/state` is configured with `region_code=IN` and
-`relevance_language=en`.
+verify `/youtube/companion/status` reports `region_code=IN` and
+`relevance_language=en`. Localhost-only `/youtube/state` is also privacy-safe:
+it reports classified configuration and aggregate operational counts rather
+than raw command/token paths, provider errors, IDs, titles, URLs, queries,
+credentials, or raw provenance references.
 
 ---
 
@@ -390,6 +393,8 @@ verify `/youtube/state` is configured with `region_code=IN` and
 | Catalog error appears after exiting a successful play | Inspect `~/.cache/mango/playback-session.json`; `ever_ready=true` means the launcher must treat the play as successful. Check catalog logs for a pre-frame failure only; do not invalidate title metadata from a late HTTP timeout. |
 | Same title will not immediately replay | `curl localhost:3020/play-session/<request_id>` when the request ID is known; inspect `~/.cache/mango/play-cancel.epoch` and `~/.cache/mango/mpv.pid`. A stale prior exit monitor is generation-gated and must not stop the new PID. |
 | YouTube recommendations stale | Full refresh: `bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly`; YouTube-only: `bash scripts/m6-ship/youtube-refresh-cache.sh --reason operator` (waits for its HTTP 202 job to finish); then inspect `curl localhost:3020/youtube/state` and `refresh.phase_results` |
+| YouTube refresh reaches `wall_limit` | If sanitized history-acquisition diagnostics show `wall_limit` with zero query failures, this is the intentional 90-second bounded stop: the late result is discarded and earlier eligible candidates may publish. A `deadline`, `network`, quota, auth, or partial-source error category is a real failure and must retain stale last-good state. |
+| YouTube publication fails | Inspect the sanitized `v2_publish` phase and fixed `publication_failed` stale reason; preserve `youtube.db` and the prior generation, repair the failing phase, and rerun the exact job. Never delete cache/history to clear it. |
 | YouTube Live Now partial error | In `serve`, inspect `curl -s localhost:3020/youtube/state \| jq '.refresh.phase_results[] \| select(.phase == "v2_live_acquisition")'`; quota failure must retain the explicitly stale last-good subscription/live generation. Popular/Fresh/legacy-live acquisition is removed and must not appear in any current mode. |
 | Unified Search degraded row | Run `bash scripts/m6-ship/gate-m6-search-smoke.sh`; diagnostic mode is cache-only and does not write history or spend quota |
 | Reliability badge yellow/red | Open Settings → Reliability Center; or `curl localhost:3020/reliability/state` |
@@ -465,7 +470,11 @@ slates and persists low-water repair requests. Library migration 15 adds
 profiles/frontier/calibration/usage; library migration
 16 adds immutable StoryDNA overlays keyed by content plus semantic-evidence hash;
 library migration 17 adds immutable priors and resumable bounded refresh state;
-playability migration 14 adds semantic revisions. Progress migration 2
+library migration 18 repairs only Saved/library tab classification from
+normalized source and media type. YouTube migration 17 additively records
+nullable recommendation relation and source-position evidence; it adds no
+shuffle history, exposure queue, or deal state. Playability migration 14 adds
+semantic revisions. Progress migration 2
 remains profile-exact.
 None rewrites historical snapshots or deletes ratings, Saved, history, profiles,
 progress, StoryDNA, provenance, or last-good state.
@@ -614,8 +623,18 @@ actual no-recommendation/utility-only surface instead.
   supply; Live Now may have one to four. Rendered History/Saved stay stable.
 - Save four distinct YouTube videos: Saved remains stable, none enters For You,
   and acquisition/affinity do not change except for exact output exclusion.
+- Open Search from TV Shows, save a known movie such as Dune, and verify it
+  appears only in Movies Saved. Opening Detail and writing context/watch/
+  feedback from another tab must not move any known movie, series, Live, or
+  YouTube item. Confirm migration 18 preserved Saved timestamps and every
+  associated durable user-state row before accepting the upgrade.
 - Read `refresh.search_calls_today` and `refresh.api_calls_today`, press X
-  several times, and prove both remain unchanged. VOD X must return from cached
+  fifty times, and prove both remain unchanged. Inspect safe aggregate YouTube
+  diagnostics for per-rail tier counts, eligible/effective depth, expected
+  adjacent overlap, creator/seed depth, acquisition stop reason, and the
+  independent-weighted policy. Repeats across X are valid; uniqueness is
+  required only inside each response, and impression writes must not change a
+  replayed epoch. VOD X must return from cached
   state without waiting for enrichment, graph, corpus scan, ranking, or network
   work. Record asynchronous low-water work separately; it may be enqueued after
   the cached read and must not be mistaken for response-path blocking.

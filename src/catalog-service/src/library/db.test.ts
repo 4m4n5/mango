@@ -15,10 +15,14 @@ import {
   getSearchPreferences,
   getPersonalizationState,
   getLatestEpisodeWatchProgress,
+  getLibraryContext,
   getLibraryState,
   initLibraryDb,
+  isLibrarySaveAllowed,
+  libraryDomainForItem,
   libraryDatabase,
   libraryItemKey,
+  libraryTabForItem,
   listLatestEpisodeWatchProgress,
   listSavedLibraryItems,
   listLibraryFeedback,
@@ -32,6 +36,7 @@ import {
   listSearchSelections,
   listWatchHistory,
   listUniqueWatchHistory,
+  normalizeLibraryIdentity,
   recordLibraryWatch,
   recordRecommendationDetailOpen,
   recordRecommendationImpressions,
@@ -45,6 +50,7 @@ import {
   resetLibraryDbForTests,
   resolveRecommendationServedSlate,
   saveLibraryItem,
+  setLibraryContext,
   setLibraryFeedback,
   setViewerMood,
   setSearchPreferences,
@@ -78,10 +84,42 @@ function withTempLibrary<T>(fn: (dir: string) => T | Promise<T>): Promise<T> | T
 test('libraryItemKey is source-aware and collapses series episodes', () => {
   assert.equal(libraryItemKey('mango', 'series', 'tt123:1:2'), 'mango:series:tt123');
   assert.equal(libraryItemKey('youtube', 'youtube_video', 'AbC_123-XyZ'), 'youtube:youtube_video:AbC_123-XyZ');
+  assert.equal(libraryItemKey(undefined, 'youtube_video', 'AbC_123-XyZ'), 'mango:youtube_video:AbC_123-XyZ');
+  assert.equal(libraryItemKey('mango', 'youtube_video', 'AbC_123-XyZ'), 'mango:youtube_video:AbC_123-XyZ');
   assert.notEqual(
     libraryItemKey('mango', 'movie', 'tt0111161'),
     libraryItemKey('youtube', 'movie', 'tt0111161'),
   );
+});
+
+test('YouTube type preserves item-key source while channel and playlist saves stay forbidden', () => {
+  assert.deepEqual(normalizeLibraryIdentity(undefined, 'youtube_video'), {
+    source: 'mango', type: 'youtube_video',
+  });
+  assert.deepEqual(normalizeLibraryIdentity('mango', 'YouTube_Video'), {
+    source: 'mango', type: 'youtube_video',
+  });
+  assert.equal(isLibrarySaveAllowed(undefined, 'youtube_video'), true);
+  assert.equal(isLibrarySaveAllowed('mango', 'youtube_video'), true);
+  assert.equal(isLibrarySaveAllowed('youtube', 'youtube_channel'), false);
+  assert.equal(isLibrarySaveAllowed(undefined, 'youtube_playlist'), false);
+  assert.equal(isLibrarySaveAllowed('youtube', 'movie'), false);
+  assert.equal(isLibrarySaveAllowed('mango', 'movie'), true);
+  assert.equal(libraryDomainForItem('mango', 'youtube_video'), 'youtube');
+  assert.equal(libraryDomainForItem('youtube', 'movie'), 'youtube');
+  assert.equal(libraryDomainForItem('mango', 'movie'), 'vod');
+});
+
+test('known source and media type own the library tab over navigation fallback', () => {
+  assert.equal(libraryTabForItem('youtube', 'movie', 'series'), 'youtube');
+  assert.equal(libraryTabForItem('mango', 'youtube_video', 'movies'), 'youtube');
+  assert.equal(libraryTabForItem('mango', 'series', 'movies'), 'series');
+  assert.equal(libraryTabForItem('mango', 'tv', 'movies'), 'live');
+  assert.equal(libraryTabForItem('mango', 'channel', 'series'), 'live');
+  assert.equal(libraryTabForItem('mango', 'film', 'series'), 'movies');
+  assert.equal(libraryTabForItem('mango', '', 'series'), 'movies');
+  assert.equal(libraryTabForItem('mango', 'legacy_special', 'series'), 'series');
+  assert.equal(libraryTabForItem('mango', 'legacy_special'), 'movies');
 });
 
 test('initLibraryDb creates WAL schema and migration row', () => withTempLibrary((dir) => {
@@ -91,7 +129,7 @@ test('initLibraryDb creates WAL schema and migration row', () => withTempLibrary
     const mode = db.pragma('journal_mode', { simple: true });
     assert.equal(String(mode).toLowerCase(), 'wal');
     const rows = db.prepare('SELECT version FROM library_migrations').all() as Array<{ version: number }>;
-    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
     const v2Tables = db.prepare(`
 SELECT name FROM sqlite_master
 WHERE type = 'table' AND name IN (
@@ -190,7 +228,7 @@ WHERE content_type = 'movie' AND content_id = 'tt-preserved' AND semantic_eviden
   assert.deepEqual(
     (reopened.prepare('SELECT version FROM library_migrations ORDER BY version').all() as Array<{ version: number }>)
       .map((row) => row.version),
-    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
   );
   delete process.env.MANGO_VOD_RECS_V2;
   delete process.env.MANGO_YOUTUBE_RECS_V2;
@@ -509,6 +547,278 @@ test('saved upsert and delete are idempotent', () => withTempLibrary(() => {
   assert.equal(getLibraryState({ type: 'movie', id: 'tt0111161' }).saved, false);
 }));
 
+test('Dune saved from TV Search stays movie-owned across every library write and read', () => withTempLibrary(() => {
+  const dune = {
+    source: 'mango',
+    type: 'movie',
+    id: 'tt1160419',
+    title: 'Dune',
+    tab: 'series' as const,
+  };
+  const saved = saveLibraryItem({ ...dune, saved_at: 1_000 });
+  assert.equal(saved.tab, 'movies');
+  assert.deepEqual(listSavedLibraryItems('movies').map((row) => row.id), ['tt1160419']);
+  assert.deepEqual(listSavedLibraryItems('series'), []);
+
+  // A direct malformed row cannot leak through a read boundary while waiting
+  // for the next startup migration/upsert to repair its derived field.
+  libraryDatabase().prepare('UPDATE library_items SET tab = ? WHERE item_key = ?')
+    .run('series', saved.item_key);
+  assert.deepEqual(listSavedLibraryItems('movies').map((row) => row.id), ['tt1160419']);
+  assert.deepEqual(listSavedLibraryItems('series'), []);
+  assert.equal(getLibraryState(dune).tab, 'movies');
+
+  assert.equal(setLibraryContext(dune, { opened_at: 2_000 }).tab, 'movies');
+  assert.equal(getLibraryContext()?.tab, 'movies');
+  recordLibraryWatch({
+    ...dune,
+    position_sec: 120,
+    duration_sec: 600,
+    watched_at: 3_000,
+  });
+  assert.equal(getLibraryState(dune).tab, 'movies');
+  const feedback = setLibraryFeedback({
+    ...dune,
+    feedback: 'not_interested',
+    created_at: 4_000,
+  });
+  assert.equal(feedback.tab, 'movies');
+  assert.equal(listLibraryFeedback('not_interested')[0]?.tab, 'movies');
+  assert.equal(
+    (libraryDatabase().prepare('SELECT tab FROM library_items WHERE item_key = ?')
+      .get(saved.item_key) as { tab: string }).tab,
+    'movies',
+  );
+}));
+
+test('missing library state derives its tab from source and type together', () => withTempLibrary(() => {
+  assert.equal(getLibraryState({
+    source: 'youtube', type: 'legacy_special', id: 'missing-youtube',
+  }).tab, 'youtube');
+  assert.equal(getLibraryState({
+    source: 'mango', type: 'youtube_video', id: 'MissingVideo',
+  }).tab, 'youtube');
+  assert.equal(getLibraryState({
+    source: 'mango', type: 'movie', id: 'tt-missing',
+  }).tab, 'movies');
+}));
+
+test('YouTube video tab is canonical without rekeying a missing or contradictory source', () => withTempLibrary(() => {
+  const first = saveLibraryItem({
+    type: 'youtube_video', id: 'CaseSensitiveVideo', title: 'Video', tab: 'series', saved_at: 1_000,
+  });
+  assert.equal(first.source, 'mango');
+  assert.equal(first.item_key, 'mango:youtube_video:CaseSensitiveVideo');
+  assert.equal(first.tab, 'youtube');
+  assert.equal(getLibraryState({ type: 'youtube_video', id: 'CaseSensitiveVideo' }).saved, true);
+
+  const second = saveLibraryItem({
+    source: 'mango', type: 'youtube_video', id: 'CaseSensitiveVideo',
+    title: 'Updated video', tab: 'movies', saved_at: 2_000,
+  });
+  assert.equal(second.item_key, first.item_key);
+  assert.equal(second.source, 'mango');
+  assert.equal(second.tab, 'youtube');
+  assert.equal(listSavedLibraryItems('youtube').length, 1);
+  assert.deepEqual(listSavedLibraryItems('movies'), []);
+
+  recordLibraryWatch({
+    type: 'youtube_video', id: 'CaseSensitiveVideo', title: 'Updated video', tab: 'movies',
+    event: 'play', watched_at: 3_000,
+  });
+  assert.equal(listWatchHistory(1)[0]?.source, 'mango');
+  assert.equal(
+    listProfileRecommendationEvents({ domain: 'youtube' })
+      .some((event) => event.item_id === 'CaseSensitiveVideo'),
+    true,
+  );
+  assert.equal(unsaveLibraryItem({ type: 'youtube_video', id: 'CaseSensitiveVideo' }), true);
+}));
+
+test('migration 18 repairs only tabs and is idempotent', () => withTempLibrary(() => {
+  const dune = saveLibraryItem({
+    source: 'mango', type: 'movie', id: 'tt1160419', title: 'Dune',
+    poster: 'dune.jpg', year: '2021', description: 'Arrakis', tab: 'movies', saved_at: 1_000,
+  });
+  recordLibraryWatch({
+    source: 'mango', type: 'movie', id: 'tt1160419', title: 'Dune', tab: 'movies',
+    play_id: 'play-dune', position_sec: 240, duration_sec: 600, watched_at: 2_000,
+  });
+  setLibraryFeedback({
+    source: 'mango', type: 'movie', id: 'tt1160419', title: 'Dune', tab: 'movies',
+    feedback: 'not_interested', reason: 'fixture', created_at: 3_000,
+  });
+  setLibraryContext({
+    source: 'mango', type: 'movie', id: 'tt1160419', title: 'Dune', tab: 'movies',
+  }, { opened_at: 4_000 });
+  const series = saveLibraryItem({
+    source: 'mango', type: 'series', id: 'tt-series', title: 'Series', tab: 'series', saved_at: 5_000,
+  });
+  const youtube = saveLibraryItem({
+    source: 'youtube', type: 'youtube_video', id: 'VideoCase', title: 'Video',
+    tab: 'youtube', saved_at: 6_000,
+  });
+  const alreadyCanonical = saveLibraryItem({
+    source: 'mango', type: 'movie', id: 'tt-canonical', title: 'Already canonical',
+    tab: 'movies', saved_at: 6_100,
+  });
+
+  const db = libraryDatabase();
+  db.prepare(`
+INSERT INTO content_ratings(
+  content_type, content_id, title, fire_steps, water_steps, origin, revision, created_at, updated_at
+) VALUES ('movie', 'tt1160419', 'Dune', 9, 8, 'couch', 1, 6500, 6500)
+`).run();
+  db.prepare(`
+INSERT INTO profile_content_ratings(
+  profile_id, content_type, content_id, title,
+  fire_steps, water_steps, origin, revision, created_at, updated_at
+) VALUES ('household', 'movie', 'tt1160419', 'Dune', 9, 8, 'couch', 1, 6500, 6500)
+`).run();
+  db.prepare('UPDATE library_items SET tab = ? WHERE item_key = ?').run('series', dune.item_key);
+  db.prepare('UPDATE library_items SET tab = ? WHERE item_key = ?').run('movies', series.item_key);
+  db.prepare('UPDATE library_items SET tab = ? WHERE item_key = ?').run('series', youtube.item_key);
+  db.exec(`
+CREATE TABLE migration_18_update_audit(item_key TEXT NOT NULL);
+CREATE TRIGGER migration_18_update_audit_trigger
+AFTER UPDATE OF tab ON library_items
+BEGIN
+  INSERT INTO migration_18_update_audit(item_key) VALUES (NEW.item_key);
+END;
+`);
+  db.prepare('DELETE FROM library_migrations WHERE version = 18').run();
+
+  const tableNames = [
+    'viewer_profiles',
+    'personalization_state',
+    'saved_items',
+    'profile_saved_items',
+    'watch_state',
+    'profile_watch_state',
+    'watch_history',
+    'profile_watch_history',
+    'library_feedback',
+    'profile_library_feedback',
+    'library_context',
+    'content_ratings',
+    'profile_content_ratings',
+    'profile_recommendation_events',
+  ];
+  const snapshotTables = (database: Database.Database): Record<string, unknown[]> => Object.fromEntries(
+    tableNames.map((table) => [table, database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]),
+  );
+  const beforeItems = db.prepare('SELECT * FROM library_items ORDER BY item_key').all() as Array<Record<string, unknown>>;
+  const beforeReferences = snapshotTables(db);
+
+  resetLibraryDbForTests();
+  initLibraryDb();
+  const migrated = libraryDatabase();
+  const afterItems = migrated.prepare('SELECT * FROM library_items ORDER BY item_key').all() as Array<Record<string, unknown>>;
+  const stripTab = (row: Record<string, unknown>): Record<string, unknown> => {
+    const { tab: _tab, ...rest } = row;
+    return rest;
+  };
+  assert.deepEqual(afterItems.map(stripTab), beforeItems.map(stripTab));
+  assert.deepEqual(snapshotTables(migrated), beforeReferences);
+  assert.deepEqual(
+    Object.fromEntries(afterItems.map((row) => [String(row.item_key), row.tab])),
+    {
+      [dune.item_key]: 'movies',
+      [series.item_key]: 'series',
+      [youtube.item_key]: 'youtube',
+      [alreadyCanonical.item_key]: 'movies',
+    },
+  );
+  assert.deepEqual(
+    migrated.prepare('SELECT item_key FROM migration_18_update_audit ORDER BY item_key').all(),
+    [dune.item_key, series.item_key, youtube.item_key]
+      .sort()
+      .map((item_key) => ({ item_key })),
+  );
+  assert.equal(
+    (migrated.prepare('SELECT COUNT(*) AS count FROM library_migrations WHERE version = 18')
+      .get() as { count: number }).count,
+    1,
+  );
+
+  const afterReferences = snapshotTables(migrated);
+  resetLibraryDbForTests();
+  initLibraryDb();
+  const reopened = libraryDatabase();
+  assert.deepEqual(
+    reopened.prepare('SELECT * FROM library_items ORDER BY item_key').all(),
+    afterItems,
+  );
+  assert.deepEqual(snapshotTables(reopened), afterReferences);
+  assert.equal(
+    (reopened.prepare('SELECT COUNT(*) AS count FROM migration_18_update_audit')
+      .get() as { count: number }).count,
+    3,
+  );
+  assert.equal(
+    (reopened.prepare('SELECT COUNT(*) AS count FROM library_migrations WHERE version = 18')
+      .get() as { count: number }).count,
+    1,
+  );
+}));
+
+test('migration 18 rolls back every tab repair and its marker on failure', () => withTempLibrary((dir) => {
+  const dune = saveLibraryItem({
+    source: 'mango', type: 'movie', id: 'tt1160419', title: 'Dune', tab: 'movies', saved_at: 1_000,
+  });
+  const series = saveLibraryItem({
+    source: 'mango', type: 'series', id: 'tt-series-rollback', title: 'Series', tab: 'series', saved_at: 2_000,
+  });
+  const db = libraryDatabase();
+  db.prepare('UPDATE library_items SET tab = ? WHERE item_key = ?').run('series', dune.item_key);
+  db.prepare('UPDATE library_items SET tab = ? WHERE item_key = ?').run('movies', series.item_key);
+  db.prepare('DELETE FROM library_migrations WHERE version = 18').run();
+  db.exec(`
+CREATE TRIGGER fail_migration_18_before_second_repair
+BEFORE UPDATE OF tab ON library_items
+WHEN NEW.item_key = '${series.item_key}'
+BEGIN
+  SELECT RAISE(ABORT, 'migration 18 rollback fixture');
+END;
+`);
+  resetLibraryDbForTests();
+
+  assert.throws(() => initLibraryDb(), /migration 18 rollback fixture/);
+  resetLibraryDbForTests();
+  const failed = new Database(join(dir, 'library.db'));
+  assert.deepEqual(
+    failed.prepare('SELECT item_key, tab FROM library_items WHERE item_key IN (?, ?) ORDER BY item_key')
+      .all(dune.item_key, series.item_key),
+    [
+      { item_key: dune.item_key, tab: 'series' },
+      { item_key: series.item_key, tab: 'movies' },
+    ].sort((left, right) => left.item_key.localeCompare(right.item_key)),
+  );
+  assert.equal(
+    (failed.prepare('SELECT COUNT(*) AS count FROM library_migrations WHERE version = 18')
+      .get() as { count: number }).count,
+    0,
+  );
+  failed.exec('DROP TRIGGER fail_migration_18_before_second_repair');
+  failed.close();
+
+  initLibraryDb();
+  const recovered = libraryDatabase();
+  assert.deepEqual(
+    recovered.prepare('SELECT item_key, tab FROM library_items WHERE item_key IN (?, ?) ORDER BY item_key')
+      .all(dune.item_key, series.item_key),
+    [
+      { item_key: dune.item_key, tab: 'movies' },
+      { item_key: series.item_key, tab: 'series' },
+    ].sort((left, right) => left.item_key.localeCompare(right.item_key)),
+  );
+  assert.equal(
+    (recovered.prepare('SELECT COUNT(*) AS count FROM library_migrations WHERE version = 18')
+      .get() as { count: number }).count,
+    1,
+  );
+}));
+
 test('explicit domain owner writes Household utility state without switching the active profile', () => withTempLibrary(() => {
   const personal = createViewerProfile('Mixed Utility Owner');
   activateViewerProfile(personal.profile_id);
@@ -609,6 +919,13 @@ test('legacy user-pins import runs once into Saved rows', () => withTempLibrary(
           poster: 'https://example.test/dark.jpg',
           pinned_at: 1234,
         },
+        {
+          tab: 'series',
+          type: 'youtube_video',
+          id: 'LegacyVideoCase',
+          title: 'Legacy YouTube video',
+          pinned_at: 1235,
+        },
       ],
     }),
     'utf8',
@@ -616,11 +933,20 @@ test('legacy user-pins import runs once into Saved rows', () => withTempLibrary(
 
   initLibraryDb();
   assert.equal(listSavedLibraryItems('movies').length, 1);
+  assert.deepEqual(listSavedLibraryItems('youtube').map((row) => row.item_key), [
+    'mango:youtube_video:LegacyVideoCase',
+  ]);
+  assert.equal(
+    listProfileRecommendationEvents({ domain: 'youtube' })
+      .some((event) => event.item_id === 'LegacyVideoCase' && event.event_type === 'saved'),
+    true,
+  );
   resetLibraryDbForTests();
   initLibraryDb();
   const saved = listSavedLibraryItems('movies');
   assert.equal(saved.length, 1);
   assert.equal(saved[0]?.saved_at, 1234);
+  assert.equal(listSavedLibraryItems('youtube').length, 1);
 }));
 
 test('watch history is indefinite and finished state uses 90 percent cutoff', () => withTempLibrary(() => {

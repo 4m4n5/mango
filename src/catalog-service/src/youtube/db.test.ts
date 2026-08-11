@@ -18,6 +18,7 @@ import {
   setYoutubeState,
   upsertYoutubeItems,
   upsertYoutubeV2CandidateProvenance,
+  youtubeV2ServingEpoch,
   youtubeQuotaDecision,
   youtubeRefreshStatus,
   youtubeSearchCacheSummary,
@@ -73,7 +74,7 @@ test('initYoutubeDb creates WAL cache schema', () => withTempYoutube((dir) => {
     const rows = db.prepare('SELECT version FROM youtube_migrations').all() as Array<{ version: number }>;
     assert.deepEqual(
       rows.map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
     );
   } finally {
     db.close();
@@ -154,7 +155,8 @@ CREATE TABLE youtube_v2_candidate_provenance_v14 (
   FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
 );
 INSERT INTO youtube_v2_candidate_provenance_v14
-SELECT * FROM youtube_v2_candidate_provenance;
+SELECT kind, id, provenance, provenance_ref, source_generation, acquired_at, expires_at
+FROM youtube_v2_candidate_provenance;
 DROP TABLE youtube_v2_candidate_provenance;
 ALTER TABLE youtube_v2_candidate_provenance_v14 RENAME TO youtube_v2_candidate_provenance;
 CREATE INDEX idx_youtube_v2_candidate_expiry ON youtube_v2_candidate_provenance(expires_at);
@@ -180,6 +182,109 @@ DELETE FROM youtube_migrations WHERE version = 15;
       .sort(),
     ['beyond:new', 'more_like:old'],
   );
+}));
+
+test('v17 adds nullable quality evidence and preserves legacy provenance', () => withTempYoutube((dir) => {
+  const legacyItem = sampleItem('LegacyQualityEvidence');
+  upsertYoutubeV2CandidateProvenance([{
+    item: legacyItem,
+    provenance: 'history_topic',
+    provenance_ref: 'legacy-seed',
+    source_generation: 'legacy-generation',
+    acquired_at: 1000,
+    expires_at: 5000,
+  }]);
+  resetYoutubeDbForTests();
+  const legacy = new Database(join(dir, 'youtube.db'));
+  legacy.exec(`
+ALTER TABLE youtube_v2_candidate_provenance RENAME TO youtube_v2_candidate_provenance_v17;
+CREATE TABLE youtube_v2_candidate_provenance (
+  kind TEXT NOT NULL DEFAULT 'video' CHECK(kind = 'video'),
+  id TEXT NOT NULL,
+  provenance TEXT NOT NULL,
+  provenance_ref TEXT NOT NULL,
+  source_generation TEXT NOT NULL,
+  acquired_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  PRIMARY KEY(kind, id, provenance, provenance_ref, source_generation)
+);
+INSERT INTO youtube_v2_candidate_provenance(
+  kind, id, provenance, provenance_ref, source_generation, acquired_at, expires_at
+)
+SELECT kind, id, provenance, provenance_ref, source_generation, acquired_at, expires_at
+FROM youtube_v2_candidate_provenance_v17;
+DROP TABLE youtube_v2_candidate_provenance_v17;
+DELETE FROM youtube_migrations WHERE version = 17;
+`);
+  legacy.close();
+
+  initYoutubeDb();
+  const [row] = listYoutubeV2CandidateProvenance({ at: 0 });
+  assert.equal(row?.item.id, legacyItem.id);
+  assert.equal(row?.relation_type, null);
+  assert.equal(row?.source_rank, null);
+  const migrated = new Database(join(dir, 'youtube.db'), { readonly: true });
+  try {
+    assert.ok(migrated.prepare('SELECT 1 FROM youtube_migrations WHERE version = 17').get());
+    assert.deepEqual(
+      (migrated.prepare('PRAGMA table_info(youtube_v2_candidate_provenance)').all() as Array<{ name: string }>)
+        .map((column) => column.name)
+        .filter((name) => name === 'relation_type' || name === 'source_rank'),
+      ['relation_type', 'source_rank'],
+    );
+  } finally {
+    migrated.close();
+  }
+}));
+
+test('provenance refresh keeps strongest relation and best observed source rank', () => withTempYoutube(() => {
+  const item = sampleItem('BestEvidence');
+  const base = {
+    item,
+    provenance: 'history_topic' as const,
+    provenance_ref: 'quality-seed',
+    source_generation: 'quality-generation',
+  };
+  upsertYoutubeV2CandidateProvenance([{
+    ...base, acquired_at: 1000, expires_at: 5000, relation_type: 'wildcard', source_rank: 42,
+  }]);
+  upsertYoutubeV2CandidateProvenance([{
+    ...base, acquired_at: 2000, expires_at: 6000, relation_type: 'same_topic', source_rank: 7,
+  }]);
+  upsertYoutubeV2CandidateProvenance([{
+    ...base, acquired_at: 1500, expires_at: 5500, relation_type: 'deeper_dive', source_rank: 18,
+  }]);
+  const [row] = listYoutubeV2CandidateProvenance({ at: 0 });
+  assert.equal(row?.relation_type, 'same_topic');
+  assert.equal(row?.source_rank, 7);
+  assert.equal(row?.acquired_at, 2000);
+  assert.equal(row?.expires_at, 6000);
+}));
+
+test('serving policy rollout resets legacy epoch once and then advances normally', () => withTempYoutube(() => {
+  setYoutubeState('youtube_v2_serving_epoch', {
+    generation: 9,
+    shuffle_epoch: 37,
+    slate_sequence: 80,
+  });
+  assert.deepEqual(youtubeV2ServingEpoch(9, false), {
+    generation: 9,
+    shuffle_epoch: 0,
+    slate_sequence: 81,
+    serving_policy: 'independent_weighted_v1',
+  });
+  assert.deepEqual(youtubeV2ServingEpoch(9, false), {
+    generation: 9,
+    shuffle_epoch: 0,
+    slate_sequence: 81,
+    serving_policy: 'independent_weighted_v1',
+  });
+  assert.deepEqual(youtubeV2ServingEpoch(9, true), {
+    generation: 9,
+    shuffle_epoch: 1,
+    slate_sequence: 82,
+    serving_policy: 'independent_weighted_v1',
+  });
 }));
 
 test('rendered impressions are idempotent per profile slate but independent across profiles', () => withTempYoutube(() => {

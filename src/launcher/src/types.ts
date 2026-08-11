@@ -30,6 +30,8 @@ export interface ContentCard {
   posterUrl?: string;
   year?: number | string;
   description?: string;
+  /** Durable library identity; playback `source` remains transport-owned. */
+  librarySource?: string;
   source?: string;
   kind?: "video" | "channel" | "playlist";
   liveStatus?: "none" | "live" | "upcoming" | "completed";

@@ -4,6 +4,8 @@ export type SearchPhaseStatus = 'pending' | 'ready' | 'empty' | 'degraded' | 'sk
 export type SearchResult = {
   key: string;
   source: 'mango' | 'youtube' | 'external';
+  /** Durable Saved/library source when it differs from playback transport. */
+  library_source?: string;
   type: string;
   id: string;
   title: string;

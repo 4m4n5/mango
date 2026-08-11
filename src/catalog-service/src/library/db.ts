@@ -27,6 +27,7 @@ export const VOD_STORY_GRAPH_SERVING_SCHEMA_VERSION = 14;
 export const VOD_PROGRESSIVE_PROFILE_SCHEMA_VERSION = 15;
 export const VOD_IMMUTABLE_OVERLAY_SCHEMA_VERSION = 16;
 export const VOD_RECOMMENDATION_RUNTIME_SCHEMA_VERSION = 17;
+export const LIBRARY_CANONICAL_TAB_SCHEMA_VERSION = 18;
 const RECOMMENDATION_SERVED_SLATE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type LibrarySource = string;
@@ -59,6 +60,11 @@ export type SavedLibraryItem = {
 export type LibraryItemIdCursorRow = {
   item_key: string;
   id: string;
+};
+
+export type SavedLibraryItemIdCursorRow = LibraryItemIdCursorRow & {
+  source: string;
+  saved_at: number;
 };
 
 export type YoutubeTakeoutHistoryEntry = {
@@ -341,6 +347,28 @@ export function normalizeLibraryType(type: string): string {
   return normalized || 'movie';
 }
 
+export function normalizeLibraryIdentity(
+  source: string | undefined | null,
+  type: string,
+): { source: string; type: string } {
+  const normalizedType = normalizeLibraryType(type);
+  return {
+    // Source participates in the durable item key. Never rewrite it from a
+    // type hint: legacy contradictory rows must remain reachable in place.
+    source: normalizeSource(source),
+    type: normalizedType,
+  };
+}
+
+export function isLibrarySaveAllowed(
+  source: string | undefined | null,
+  type: string,
+): boolean {
+  const identity = normalizeLibraryIdentity(source, type);
+  const youtubeOwned = identity.source === 'youtube' || identity.type.startsWith('youtube_');
+  return !youtubeOwned || identity.type === 'youtube_video';
+}
+
 function normalizeLibraryId(type: string, id: string): string {
   const trimmed = id.trim();
   if (normalizeLibraryType(type).startsWith('youtube_')) {
@@ -353,17 +381,57 @@ function normalizeLibraryId(type: string, id: string): string {
 }
 
 export function libraryItemKey(source: string | undefined, type: string, id: string): string {
-  return `${normalizeSource(source)}:${normalizeLibraryType(type)}:${normalizeLibraryId(type, id)}`;
+  const normalized = normalizeLibraryIdentity(source, type);
+  return `${normalized.source}:${normalized.type}:${normalizeLibraryId(normalized.type, id)}`;
 }
 
 export function libraryTabForType(type: string, fallback?: CatalogTab | null): CatalogTab {
+  return libraryTabForItem(undefined, type, fallback);
+}
+
+/**
+ * Canonical content ownership for launcher/library tabs.
+ *
+ * A caller-supplied tab is navigation context, not content identity. Known
+ * source/type identity therefore wins; the hint is used only for an unknown
+ * legacy type. Keeping this invariant in the library prevents Search-origin
+ * cards from being persisted into the tab that happened to launch Search.
+ */
+export function libraryTabForItem(
+  source: string | undefined | null,
+  type: string,
+  fallback?: CatalogTab | null,
+): CatalogTab {
+  const normalized = normalizeLibraryIdentity(source, type);
+  if (normalized.source === 'youtube' || normalized.type.startsWith('youtube_')) return 'youtube';
+  if (normalized.type === 'series') return 'series';
+  if (normalized.type === 'tv') return 'live';
+  if (normalized.type === 'movie') return 'movies';
   if (fallback === 'movies' || fallback === 'series' || fallback === 'live' || fallback === 'youtube') {
     return fallback;
   }
-  const normalized = normalizeLibraryType(type);
-  if (normalized === 'series') return 'series';
-  if (normalized === 'tv') return 'live';
   return 'movies';
+}
+
+export function libraryDomainForItem(
+  source: string | undefined | null,
+  type: string,
+): 'vod' | 'youtube' {
+  return libraryTabForItem(source, type) === 'youtube' ? 'youtube' : 'vod';
+}
+
+/** SQL equivalent of `libraryTabForItem` for migration and read fencing. */
+function canonicalLibraryTabSql(alias: string): string {
+  return `CASE
+    WHEN LOWER(TRIM(COALESCE(${alias}.source, ''))) = 'youtube'
+      OR LOWER(TRIM(COALESCE(${alias}.type, ''))) GLOB 'youtube_*'
+      THEN 'youtube'
+    WHEN LOWER(TRIM(COALESCE(${alias}.type, ''))) = 'series' THEN 'series'
+    WHEN LOWER(TRIM(COALESCE(${alias}.type, ''))) IN ('tv', 'live', 'channel') THEN 'live'
+    WHEN LOWER(TRIM(COALESCE(${alias}.type, ''))) IN ('movie', 'film', '') THEN 'movies'
+    WHEN ${alias}.tab IN ('movies', 'series', 'live', 'youtube') THEN ${alias}.tab
+    ELSE 'movies'
+  END`;
 }
 
 function nowMs(): number {
@@ -1640,6 +1708,19 @@ CREATE INDEX IF NOT EXISTS idx_vod_story_graph_backgrounds_type
     db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (?, ?)')
       .run(VOD_RECOMMENDATION_RUNTIME_SCHEMA_VERSION, timestamp);
   }
+  if (!migrated.has(LIBRARY_CANONICAL_TAB_SCHEMA_VERSION)) {
+    const timestamp = nowMs();
+    // Repair only the derived tab. Identity, ownership, timestamps, Saved,
+    // history, progress, feedback, ratings, and recommendation state remain
+    // byte-for-byte untouched by this additive migration.
+    db.exec(`
+UPDATE library_items
+SET tab = ${canonicalLibraryTabSql('library_items')}
+WHERE tab IS NOT ${canonicalLibraryTabSql('library_items')};
+`);
+    db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (?, ?)')
+      .run(LIBRARY_CANONICAL_TAB_SCHEMA_VERSION, timestamp);
+  }
   });
   migrate.immediate();
 }
@@ -2441,8 +2522,7 @@ SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'library_migratio
 }
 
 function normalizeInput(input: LibraryItemInput): Required<Pick<LibraryItemInput, 'source' | 'type' | 'id'>> & LibraryItemInput {
-  const source = normalizeSource(input.source);
-  const type = normalizeLibraryType(input.type);
+  const { source, type } = normalizeLibraryIdentity(input.source, input.type);
   const id = normalizeLibraryId(type, input.id);
   if (!id) {
     throw new Error('library item requires id');
@@ -2475,7 +2555,7 @@ ON CONFLICT(item_key) DO UPDATE SET
     poster: input.poster?.trim() || null,
     year: input.year != null ? String(input.year) : null,
     description: input.description?.trim() || null,
-    tab: libraryTabForType(normalized.type, input.tab ?? null),
+    tab: libraryTabForItem(normalized.source, normalized.type, input.tab ?? null),
     first_seen_at: timestamp,
     updated_at: timestamp,
   });
@@ -2525,7 +2605,7 @@ INSERT INTO profile_recommendation_events(
 ) VALUES (?, ?, 'saved', ?, ?, ?, 0.8, '{}', ?)
 `).run(
       profileId,
-      normalized.source === 'youtube' ? 'youtube' : 'vod',
+      libraryDomainForItem(normalized.source, normalized.type),
       normalized.type,
       normalized.id,
       input.title?.trim() || null,
@@ -2567,7 +2647,7 @@ INSERT INTO profile_recommendation_events(
 ) VALUES (?, ?, 'unsaved', ?, ?, ?, 0, '{}', ?)
 `).run(
         profileId,
-        item.source === 'youtube' ? 'youtube' : 'vod',
+        libraryDomainForItem(item.source, item.type),
         item.type,
         item.id,
         item.title,
@@ -2626,12 +2706,12 @@ SELECT
   li.poster,
   li.year,
   li.description,
-  li.tab,
+  ${canonicalLibraryTabSql('li')} AS tab,
   si.saved_at,
   si.saved_by
 FROM latest_saved si
 JOIN library_items li ON li.item_key = si.item_key
-WHERE (@tab IS NULL OR li.tab = @tab)
+WHERE (@tab IS NULL OR ${canonicalLibraryTabSql('li')} = @tab)
 ORDER BY si.saved_at DESC
 LIMIT @limit;
 `).all({
@@ -2655,11 +2735,17 @@ export function listSavedLibraryItemIdsPage(options: {
   household_blend?: boolean;
   after_item_key?: string | null;
   limit?: number;
-} = {}): LibraryItemIdCursorRow[] {
+} = {}): SavedLibraryItemIdCursorRow[] {
   const profileId = options.profile_id?.trim().toLowerCase() || activeViewerProfileId();
   const householdBlend = options.household_blend !== false && profileId === 'household';
   return ensureDb().prepare(`
-SELECT li.item_key, li.id
+SELECT li.item_key, li.id, li.source,
+       (
+         SELECT MAX(scoped.saved_at)
+         FROM profile_saved_items scoped
+         WHERE scoped.item_key = li.item_key
+           AND (@household_blend = 1 OR scoped.profile_id = @profile_id)
+       ) AS saved_at
 FROM library_items li
 WHERE li.item_key > @after_item_key
   AND (@source IS NULL OR li.source = @source)
@@ -2679,7 +2765,54 @@ LIMIT @limit;
     type: options.type ? normalizeLibraryType(options.type) : null,
     after_item_key: options.after_item_key?.trim() || '',
     limit: Math.max(1, Math.min(2_000, Math.floor(options.limit ?? 1_000))),
-  }) as LibraryItemIdCursorRow[];
+  }) as SavedLibraryItemIdCursorRow[];
+}
+
+/**
+ * Resolve the durable Saved source for each logical item ID without rekeying it.
+ *
+ * Some pre-canonical rows intentionally retain a non-default source in their
+ * item key. Surfaces backed by a different metadata store (notably YouTube
+ * Search) use this map to keep later save/play/feedback writes on that exact
+ * durable identity. Newer saves win; a caller may provide the canonical source
+ * as a deterministic tie-break when both legacy and canonical keys are Saved.
+ */
+export function savedLibrarySourcesByItemId(options: {
+  type: string;
+  profile_id?: string | null;
+  household_blend?: boolean;
+  preferred_source?: string | null;
+}): Map<string, string> {
+  const preferredSource = options.preferred_source
+    ? normalizeSource(options.preferred_source)
+    : null;
+  const latest = new Map<string, { source: string; saved_at: number }>();
+  let afterItemKey = '';
+  while (true) {
+    const page = listSavedLibraryItemIdsPage({
+      type: options.type,
+      profile_id: options.profile_id,
+      household_blend: options.household_blend,
+      after_item_key: afterItemKey,
+      limit: 2_000,
+    });
+    for (const row of page) {
+      const current = latest.get(row.id);
+      if (!current
+        || row.saved_at > current.saved_at
+        || (row.saved_at === current.saved_at
+          && preferredSource !== null
+          && row.source === preferredSource
+          && current.source !== preferredSource)) {
+        latest.set(row.id, { source: row.source, saved_at: row.saved_at });
+      }
+    }
+    if (page.length < 2_000) break;
+    const next = page.at(-1)!.item_key;
+    if (next <= afterItemKey) break;
+    afterItemKey = next;
+  }
+  return new Map([...latest].map(([id, value]) => [id, value.source]));
 }
 
 export function getSavedLibraryItemByKey(
@@ -2712,7 +2845,7 @@ SELECT
   li.poster,
   li.year,
   li.description,
-  li.tab,
+  ${canonicalLibraryTabSql('li')} AS tab,
   si.saved_at,
   si.saved_by
 FROM latest_saved si
@@ -2729,8 +2862,7 @@ export function getLibraryState(input: {
   profile_id?: string | null;
 }): LibraryState {
   const db = ensureDb();
-  const source = normalizeSource(input.source);
-  const type = normalizeLibraryType(input.type);
+  const { source, type } = normalizeLibraryIdentity(input.source, input.type);
   const id = normalizeLibraryId(type, input.id);
   const key = libraryItemKey(source, type, id);
   const profileId = input.profile_id
@@ -2758,7 +2890,7 @@ SELECT
   li.id,
   li.title,
   li.poster,
-  li.tab,
+  ${canonicalLibraryTabSql('li')} AS tab,
   si.saved_at,
   si.saved_by,
   ws.latest_play_id,
@@ -2787,7 +2919,7 @@ WHERE li.item_key = @item_key;
       id,
       title: null,
       poster: null,
-      tab: libraryTabForType(type),
+      tab: libraryTabForItem(source, type),
       saved: false,
       saved_at: null,
       latest_watch: null,
@@ -2821,7 +2953,7 @@ function rowToLibraryState(row: StateRow): LibraryState {
     id: row.id,
     title: row.title,
     poster: row.poster,
-    tab: libraryTabForType(row.type, row.tab),
+    tab: libraryTabForItem(row.source, row.type, row.tab),
     saved: row.saved_at !== null,
     saved_at: row.saved_at,
     latest_watch: latestWatch,
@@ -2858,6 +2990,7 @@ export function recordLibraryWatch(input: LibraryItemInput & {
   const finishedAt = pct >= LIBRARY_FINISHED_PCT ? watchedAt : null;
   let historyId = 0;
   const transaction = db.transaction(() => {
+    const normalized = normalizeInput(input);
     const itemKey = upsertLibraryItem(db, input, watchedAt);
     const watchState = {
       profile_id: profileId,
@@ -2919,9 +3052,9 @@ INSERT INTO watch_history (
 );
 `).run({
       item_key: itemKey,
-      source: normalizeSource(input.source),
-      type: normalizeLibraryType(input.type),
-      id: normalizeLibraryId(input.type, input.id),
+      source: normalized.source,
+      type: normalized.type,
+      id: normalized.id,
       play_id: input.play_id ?? null,
       title: input.title?.trim() || null,
       poster: input.poster?.trim() || null,
@@ -2933,8 +3066,8 @@ INSERT INTO watch_history (
     });
     historyId = Number(result.lastInsertRowid);
 
-    const normalizedType = normalizeLibraryType(input.type);
-    const domain = normalizeSource(input.source) === 'youtube' ? 'youtube' : 'vod';
+    const normalizedType = normalized.type;
+    const domain = libraryDomainForItem(normalized.source, normalized.type);
     const meaningful = duration > 0
       ? position >= Math.min(duration * 0.25, 5 * 60)
       : position >= 2 * 60;
@@ -2954,7 +3087,7 @@ LIMIT 1
       profileId,
       domain,
       normalizedType,
-      normalizeLibraryId(input.type, input.id),
+      normalized.id,
     ) as { strength: number; event_type: string; occurred_at: number } | undefined;
     const signalStrength = strength;
     const signalEvent = event;
@@ -2972,7 +3105,7 @@ INSERT INTO profile_recommendation_events(
       domain,
       signalEvent,
       normalizedType,
-      normalizeLibraryId(input.type, input.id),
+      normalized.id,
       input.title?.trim() || null,
       signalStrength,
       JSON.stringify({
@@ -3107,7 +3240,7 @@ INSERT INTO profile_recommendation_events(
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `).run(
       profileId,
-      normalized.source === 'youtube' ? 'youtube' : 'vod',
+      libraryDomainForItem(normalized.source, normalized.type),
       feedback === 'not_interested' ? 'not_interested' : `feedback:${feedback}`,
       normalized.type,
       normalized.id,
@@ -3120,7 +3253,8 @@ INSERT INTO profile_recommendation_events(
   });
   const itemKey = transaction();
   const profileRow = db.prepare(`
-SELECT li.source, li.item_key, li.type, li.id, li.title, li.poster, li.tab,
+SELECT li.source, li.item_key, li.type, li.id, li.title, li.poster,
+       ${canonicalLibraryTabSql('li')} AS tab,
        pf.feedback, pf.reason,
        pf.created_at, pf.updated_at
 FROM profile_library_feedback pf
@@ -3156,7 +3290,7 @@ SELECT
   li.id,
   li.title,
   li.poster,
-  li.tab,
+  ${canonicalLibraryTabSql('li')} AS tab,
   lf.feedback,
   lf.reason,
   lf.created_at,
@@ -3182,7 +3316,7 @@ export function listProfileLibraryFeedback(
   const householdBlend = options.household_blend !== false && profileId === 'household';
   return ensureDb().prepare(`
 SELECT pf.profile_id, li.source, li.item_key, li.type, li.id,
-       li.title, li.poster, li.tab, pf.feedback,
+       li.title, li.poster, ${canonicalLibraryTabSql('li')} AS tab, pf.feedback,
        pf.reason, pf.created_at, pf.updated_at
 FROM profile_library_feedback pf
 JOIN library_items li ON li.item_key = pf.item_key
@@ -3230,7 +3364,7 @@ INSERT INTO profile_recommendation_events(
 ) VALUES (?, ?, ?, ?, ?, ?, 0, '{}', ?)
 `).run(
         profileId,
-        item.source === 'youtube' ? 'youtube' : 'vod',
+        libraryDomainForItem(item.source, item.type),
         feedback === 'not_interested' ? 'not_interested_cleared' : `feedback_cleared:${feedback}`,
         item.type,
         item.id,
@@ -3807,6 +3941,7 @@ export function recordSearchSelection(input: {
   if (!normalizedQuery || !entityKey || !input.id.trim() || !input.title.trim()) {
     throw new Error('search selection requires query, entity, id, and title');
   }
+  const identity = normalizeLibraryIdentity(input.source, input.type);
   const selectedAt = input.selected_at ?? nowMs();
   db.prepare(`
 INSERT INTO search_selections(
@@ -3824,8 +3959,8 @@ ON CONFLICT(normalized_query, entity_key) DO UPDATE SET
 `).run({
     normalized_query: normalizedQuery,
     entity_key: entityKey,
-    source: normalizeSource(input.source),
-    type: normalizeLibraryType(input.type),
+    source: identity.source,
+    type: identity.type,
     id: input.id.trim(),
     title: input.title.trim(),
     selected_at: selectedAt,
@@ -3908,7 +4043,7 @@ WITH candidates AS (
     li.id,
     COALESCE(NULLIF(TRIM(li.title), ''), li.id) AS title,
     li.poster,
-    li.tab,
+    ${canonicalLibraryTabSql('li')} AS tab,
     si.saved_at AS activity_at
   FROM saved_items si
   JOIN library_items li ON li.item_key = si.item_key
@@ -3919,7 +4054,7 @@ WITH candidates AS (
     li.id,
     COALESCE(NULLIF(TRIM(li.title), ''), li.id) AS title,
     li.poster,
-    li.tab,
+    ${canonicalLibraryTabSql('li')} AS tab,
     ws.last_watched_at AS activity_at
   FROM watch_state ws
   JOIN library_items li ON li.item_key = ws.item_key
@@ -4004,7 +4139,7 @@ SELECT
   li.id,
   COALESCE(NULLIF(TRIM(li.title), ''), li.id) AS title,
   li.poster,
-  li.tab,
+  ${canonicalLibraryTabSql('li')} AS tab,
   lc.updated_at
 FROM library_context lc
 JOIN library_items li ON li.item_key = lc.item_key
@@ -4054,7 +4189,7 @@ INSERT INTO profile_recommendation_events(
     for (const row of rows) {
       insert.run(
         profileId,
-        normalizedSource === 'youtube' ? 'youtube' : 'vod',
+        libraryDomainForItem(normalizedSource, row.type),
         normalizedFeedback === 'not_interested'
           ? 'not_interested_cleared'
           : `feedback_cleared:${normalizedFeedback}`,
@@ -4165,8 +4300,9 @@ ON CONFLICT(profile_id, item_key) DO NOTHING;
   db.prepare(`
 INSERT INTO profile_recommendation_events(
   profile_id, domain, event_type, item_type, item_id, title, strength, context_json, occurred_at
-) VALUES ('household', 'vod', 'saved', ?, ?, ?, 0.8, '{"legacy":"user-pins"}', ?)
+) VALUES ('household', ?, 'saved', ?, ?, ?, 0.8, '{"legacy":"user-pins"}', ?)
 `).run(
+    libraryDomainForItem(LIBRARY_SOURCE_MANGO, normalizedType),
     normalizedType,
     normalizeLibraryId(normalizedType, pin.id || ''),
     pin.title?.trim() || null,

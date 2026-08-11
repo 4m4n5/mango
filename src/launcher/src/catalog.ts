@@ -15,6 +15,7 @@ import {
   type PersonalizationOwner,
 } from "./personalization";
 import { recommendationAttributionPayload } from "./recommendation-attribution";
+import { librarySourceForCard } from "./library-tab";
 
 interface RailSummaryResponse {
   rails: Array<{
@@ -71,6 +72,7 @@ interface YoutubeItem {
   duration_sec?: number | null;
   live_status?: "none" | "live" | "upcoming" | "completed";
   published_at?: string | null;
+  library_source?: string;
 }
 
 interface YoutubeRailResponse {
@@ -302,6 +304,7 @@ function mapYoutubeItem(
     subtitle: youtubeSubtitle(item),
     posterUrl: item.thumbnail || "",
     description: item.description || undefined,
+    librarySource: item.library_source,
     source: "youtube",
     kind: item.kind,
     liveStatus: item.live_status || "none",
@@ -881,6 +884,7 @@ export async function playCard(
     return startPlaybackSession({
       request_id: requestId,
       source: "youtube",
+      library_source: librarySourceForCard(card),
       type: "youtube_video",
       id: card.id,
       title: card.title,
@@ -961,12 +965,11 @@ export async function notInterestedCard(
   tab: BrowseTab,
   expectedOwner: PersonalizationOwner,
 ): Promise<void> {
-  const youtube = card.source === "youtube" || card.type.startsWith("youtube_");
   await fetchOwnedCatalogJson("/api/catalog/library/not-interested", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      source: youtube ? "youtube" : "mango",
+      source: librarySourceForCard(card),
       tab,
       type: card.type,
       kind: card.kind || youtubeKindFromType(card.type),
@@ -985,9 +988,8 @@ export async function isNotInterestedCard(
   card: ContentCard,
   expectedOwner: PersonalizationOwner,
 ): Promise<boolean> {
-  const youtube = card.source === "youtube" || card.type.startsWith("youtube_");
   const params = personalizationExpectationParams(expectedOwner);
-  params.set("source", youtube ? "youtube" : "mango");
+  params.set("source", librarySourceForCard(card));
   params.set("type", card.type);
   params.set("id", card.id);
   const payload = await fetchOwnedCatalogJson<{
@@ -1008,12 +1010,11 @@ export async function undoNotInterestedCard(
   tab: BrowseTab,
   expectedOwner: PersonalizationOwner,
 ): Promise<void> {
-  const youtube = card.source === "youtube" || card.type.startsWith("youtube_");
   await fetchOwnedCatalogJson("/api/catalog/library/not-interested", {
     method: "DELETE",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      source: youtube ? "youtube" : "mango",
+      source: librarySourceForCard(card),
       tab,
       type: card.type,
       id: card.id,

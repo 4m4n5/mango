@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  cardFromPlaybackSnapshot,
   clearPlaybackReturnSnapshot,
   playbackReturnOwner,
+  playbackReturnSurface,
+  readPlaybackReturnFromContext,
   readPlaybackReturnSnapshot,
   savePlaybackReturnSnapshot,
+  tabForCard,
 } from "./playback-return";
 import type { ContentCard } from "./types";
 
@@ -53,6 +57,86 @@ const officeUk: ContentCard = {
   subtitle: "2001-2003",
   year: 2001,
 };
+
+test("known card identity owns its tab over the navigation fallback", () => {
+  assert.equal(tabForCard({ type: "movie" }, "series"), "movies");
+  assert.equal(tabForCard({ type: "film" }, "series"), "movies");
+  assert.equal(tabForCard({ type: "series" }, "movies"), "series");
+  assert.equal(tabForCard({ type: "channel" }, "series"), "live");
+  assert.equal(tabForCard({ type: "movie", source: "YouTube" }, "movies"), "youtube");
+  assert.equal(tabForCard({ type: "youtube_video" }, "series"), "youtube");
+  assert.equal(tabForCard({ type: "legacy_special" }, "series"), "series");
+});
+
+test("playback return surface uses canonical card identity instead of a stale tab", () => {
+  const movie: ContentCard = {
+    id: "tt1160419", type: "movie", title: "Dune", subtitle: "2021",
+  };
+  const live: ContentCard = {
+    id: "channel-one", type: "channel", title: "News", subtitle: "live",
+  };
+  assert.equal(playbackReturnSurface(movie, "live"), "detail");
+  assert.equal(playbackReturnSurface(live, "movies"), "tab_home");
+  assert.equal(playbackReturnSurface(live, "movies", "search"), "detail");
+});
+
+test("playback return round-trip preserves durable Saved source separately from YouTube playback", () => {
+  const legacySaved: ContentCard = {
+    id: "LegacyVideoCase",
+    type: "youtube_video",
+    title: "Legacy video",
+    subtitle: "Legacy channel",
+    source: "youtube",
+    librarySource: "mango",
+  };
+  withBrowserStorage(() => {
+    savePlaybackReturnSnapshot("youtube", legacySaved);
+    const snapshot = readPlaybackReturnSnapshot();
+    assert.equal(snapshot?.cardSource, "youtube");
+    assert.equal(snapshot?.cardLibrarySource, "mango");
+    const restored = snapshot && cardFromPlaybackSnapshot(snapshot);
+    assert.equal(restored?.id, legacySaved.id);
+    assert.equal(restored?.type, legacySaved.type);
+    assert.equal(restored?.source, "youtube");
+    assert.equal(restored?.librarySource, "mango");
+  });
+});
+
+test("context playback return preserves a legacy Saved key while restoring YouTube playback", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    ok: true,
+    profile_id: "alice",
+    personalization_updated_at: 17,
+    context: {
+      profile_id: "alice",
+      source: "mango",
+      type: "youtube_video",
+      id: "LegacyContextVideo",
+      title: "Legacy context video",
+      poster: null,
+      tab: "youtube",
+    },
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  })) as typeof fetch;
+  try {
+    const snapshot = await readPlaybackReturnFromContext({
+      profileId: "alice",
+      personalizationUpdatedAt: 17,
+    });
+    assert.equal(snapshot?.tab, "youtube");
+    assert.equal(snapshot?.cardSource, "youtube");
+    assert.equal(snapshot?.cardLibrarySource, "mango");
+    const restored = snapshot && cardFromPlaybackSnapshot(snapshot);
+    assert.equal(restored?.id, "LegacyContextVideo");
+    assert.equal(restored?.source, "youtube");
+    assert.equal(restored?.librarySource, "mango");
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
 
 test("playback return survives an intentional Chromium tab restart", () => {
   withBrowserStorage((_local, session) => {
@@ -148,5 +232,48 @@ test("Search-origin Live playback returns to Detail with compact Search state", 
     assert.equal(restored?.returnSurface, "detail");
     assert.equal(restored?.origin, "search");
     assert.deepEqual(restored?.searchState, searchState);
+  });
+});
+
+test("Dune opened from TV Search remains movie-owned without losing Search return state", () => {
+  const dune: ContentCard = {
+    id: "tt1160419",
+    type: "movie",
+    title: "Dune",
+    subtitle: "2021",
+  };
+  withBrowserStorage(() => {
+    const searchState = {
+      version: 1,
+      savedAt: Date.now(),
+      query: "dune",
+      scope: "all",
+      submitted: true,
+      snapshot: null,
+      pages: {},
+      homeTab: "series",
+    };
+    savePlaybackReturnSnapshot("series", dune, undefined, "search", searchState);
+    const restored = readPlaybackReturnSnapshot();
+    assert.equal(restored?.tab, "movies");
+    assert.equal(restored?.returnSurface, "detail");
+    assert.equal(restored?.origin, "search");
+    assert.deepEqual(restored?.searchState, searchState);
+  });
+});
+
+test("a pre-upgrade playback snapshot cannot restore a movie into TV Shows", () => {
+  withBrowserStorage((local) => {
+    local.setItem("mango.playback-return.v1", JSON.stringify({
+      tab: "series",
+      cardId: "tt1160419",
+      cardType: "movie",
+      cardTitle: "Dune",
+      returnSurface: "tab_home",
+      savedAt: Date.now(),
+    }));
+    const restored = readPlaybackReturnSnapshot();
+    assert.equal(restored?.tab, "movies");
+    assert.equal(restored?.returnSurface, "detail");
   });
 });

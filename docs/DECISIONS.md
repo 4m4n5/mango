@@ -61,6 +61,7 @@ explicit product approval.
 | AIO state | Pi `userData` is operator-owned state; Git deploy does not overwrite it; current `diff/apply` helper leaks sensitive output/temp state and is blocked for agents until hardened; fixed-field `verify` remains diagnostic |
 | AIOMetadata state | Import/config/export is Pi-owned and explicit; current mutation helper and deploy-triggered rail sync print/leave sensitive state, so both direct unattended mutation and the deploy wrapper are blocked until secure-temp, cleanup, redaction, explicit opt-in and fail-closed behavior are tested |
 | User library | `/etc/mango/library.db` owns Saved/history/finished/ratings/feedback/attribution; no Stremio write-back |
+| Saved placement | Normalized source/media type owns the tab: YouTube → YouTube, series → TV Shows, tv/live/channel → Live, movie/film/blank → Movies. A navigation-origin hint applies only to unknown types and can never move known content |
 | Resume | `/etc/mango/progress.db` owns exact Continue/resume |
 | Playability | `/etc/mango/playability.db` owns verified title/path evidence and rail pools |
 | Schema marker | Migration table is authority; committed source's playability migration `14` with API constant `13` is a defect, not a second valid version |
@@ -150,13 +151,15 @@ explicit product approval.
 | Isolation | Search, Saved, profiles, mood, VOD, companion memory, AI catalogs, charts, and generic cache do not influence YouTube v2 |
 | Core positions | For You → Beyond Subscriptions → More Like → History → Saved; conditional Subscriptions and Live Now follow |
 | Visibility | Normal rows render only with exactly four cards; Live Now renders one to four; logical positions are not guaranteed visible |
-| For You | 60% decayed history / 40% subscription affinity, renormalized when one source is absent |
+| For You | Quality-gated official-history and subscription candidates; both source families must appear when both have eligible supply. History affinity rises from 0.60 to 1.00 with decayed strength; subscription-backed evidence uses 1.00. The retired fixed 60/40 blend is not a second ranker |
 | Portfolio | When both sources have eligible supply, For You contains both; creator and seed caps relax only to fill four. Beyond uses one creator and at most two cards per seed before shortage relaxation |
 | OAuth ready | Token receipt is not Ready: resolve authorized channel, enumerate authoritative subscriptions, cover official upload playlists in bounded pages, then report sanitized account/sync truth |
 | Locale | India discovery (`IN`) and English relevance (`en`) are independent explicit settings; never infer account country from an absent channel field |
-| More Like | Six-to-ten distinct daily-stable official-history seeds; 25 results/query; target reserve 64/cap 120; distinct seed/creator slate preference; official uploads-playlist fallback only for a sub-four thematic pool, then honest omission |
+| Candidate depth | Quality-gated A/B candidates plus at most 64 tier-C candidates publish up to 512 per normal rail. Nightly uses at most the configured background Search allowance after preserving 25 interactive calls; triggered refresh stays coalesced and capped at 12 Search calls |
+| More Like | Up to ten daily-stable official-history seeds; 50 results/query; seek at least eight contributing topics and continue quality-gated fill toward the 512 rail cap; distinct seed/creator slate preference; official uploads-playlist fallback only for a sub-four thematic pool, then honest omission |
 | History/Saved | Stable utility rails; Saved has zero ranking influence |
-| X | Cached serving epoch only; no acquisition, API quota, ranking, or network work; History/Saved stay stable |
+| X | Each epoch is an independent deterministic relevance-weighted draw from the published cache. Uniqueness is only within the visible slate; repeats across X are valid. No impressions, exposure counts, recent-slate exclusion, deck, acquisition, API quota, ranking, or network work affects selection; History/Saved stay stable |
+| Failure boundary | Incomplete authoritative subscription/discovery/Live requests and atomic publication failures preserve an explicitly stale last-good generation. The clean 90-second acquisition wall is a successful bounded stop: discard the late result and permit previously accepted candidates to publish; ordinary eight-second request timeouts remain source failures |
 | Native-feed claim | Public YouTube Data API cannot reproduce YouTube's proprietary Home feed; Mango does not claim it can |
 | Rollout | `off` disables recommendation work, `shadow` builds latest-only while hiding recommendation rails, and `serve` exposes Household v2. History/Saved remain utilities; there is no legacy allocator fallback. This flag remains independent of VOD |
 | Open proof | Human ten-shuffle relevance, focus/launch/offline behavior, and physical couch judgment remain explicit user gates even after automated Pi proof |

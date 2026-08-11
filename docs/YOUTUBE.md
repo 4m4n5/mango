@@ -1,17 +1,18 @@
 # mango — native YouTube
 
 **Milestone:** M6.2 · **Status:** the native YouTube base and recommendation
-v2.6 are Pi-deployed at executable target
-`06487cde605977126ae4a4685b6d29700656d1bf`; exact proof is recorded in
-[STATUS.md](STATUS.md).
+v2.6 have recorded Pi proof; exact revision evidence is in
+[STATUS.md](STATUS.md). Current source advances the model to
+`youtube-household-v2.7`, deeper quality-gated reservoirs, and independent
+weighted cached shuffles. That source is not Pi-deployed or couch-observed.
 The latest model keeps authoritative subscription/history v2
 as the sole executable recommendation architecture behind an independent
 `off|shadow|serve` flag and replaces the lifetime exact-watch veto with a
 rolling 30-day cooldown. The current source also includes post-auth account/sync
 truth, complete bounded subscription coverage, official metadata evidence,
-source/seed portfolio constraints, and a six-to-ten-seed thematic More Like
-reserve with uploads-playlist-backed sparse-history recovery. The current India
-account is Ready with 55 subscriptions.
+source/seed portfolio constraints, and an up-to-ten-seed thematic More Like
+reserve with uploads-playlist-backed sparse-history recovery. The latest
+recorded India account snapshot is Ready with 55 subscriptions.
 Its watch-history HTML import produced 2,872 normalized events covering 2,548
 unique videos. Those official Takeout events plus the OAuth subscription
 snapshot are the only taste/acquisition inputs. The one-time Household reset
@@ -19,11 +20,12 @@ removed 986 Mango-local YouTube history rows without changing Takeout, Saved,
 progress, ratings, profiles, VOD history, or StoryDNA. Search-history HTML was not imported and cannot affect
 recommendations. Exact Pi runtime proof is recorded in [STATUS.md](STATUS.md).
 
-The current generation is 16 with reserves 120 For You / 80 Beyond / 103 More
-Like / 120 From Subscriptions. Six official-history seeds contributed to the
-thematic More Like pool, and the visible hand used four distinct seed
-provenances. Five cached X calls measured p95 212.2 ms without API or quota
-movement.
+The latest read-only Pi observation is `4a175197` on v2.6 generation 21: 480
+candidates across 120 For You / 120 Beyond / 120 More Like / 120 From
+Subscriptions, with 999 active provenance rows, 55 subscriptions, and 2,548
+Takeout anchors. It did not repeat the full gate or couch acceptance.
+`fb20baa` generation 16 remains the last fully gated proof, where five cached X
+calls measured p95 212.2 ms without API or quota movement.
 
 Mango treats YouTube as a first-class content source while preserving the voice
 safety contract: voice can search/open/save, but playback starts only when the
@@ -123,7 +125,7 @@ That blocker does not change the `yt-dlp` ownership contract.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/youtube/state` | Localhost-only operator config/auth/cache/refresh diagnostics |
+| `GET` | `/youtube/state` | Localhost-only, privacy-safe aggregate config/auth/cache/refresh/recommendation diagnostics |
 | `POST` | `/youtube/auth/start` | Localhost-only operator device-code OAuth |
 | `GET` | `/youtube/auth/poll?session_id=` | Localhost-only operator OAuth poll |
 | `POST` | `/youtube/auth/disconnect` | Localhost-only operator token removal |
@@ -158,10 +160,12 @@ companion's exact capability allowlist. Catalog accepts those upstream calls
 from loopback only. The status DTO includes configuration/auth booleans plus
 `sync_status`, channel title/avatar, authoritative subscription count,
 region/language, and last successful sync time. It contains no channel ID.
-Detailed operator
-state, raw provider errors, token-file paths, expiry/scopes, command paths,
-cache state, quota counters, and refresh phases remain on localhost-only
-`/youtube/state` and never cross the LAN proxy.
+Localhost-only `/youtube/state` exposes a broader but still redacted operator
+projection: booleans and a classified `yt-dlp` command kind, bounded aggregate
+cache/quota/acquisition counts, categorized refresh phases/errors, and opaque
+revision/seed references. It never returns command or token-file paths, raw
+provider errors, scope strings, IDs, titles, URLs, queries, credentials, or raw
+provenance references, and it never crosses the LAN proxy.
 
 Device OAuth is not declared ready at token receipt. Companion resolves the
 authorized channel, enumerates the complete subscription snapshot, scans every
@@ -198,11 +202,15 @@ success, then reads `/youtube/state` for phase and quota diagnostics. The job
 is a phase-isolated coordinator. In v2 it refreshes one
 complete authoritative subscription-channel snapshot, bounded subscription
 uploads/live probes, bounded history-derived topic/channel acquisition, and
-then atomically publishes the ranked rail generation. A phase failure is
-reported independently in `/youtube/state` and never clears the prior complete
-subscription snapshot or last-good rail generation. A later successful complete
-subscription pagination replaces the snapshot rather than merging stale
-channels indefinitely. OAuth completion performs one bounded full uploads
+then atomically publishes the ranked rail generation. A source or publication
+failure is reported independently in `/youtube/state`, marks the prior
+generation explicitly stale, and never replaces that last-good generation. A
+successful complete subscription pagination is authoritative immediately; if
+later upload/discovery/publication work fails, the prior served generation
+continues against its own published non-Live membership snapshot while Live
+remains current-membership and TTL fenced. Complete pagination replaces the
+channel snapshot rather than merging stale channels indefinitely. OAuth
+completion performs one bounded full uploads
 coverage pass; later refreshes rotate 24 channels while retaining generation-
 scoped coverage diagnostics. Official video category, default language/audio
 language, and tags are cached as private thematic evidence. They can strengthen
@@ -240,25 +248,44 @@ for interactive use. `search.list` has a separate 100-call daily bucket, with
 either applicable reserve. Ordinary metadata list requests cost 1 general unit.
 Query responses are keyed by query/kinds/SafeSearch/region/language, cached for
 24 hours, and pruned LRU to 200 keys. See [SEARCH.md](SEARCH.md).
-A triggered history acquisition burst coalesces for 15 minutes. With sufficient
-official history, More Like deterministically tries at least six distinct seeds,
-up to ten, requests 25 results per topic query, and stops only after at least six
-seeds contribute to a target of 64 unique eligible candidates. Triggered refresh
-then permits two Beyond queries; nightly permits eight Beyond queries and eight
-subscribed-channel live probes. Thus the maximum scheduled nightly Search-bucket
-use is 26 of Mango's 75-call background allowance. More Like topic work uses
-`search.list`; exact-channel fallback stays inside the ten-operation More Like
-cap, runs only when thematic work cannot fill four cards, and uses the channel's
-official uploads playlist. It can publish a coherent hybrid of one same-channel
-card plus thematic cards. A shortfall never weakens relation, provenance,
-Short/live, cooldown, or duplicate filters and otherwise records
-`not_applicable` honestly. `For You` requires both history and subscription
+A triggered history acquisition burst coalesces for 15 minutes and is capped at
+12 Search calls. Nightly computes its background allowance from the configured
+daily Search budget minus calls already used and the protected 25-call
+interactive reserve. It preserves up to eight subscribed-channel Live probes,
+then adaptively spends only remaining background capacity. With sufficient
+official history, More Like tries up to ten deterministic distinct seeds with
+50 results per topic query, seeks at least eight contributing topics, and keeps
+using that bounded seed budget toward the 512-item rail cap. Beyond expands
+through as many as 32 diverse base seeds and deterministic explained,
+documentary, and analysis variants while useful supply remains. Acquisition
+stops at the rail cap, the 90-second wall, quota reserve, source exhaustion, or
+eight consecutive queries yielding fewer than four new eligible candidates.
+Reaching the 90-second acquisition wall is a clean bounded stop: a response
+arriving after it is discarded, candidates accepted before it remain eligible
+for atomic publication, and diagnostics add no query failure. An ordinary
+eight-second request timeout or provider error is a source failure.
+Background HTTP work has an eight-second request deadline; interactive Search
+keeps its existing result size. More Like topic work uses `search.list`; exact-
+channel fallback runs only when thematic work cannot fill four cards and uses
+the channel's official uploads playlist. It can publish a coherent hybrid of
+one same-channel card plus thematic cards. A shortfall never weakens relation,
+provenance, Short/live, cooldown, or duplicate filters and otherwise records
+`not_applicable` honestly. Rejected background search tails are not persisted as
+recommendation items. `For You` requires both history and subscription
 sources when both have eligible supply, limits a single creator or seed before
 deterministic shortage relaxation, and `Beyond` caps a seed at two cards.
 `Live Now` admits only
 currently live streams from the authoritative subscription snapshot; it never
 runs a generic live search. OAuth loss serves an explicitly stale last-good
-snapshot. Ordinary Home loads and X never initiate any phase.
+snapshot. A partial authoritative subscription, discovery, or Live source pass
+or a publication failure cannot advance the generation; a clean zero-result
+source and the clean 90-second bounded stop may. Publication failure is exposed
+as the fixed `publication_failed` stale reason. Bounded repair
+of already-imported history metadata is best-effort, while recommendation
+Search enrichment itself fails closed before persistence. Nightly upload acquisition rotates through every authoritative
+subscription up to a 96-channel ceiling and fetches 24 recent uploads per
+channel; non-nightly work retains the bounded 24-channel/12-active policy.
+Ordinary Home loads and X never initiate any phase.
 
 Serving is snapshot-based. Exact videos meaningfully watched in the preceding
 30 days, Saved videos, Not-for-me IDs, and the resolved chronological Household
@@ -351,18 +378,20 @@ source-tested at the target and remains a Pi rollback check.
   cooldown. Saved is explicit utility
   state. Both rails are
   chronological/stable and neither affects recommendation scoring.
-- For You weights decayed history affinity 60% and subscription affinity 40%,
-  renormalizing when only one source exists. It excludes videos meaningfully
+- For You uses quality-gated official-history and subscription evidence and
+  includes both source families when both have eligible supply. History
+  affinity rises from 0.60 to 1.00 with decayed strength; subscription-backed
+  evidence uses 1.00 rather than a separate fixed 60/40 blend. It excludes videos meaningfully
   watched within the last 30 days, plus exact Saved, Short, and live items, and
   caps creators.
 - Beyond Your Subscriptions uses bounded topics derived only from subscriptions
   and decayed history, excludes subscribed channels, and admits at most one card
   per creator.
-- More Like samples a daily-stable ordering without replacement from the
+- More Like samples a daily-stable seed ordering without replacement from the
   twenty most recent meaningful watches, normally caps one channel at two
-  seeds, and acquires from six distinct seeds before it may stop. It uses up to
-  ten 25-result thematic queries to target 64 unique eligible candidates, with
-  a published cap of 120. The visible four-card slate prefers distinct seed and
+  seeds, and nightly seeks at least eight contributing topics across up to ten
+  50-result thematic queries, continuing quality-gated fill toward a published
+  cap of 512. The visible four-card slate prefers distinct seed and
   creator provenance before deterministic shortage relaxation. Exact-channel
   fallback is attempted only when the thematic pool cannot fill four cards.
   Four thematic cards render as **More Like …**; otherwise four same-channel
@@ -377,11 +406,16 @@ source-tested at the target and remains a Pi rollback check.
   video at or below 180 seconds (or explicitly tagged `#shorts`) as a Short;
   this can exclude a landscape clip but fails closed against vertical Shorts.
 - X advances only published recommendation/discovery/subscription/live slates.
-  History and Saved remain stable; focus position and scroll are preserved; no
-  provider, quota, acquisition, enrichment, corpus scan, or ranking work runs.
+  Each epoch is an independent deterministic quality-weighted draw. Four cards
+  are sampled without replacement inside the current response, but a later X
+  may legitimately repeat one; there is no exposure counter, recent-slate
+  exclusion, show-once deck, or deal-through queue. History and Saved remain
+  stable; focus position and scroll are preserved; no provider, quota,
+  acquisition, enrichment, corpus scan, or ranking work runs.
 - Subscription and qualifying history acquisition writes explicit provenance:
   `subscription_upload`, `subscription_live`, `history_channel`, or
-  `history_topic`. Generic Search/detail/AI/chart cache entries are ineligible
+  `history_topic`, plus nullable relation and source-position evidence. Generic
+  Search/detail/AI/chart cache entries are ineligible
   without one of those records.
 - Subscriptions with no history still produce For You/Beyond and the thematic
   fallback. History with no subscriptions omits subscription/live rails. With
@@ -399,32 +433,46 @@ source-tested at the target and remains a Pi rollback check.
   `/api/catalog/youtube/companion/*` capabilities; broad operator state/auth
   paths are neither requested by the browser nor admitted by the proxy.
 
+Generation quality combines relation (`direct`/`same_topic` 1.00,
+`deeper_dive` 0.85, `wildcard` 0.55, unknown 0.35), source position (1.00 down
+to 0.55 across ranks 0–49; legacy 0.75), decayed Takeout affinity or
+subscription recency, and up to 0.12 of independent-provenance support. Scores
+form tier A at 0.65+, B at 0.38+, and C at 0.20+; lower candidates are rejected.
+Publication takes all A/B candidates up to 512, then at most 64 C candidates if
+capacity remains. Serving multiplies A/B/C by 1.00/0.55/0.25 and a 0.75–1.25
+within-tier percentile factor before the deterministic exponential race. This
+protects relevance without making the highest-ranked head deterministic and
+keeps a positive path to the eligible tail.
+
 ## Serve rail cache summary
 
 | Rail | Role | Source of truth | X behavior |
 |------|------|-----------------|------------|
-| For You | Core | Published rank from history + subscriptions only | Advance cached slate |
-| Beyond Your Subscriptions | Core | Provenance-gated history/subscription topic acquisition; subscribed creators excluded | Advance cached slate |
-| More Like … | Conditional core position | Six-to-ten daily-stable official-history seeds, target reserve 64/cap 120; thematic four, sparse-history exact-channel four, or honest omission | Advance cached slate |
+| For You | Core | Published rank from history + subscriptions only | Independent cached weighted draw |
+| Beyond Your Subscriptions | Core | Provenance-gated history/subscription topic acquisition; subscribed creators excluded | Independent cached weighted draw |
+| More Like … | Conditional core position | Up to ten daily-stable official-history seeds, seek eight contributing topics, and continue bounded quality-gated fill toward cap 512; thematic four, sparse-history exact-channel four, or honest omission | Independent cached weighted draw |
 | History | Core utility | Normalized Takeout + resolvable Mango-local launches, including bare starts, in `library.db` | Never shuffled |
 | Saved | Core utility | Explicit Household state in `library.db`; zero rank influence | Never shuffled |
-| From Your Subscriptions | Conditional | Newest unwatched uploads from the authoritative snapshot | Advance cached slate |
-| Live Now | Conditional | Currently live streams from subscribed channels only | Advance cached slate; 1–4 cards allowed |
+| From Your Subscriptions | Conditional | Newest unwatched uploads from the authoritative snapshot | Independent cached weighted draw |
+| Live Now | Conditional | Currently live streams from subscribed channels only | Independent cached weighted draw; 1–4 cards allowed |
 
 Specialized rails allocate first, then For You fills, while the display order
 above remains fixed. Global dedupe runs across all rails. Exact rendered
 impressions resolve opaque tokens without trusting caller identity or persisting
-URLs/secrets.
+URLs/secrets; they are attribution/analytics evidence only and are never read by
+the shuffle selector.
 
 ### Current rollout boundary
 
 The base YouTube product and the latest recommendation model have different
 proof status. Base metadata/search/OAuth/Takeout/`yt-dlp` behavior has older Pi
-evidence. The latest recorded runtime is contained at `9425b1f`; the rail
-contract above is tested source behavior at `c8cfe72` awaiting account-specific
-refresh, shadow diagnostics, serve promotion, and current couch observation. A
-Saved-only or otherwise thin account is a valid setup state; documentation and
-tests must not assume five visible rails.
+evidence. The later read-only runtime observation is `4a175197`, serving v2.6
+generation 21; `fb20baa` generation 16 remains the last fully gated proof. The
+v2.7 rail/depth/privacy contract above is newer tested source behavior and is
+not Pi-deployed or couch-observed. Its next exact revision still requires
+state-preserving migration, authoritative refresh, Pi gates, safe diagnostics,
+and couch observation. A Saved-only or otherwise thin account is a valid setup
+state; documentation and tests must not assume five visible rails.
 
 ## Serve recommendation constraints
 
@@ -480,12 +528,15 @@ bash scripts/m6-ship/gate-m6-youtube-smoke.sh
 MANGO_YOUTUBE_PLAY=1 bash scripts/m6-ship/gate-m6-youtube-smoke.sh
 ```
 
-The smoke gate verifies the configured `yt-dlp` command, skips API search when
-no API key is configured, and skips playback unless `MANGO_YOUTUBE_PLAY=1`.
-The latest-only cleanup removed a large legacy service-test surface; before Pi
-promotion, add focused HTTP tests for every mode/identity combination, utility
-rail ownership, refresh failure/last-good behavior, generation publication,
-quota-free reshuffle, and the intended absence of removed acquisition paths.
+The smoke gate executes only a recognized system `yt-dlp` binary or Mango
+wrapper descriptor, skips a genuinely missing command, and fails closed on a
+redacted custom-command descriptor that it cannot safely execute. It skips API
+search when no API key is configured and skips playback unless
+`MANGO_YOUTUBE_PLAY=1`. Focused
+source tests cover mode/identity combinations, utility ownership, refresh
+failure/last-good behavior, generation publication, quota-free weighted
+reshuffle, and the intended absence of removed acquisition paths; Pi/runtime
+proof still belongs to the next exact deployment.
 
 ---
 

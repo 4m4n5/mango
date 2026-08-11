@@ -2,13 +2,16 @@
 
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
-Latest executable recommendation deployment target: **2026-08-06**,
+Last fully gated executable recommendation target: **2026-08-06**,
 `fb20baa344daa37585141096e55f47bedb87de0e`. It is deployed with VOD Story
 Frontier, VOD Browse v3, and YouTube serving independently. Exact-SHA Mac tests
 and builds, Pi source isolation, all-rail atomic VOD Shuffle, bounded multi-seed
 YouTube acquisition, cache/latency proof, and the standard pre-couch gate pass.
 Reliability is yellow for five thin grow rails and four broken titles in its
 32-title served sample; human thematic and target-TV judgment remain separate.
+A later read-only Pi observation at `4a175197` found YouTube v2.6 generation 21
+with 480 candidates, but it did not repeat the full gate or couch acceptance and
+does not prove the newer v2.7 source contract.
 Use `git status`,
 `git rev-parse HEAD`, and the Pi commands below before acting.
 
@@ -34,10 +37,10 @@ prove only their exact revision and contract.
 | Native launcher, Detail, Search, D-pad | Complete | Deployed and repeatedly Pi-gated on earlier revisions; later UX rounds have partial couch evidence | Final exact-revision whole-product couch pass |
 | Native mpv playback | Complete | Deferred-foreground and single-B playback were proven on selected titles on earlier revisions | Current-SHA regression matrix, failure cases, target-TV/audio proof, legacy direct-MediaFusion topology decision |
 | HUD and Streams drawer | Complete | Local fixture/source gates; home-agent deployment work recorded | Current exact-SHA screenshots and 4K dropped-frame/no-regression couch pass |
-| Mango library and Fire/Water input | Complete | Deployed; unset axes start at neutral 2; `<1` negative, `1–2` neutral, `>2` quadratic positive | Human use/clarity and served recommendation quality |
+| Mango library and Fire/Water input | Current source adds canonical Saved placement and tab-only library migration 18; ratings remain complete | `fb20baa` is the last fully gated library-v17 runtime; the later `4a175197` source observation also predates migration 18 | Migration-18 preservation/readback, Saved rail-purity proof, and a human Dune-from-TV-Search check |
 | VOD recommendations | `fb20baa` progressive profiles + Household Story Frontier + Browse v3 + StoryDNA Related; all historical data preserved | Pi serves complete 5,930/3,974 accounting with 720/675 rank reserves. Two active atomic browse reservoirs contain 19,950 candidate rows. Forty X presses per tab yielded 2,121/1,897 unique cards at p95 121.9/119.5 ms with global dedupe and zero provider/rank work | Human For You/category/Related verdict and physical focus/picture/audio checks |
 | Native YouTube base | Complete | Previously deployed/Pi-gated | Current exact-SHA revalidation and account-specific proof |
-| YouTube recommendations | `fb20baa` retains `youtube-household-v2.6`; only OAuth subscriptions and official Takeout watch history teach acquisition/ranking. Mango-local viewing is History/progress plus a 30-day exact-video cooldown only | Generation 16 is Ready with 55 subscriptions and 2,548 Takeout anchors. Reserves are 120/80/103/120; six contributing More Like seeds exceeded the 64-title target. Cached X remains quota-free and the exact-SHA YouTube smoke passes | Human relevance, focus/Back, offline, playback picture/audio observation; Search-history export remains intentionally unused |
+| YouTube recommendations | Current source is `youtube-household-v2.7`: quality-gated reserves up to 512 per rail and independent weighted cache-only X | Later read-only `4a175197` v2.6: generation 21, 480 candidates, 120/120/120/120 reserves, 999 active provenance rows, 55 subscriptions, and 2,548 Takeout anchors. `fb20baa` generation 16 remains the last fully gated proof | Deploy/migrate/refresh v2.7; safe depth/quality/quota/latency proof; human relevance, focus/Back, offline, picture/audio observation |
 | Voice/phone companion | Complete for trusted-LAN development contract | Automated corpus/memory/UX gates on earlier revisions; partial couch work | Full V1–V12/current coherence plus per-device client auth/pairing before appliance release |
 | Reliability Center/nightly proof | Implemented with a known optional-Live defect | Deployed on earlier revisions | Current-SHA proof, make intentionally disabled Live neutral, controller-action UI mismatch, repeated unattended evidence |
 | Controller reconnect | Source-complete | Automated gate exists; normal-wake behavior partially exercised | Five physical power-on reconnect cycles without pairing mode |
@@ -51,7 +54,7 @@ prove only their exact revision and contract.
 
 ### Source audit
 
-- `fb20baa344daa37585141096e55f47bedb87de0e` is the current executable
+- `fb20baa344daa37585141096e55f47bedb87de0e` is the last fully gated executable
   recommendation target. It preserves the progressive Story Frontier and all
   historical database rows/schemas while adding immutable verified browse
   reservoirs, atomic tab deals, calibrated weighted sampling, and bounded
@@ -81,6 +84,10 @@ prove only their exact revision and contract.
   upgrade/preservation/rollback, frontier lease/retry/rolling-window/
   coalescing/concurrency/restart behavior, TMDB failure/rate/credential/series
   cases, and exact Pi activation/staleness behavior.
+- Current source adds library migration 18, which changes only canonical
+  `library_items.tab` placement. Its migration/preservation readback and TV
+  Saved-rail proof are not part of the `fb20baa` Pi evidence and remain
+  **DEFERRED**.
 - The orphaned orchestrator `/recommendations/enrich` v4 compatibility route
   and implementation are removed. Only the strict content-only StoryDNA
   teacher endpoint remains; it is off for the current couch round.
@@ -129,13 +136,23 @@ prove only their exact revision and contract.
   diagnostics, and yield at a page boundary when authoritative couch/playback
   activity begins. Two-cycle Pi stability, preemption, liveness, and cache-only
   serving passed at the deployed target under 1280M/1536M limits.
-- **YouTube More Like is conditional rather than a false rollout blocker.** It
-  tries six-to-ten daily-stable official-history seeds, asks for 25 results per
-  seed, and targets 64 eligible candidates capped at 120. Exact-channel work is
+- **YouTube More Like is conditional rather than a false rollout blocker.**
+  Current source tries up to ten daily-stable official-history seeds with 50
+  results each, seeks at least eight contributing topics, and continues its
+  bounded quality-gated fill toward the 512-item cap. Exact-channel work is
   only a sub-four fallback. Four thematic cards render `More Like`, four
   fallback cards render `More from …`, and insufficient honest supply records
-  `not_applicable` and omits the rail. Required For You/Beyond supply and
-  provenance purity still block serving.
+  `not_applicable` and omits the rail. No named recommendation row is mandatory
+  on a thin account; every row that does render must still satisfy its complete
+  four-card, provenance, eligibility, and dedupe contract.
+- **YouTube last-good failure semantics are source-complete.** Incomplete
+  authoritative subscription/discovery/Live requests and atomic publication
+  failures retain the prior generation with a fixed stale reason; non-Live
+  rows remain bound to that published membership snapshot and Live stays
+  current-membership/TTL fenced. The clean 90-second acquisition wall discards
+  the late response and may publish earlier eligible work instead of inventing
+  a source failure. Pi refresh/failure proof for this v2.7 behavior remains
+  **DEFERRED**.
 - **VOD serving authorization and supervised evaluation are separate.** A
   complete deterministic cached generation may use the narrow
   `evidence_cold_start` basis when its only missing evidence is stratified
@@ -154,7 +171,7 @@ prove only their exact revision and contract.
   `serve_eligible` as operational authorization, and neither as the human couch
   verdict.
 
-### Latest repository-recorded recommendation runtime snapshot
+### Last fully gated recommendation runtime snapshot
 
 The Pi is deployed at executable target
 `fb20baa344daa37585141096e55f47bedb87de0e` with:
@@ -208,6 +225,15 @@ Root disk is 35% used after the state-preserving backup-retention repair; no
 backup or user data was deleted by this rollout.
 Human relevance, screenshots, focus/Back, and target-TV picture/audio judgment
 remain pending.
+
+### Later read-only YouTube runtime observation
+
+The Pi was subsequently read at `4a175197` with v2.6 generation 21 active:
+`candidate_count=480`, four 120-title For You/Beyond/More Like/Subscriptions
+reserves, 999 active provenance rows, 55 authoritative subscriptions, and 2,548
+Takeout anchors. This supersedes generation 16 only as the newest observed
+YouTube state. No full gate, couch verdict, or v2.7 behavior is inferred from
+that read-only snapshot; `fb20baa` remains the last fully gated proof above.
 
 ### Older objective playback/runtime evidence
 
@@ -471,14 +497,15 @@ Detail: [FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md).
 | `shadow` | Build and diagnose only the authoritative Household v2 generation; recommendation rails remain hidden |
 | `serve` | Expose only the authoritative Household v2 generation; there is no legacy recommendation fallback |
 
-The latest recorded Pi mode was `off` under older code. The following rails
-describe current `serve`; the dated visible UI is not evidence for this contract.
+The latest read-only Pi mode observation is `serve` on v2.6 at `4a175197`; the
+last fully gated proof is `fb20baa`. The following rails describe current v2.7
+source; that newer model is not Pi-deployed or couch-observed.
 
 | Rail | Contract |
 |------|----------|
-| For You | 60/40 decayed qualifying history/subscription affinity, renormalized when one side is absent |
+| For You | Quality-gated qualifying history/subscription evidence with both source families represented when both have supply; no separate fixed 60/40 blend |
 | Beyond Your Subscriptions | Topic/channel discovery excluding subscribed creators |
-| More Like… | Daily-stable recent meaningful-watch seed |
+| More Like… | Up to ten daily-stable recent meaningful-watch seeds; seek eight contributing topics and continue bounded quality-gated fill toward the 512-item cap |
 | History | Stable chronological normalized history |
 | Saved | Stable explicit Saved; zero recommendation weight |
 | From Your Subscriptions | Conditional newest unwatched authoritative uploads |
@@ -489,12 +516,14 @@ history may create recommendation provenance. Mango-local viewing is limited
 to chronological History/progress and a 30-day exact-video cooldown. Search,
 generic cache, Saved, profiles, mood, VOD, companion state, AI catalogs, and
 global charts cannot leak into ranking. Normal rows contain four cards; Live
-Now contains one to four. Home and X use published local reservoirs without
-quota/network work; History/Saved never shuffle.
+Now contains one to four. Home and X independently sample the quality-weighted
+published reservoirs without quota/network work. Uniqueness is within the
+visible slate only; repeats across X are valid and impressions do not influence
+selection. History/Saved never shuffle.
 
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` controls this independently. Source-
-complete does not mean served or couch-observed. The current non-Household
-`off` ownership mismatch above must be fixed before rollback is accepted.
+complete does not mean served or couch-observed. Exact active-profile utility
+ownership in `off` is source-tested and remains a Pi rollback check.
 Public API routes cannot reproduce the proprietary native YouTube home feed.
 
 Detail: [YOUTUBE.md](YOUTUBE.md).
@@ -611,12 +640,12 @@ Detail: [DEPLOY.md](DEPLOY.md) · [DEPLOY-SPLIT-MACHINE.md](DEPLOY-SPLIT-MACHINE
    mutation/security path; then deploy/prove one exact revision.
 2. Fix the optional-Live reliability mismatch; the playability schema marker is
    reconciled in the target.
-3. Deploy `c8cfe72` through the reviewed exact-SHA manual path; update the
-   preserved operator drop-in to 1280M/1536M and prove two complete VOD shadow
-   cycles meet the bounded memory, invocation, accounting, latency, and
-   preemption gates before any promotion.
-4. Prove YouTube off ownership on the Pi, refresh authoritative inputs in
-   shadow, then promote YouTube independently.
+3. Commit and deploy the next reviewed exact revision containing library
+   migration 18, YouTube migration 17, and v2.7; read back the exact Pi SHA and
+   prove every runtime database was preserved.
+4. Refresh authoritative YouTube inputs on v2.7, run the current Pi gates, and
+   record safe 50-X depth/quality/quota/latency diagnostics before the minimal
+   Saved-placement and recommendation couch pass.
 5. Implement and prove intentional display sleep/CEC.
 6. Close resolver/provider topology, repeated grow, and nightly proof gaps.
 7. Close five-cycle controller reconnect and full phone/TV couch acceptance.

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { resetLibraryDbForTests } from '../library/db.js';
+import { resetLibraryDbForTests, saveLibraryItem } from '../library/db.js';
 import {
   recordVerifyResult,
   resetPlayabilityDbForTests,
@@ -118,6 +118,72 @@ test('index invalidation swaps in newly cached YouTube metadata atomically', () 
   assert.equal((await service.suggestions('dune', 'youtube', 9))[0]?.id, 'video-1');
 }));
 
+test('Unified Search preserves a legacy Saved YouTube source before and after async completion', () => {
+  let resolveSearch: ((value: Record<string, unknown>) => void) | undefined;
+  const pendingSearch = () => new Promise<Record<string, unknown>>((resolve) => {
+    resolveSearch = resolve;
+  });
+  return withSearchServiceTest(async (service) => {
+    process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+    const item = {
+      id: 'legacy-search-video',
+      kind: 'video' as const,
+      title: 'Legacy Search Video',
+      subtitle: 'Film Craft',
+      description: null,
+      thumbnail: null,
+      channel_id: 'legacy-channel',
+      channel_title: 'Film Craft',
+      published_at: '2026-07-01T00:00:00Z',
+      duration_sec: 900,
+      live_status: 'none' as const,
+      playlist_id: null,
+      updated_at: Date.now(),
+    };
+    upsertYoutubeItems([item]);
+    saveLibraryItem({
+      source: 'mango',
+      type: 'youtube_video',
+      id: item.id,
+      title: item.title,
+      tab: 'series',
+      profile_id: 'household',
+    });
+    (service as unknown as { generationCheckedAt: number }).generationCheckedAt = 0;
+    await service.state();
+    const flight = (service as unknown as { indexFlight: Promise<void> | null }).indexFlight;
+    if (flight) await flight;
+
+    let snapshot = await service.startQuery({
+      query: 'legacy search video',
+      scope: 'youtube',
+      diagnostic: true,
+    });
+    assert.equal(
+      snapshot.groups.find((group) => group.id === 'youtube')?.items[0]?.library_source,
+      'mango',
+    );
+    resolveSearch?.({
+      groups: {
+        videos: [{ ...item, library_source: 'mango' }],
+        channels: [],
+        playlists: [],
+      },
+    });
+    while (!snapshot.complete) {
+      const next = await service.waitForSnapshot(snapshot.search_id, snapshot.revision, 1_000);
+      assert.ok(next);
+      snapshot = next;
+    }
+    assert.equal(
+      snapshot.groups.find((group) => group.id === 'youtube')?.items[0]?.library_source,
+      'mango',
+    );
+  }, pendingSearch).finally(() => {
+    delete process.env.MANGO_YOUTUBE_RECS_V2;
+  });
+});
+
 test('verified Search metadata prefers a duplicate pool row with artwork', () => withSearchServiceTest(async (service) => {
   await recordVerifyResult({
     type: 'movie',
@@ -166,6 +232,7 @@ test('YouTube retry updates only a completed degraded Search job', () => {
           duration_sec: 600,
           live_status: 'none',
           playlist_id: null,
+          library_source: 'mango',
           updated_at: Date.now(),
         }],
         channels: [],
@@ -191,6 +258,10 @@ test('YouTube retry updates only a completed degraded Search job', () => {
     assert.deepEqual(retried?.groups.find((group) => group.id === 'youtube')?.items.map((item) => item.id), [
       'retry-video',
     ]);
+    assert.equal(
+      retried?.groups.find((group) => group.id === 'youtube')?.items[0]?.library_source,
+      'mango',
+    );
     assert.equal(retried?.phases.external.status, 'skipped');
     assert.equal(retried?.phases.live.status, 'skipped');
     assert.equal(retried?.phases.ai.status, 'skipped');

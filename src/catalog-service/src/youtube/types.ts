@@ -21,6 +21,8 @@ export type YoutubeItem = {
   default_audio_language?: string | null;
   tags?: string[];
   official_metadata_checked_at?: number | null;
+  /** Exact durable library source when this item represents a Saved identity. */
+  library_source?: string;
   updated_at: number;
 };
 

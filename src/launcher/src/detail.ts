@@ -37,6 +37,7 @@ import {
   samePersonalizationOwner,
   type PersonalizationOwner,
 } from "./personalization";
+import { tabForCard } from "./library-tab";
 
 // The row spans the full width beneath the side panel, so seven 228px cards fit
 // (1706px of 1728). One spare is still fetched because a title is filtered out of
@@ -269,8 +270,9 @@ export class DetailController {
     origin: DetailOriginContext = { surface: "home" },
   ): void {
     const openedAt = Date.now();
+    const canonicalTab = tabForCard(card, tab);
     this.card = card;
-    this.browseTab = tab;
+    this.browseTab = canonicalTab;
     this.personalizationOwner = { ...owner };
     this.origin = origin;
     this.saved = saved;
@@ -294,8 +296,8 @@ export class DetailController {
     this.episodesWrap.hidden = true;
     this.setListLabel("episodes");
     this.eyebrow.textContent = formatRailLabel(railLabel);
-    this.renderRelated([], railLabel, tab);
-    void this.loadRelated(card, railLabel, tab);
+    this.renderRelated([], railLabel, canonicalTab);
+    void this.loadRelated(card, railLabel, canonicalTab);
     this.title.textContent = card.title;
     this.meta.textContent = card.subtitle;
     this.updateVerifyBadge(card.inLibrary, card.queuedForVerify);
@@ -309,8 +311,8 @@ export class DetailController {
       bindPosterImage(backdrop, "");
     }
     this.view.classList.remove("hidden");
-    const isLive = card.type === "tv" || tab === "live";
-    const isYoutube = this.isYoutubeCard(card);
+    const isLive = canonicalTab === "live";
+    const isYoutube = canonicalTab === "youtube";
     this.notInterestedButton.hidden = isLive
       || !["movie", "series", "youtube_video"].includes(card.type);
     if (!this.notInterestedButton.hidden) {
@@ -319,7 +321,7 @@ export class DetailController {
     this.updateSaveButton();
     this.updatePlayButtonLabel();
     this.applyFocus();
-    void publishCurrentLibraryContext(tab, card, owner, openedAt).catch(() => undefined);
+    void publishCurrentLibraryContext(canonicalTab, card, owner, openedAt).catch(() => undefined);
     void noteRecommendationDetailOpen(card).catch(() => undefined);
     void this.ratingSheet.bindCard(
       card,
@@ -481,7 +483,7 @@ export class DetailController {
           ? "starting YouTube…"
           : preferUrl
           ? "starting stream…"
-          : card.type === "tv" || this.browseTab === "live"
+          : this.browseTab === "live"
             ? "tuning in…"
             : "finding stream…",
     );
@@ -490,7 +492,7 @@ export class DetailController {
         this.publishPlayProgress(
           this.isYoutubeCard(card)
             ? "resolving YouTube…"
-            : card.type === "tv" || this.browseTab === "live"
+            : this.browseTab === "live"
             ? "connecting to channel…"
             : "still finding a playable stream…",
         );
@@ -498,7 +500,7 @@ export class DetailController {
     }, 2000);
     const slowResolveTimer = window.setTimeout(() => {
       if (this.playToken === token && this.card?.id === card.id) {
-        if (this.isYoutubeCard(card) || card.type === "tv" || this.browseTab === "live") {
+        if (this.isYoutubeCard(card) || this.browseTab === "live") {
           return;
         }
         this.publishPlayProgress("still finding a playable stream…");
@@ -506,7 +508,7 @@ export class DetailController {
     }, 10000);
     const longResolveTimer = window.setTimeout(() => {
       if (this.playToken === token && this.card?.id === card.id) {
-        if (this.isYoutubeCard(card) || card.type === "tv" || this.browseTab === "live") {
+        if (this.isYoutubeCard(card) || this.browseTab === "live") {
           return;
         }
         this.publishPlayProgress("this is taking longer than usual…");
@@ -1245,7 +1247,7 @@ export class DetailController {
   }
 
   private isYoutubeCard(card: ContentCard | null | undefined): boolean {
-    return Boolean(card && (card.source === "youtube" || card.type.startsWith("youtube_")));
+    return Boolean(card && tabForCard(card) === "youtube");
   }
 
   private canPlayCard(card: ContentCard | null | undefined): boolean {
@@ -1313,7 +1315,7 @@ export class DetailController {
       return;
     }
     this.playButton.disabled = false;
-    const isLive = card.type === "tv" || this.browseTab === "live";
+    const isLive = tabForCard(card, this.browseTab) === "live";
     if (this.isYoutubeCard(card)) {
       this.setPlayButtonText(card.liveStatus === "live" ? "watch live" : "play");
       return;
@@ -1972,7 +1974,7 @@ function episodeProgressLabel(progressPct: number | null): string {
 }
 
 function detailMetaLine(meta: CatalogMeta, card: ContentCard): string {
-  if (card.type === "tv") {
+  if (tabForCard(card) === "live") {
     return meta.releaseInfo || card.subtitle || "live";
   }
   const parts = [

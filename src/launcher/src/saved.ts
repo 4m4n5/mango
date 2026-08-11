@@ -1,4 +1,5 @@
 import type { BrowseTab, ContentCard } from "./types";
+import { librarySourceForCard, tabForCard } from "./library-tab";
 import { recommendationAttributionPayload } from "./recommendation-attribution";
 import {
   personalizationExpectationBody,
@@ -140,7 +141,7 @@ export async function publishCurrentLibraryContext(
 function cardPayload(tab: BrowseTab, card: ContentCard): Record<string, unknown> {
   return {
     source: librarySourceForCard(card),
-    tab,
+    tab: tabForCard(card, tab),
     type: card.type,
     id: card.id,
     title: card.title,
@@ -157,10 +158,6 @@ export function cardSavedKey(card: ContentCard): string {
 
 function savedKey(item: SavedRecord): string {
   return `${item.source || "mango"}:${item.type}:${item.id}`;
-}
-
-function librarySourceForCard(card: ContentCard): string {
-  return card.source === "youtube" ? "youtube" : "mango";
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {

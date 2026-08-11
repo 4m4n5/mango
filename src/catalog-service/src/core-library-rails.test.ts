@@ -1,14 +1,34 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import {
+  CatalogCore,
   catalogTabLoadPolicy,
   mergeUserStateRails,
   RecommendationTabRevisionFence,
+  vodUtilityRailMembershipMatches,
   vodDiscoveryShufflePolicy,
   vodUtilityHouseholdBlend,
   vodUtilityProfileId,
   type RailItemsResponse,
+  type TabRailItemsResponse,
 } from './core.js';
+import {
+  listSavedLibraryItems,
+  resetLibraryDbForTests,
+  saveLibraryItem,
+} from './library/db.js';
+import {
+  getPlayabilityDb,
+  initPlayabilityDb,
+  persistVodTabDealV3,
+  prepareVodBrowseReservoirV3,
+  readVodTabDealV3,
+  resetPlayabilityDbForTests,
+} from './playability/db.js';
+import { initProgressDb, resetProgressDbForTests } from './progress/db.js';
 
 function rail(id: string, count: number): RailItemsResponse {
   return {
@@ -82,6 +102,173 @@ test('Browse v3 renders Explore after precise For You and before every specializ
     'category-a',
     'ai-slot-1',
   ]);
+});
+
+test('Browse v3 rejects a cached Saved rail whose membership belongs to another tab', () => {
+  const saved = rail('saved', 2);
+  saved.items = [
+    { ...saved.items[0]!, type: 'series', id: 'tt-series-saved' },
+    { ...saved.items[1]!, type: 'movie', id: 'tt-dune' },
+  ];
+  assert.equal(vodUtilityRailMembershipMatches(
+    saved,
+    new Set(['series:tt-series-saved', 'series:tt-other-saved']),
+  ), false);
+  saved.items[1] = { ...saved.items[1]!, type: 'series', id: 'tt-other-saved' };
+  assert.equal(vodUtilityRailMembershipMatches(
+    saved,
+    new Set(['series:tt-series-saved', 'series:tt-other-saved']),
+  ), true);
+});
+
+test('Browse v3 rejects and replaces a persisted deal contaminated by another tab\'s Saved title', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mango-core-saved-deal-'));
+  const previous = {
+    libraryDb: process.env.MANGO_LIBRARY_DB_PATH,
+    playabilityDb: process.env.MANGO_PLAYABILITY_DB,
+    progressDb: process.env.MANGO_PROGRESS_DB_PATH,
+    repoDir: process.env.MANGO_REPO_DIR,
+    browseMode: process.env.MANGO_VOD_BROWSE_V3,
+    recommendationMode: process.env.MANGO_VOD_RECS_V2,
+  };
+  process.env.MANGO_LIBRARY_DB_PATH = join(dir, 'library.db');
+  process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
+  process.env.MANGO_PROGRESS_DB_PATH = join(dir, 'progress.db');
+  process.env.MANGO_REPO_DIR = join(process.cwd(), '../..');
+  process.env.MANGO_VOD_BROWSE_V3 = 'serve';
+  process.env.MANGO_VOD_RECS_V2 = 'off';
+  resetLibraryDbForTests();
+  resetPlayabilityDbForTests();
+  resetProgressDbForTests();
+
+  try {
+    const dune = saveLibraryItem({
+      source: 'mango', type: 'movie', id: 'tt1160419', title: 'Dune',
+      poster: 'https://img/dune.jpg', tab: 'series', saved_at: 1_000,
+    });
+    const alliance = saveLibraryItem({
+      source: 'mango', type: 'series', id: 'tt-series-alliance', title: 'Alliance',
+      poster: 'https://img/alliance.jpg', tab: 'series', saved_at: 2_000,
+    });
+    assert.equal(dune.tab, 'movies');
+    assert.deepEqual(listSavedLibraryItems('series').map((item) => item.id), [alliance.id]);
+
+    await initPlayabilityDb();
+    await initProgressDb();
+    const playability = getPlayabilityDb();
+    const insertTitle = playability.prepare(`
+INSERT INTO titles(type, id, status, verified_at, first_verified_at, best_source, updated_at)
+VALUES ('series', ?, 'verified', ?, ?, 'fixture', ?)
+`);
+    const insertEvidence = playability.prepare(`
+INSERT INTO title_story_evidence(type, id, title, poster_url, year, updated_at)
+VALUES ('series', ?, ?, ?, '2026', ?)
+`);
+    const now = Date.now();
+    playability.transaction(() => {
+      for (let index = 0; index < 12; index += 1) {
+        const id = `tt-series-explore-${index}`;
+        insertTitle.run(id, now, now, now);
+        insertEvidence.run(id, `Series Explore ${index}`, `https://img/${id}.jpg`, now);
+      }
+    })();
+    await prepareVodBrowseReservoirV3({
+      tab: 'series', rails: [], affinityRevision: 'rank:none:taste:none',
+    });
+
+    const contaminatedSaved = rail('saved', 1);
+    contaminatedSaved.items = [{
+      ...contaminatedSaved.items[0]!,
+      id: dune.id,
+      type: 'movie',
+      title: dune.title,
+    }];
+    const contaminatedPayload: TabRailItemsResponse = {
+      tab: 'series', rails: [contaminatedSaved], resolve_ms: 0,
+    };
+    await persistVodTabDealV3({
+      tab: 'series',
+      session_id: 'contaminated-series-deal',
+      recommendation_revision: null,
+      payload_json: JSON.stringify(contaminatedPayload),
+      expected_previous_epoch: null,
+    });
+
+    type CoreStageHarness = {
+      browsableRailsForTab: () => [];
+      stageVodBrowseV3: (
+        tab: 'movies' | 'series',
+        reshuffle: boolean,
+        personalization: { active_profile_id: string; updated_at: number },
+        recommendationRevision: number | null,
+        cacheKey: string,
+        cachedTab: undefined,
+        started: number,
+        options: { publishCache: boolean; forYouOverride: null },
+      ) => Promise<{
+        value: TabRailItemsResponse;
+        commit?: () => Promise<void> | void;
+      }>;
+    };
+    const TestCatalogCore = CatalogCore as unknown as new (...args: unknown[]) => CatalogCore;
+    const core = new TestCatalogCore(
+      { available: false, error: 'fixture' },
+      [],
+      {},
+      null,
+      null,
+      null,
+      null,
+      [],
+    ) as unknown as CoreStageHarness;
+    core.browsableRailsForTab = () => [];
+    const staged = await core.stageVodBrowseV3(
+      'series',
+      false,
+      { active_profile_id: 'household', updated_at: 1 },
+      null,
+      'series-fixture-cache-key',
+      undefined,
+      Date.now(),
+      { publishCache: false, forYouOverride: null },
+    );
+
+    assert.notEqual(staged.value.cached, true);
+    assert.deepEqual(
+      staged.value.rails.find((entry) => entry.rail_id === 'saved')?.items
+        .map((item) => `${item.type}:${item.id}`),
+      [`series:${alliance.id}`],
+    );
+    assert.equal(
+      staged.value.rails.some((entry) => entry.items.some((item) => item.id === dune.id)),
+      false,
+    );
+    assert.equal(staged.value.rails.find((entry) => entry.rail_id === 'explore-series')?.items.length, 9);
+
+    await staged.commit?.();
+    const active = await readVodTabDealV3('series', 'active');
+    const prior = await readVodTabDealV3('series', 'previous');
+    assert.equal(active?.deal_epoch, 1);
+    assert.equal(prior?.deal_epoch, 0);
+    assert.equal(active?.payload_json.includes(dune.id), false);
+    assert.equal(prior?.payload_json.includes(dune.id), true);
+  } finally {
+    resetLibraryDbForTests();
+    resetPlayabilityDbForTests();
+    resetProgressDbForTests();
+    const restore = (key: keyof typeof previous, envKey: string): void => {
+      const value = previous[key];
+      if (value === undefined) delete process.env[envKey];
+      else process.env[envKey] = value;
+    };
+    restore('libraryDb', 'MANGO_LIBRARY_DB_PATH');
+    restore('playabilityDb', 'MANGO_PLAYABILITY_DB');
+    restore('progressDb', 'MANGO_PROGRESS_DB_PATH');
+    restore('repoDir', 'MANGO_REPO_DIR');
+    restore('browseMode', 'MANGO_VOD_BROWSE_V3');
+    restore('recommendationMode', 'MANGO_VOD_RECS_V2');
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('Saved rail appears first when Continue is empty and is absent when empty', () => {

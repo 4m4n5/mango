@@ -9,6 +9,7 @@ export type SearchScope = "all" | "movies" | "series" | "live" | "youtube";
 type SearchResult = {
   key: string;
   source: "mango" | "youtube" | "external";
+  library_source?: string;
   type: string;
   id: string;
   title: string;
@@ -221,6 +222,7 @@ function resultToCard(item: SearchResult, railId: string): ContentCard {
     year: item.year,
     description: item.description,
     source: item.source,
+    librarySource: item.library_source,
     kind: item.kind,
     liveStatus: item.live_status,
     railId,

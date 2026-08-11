@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { CatalogError, type CatalogCore } from '../core.js';
 import {
+  activeViewerProfileId,
   clearSearchActivity,
   getSearchPreferences,
   listSearchHistory,
@@ -8,6 +9,7 @@ import {
   listSearchStarterItems,
   recordSearchQuery,
   recordSearchSelection,
+  savedLibrarySourcesByItemId,
   setSearchPreferences,
   type SearchSafeSearch,
 } from '../library/db.js';
@@ -20,6 +22,7 @@ import {
 } from '../playability/db.js';
 import { metahubPosterUrl, normalizePosterUrl, youtubeVideoThumbnailUrl } from '../poster.js';
 import { loadRailConfig } from '../rails.js';
+import { recommendationOwnerForRollout } from '../recommendations/v2-mode.js';
 import { searchExternalTitles, type ExternalSearchHit } from '../voice/external.js';
 import { searchLiveChannels } from '../voice/live-search.js';
 import {
@@ -110,6 +113,7 @@ function youtubeResult(item: YoutubeItem, query: string): SearchResult | null {
   return {
     key: `youtube:${type}:${item.id}`,
     source: 'youtube',
+    library_source: item.library_source,
     type,
     id: item.id,
     title: item.title,
@@ -155,7 +159,11 @@ function uniqueRanked(
   for (const item of items) {
     const key = resultKey(item);
     const current = byKey.get(key);
-    if (!current || item.score > current.score) byKey.set(key, item);
+    if (!current
+      || item.score > current.score
+      || (item.score === current.score && !current.library_source && Boolean(item.library_source))) {
+      byKey.set(key, item);
+    }
   }
   return [...byKey.values()]
     .sort((left, right) => {
@@ -317,11 +325,24 @@ export class UnifiedSearchService {
 
   private searchIndex(query: string, scope: SearchScope, limit = SEARCH_RESULT_LIMIT): SearchResult[] {
     const results: SearchResult[] = [];
+    const youtubeSavedSources = savedLibrarySourcesByItemId({
+      type: 'youtube_video',
+      profile_id: recommendationOwnerForRollout('youtube', activeViewerProfileId()),
+      household_blend: false,
+      preferred_source: 'youtube',
+    });
     for (const candidate of this.index) {
       if (!scopeAllows(scope, candidate)) continue;
       const scored = scoreSearchMatch(candidate.title, query, candidate.searchable);
       if (!scored) continue;
-      results.push({ ...candidate, ...scored });
+      const librarySource = candidate.type === 'youtube_video'
+        ? youtubeSavedSources.get(candidate.id)
+        : undefined;
+      results.push({
+        ...candidate,
+        ...(librarySource ? { library_source: librarySource } : {}),
+        ...scored,
+      });
     }
     return results.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0, limit);
   }

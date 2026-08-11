@@ -184,10 +184,14 @@ the table and API on the Pi.
 ### Mango library state
 
 Mango is the user-library source of truth. `progress.db` v2 owns profile-exact
-Continue/resume, while `/etc/mango/library.db` is currently migrated through
-v17. V12 was the original Story Graph milestone; later additive migrations add
-Takeout, generation scoping, progressive profiles/frontier/calibration/usage,
-immutable overlays, persisted corpus priors, and resumable refresh diagnostics.
+Continue/resume, while current source migrates `/etc/mango/library.db` through
+v18. The later read-only Pi runtime observation at `4a175197` predates migration
+18, while `fb20baa` remains the last fully gated runtime; migration-18
+preservation/readback and couch placement proof are deferred until the next
+deployment. V12 was the original Story Graph milestone; later additive
+migrations add Takeout, generation scoping, progressive
+profiles/frontier/calibration/usage, immutable overlays, persisted corpus
+priors, and resumable refresh diagnostics.
 The library mirrors profile watch state and owns
 explicit Saved rows, automatic history, finished state, current TV
 context, and dormant hidden/blocked fields. Legacy unscoped progress/watch rows
@@ -219,6 +223,15 @@ remain dormant and recoverable; they are not merged or deleted. In both
 `shadow` and `serve`, Saved utility reads are exact Household reads rather than
 a blend of preserved personal rows. Exact resume remains profile-owned in the
 preserved data model. Household activation and clearing mood are idempotent.
+
+Saved tab placement is derived from normalized content identity rather than the
+launcher surface that opened Detail. Source `youtube` or a `youtube_*` type owns
+YouTube; `series` owns TV Shows; `tv`/`live`/`channel` owns Live; and
+`movie`/`film`/blank owns Movies. Only an unknown type may retain a valid caller
+hint. Library migration 18 updates only the derived `library_items.tab` value;
+item keys, ownership, Saved timestamps, ratings, feedback, history, progress,
+attribution, and `updated_at` remain intact. Reads apply the same canonical
+mapping as a safety fence.
 
 Owned reads keep the existing end-to-end revision handshake. In VOD `shadow`
 and `serve`, the recommendation owner is fixed to Household; the launcher captures that
@@ -378,10 +391,11 @@ sixth when an authoritative authenticated subscription snapshot exists, and
 render only with exactly four globally unique landscape cards; therefore a
 logical position can be absent when supply is thin. Live Now may contain one to
 four.
-`More Like` is conditional: with sufficient official history, acquisition tries
-at least six daily-stable distinct seed videos, up to ten, and requests 25
-results per seed until its unique eligible reserve reaches the 64-title target.
-It preserves multi-seed provenance and caps the published reserve at 120. An
+`More Like` is conditional: with sufficient official history, nightly
+acquisition tries up to ten daily-stable distinct seed videos, requests 50
+results per seed, seeks at least eight contributing topics, and keeps using the
+bounded seed budget toward the 512-item rail cap. It preserves multi-seed
+provenance and can publish up to 512 quality-gated candidates. An
 exact channel's official uploads playlist is a sparse-history fallback only
 when thematic work cannot fill four cards. A thematic/same-channel hybrid is
 valid; a four-card exact-channel fallback is labelled `More from <channel>`.
@@ -390,7 +404,11 @@ the rail is omitted without blocking otherwise healthy YouTube serve.
 Subscription-only cold start retains `More from channels you follow`. History
 and Saved remain stable. `GET /youtube/rails?reshuffle=1` advances only
 published recommendation, discovery, subscription, and live slates and performs
-no API call, acquisition, or ranking work.
+no API call, acquisition, enrichment, or ranking work. Each epoch independently
+uses deterministic exponential-race sampling weighted by quality tier and
+within-tier percentile. Selection is without replacement only inside that
+visible response; cross-shuffle repeats are valid, and rendered impressions or
+exposure counters never influence membership.
 
 Recommendation acquisition and scoring accept exactly two official inputs:
 authoritative OAuth subscription snapshots and Google Takeout watch history.
@@ -415,14 +433,24 @@ require source mixing when both history and subscription supply exists.
 The Reliability Center accepts a Takeout ZIP or extracted JSON/HTML, streams and
 validates it with bounded size/expansion, stores only normalized durable watch
 events/import diagnostics, and discards raw uploaded data. Successful refreshes
-publish complete local generations atomically; a failed phase preserves
-last-good state. Ordinary Home loads and X consume only those published
-reservoirs. Independent
+publish complete local generations atomically. An incomplete authoritative
+subscription snapshot, any discovery/Live source request failure, or an atomic
+publication failure preserves an explicitly stale last-good generation; the
+last case reports `publication_failed`. The clean 90-second acquisition wall
+instead discards the late response and may publish eligible work completed
+before the wall; bounded history-metadata repair remains explicitly
+best-effort and cannot inject unverified candidates. Ordinary Home loads and X consume only those published
+reservoirs. YouTube migration 17 adds nullable acquisition relation and source-
+position evidence without adding presentation history. Recommendation quality
+combines relation, source rank, decayed official-history affinity or
+subscription recency, and independent provenance support; A/B candidates are
+published first, with at most 64 weaker-but-eligible C candidates and a hard
+512-item normal-rail bound. Independent
 `MANGO_VOD_RECS_V2=off|shadow|serve` and
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` switches permit isolated rollout.
 
-Both recommendation architectures have their source/runtime rollout blockers
-closed at `fb20baa344daa37585141096e55f47bedb87de0e`: YouTube `off` uses exact active
+The prior recommendation runtime closed its rollout blockers at
+`fb20baa344daa37585141096e55f47bedb87de0e`: YouTube `off` uses exact active
 personal ownership, VOD active modes use exact Household Saved, off/shadow
 cannot expose or falsely advance Shuffle, and diagnostics distinguish the
 active/previous serving pointers from the newest attempted generation. Focused
@@ -435,7 +463,9 @@ rail and recency-rotates Continue and Saved. YouTube's exact
 meaningful-watch veto lasts 30 days after the most recent watch; older events
 remain durable History/taste evidence and can re-enter ranked reserves. Human ten-shuffle
 relevance, screenshots, and physical picture/audio/controller judgment remain
-**DEFERRED**.
+**DEFERRED**. The v2.7 quality/depth/independent-shuffle model, YouTube migration
+17, and library migration 18 are newer source work; their Pi migration,
+deployment, automated runtime, and couch proof remain **DEFERRED**.
 
 ### Unified Search
 
@@ -714,7 +744,7 @@ See [PLAYABILITY.md](PLAYABILITY.md) for play-first policy.
 
 | Method | Path | Notes |
 |--------|------|-------|
-| `GET` | `/youtube/state` | Localhost-only operator config/auth/cache/refresh diagnostics |
+| `GET` | `/youtube/state` | Localhost-only privacy-safe aggregate config/auth/cache/refresh/recommendation diagnostics; no command/token paths, raw errors, IDs, titles, URLs, queries, credentials, or raw provenance refs |
 | `POST` | `/youtube/auth/start` | Localhost-only operator device-code OAuth |
 | `GET` | `/youtube/auth/poll?session_id=` | Localhost-only operator OAuth poll |
 | `POST` | `/youtube/auth/disconnect` | Localhost-only operator token removal |

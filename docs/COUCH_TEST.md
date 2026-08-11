@@ -198,6 +198,7 @@ state transition explicitly rather than treating shadow as invisible compute.
 | F3 | Series identity | Rating from an episode writes show-level rating only | |
 | F4 | Prompt | Movie 90% / three distinct series episodes; invitation appears on return without stealing focus | |
 | F5 | Durability | Set/edit/clear survives restart; append-only history and seed precedence remain intact | |
+| F5A | Saved classification | From TV Shows Search, save a known movie such as Dune: it appears only in Movies Saved. Detail/context/watch/feedback from a contradictory origin cannot move known movie/series/Live/YouTube content; pre-upgrade Saved timestamps and related user state remain unchanged | |
 | F6 | Privacy | Teacher/network request contains canonical content evidence only—no ratings, Saved/history, profile, mood, conversation, or memory | |
 | F7 | Corpus/pointer | `scored + excluded == verified`, `unscored == 0`, coverage 1 for a complete publish; `/recommendations/state` must show newest diagnostics separately from matching active/previous/public pointers and epoch | |
 | F8 | Rail shape | Continue, Saved, one exact six-card For You, Explore, every configured truthful category, then AI catalogs | |
@@ -228,10 +229,11 @@ justify that additional architecture.
 Do not expose OAuth/API material in evidence. Distinguish base YouTube from v2
 recommendation mode.
 
-YT1–YT4 apply in every mode. YT5–YT14 are **serve-mode** acceptance: mark them
-DEFERRED in `off`/`shadow`, where recommendation rails are absent and only
-eligible History/Saved utility rails remain. The non-Household `off` ownership
-regression is source-tested at the target and must be re-proven on the Pi.
+YT1–YT4 and YT16 apply in every mode. YT5–YT14 and YT17 are **serve-mode**
+acceptance: mark them DEFERRED in `off`/`shadow`, where recommendation rails are
+absent and only eligible History/Saved utility rails remain. YT15 is the
+explicit `off` rollback check. The non-Household `off` ownership regression is
+source-tested at the target and must be re-proven on the Pi.
 
 | ID | Check | Expected | Verdict/evidence |
 |----|-------|----------|------------------|
@@ -242,15 +244,16 @@ regression is source-tested at the target and must be re-proven on the Pi.
 | YT5 | Input isolation | Only authoritative OAuth subscriptions and official Takeout history influence v2; Mango-local viewing is History/progress plus exact cooldown only | |
 | YT6 | Logical order | For You, Beyond, More Like, History, Saved, then conditional Subscriptions/Live | |
 | YT7 | Supply honesty | Normal rows render only at exactly four cards and can be absent; Live renders 1–4; no unrelated filler | |
-| YT8 | X/quota | X advances cached eligible rails only; API/search counters unchanged; History/Saved stable | |
-| YT9 | For You | 60/40 decayed official-Takeout history/subscriptions with cold-start renormalization; exact meaningful watches are absent for 30 days while Saved/Short/live exclusions remain exact | |
-| YT10 | Beyond/More Like | Beyond excludes subscribed creators; More Like diagnostics prove 6–10 opaque official-Takeout seeds and a target-≥64 reserve when supply permits; creator/seed caps and dedupe hold | |
+| YT8 | X/quota | X makes an independent cached weighted draw; API/search counters unchanged through 50 presses; History/Saved stable; impressions do not affect a replayed epoch | |
+| YT9 | For You | Quality-gated official-Takeout history/subscription evidence, with both source families visible when both have eligible supply; exact meaningful watches are absent for 30 days while Saved/Short/live exclusions remain exact | |
+| YT10 | Beyond/More Like | Beyond excludes subscribed creators; nightly More Like diagnostics prove up to ten opaque official-Takeout seeds, at least eight contributing topics when supply permits, continued quality-gated fill toward no more than 512 published candidates, and creator/seed caps plus within-slate/global dedupe | |
 | YT11 | Not for me | Exact reversible video suppression only; no creator/topic penalty | |
-| YT12 | Failure | Partial refresh/OAuth/quota failure preserves explicit stale last-good generation | |
+| YT12 | Failure | OAuth, quota, any incomplete authoritative subscription/discovery/Live request, or publication failure preserves the explicit stale last-good generation. A clean zero-result source remains valid; the clean 90-second wall discards a late response, keeps earlier eligible work, and may publish with `wall_limit` rather than pretending a source failure | |
 | YT13 | Empty setup | With neither qualifying subscriptions/history, show connect/import/watch setup—not fake Popular filler | |
-| YT14 | Human quality | Relevance, creator diversity, novelty, multilingual/topic fit, stale behavior, and repetition accepted | |
+| YT14 | Human quality | Across initial load plus ten X presses, judge relevance, creator diversity, novelty, multilingual/topic fit, stale behavior, and observed repetition. Cross-shuffle repeats are valid; do not expect or grade a show-once deck | |
 | YT15 | Off rollback | With a non-Household active profile, off returns the intended utility/setup surface without 409 and preserves all personal/Household rows | |
 | YT16 | AI catalog honesty | A YouTube AI-catalog slot is never claimed visible unless the current Home renderer actually composes it | |
+| YT17 | Depth/quality | Safe diagnostics report quality tiers, eligible/effective pool depth, expected adjacent overlap, creator/seed depth, and acquisition stop reason without IDs/titles/URLs/queries/raw provenance refs/secrets; representative deep rails reach effective pool size 320+ and visible cards remain at least 90% A/B | |
 
 The supported Data API cannot reproduce YouTube's proprietary native Home feed;
 absence of that feed is not a defect in Mango's supported model.

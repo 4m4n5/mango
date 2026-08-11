@@ -387,6 +387,16 @@ export type ProfileOwnedTabRailItemsResponse = TabRailItemsResponse & {
   personalization_updated_at: number;
 };
 
+export function vodUtilityRailMembershipMatches(
+  rail: RailItemsResponse | undefined,
+  currentKeys: ReadonlySet<string>,
+  limit = 9,
+): boolean {
+  const items = rail?.items ?? [];
+  return items.length === Math.min(limit, currentKeys.size)
+    && items.every((item) => currentKeys.has(titleKey(item.type, item.id)));
+}
+
 export function mergeUserStateRails(
   discoveryRails: RailItemsResponse[],
   continueRail: RailItemsResponse,
@@ -2574,8 +2584,8 @@ export class CatalogCore {
     const dealableSaved = new Set([...currentSaved].filter((key) => !currentContinue.has(key)));
     const savedRail = payload.rails.find((rail) => rail.rail_id === SAVED_RAIL_ID);
     const continueRail = payload.rails.find((rail) => rail.rail_id === CONTINUE_RAIL_ID);
-    if ((savedRail?.items.length ?? 0) !== Math.min(9, dealableSaved.size)) return false;
-    if ((continueRail?.items.length ?? 0) !== Math.min(9, currentContinue.size)) return false;
+    if (!vodUtilityRailMembershipMatches(savedRail, dealableSaved)) return false;
+    if (!vodUtilityRailMembershipMatches(continueRail, currentContinue)) return false;
     const discovery: Array<{ type: string; id: string }> = [];
     for (const rail of payload.rails) {
       for (const item of rail.items) {
