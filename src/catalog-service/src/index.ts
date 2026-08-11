@@ -1617,6 +1617,7 @@ async function main(): Promise<void> {
   const reliability = new ReliabilityService({
     catalogHealth: () => core.health(),
     playabilityStatus: () => core.playabilityStatus(),
+    activePlayabilityRailIds: () => core.growableRails().map((rail) => rail.id),
     youtubeState: () => youtube.state(),
   });
   const server = http.createServer((req, res) => {

@@ -20,12 +20,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 DEFAULT_THRESHOLD_NIGHTS = 3
 DEFAULT_GROW_TARGET = 20
 REFRESH_JSON_GLOB = "refresh-playability-*.json"
+RAIL_GROWTH_MAX_DATES = 120
+AI_CATALOG_RAIL_PREFIX = "ai-"
 
 
 def cache_dir() -> Path:
@@ -47,6 +50,80 @@ def threshold_nights() -> int:
     except ValueError:
         return DEFAULT_THRESHOLD_NIGHTS
     return value if value > 0 else DEFAULT_THRESHOLD_NIGHTS
+
+
+def _catalog_yaml_path(
+    repo_example: Path | None = None,
+    device_config: Path | None = None,
+) -> Path:
+    override = os.environ.get("MANGO_CATALOG_YAML")
+    if override:
+        return Path(override).expanduser()
+    repo_example = repo_example or (
+        Path(__file__).resolve().parents[2] / "config" / "catalog.example.yaml"
+    )
+    device_config = device_config or Path("/etc/mango/catalog.yaml")
+    # Match CatalogCore's runtime authority: an installed device config owns
+    # the active rails even when it intentionally differs from the repo
+    # example. The checked-in example is only the non-device fallback.
+    if device_config.is_file():
+        return device_config
+    return repo_example
+
+
+def active_vod_rail_ids(
+    catalog_path: Path | None = None,
+    ai_catalogs_dir: Path | None = None,
+) -> set[str]:
+    """Load the same configured Movie/TV rail identities used by VOD grow."""
+    try:
+        import yaml
+    except ImportError as exc:  # pragma: no cover - Pi/setup prerequisite
+        raise RuntimeError("PyYAML is required to resolve active VOD rails") from exc
+
+    path = catalog_path or _catalog_yaml_path()
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        raise RuntimeError(f"could not read active catalog configuration: {path}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"active catalog configuration is not an object: {path}")
+
+    active: set[str] = set()
+    for row in payload.get("rails") or []:
+        if not isinstance(row, dict) or row.get("enabled") is False:
+            continue
+        if row.get("type") not in {"addon_catalog", "composite_list"}:
+            continue
+        tab = row.get("tab")
+        if tab not in {"movies", "series"}:
+            continue
+        rail_id = row.get("id")
+        if isinstance(rail_id, str) and rail_id.strip():
+            active.add(rail_id.strip())
+
+    ai_root = ai_catalogs_dir or Path(
+        os.environ.get("MANGO_AI_CATALOGS_DIR", "/etc/mango/ai-catalogs"),
+    ).expanduser()
+    slots_dir = ai_root / "slots"
+    try:
+        slot_paths = sorted((*slots_dir.glob("*.yaml"), *slots_dir.glob("*.yml")))
+        ai_rows = [yaml.safe_load(slot.read_text(encoding="utf-8")) or {} for slot in slot_paths]
+        if any(not isinstance(row, dict) for row in ai_rows):
+            ai_rows = []
+    except (OSError, ValueError, yaml.YAMLError):
+        # CatalogCore drops the whole optional AI slot set when loading it fails.
+        ai_rows = []
+    for row in ai_rows:
+        if not isinstance(row, dict) or row.get("enabled") is False:
+            continue
+        if row.get("tab") not in {"movies", "series"}:
+            continue
+        slot_id = row.get("slot_id")
+        if isinstance(slot_id, str) and slot_id.strip():
+            bare = slot_id.strip()
+            active.add(bare if bare.startswith(AI_CATALOG_RAIL_PREFIX) else f"{AI_CATALOG_RAIL_PREFIX}{bare}")
+    return active
 
 
 def _refresh_json_paths(directory: Path) -> list[Path]:
@@ -79,7 +156,15 @@ def _night_timestamp(path: Path, payload: dict[str, Any]) -> float:
 
 def _night_rail_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
     mode = payload.get("mode")
-    if mode not in (None, "grow", "nightly"):
+    if mode not in ("grow", "nightly"):
+        return []
+    if (
+        payload.get("ok") is not True
+        or payload.get("maintenance_rc") != 0
+        or payload.get("all_rails_publishable") is not True
+        or not isinstance(payload.get("finished_at"), (int, float))
+        or payload["finished_at"] <= 0
+    ):
         return []
     rails = payload.get("rails")
     if not isinstance(rails, list):
@@ -107,20 +192,30 @@ def _night_rail_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def load_rail_growth_history(directory: Path | None = None) -> list[dict[str, Any]]:
-    """Chronological (oldest-first) per-night rail rows from refresh-playability-*.json."""
+def load_rail_growth_history(
+    directory: Path | None = None,
+    active_rail_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Final completed, publishable refresh per local calendar date, oldest first."""
     directory = directory or ops_dir()
-    nights: list[dict[str, Any]] = []
+    by_local_date: dict[str, dict[str, Any]] = {}
     for path in _refresh_json_paths(directory):
         payload = _load_json(path)
         if payload is None:
             continue
         rows = _night_rail_rows(payload)
+        if active_rail_ids is not None:
+            rows = [row for row in rows if row["rail_id"] in active_rail_ids]
         if not rows:
             continue
-        nights.append({"generated_at": _night_timestamp(path, payload), "rails": rows})
-    nights.sort(key=lambda night: night["generated_at"])
-    return nights
+        generated_at = _night_timestamp(path, payload)
+        if generated_at <= 0:
+            continue
+        local_date = datetime.fromtimestamp(generated_at / 1000).date().isoformat()
+        previous = by_local_date.get(local_date)
+        if previous is None or generated_at >= previous["generated_at"]:
+            by_local_date[local_date] = {"generated_at": generated_at, "rails": rows}
+    return sorted(by_local_date.values(), key=lambda night: night["generated_at"])[-RAIL_GROWTH_MAX_DATES:]
 
 
 def compute_starving_rails(
@@ -181,7 +276,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     threshold = args.threshold_nights if args.threshold_nights else threshold_nights()
-    history = load_rail_growth_history()
+    try:
+        active_rails = active_vod_rail_ids()
+    except RuntimeError as exc:
+        raise SystemExit(f"rail health unavailable: {exc}") from exc
+    if not active_rails:
+        raise SystemExit("rail health unavailable: active VOD rail configuration is empty")
+    history = load_rail_growth_history(active_rail_ids=active_rails)
     starving = compute_starving_rails(history, threshold)
 
     if args.json:

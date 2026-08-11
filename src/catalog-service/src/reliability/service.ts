@@ -21,7 +21,7 @@ import type {
 
 type CatalogHealth = Record<string, unknown>;
 type YoutubeState = Record<string, unknown>;
-type PlayabilityStatusLike = Omit<PlayabilityStatus, 'ok'> & {
+export type PlayabilityStatusLike = Omit<PlayabilityStatus, 'ok'> & {
   ok: boolean;
   error?: string;
 };
@@ -29,6 +29,7 @@ type PlayabilityStatusLike = Omit<PlayabilityStatus, 'ok'> & {
 export type ReliabilityServiceOptions = {
   catalogHealth: () => CatalogHealth;
   playabilityStatus: () => Promise<PlayabilityStatus>;
+  activePlayabilityRailIds: () => string[];
   youtubeState: () => YoutubeState;
 };
 
@@ -293,12 +294,16 @@ function catalogFacts(health: CatalogHealth): ReliabilityFacts['catalog'] {
   };
 }
 
-function playabilityFacts(status: PlayabilityStatusLike): ReliabilityFacts['playability'] {
-  const rails = status.rails || [];
+export function playabilityFacts(
+  status: PlayabilityStatusLike,
+  activeRailIds: readonly string[],
+): ReliabilityFacts['playability'] {
+  const active = new Set(activeRailIds);
+  const rails = (status.rails || []).filter((rail) => active.has(rail.rail_id));
   return {
     ok: status.ok === true,
     rail_count: rails.length,
-    verified_total: safeNumber(status.totals?.verified_pool, 0),
+    verified_total: rails.reduce((sum, rail) => sum + safeNumber(rail.verified_pool, 0), 0),
     thin_rails: rails
       .filter((rail) => safeNumber(rail.verified_pool, 0) < 9)
       .map((rail) => ({ rail_id: rail.rail_id, verified_pool: safeNumber(rail.verified_pool, 0) })),
@@ -357,7 +362,7 @@ function processFacts(): ReliabilityFacts['processes'] {
   };
 }
 
-const REFRESH_JSON_MAX_FILES = 120;
+const RAIL_GROWTH_MAX_DATES = 120;
 
 function refreshJsonFileNames(dir: string): string[] {
   try {
@@ -381,13 +386,25 @@ function refreshPayloadTimestamp(dir: string, name: string, payload: Record<stri
   }
 }
 
-function refreshPayloadRailNight(payload: Record<string, unknown>): RailGrowthNight['rails'] {
+function refreshPayloadRailNight(
+  payload: Record<string, unknown>,
+  activeRailIds: ReadonlySet<string>,
+): RailGrowthNight['rails'] {
   const mode = payload.mode;
-  if (mode !== undefined && mode !== 'grow' && mode !== 'nightly') return [];
+  if (mode !== 'grow' && mode !== 'nightly') return [];
+  if (payload.ok !== true
+    || payload.maintenance_rc !== 0
+    || payload.all_rails_publishable !== true
+    || safeNumber(payload.finished_at, 0) <= 0) {
+    return [];
+  }
   const rails = Array.isArray(payload.rails) ? payload.rails : [];
   return rails
     .filter((row): row is Record<string, unknown> => (
-      !!row && typeof row === 'object' && typeof (row as Record<string, unknown>).rail_id === 'string'
+      !!row
+      && typeof row === 'object'
+      && typeof (row as Record<string, unknown>).rail_id === 'string'
+      && activeRailIds.has(String((row as Record<string, unknown>).rail_id))
     ))
     .map((row) => {
       const growTarget = safeNumber(row.grow_target, 20);
@@ -405,11 +422,27 @@ function refreshPayloadRailNight(payload: Record<string, unknown>): RailGrowthNi
     });
 }
 
-/** Reads nightly/grow refresh JSON (scripts/diag/extract_refresh_json.py output) into per-night rail rows. */
-function railGrowthHistory(): RailGrowthNight[] {
-  const dir = opsDir();
-  const names = refreshJsonFileNames(dir).slice(-REFRESH_JSON_MAX_FILES);
-  const nights: RailGrowthNight[] = [];
+function localCalendarDate(timestampMs: number): string {
+  const date = new Date(timestampMs);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Reads completed, publishable grow refreshes and keeps only the final one for
+ * each Pi-local calendar date. The documented operator catch-up is allowed to
+ * replace a missed scheduled run, but repeated/manual same-day artifacts must
+ * never manufacture additional "nights" in the reliability streak.
+ */
+export function railGrowthHistory(
+  activeRailIds: readonly string[],
+  dir = opsDir(),
+): RailGrowthNight[] {
+  const names = refreshJsonFileNames(dir).sort();
+  const active = new Set(activeRailIds);
+  const byLocalDate = new Map<string, RailGrowthNight>();
   for (const name of names) {
     let payload: Record<string, unknown>;
     try {
@@ -417,15 +450,26 @@ function railGrowthHistory(): RailGrowthNight[] {
     } catch {
       continue;
     }
-    const rails = refreshPayloadRailNight(payload);
+    const rails = refreshPayloadRailNight(payload, active);
     if (rails.length === 0) continue;
-    nights.push({ generated_at: refreshPayloadTimestamp(dir, name, payload), rails });
+    const generatedAt = refreshPayloadTimestamp(dir, name, payload);
+    if (generatedAt <= 0) continue;
+    const date = localCalendarDate(generatedAt);
+    const previous = byLocalDate.get(date);
+    if (!previous || generatedAt >= previous.generated_at) {
+      byLocalDate.set(date, { generated_at: generatedAt, rails });
+    }
   }
-  return nights;
+  return Array.from(byLocalDate.values())
+    .sort((left, right) => left.generated_at - right.generated_at)
+    .slice(-RAIL_GROWTH_MAX_DATES);
 }
 
-function railGrowthFacts(): ReliabilityFacts['rail_growth'] {
-  return { threshold_nights: railMissNightsThreshold(), history: railGrowthHistory() };
+function railGrowthFacts(activeRailIds: readonly string[]): ReliabilityFacts['rail_growth'] {
+  return {
+    threshold_nights: railMissNightsThreshold(),
+    history: railGrowthHistory(activeRailIds),
+  };
 }
 
 function runDetached(script: string, args: string[]): number {
@@ -446,6 +490,7 @@ export class ReliabilityService {
   constructor(private readonly options: ReliabilityServiceOptions) {}
 
   private async gatherFacts(): Promise<ReliabilityFacts> {
+    const activePlayabilityRailIds = this.options.activePlayabilityRailIds();
     const [idle, launcher, playability] = await Promise.all([
       readCouchIdle(),
       launcherHealth(),
@@ -459,7 +504,7 @@ export class ReliabilityService {
         error: error instanceof Error ? error.message : String(error),
       } as PlayabilityStatusLike)),
     ]);
-    const playabilityInfo = playabilityFacts(playability);
+    const playabilityInfo = playabilityFacts(playability, activePlayabilityRailIds);
     if ('error' in playability && playability.error) {
       playabilityInfo.error = playability.error;
     }
@@ -478,7 +523,7 @@ export class ReliabilityService {
         busy: maintenanceBusy(),
         stale_locks: staleLocks(),
       },
-      rail_growth: railGrowthFacts(),
+      rail_growth: railGrowthFacts(activePlayabilityRailIds),
       last_proof: latestReliabilityProof(),
     };
   }
