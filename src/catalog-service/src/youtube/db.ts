@@ -25,6 +25,31 @@ let dbSingleton: Database.Database | null = null;
 let initialized = false;
 let legacyTakeoutMigrationComplete = false;
 let legacyTakeoutMigrationResult = { history_inserted: 0, audits_copied: 0 };
+let latestGenerationSnapshot: {
+  db_path: string;
+  generation: number;
+  data_version: number;
+  item_keys: Set<string>;
+  value: YoutubeV2Generation;
+} | null = null;
+
+function invalidateLatestGenerationSnapshot(): void {
+  latestGenerationSnapshot = null;
+}
+
+function youtubeDbDataVersion(db: Database.Database): number {
+  return Number(db.pragma('data_version', { simple: true }));
+}
+
+function freezeYoutubeV2Generation(value: YoutubeV2Generation): YoutubeV2Generation {
+  for (const item of value.items) {
+    if (item.tags) Object.freeze(item.tags);
+    Object.freeze(item);
+  }
+  Object.freeze(value.items);
+  Object.freeze(value);
+  return value;
+}
 
 export function resetYoutubeDbForTests(): void {
   if (dbSingleton) {
@@ -34,6 +59,7 @@ export function resetYoutubeDbForTests(): void {
   initialized = false;
   legacyTakeoutMigrationComplete = false;
   legacyTakeoutMigrationResult = { history_inserted: 0, audits_copied: 0 };
+  invalidateLatestGenerationSnapshot();
 }
 
 export function youtubeDbPath(): string {
@@ -701,6 +727,15 @@ ON CONFLICT(kind, id) DO UPDATE SET
     }
   });
   tx();
+  const activeItemKeys = latestGenerationSnapshot?.item_keys;
+  if (activeItemKeys && items.some((item) => (
+    activeItemKeys.has(`${normalizeKind(item.kind)}:${item.id}`)
+  ))) {
+    // Active-generation metadata is joined from youtube_items. Keep that
+    // observable behavior while allowing unrelated Search/cache writes to
+    // leave the immutable published serving snapshot hot.
+    invalidateLatestGenerationSnapshot();
+  }
 }
 
 export function getYoutubeItem(kind: string, id: string): YoutubeItem | null {
@@ -1738,7 +1773,7 @@ export function publishYoutubeV2Generation(input: {
     return true;
   });
   upsertYoutubeItems(items.map((entry) => entry.item));
-  return db.transaction(() => {
+  const generation = db.transaction(() => {
     const generation = Number(db.prepare(`
 INSERT INTO youtube_v2_generations(
   model_version, source_hash, status, watch_count, subscription_count,
@@ -1784,10 +1819,12 @@ WHERE generation NOT IN (
 `).run();
     return generation;
   })();
+  invalidateLatestGenerationSnapshot();
+  return generation;
 }
 
-export function latestYoutubeV2GenerationRecord(): YoutubeV2GenerationRecord | null {
-  return (ensureDb().prepare(`
+function readLatestYoutubeV2GenerationRecord(db: Database.Database): YoutubeV2GenerationRecord | null {
+  return (db.prepare(`
 SELECT generation, model_version, source_hash, status, watch_count, subscription_count,
        candidate_count, generated_at
 FROM youtube_v2_generations
@@ -1796,10 +1833,10 @@ LIMIT 1
 `).get() as YoutubeV2GenerationRecord | undefined) ?? null;
 }
 
-export function latestYoutubeV2Generation(): YoutubeV2Generation | null {
-  const db = ensureDb();
-  const generation = latestYoutubeV2GenerationRecord();
-  if (!generation || generation.status !== 'ready') return null;
+function readYoutubeV2GenerationItems(
+  db: Database.Database,
+  generation: number,
+): YoutubeV2Generation['items'] {
   const items = db.prepare(`
 SELECT
   gi.rail_id, gi.rank, gi.score, gi.reason, gi.provenance, gi.provenance_ref,
@@ -1811,12 +1848,69 @@ FROM youtube_v2_generation_items gi
 JOIN youtube_items yi ON yi.kind = gi.kind AND yi.id = gi.id
 WHERE gi.generation = ?
 ORDER BY gi.rail_id, gi.rank
-`).all(generation.generation) as Array<YoutubeV2Generation['items'][number] & { tags_json?: string }>;
+`).all(generation) as Array<YoutubeV2Generation['items'][number] & { tags_json?: string }>;
+  return items.map((entry) => ({ ...entry, ...youtubeItemFromRow(entry) }));
+}
+
+function youtubeV2GenerationValue(
+  generation: YoutubeV2GenerationRecord,
+  items: YoutubeV2Generation['items'],
+): YoutubeV2Generation {
   const { status: _status, ...ready } = generation;
-  return {
-    ...ready,
-    items: items.map((entry) => ({ ...entry, ...youtubeItemFromRow(entry) })),
-  };
+  return freezeYoutubeV2Generation({ ...ready, items });
+}
+
+export function latestYoutubeV2GenerationRecord(): YoutubeV2GenerationRecord | null {
+  return readLatestYoutubeV2GenerationRecord(ensureDb());
+}
+
+export function latestYoutubeV2Generation(): YoutubeV2Generation | null {
+  const db = ensureDb();
+  const dbPath = youtubeDbPath();
+  const dataVersion = youtubeDbDataVersion(db);
+  const latest = readLatestYoutubeV2GenerationRecord(db);
+  if (!latest || latest.status !== 'ready') return null;
+  if (latestGenerationSnapshot?.db_path === dbPath
+    && latestGenerationSnapshot.generation === latest.generation
+    && latestGenerationSnapshot.data_version === dataVersion) {
+    return latestGenerationSnapshot.value;
+  }
+
+  // A second process is not part of the normal serving path, but operators and
+  // maintenance can legitimately open this rebuildable database. Retry a
+  // cache fill if such a commit races the two-table generation read, rather
+  // than pinning a mixed snapshot to the newer data_version indefinitely.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const versionBefore = youtubeDbDataVersion(db);
+    const generation = readLatestYoutubeV2GenerationRecord(db);
+    if (!generation || generation.status !== 'ready') {
+      if (versionBefore === youtubeDbDataVersion(db)) return null;
+      continue;
+    }
+    const items = readYoutubeV2GenerationItems(db, generation.generation);
+    const versionAfter = youtubeDbDataVersion(db);
+    if (versionBefore !== versionAfter) continue;
+    const value = youtubeV2GenerationValue(generation, items);
+    latestGenerationSnapshot = {
+      db_path: dbPath,
+      generation: generation.generation,
+      data_version: versionAfter,
+      item_keys: new Set(value.items.map((item) => `${item.kind}:${item.id}`)),
+      value,
+    };
+    return value;
+  }
+
+  // Sustained external writes should not make Home disappear. Return one
+  // coherent SQLite read without caching it; the next request can try again.
+  return db.transaction(() => {
+    const generation = readLatestYoutubeV2GenerationRecord(db);
+    if (!generation || generation.status !== 'ready') return null;
+    return youtubeV2GenerationValue(
+      generation,
+      readYoutubeV2GenerationItems(db, generation.generation),
+    );
+  })();
 }
 
 export const YOUTUBE_V2_SERVING_POLICY_VERSION = 'independent_weighted_v1';

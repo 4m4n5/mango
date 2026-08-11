@@ -9,10 +9,12 @@ import {
   getYoutubeItem,
   initYoutubeDb,
   incrementYoutubeQuota,
+  latestYoutubeV2Generation,
   listYoutubeProfileCandidateStates,
   listYoutubeV2CandidateProvenance,
   recordYoutubeImpressions,
   putYoutubeSearchCache,
+  publishYoutubeV2Generation,
   resetYoutubeDbForTests,
   setYoutubeProfileCandidateState,
   setYoutubeState,
@@ -91,6 +93,91 @@ test('official thematic metadata round-trips additively through youtube_items', 
   };
   upsertYoutubeItems([item]);
   assert.deepEqual(getYoutubeItem('video', 'rich'), item);
+}));
+
+test('published generation snapshot stays hot, immutable, and refreshes active metadata', () => withTempYoutube(() => {
+  const active = { ...sampleItem('active'), tags: ['documentary'] };
+  publishYoutubeV2Generation({
+    model_version: 'snapshot-cache-test',
+    source_hash: 'snapshot-cache-source',
+    watch_count: 1,
+    subscription_count: 0,
+    generated_at: 1_000,
+    items: [{
+      rail_id: 'for_you',
+      item: active,
+      score: 0.8,
+      reason: 'snapshot-cache-test',
+      provenance: 'history_topic',
+      provenance_ref: 'history-seed',
+      source_expires_at: 10_000,
+    }],
+  });
+
+  const initial = latestYoutubeV2Generation()!;
+  assert.equal(latestYoutubeV2Generation(), initial);
+  assert.equal(Object.isFrozen(initial), true);
+  assert.equal(Object.isFrozen(initial.items), true);
+  assert.equal(Object.isFrozen(initial.items[0]), true);
+  assert.equal(Object.isFrozen(initial.items[0]?.tags), true);
+  assert.throws(() => {
+    initial.items[0]!.title = 'Caller mutation';
+  }, TypeError);
+  assert.throws(() => {
+    initial.items[0]!.tags!.push('caller-mutation');
+  }, TypeError);
+  assert.throws(() => {
+    initial.items.splice(0, 1);
+  }, TypeError);
+  assert.equal(latestYoutubeV2Generation(), initial);
+  assert.equal(initial.items[0]?.title, active.title);
+  assert.deepEqual(initial.items[0]?.tags, ['documentary']);
+
+  upsertYoutubeItems([sampleItem('unrelated')]);
+  assert.equal(latestYoutubeV2Generation(), initial);
+
+  upsertYoutubeItems([{ ...active, title: 'Updated active title', updated_at: 2_000 }]);
+  const refreshed = latestYoutubeV2Generation()!;
+  assert.notEqual(refreshed, initial);
+  assert.equal(refreshed.items[0]?.title, 'Updated active title');
+  assert.equal(latestYoutubeV2Generation(), refreshed);
+}));
+
+test('published generation snapshot detects active metadata commits from another connection', () => withTempYoutube((dir) => {
+  const active = sampleItem('active-external');
+  publishYoutubeV2Generation({
+    model_version: 'snapshot-cache-external-test',
+    source_hash: 'snapshot-cache-external-source',
+    watch_count: 1,
+    subscription_count: 0,
+    generated_at: 1_000,
+    items: [{
+      rail_id: 'for_you',
+      item: active,
+      score: 0.8,
+      reason: 'snapshot-cache-external-test',
+      provenance: 'history_topic',
+      provenance_ref: 'history-seed',
+      source_expires_at: 10_000,
+    }],
+  });
+  const initial = latestYoutubeV2Generation()!;
+
+  const external = new Database(join(dir, 'youtube.db'));
+  try {
+    external.prepare(`
+UPDATE youtube_items
+SET title = ?, updated_at = ?
+WHERE kind = 'video' AND id = ?
+`).run('Updated by another connection', 2_000, active.id);
+  } finally {
+    external.close();
+  }
+
+  const refreshed = latestYoutubeV2Generation()!;
+  assert.notEqual(refreshed, initial);
+  assert.equal(refreshed.items[0]?.title, 'Updated by another connection');
+  assert.equal(latestYoutubeV2Generation(), refreshed);
 }));
 
 test('latest-only startup preserves historical recommendation rows', () => withTempYoutube((dir) => {
