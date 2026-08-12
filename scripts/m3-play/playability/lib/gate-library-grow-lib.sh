@@ -122,6 +122,9 @@ gate_library_grow_maintenance() {
   grep -q '"nightly"' scripts/m3-play/playability/playability-maintenance.sh
   grep -q 'phase 1: stale refresh' scripts/m3-play/playability/playability-maintenance.sh
   grep -q '\-\-mode nightly' scripts/m3-play/playability/install-playability-timer.sh
+  grep -q 'MANGO_GROW_PRESET.*quick' scripts/m3-play/playability/playability-maintenance.sh
+  grep -q 'MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS.*8 \* 60' scripts/m3-play/playability/playability-maintenance.sh
+  grep -q 'MANGO_STATE_BACKUP_ON_STOP=0' scripts/m3-play/playability/playability-maintenance.sh
   test -f scripts/m4-addons/sync-aiometadata-rail-catalogs.sh
 }
 

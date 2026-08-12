@@ -102,6 +102,12 @@ if [[ ! "$ADMISSION_STOP_MINUTES" =~ ^[0-9]+$ ]] \
 fi
 export MANGO_PLAYABILITY_RUN_DEADLINE_MS=$((RUN_STARTED_MS + NIGHTLY_DEADLINE_MINUTES * 60 * 1000))
 export MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS=$((RUN_STARTED_MS + ADMISSION_STOP_MINUTES * 60 * 1000))
+if [[ "$MANGO_GROW_PRESET" == "quick" ]]; then
+  # The quick preset is an operator-facing whole-run budget, not eight minutes
+  # independently for every rail. Stop admitting work at the advertised bound;
+  # publication and couch restoration may finish immediately afterward.
+  export MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS=$((RUN_STARTED_MS + 8 * 60 * 1000))
+fi
 mkdir -p "$OPS_DIR"
 MAINT_LOG="${OPS_DIR}/maintenance-${RUN_ID}.log"
 exec > >(tee -a "$MAINT_LOG") 2>&1
@@ -532,7 +538,11 @@ restore_couch() {
   set_live_playability_db_env
   bash scripts/m3-play/playability/mpv-probe-pool.sh stop-all >/dev/null 2>&1 || true
   bash scripts/mango-kill-strays.sh >/dev/null 2>&1 || true
-  if ! MANGO_CATALOG=1 MANGO_PLAYABILITY_TOPUP_ON_START=0 bash scripts/mango-refresh.sh >/dev/null 2>&1; then
+  # Publication already owns a verified prepublish snapshot. Avoid a redundant
+  # multi-gigabyte all-state backup while the coordinator still owns the couch
+  # outage; the ordinary stack-stop path retains its independent backup policy.
+  if ! MANGO_CATALOG=1 MANGO_PLAYABILITY_TOPUP_ON_START=0 MANGO_STATE_BACKUP_ON_STOP=0 \
+      bash scripts/mango-refresh.sh >/dev/null 2>&1; then
     echo "warn: mango-refresh failed during publication handoff" >&2
     restore_rc=1
   fi
@@ -561,7 +571,8 @@ PY
     if python3 scripts/m3-play/playability/sqlite-publication.py restore \
         --snapshot "$PUBLICATION_SNAPSHOT" --live "$LIVE_PLAYABILITY_DB"; then
       PUBLISHED_STAGED_DB=0
-      MANGO_CATALOG=1 MANGO_PLAYABILITY_TOPUP_ON_START=0 bash scripts/mango-refresh.sh >/dev/null 2>&1 \
+      MANGO_CATALOG=1 MANGO_PLAYABILITY_TOPUP_ON_START=0 MANGO_STATE_BACKUP_ON_STOP=0 \
+        bash scripts/mango-refresh.sh >/dev/null 2>&1 \
         || echo "warn: couch restart failed after publication rollback" >&2
     else
       echo "error: publication rollback failed" >&2
