@@ -2522,19 +2522,6 @@ SELECT
   SUM(CASE WHEN status = 'verified' AND expires_at IS NOT NULL AND expires_at <= @now THEN 1 ELSE 0 END)
     AS expired_verified,
   SUM(CASE
-    WHEN current.status = 'verified'
-      AND current.type IN ('movie', 'series')
-      AND lower(substr(current.id, 1, 2)) = 'tt'
-      AND length(current.id) > 2
-      AND substr(current.id, 3) NOT GLOB '*[^0-9]*'
-      AND EXISTS (
-        SELECT 1 FROM titles counterpart
-        WHERE counterpart.type = CASE current.type WHEN 'movie' THEN 'series' ELSE 'movie' END
-          AND lower(counterpart.id) = lower(current.id)
-          AND counterpart.status = 'verified'
-      )
-    THEN 1 ELSE 0 END) AS verified_type_conflicts,
-  SUM(CASE
     WHEN status = 'stale' AND fail_reason = 'identity_type_collision' THEN 1 ELSE 0 END)
     AS stale_type_conflicts,
   SUM(CASE WHEN type = 'series' AND status = 'verified'
@@ -2551,6 +2538,23 @@ SELECT
     AND length(id) - length(replace(id, ':', '')) = 2 THEN 1 ELSE 0 END) AS exact_episode_failed
 FROM titles current;
 `).get({ now: statusNow }) as Record<string, number | null>;
+  // One grouped scan avoids a correlated lower(id) lookup for every title.
+  // The status endpoint runs on the Node event loop, so quadratic SQL here can
+  // make even /health/live appear down on a real library-sized Pi database.
+  const verifiedTypeConflicts = toNumber((db.prepare(`
+SELECT COALESCE(SUM(type_count), 0) AS count
+FROM (
+  SELECT lower(id) AS normalized_id, COUNT(DISTINCT type) AS type_count
+  FROM titles
+  WHERE status = 'verified'
+    AND type IN ('movie', 'series')
+    AND lower(substr(id, 1, 2)) = 'tt'
+    AND length(id) > 2
+    AND substr(id, 3) NOT GLOB '*[^0-9]*'
+  GROUP BY lower(id)
+  HAVING COUNT(DISTINCT type) = 2
+);
+`).get() as { count: number | null }).count);
 
   const byRail = new Map(rows.map((row) => [row.rail_id, row]));
   const allRailIds = [...new Set([...railIds, ...rows.map((row) => row.rail_id)])].sort();
@@ -2588,7 +2592,7 @@ FROM titles current;
       exact_main_verified: toNumber(verification.exact_main_verified),
       expired_verified: toNumber(verification.expired_verified),
       identity_type_conflicts: {
-        verified: toNumber(verification.verified_type_conflicts),
+        verified: verifiedTypeConflicts,
         stale: toNumber(verification.stale_type_conflicts),
       },
       exact_episodes: {

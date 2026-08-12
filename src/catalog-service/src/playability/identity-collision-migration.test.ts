@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { performance } from 'node:perf_hooks';
 
 import {
   getPlayabilityDb,
@@ -137,5 +138,27 @@ VALUES (@type, @id, @status, @expires_at, @fail_reason, @proof_version, @proof_e
       identity_type_conflicts: { verified: 2, stale: 2 },
       exact_episodes: { verified: 1, stale: 1, failed: 1 },
     });
+  });
+});
+
+test('playability status collision accounting remains linear at library scale', async () => {
+  await withTempDb(async () => {
+    const db = getPlayabilityDb();
+    const insert = db.prepare(`
+INSERT INTO titles(type, id, status, proof_version, proof_exact_main, updated_at)
+VALUES (@type, @id, 'verified', 1, 0, 1);
+`);
+    db.transaction(() => {
+      for (let index = 1_000_000; index < 1_015_000; index += 1) {
+        insert.run({ type: index % 2 === 0 ? 'movie' : 'series', id: `tt${index}` });
+      }
+      insert.run({ type: 'movie', id: 'tt9999999' });
+      insert.run({ type: 'series', id: 'tt9999999' });
+    })();
+    const started = performance.now();
+    const status = await getPlayabilityStatus([]);
+    const elapsed = performance.now() - started;
+    assert.equal(status.verification?.identity_type_conflicts.verified, 2);
+    assert.ok(elapsed < 1_000, `status collision scan took ${elapsed.toFixed(1)}ms`);
   });
 });
