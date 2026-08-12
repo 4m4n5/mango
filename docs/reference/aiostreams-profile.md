@@ -31,7 +31,7 @@ proven.
 ```text
 catalog-service
   └── AIOStreams
-       ├── indexers: Torrentio, Comet, optional healthy MediaFusion
+       ├── indexers: Torrentio, Comet, MediaFusion
        └── services/transports: TorBox, Real-Debrid, Easynews
 ```
 

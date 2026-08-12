@@ -29,7 +29,7 @@ limits **upstream** into AIOStreams. Keep identity, path capability, probe-time
 policy, and the `main_ladder` / `last_resort_ladder` preference ladders in
 **catalog-service**. The intended topology has AIOStreams as the only
 stream-capable VOD aggregate/path (alongside non-stream catalog/metadata and
-optional Live addons) and keeps Torrentio, Comet, optional MediaFusion, Real-Debrid,
+optional Live addons) and keeps Torrentio, Comet, MediaFusion, Real-Debrid,
 TorBox, and Easynews behind it.
 
 **Current exception:** catalog-service still loads an optional secret

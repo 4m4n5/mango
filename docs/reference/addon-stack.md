@@ -6,7 +6,7 @@
 
 | Service | URL | Role |
 |---------|-----|------|
-| AIOStreams | `http://127.0.0.1:3035` | Intended sole stream-capable VOD aggregate: nested Torrentio/Comet/optional MediaFusion plus TorBox/RD/Easynews service policy |
+| AIOStreams | `http://127.0.0.1:3035` | Intended sole stream-capable VOD aggregate: nested Torrentio/Comet/MediaFusion plus TorBox/RD and conditional Easynews service policy |
 | AIOMetadata | `http://127.0.0.1:3036` | MDBList plus YAML-referenced IndiaStreams custom catalogs (`mdblist.*`, `custom.in_rdata_indiastreams.movie.recmov`, `custom.in_rdata_indiastreams.movie.popmov`, `custom.in_rdata_indiastreams.series.trendingtv`) when present in the operator export |
 | catalog-service | `http://127.0.0.1:3020` | Stremio addon graph, rails, playability |
 | launcher | `http://127.0.0.1:3000` | TV home (Chromium kiosk) |
@@ -49,7 +49,7 @@ gap, not proof that MediaFusion is an ordinary peer addon; see
 
 1. `bash scripts/m4-addons/bootstrap-docker.sh` (if Docker missing)
 2. `cp deploy/aiostreams/.env.example deploy/aiostreams/.env` + `SECRET_KEY`
-3. `bash scripts/m4-addons/install-aiostreams.sh` + configure UI (TB/RD/Easynews; Torrentio + Comet; optional MediaFusion only when its manifest is healthy)
+3. `bash scripts/m4-addons/install-aiostreams.sh` + configure UI (TB/RD/Easynews; Torrentio + Comet), then credential-safe `aiostreams-config.sh enable-mediafusion`
 4. `bash scripts/m4-addons/install-aiometadata.sh`, then human Configure UI;
    current headless `aiometadata-config.sh import` is blocked for agents because
    it leaves/prints a secret-bearing fixed `/tmp` response

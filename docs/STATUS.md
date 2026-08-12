@@ -363,7 +363,7 @@ AIOStreams is intended to be the sole **stream-capable VOD aggregate/path** in
 Mango's exported addon graph. The full graph also includes Cinemeta,
 AIOMetadata, Bharat Binge, and optional Live addons for their catalog, metadata,
 or Live roles.
-Torrentio, Comet, and optional MediaFusion are intended to be indexers behind
+Torrentio, Comet, and MediaFusion are intended to be indexers behind
 AIOStreams; Real-Debrid, TorBox, and Easynews are configured transports/services
 behind it. The current catalog-service nevertheless retains an optional legacy
 direct MediaFusion thin-pool supplement: when AIO returns at most one cacheable

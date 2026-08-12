@@ -197,7 +197,7 @@ If `git pull --ff-only` fails on Pi:
 | `src/catalog-service/node_modules` | `npm ci` on Pi after pull |
 | `src/launcher/node_modules` | `npm ci` on Pi after pull |
 | Whole `~/mango` | `git pull` |
-| AIOStreams `userData` | Preserve; current `diff/apply` helper is blocked for agents because it exposes sensitive state and leaves a fixed `/tmp` response; use human Configure UI plus fixed-field `verify` until hardened |
+| AIOStreams `userData` | Preserve during Git deploy; authorized policy changes use the credential-safe `aiostreams-config.sh` private-temp/readback/rollback path, while `get` remains secret-bearing and must not be logged |
 | AIOMetadata import/config/export | Preserve; direct mutation and the implicit deploy sync are blocked for unattended agents because they may rewrite private state, print a secret URL, leave fixed `/tmp` output, and mask failure |
 | `/etc/mango/*.db`, `~/.cache/mango/*`, history | Preserve in place; use documented migrations/diagnostics |
 | API/OAuth/debrid/cookie files | Provision locally through their operator workflow; never copy from Git |
