@@ -181,12 +181,10 @@ import sys
 
 sample = json.load(open(sys.argv[1], encoding="utf-8"))
 metadata = {
-    "served_title_sample": {
-        "sample_per_rail": sample.get("sample_per_rail"),
-        "sampled": sample.get("sampled"),
-        "broken_verified": sample.get("broken_verified"),
-        "play_probe": bool(int(__import__("os").environ.get("MANGO_PROOF_SAMPLE_PLAY", "0") or "0")),
-    }
+    "sample_per_rail": sample.get("sample_per_rail"),
+    "sampled": sample.get("sampled"),
+    "broken_verified": sample.get("broken_verified"),
+    "play_probe": bool(int(__import__("os").environ.get("MANGO_PROOF_SAMPLE_PLAY", "0") or "0")),
 }
 print(json.dumps({"reason": "gate_m6_reliability", "metadata": metadata}, separators=(",", ":")))
 PY

@@ -123,8 +123,11 @@ const PROOF_NUMBER_KEYS = new Set([
   'playability_rc', 'youtube_rc', 'proof_rc', 'maintenance_rc',
   'attempts', 'exact_main_wins', 'fallback_wins', 'failures', 'elapsed_ms',
   'verified', 'failed', 'publication_count',
+  'sample_per_rail', 'sampled', 'broken_verified',
 ]);
-const PROOF_BOOLEAN_KEYS = new Set(['playability_ok', 'published', 'readback_ok']);
+const PROOF_BOOLEAN_KEYS = new Set([
+  'playability_ok', 'published', 'readback_ok', 'play_probe',
+]);
 const PROOF_STRING_KEYS = new Set([
   'run_id', 'publication_id', 'git_sha', 'config_hash', 'policy_hash',
   'failure_category', 'stop_reason', 'stage',

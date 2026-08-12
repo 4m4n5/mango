@@ -17,10 +17,16 @@ test('proof metadata accepts bounded receipts and rejects privacy-risk fields', 
     playability_rc: 0,
     run_id: 'playability-run-123',
     readback_ok: true,
+    sampled: 24,
+    broken_verified: 2,
+    play_probe: false,
   }), {
     playability_rc: 0,
     run_id: 'playability-run-123',
     readback_ok: true,
+    sampled: 24,
+    broken_verified: 2,
+    play_probe: false,
   });
   assert.throws(
     () => sanitizeReliabilityProofMetadata({ stream_url: 'https://secret.example/token' }),
