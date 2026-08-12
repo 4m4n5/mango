@@ -111,6 +111,10 @@ export type StreamFilterMeta = {
 
 export type StreamFilterContext = {
   metaTitle?: string;
+  /** Bounded trusted aliases for the same requested identity. */
+  trustedTitles?: readonly string[];
+  /** False only when exact-id metadata contradicts the requested title. */
+  identityCertifiable?: boolean;
   /** Stremio/Cinemeta id (e.g. tt0111161) for torrent name matching. */
   metaId?: string;
   /** Original release/start year used to distinguish same-name remakes. */
@@ -202,6 +206,30 @@ export function metaTitleTokensOrdered(metaTitle: string): string[] {
     .replace(/[^a-z0-9]+/g, ' ')
     .split(/\s+/)
     .filter((token) => token.length >= 2 && !TITLE_STOP_WORDS.has(token));
+}
+
+/**
+ * Trusted title aliases are deliberately narrower than fuzzy search. Titles
+ * must normalize equally, or one significant-token sequence must be a full
+ * prefix/suffix extension covering at least half of the longer form.
+ */
+export function trustedTitlesAreCompatible(left: string, right: string): boolean {
+  const leftNormalized = identityWords(left).join(' ');
+  const rightNormalized = identityWords(right).join(' ');
+  if (!leftNormalized || !rightNormalized) return false;
+  if (leftNormalized === rightNormalized) return true;
+
+  const leftTokens = metaTitleTokensOrdered(left);
+  const rightTokens = metaTitleTokensOrdered(right);
+  const [shorter, longer] = leftTokens.length <= rightTokens.length
+    ? [leftTokens, rightTokens]
+    : [rightTokens, leftTokens];
+  if (shorter.length < 2 || shorter.length >= longer.length) return false;
+  if (shorter.length / longer.length < 0.5) return false;
+  const prefix = shorter.every((token, index) => token === longer[index]);
+  const suffixOffset = longer.length - shorter.length;
+  const suffix = shorter.every((token, index) => token === longer[suffixOffset + index]);
+  return prefix || suffix;
 }
 
 function metaTitleTokens(metaTitle: string): string[] {
@@ -623,13 +651,16 @@ export function isSuspiciousFeatureSize(
 }
 
 export function streamPassesIntegrity(stream: Stream, context: StreamFilterContext): boolean {
-  if (!context.metaTitle) {
+  const trustedTitles = (context.trustedTitles ?? [context.metaTitle])
+    .filter((title): title is string => typeof title === 'string' && title.trim().length > 0);
+  const primaryTitle = trustedTitles[0] ?? context.metaTitle;
+  if (!primaryTitle) {
     return !streamHasExplicitIdentityConflict(stream, '', context.metaId, context);
   }
   if (context.skipTitleFilter) {
-    return !streamHasExplicitIdentityConflict(stream, context.metaTitle, context.metaId, context);
+    return !streamHasExplicitIdentityConflict(stream, primaryTitle, context.metaId, context);
   }
-  if (!streamMatchesMetaTitle(stream, context.metaTitle, context.metaId, context)) {
+  if (!trustedTitles.some((title) => streamMatchesMetaTitle(stream, title, context.metaId, context))) {
     return false;
   }
   if (isSuspiciousFeatureSize(stream, context.metaRuntimeMinutes, context.contentType)) {

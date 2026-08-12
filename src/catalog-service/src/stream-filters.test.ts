@@ -11,6 +11,8 @@ import {
   parseFilterOverridesFromQuery,
   streamHardwareDecodeSmooth,
   streamMatchesMetaTitle,
+  streamPassesIntegrity,
+  trustedTitlesAreCompatible,
   isSupplementalRelease,
   isPlausibleFeatureDuration,
   playMinDurationSec,
@@ -335,6 +337,41 @@ test('Indias Got Latent releases pass title relevance filter', () => {
   );
   assert.equal(result.streams.length, 1);
   assert.equal(result.meta.excluded.title_mismatch, 0);
+});
+
+test('bounded trusted aliases admit an official extended title without weakening explicit conflicts', () => {
+  const extended = stream(
+    'My Next Guest Needs No Introduction with David Letterman S01E01 1080p',
+    'https://example.test/next-guest.mp4',
+  );
+  const wrongId = {
+    ...extended,
+    url: 'https://example.test/wrong-id.mp4',
+    description: `${extended.description ?? ''} tt9999999`,
+  };
+  const context = {
+    contentType: 'series',
+    metaTitle: 'My Next Guest Needs No Introduction',
+    trustedTitles: [
+      'My Next Guest Needs No Introduction',
+      'My Next Guest Needs No Introduction with David Letterman',
+    ],
+    metaId: 'tt7829834:1:1',
+  } as const;
+  assert.equal(streamPassesIntegrity(extended, context), true);
+  assert.equal(streamPassesIntegrity(wrongId, context), false);
+});
+
+test('trusted title compatibility is equality or a bounded prefix/suffix extension only', () => {
+  assert.equal(trustedTitlesAreCompatible('Amelie!', 'amelie'), true);
+  assert.equal(trustedTitlesAreCompatible(
+    'My Next Guest Needs No Introduction',
+    'My Next Guest Needs No Introduction with David Letterman',
+  ), true);
+  assert.equal(trustedTitlesAreCompatible('David Letterman', 'With David Letterman'), true);
+  assert.equal(trustedTitlesAreCompatible('Dead Silent', 'The White Silk Dress'), false);
+  assert.equal(trustedTitlesAreCompatible('David Letterman', 'A Very Long Interview with David Letterman'), false);
+  assert.equal(trustedTitlesAreCompatible('Alliance', 'Alliance'), true);
 });
 
 test('Friends rejects Apple TV and other compound "Friends" titles (1+2)', () => {

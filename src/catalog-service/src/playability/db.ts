@@ -44,7 +44,7 @@ import {
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const DEFAULT_VERIFY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const SCHEMA_VERSION = 18;
+const SCHEMA_VERSION = 19;
 
 export type StreamCapabilityClass = 'proven_smooth' | 'unknown' | 'known_risky';
 
@@ -83,6 +83,20 @@ export type PlayabilityStatus = {
     pending: number;
     stale: number;
     failed: number;
+  };
+  verification?: {
+    legacy_verified: number;
+    exact_main_verified: number;
+    expired_verified: number;
+    identity_type_conflicts: {
+      verified: number;
+      stale: number;
+    };
+    exact_episodes: {
+      verified: number;
+      stale: number;
+      failed: number;
+    };
   };
   vod_browse_v3?: {
     algorithm: typeof DEEP_WEIGHTED_ALGORITHM_VERSION;
@@ -1774,6 +1788,59 @@ INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (18, @applied_at);
 `).run({ applied_at: nowMs() });
   }
+  if (appliedVersion < 19) {
+    const appliedAt = nowMs();
+    const migrateIdentityTypeCollisions = db.transaction(() => {
+      const collisions = db.prepare(`
+SELECT t.type, t.id
+FROM titles t
+WHERE t.status = 'verified'
+  AND t.type IN ('movie', 'series')
+  AND lower(substr(t.id, 1, 2)) = 'tt'
+  AND length(t.id) > 2
+  AND substr(t.id, 3) NOT GLOB '*[^0-9]*'
+  AND EXISTS (
+    SELECT 1
+    FROM titles counterpart
+    WHERE counterpart.type = CASE t.type WHEN 'movie' THEN 'series' ELSE 'movie' END
+      AND lower(counterpart.id) = lower(t.id)
+      AND counterpart.status = 'verified'
+  )
+ORDER BY lower(t.id), t.type;
+`).all() as Array<{ type: 'movie' | 'series'; id: string }>;
+      const quarantine = db.prepare(`
+UPDATE titles
+SET status = 'stale',
+    fail_reason = 'identity_type_collision',
+    updated_at = @now
+WHERE type = @type AND id = @id AND status = 'verified';
+`);
+      const enqueue = db.prepare(`
+INSERT INTO playability_retry_queue (
+  type, id, reason, priority, attempt_count, requested_at,
+  last_attempt_at, next_eligible_at, resume_position
+) VALUES (
+  @type, @id, 'identity_type_collision', 70, 0, @now,
+  NULL, @now, 0
+)
+ON CONFLICT(type, id) DO UPDATE SET
+  reason = excluded.reason,
+  priority = MAX(playability_retry_queue.priority, excluded.priority),
+  requested_at = MIN(playability_retry_queue.requested_at, excluded.requested_at),
+  next_eligible_at = MIN(playability_retry_queue.next_eligible_at, excluded.next_eligible_at);
+`);
+      for (const collision of collisions) {
+        if (quarantine.run({ ...collision, now: appliedAt }).changes > 0) {
+          enqueue.run({ ...collision, now: appliedAt });
+        }
+      }
+      db.prepare(`
+INSERT INTO playability_migrations(version, applied_at)
+VALUES (19, @applied_at);
+`).run({ applied_at: appliedAt });
+    });
+    migrateIdentityTypeCollisions();
+  }
 }
 
 export function listSourceGrowWeights(): SourceGrowWeightRecord[] {
@@ -2326,6 +2393,7 @@ VALUES (@started_at, NULL, @type, @id, 'quarantine', 0, 'uncached_verify_legacy'
 export async function getPlayabilityStatus(railIds: string[]): Promise<PlayabilityStatus> {
   await initPlayabilityDb();
   const db = openDb();
+  const statusNow = nowMs();
   const rows = db.prepare(`
 SELECT
   rp.rail_id AS rail_id,
@@ -2388,7 +2456,7 @@ ORDER BY generations.tab, rails.rail_id
   const currentVisible = new Set((db.prepare(`
 SELECT type, id FROM titles
 WHERE status = 'verified' AND (expires_at IS NULL OR expires_at > ?)
-`).all(nowMs()) as Array<{ type: string; id: string }>).map((row) => titleKey(row.type, row.id)));
+`).all(statusNow) as Array<{ type: string; id: string }>).map((row) => titleKey(row.type, row.id)));
   const browseRails = activeBrowseRows.flatMap((row) => {
     try {
       const items = JSON.parse(row.payload_json) as VodBrowseReservoirItem[];
@@ -2439,13 +2507,50 @@ SELECT COUNT(*) AS total,
        SUM(CASE WHEN next_eligible_at <= @now THEN 1 ELSE 0 END) AS due,
        MIN(requested_at) AS oldest_requested_at
 FROM playability_retry_queue
-`).get({ now: nowMs() }) as { total: number; due: number; oldest_requested_at: number | null };
+`).get({ now: statusNow }) as { total: number; due: number; oldest_requested_at: number | null };
   const retryReasons = db.prepare(`
 SELECT reason, COUNT(*) AS count
 FROM playability_retry_queue
 GROUP BY reason
 ORDER BY reason
 `).all() as Array<{ reason: string; count: number }>;
+  const verification = db.prepare(`
+SELECT
+  SUM(CASE WHEN status = 'verified' AND proof_version = 1 THEN 1 ELSE 0 END) AS legacy_verified,
+  SUM(CASE WHEN status = 'verified' AND proof_version >= 2 AND proof_exact_main = 1 THEN 1 ELSE 0 END)
+    AS exact_main_verified,
+  SUM(CASE WHEN status = 'verified' AND expires_at IS NOT NULL AND expires_at <= @now THEN 1 ELSE 0 END)
+    AS expired_verified,
+  SUM(CASE
+    WHEN current.status = 'verified'
+      AND current.type IN ('movie', 'series')
+      AND lower(substr(current.id, 1, 2)) = 'tt'
+      AND length(current.id) > 2
+      AND substr(current.id, 3) NOT GLOB '*[^0-9]*'
+      AND EXISTS (
+        SELECT 1 FROM titles counterpart
+        WHERE counterpart.type = CASE current.type WHEN 'movie' THEN 'series' ELSE 'movie' END
+          AND lower(counterpart.id) = lower(current.id)
+          AND counterpart.status = 'verified'
+      )
+    THEN 1 ELSE 0 END) AS verified_type_conflicts,
+  SUM(CASE
+    WHEN status = 'stale' AND fail_reason = 'identity_type_collision' THEN 1 ELSE 0 END)
+    AS stale_type_conflicts,
+  SUM(CASE WHEN type = 'series' AND status = 'verified'
+    AND lower(id) GLOB 'tt[0-9]*:[0-9]*:[0-9]*'
+    AND substr(lower(id), 3) NOT GLOB '*[^0-9:]*'
+    AND length(id) - length(replace(id, ':', '')) = 2 THEN 1 ELSE 0 END) AS exact_episode_verified,
+  SUM(CASE WHEN type = 'series' AND status = 'stale'
+    AND lower(id) GLOB 'tt[0-9]*:[0-9]*:[0-9]*'
+    AND substr(lower(id), 3) NOT GLOB '*[^0-9:]*'
+    AND length(id) - length(replace(id, ':', '')) = 2 THEN 1 ELSE 0 END) AS exact_episode_stale,
+  SUM(CASE WHEN type = 'series' AND status = 'failed'
+    AND lower(id) GLOB 'tt[0-9]*:[0-9]*:[0-9]*'
+    AND substr(lower(id), 3) NOT GLOB '*[^0-9:]*'
+    AND length(id) - length(replace(id, ':', '')) = 2 THEN 1 ELSE 0 END) AS exact_episode_failed
+FROM titles current;
+`).get({ now: statusNow }) as Record<string, number | null>;
 
   const byRail = new Map(rows.map((row) => [row.rail_id, row]));
   const allRailIds = [...new Set([...railIds, ...rows.map((row) => row.rail_id)])].sort();
@@ -2478,6 +2583,20 @@ ORDER BY reason
       }),
       { pool_depth: 0, verified_pool: 0, pending: 0, stale: 0, failed: 0 },
     ),
+    verification: {
+      legacy_verified: toNumber(verification.legacy_verified),
+      exact_main_verified: toNumber(verification.exact_main_verified),
+      expired_verified: toNumber(verification.expired_verified),
+      identity_type_conflicts: {
+        verified: toNumber(verification.verified_type_conflicts),
+        stale: toNumber(verification.stale_type_conflicts),
+      },
+      exact_episodes: {
+        verified: toNumber(verification.exact_episode_verified),
+        stale: toNumber(verification.exact_episode_stale),
+        failed: toNumber(verification.exact_episode_failed),
+      },
+    },
     vod_browse_v3: browse,
     last_indexer_run_at: lastRun[0]?.last_indexer_run_at ?? null,
     retry_queue: {

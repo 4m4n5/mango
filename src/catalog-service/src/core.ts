@@ -10,6 +10,7 @@ import {
   mergeFilterConfig,
   parseRuntimeMinutes,
   streamPassesIntegrity,
+  trustedTitlesAreCompatible,
   type StreamFilterMeta,
   type StreamFilterOverrides,
   type StreamFilterContext,
@@ -295,6 +296,14 @@ export type Stream = {
   source: string;
   [key: string]: unknown;
 };
+
+/** Exact request fence for addon metadata; absent optional type is tolerated. */
+export function metaPieceMatchesRequest(piece: Meta, requestedType: string, requestedId: string): boolean {
+  const pieceId = typeof piece.id === 'string' ? piece.id.trim().toLowerCase() : '';
+  if (!pieceId || pieceId !== requestedId.trim().toLowerCase()) return false;
+  const pieceType = typeof piece.type === 'string' ? piece.type.trim().toLowerCase() : '';
+  return !pieceType || pieceType === requestedType.trim().toLowerCase();
+}
 
 /** Map resolver evidence to fixed health buckets; never retain the evidence itself. */
 export function resolverIndexerCategoryForStream(stream: Stream): ResolverIndexerCategory {
@@ -3247,7 +3256,7 @@ export class CatalogCore {
       try {
         const result = await fetchJson(resourceUrl(addon, 'meta', type, id)) as { meta?: Meta };
         const piece = result.meta;
-        if (!piece?.id || isBlockedCatalogMeta(piece)) {
+        if (!piece?.id || !metaPieceMatchesRequest(piece, type, id) || isBlockedCatalogMeta(piece)) {
           continue;
         }
         merged = mergeCatalogMetaPieces(merged, piece, addon.name, videoLayers);
@@ -3349,6 +3358,8 @@ export class CatalogCore {
       contentType: type,
       metaId: id,
       metaTitle: hintedTitle,
+      trustedTitles: hintedTitle ? [hintedTitle] : undefined,
+      identityCertifiable: true,
       metaYear: identityYear(identityHint?.year),
     };
     if (type === 'series') {
@@ -3362,22 +3373,42 @@ export class CatalogCore {
         this.metaCached(type === 'series' ? 'series' : type, metaLookupId),
         STREAM_META_CONTEXT_TIMEOUT_MS,
       );
-      if (meta) {
+      if (meta && metaPieceMatchesRequest(meta, type === 'series' ? 'series' : type, metaLookupId)) {
+        const metadataTitle = typeof meta.name === 'string' && meta.name.trim()
+          ? meta.name.trim()
+          : typeof meta.title === 'string' && meta.title.trim()
+            ? meta.title.trim()
+            : undefined;
+        const titleCompatible = !hintedTitle
+          || !metadataTitle
+          || trustedTitlesAreCompatible(hintedTitle, metadataTitle);
+        const requestedYear = filterContext.metaYear;
+        const metadataYear = identityYear(metaYear(meta));
+        const yearCompatible = requestedYear === undefined
+          || metadataYear === undefined
+          || requestedYear === metadataYear;
+        const identityCertifiable = titleCompatible && yearCompatible;
+        const trustedTitles = [hintedTitle, identityCertifiable ? metadataTitle : undefined]
+          .filter((title, index, titles): title is string => (
+            typeof title === 'string'
+            && title.length > 0
+            && titles.indexOf(title) === index
+          ));
         filterContext = {
           ...filterContext,
           contentType: type,
           metaId: id,
-          metaTitle: typeof meta.name === 'string'
-            ? meta.name
-            : typeof meta.title === 'string'
-              ? meta.title
-              : filterContext.metaTitle,
-          metaYear: identityYear(metaYear(meta)) ?? filterContext.metaYear,
-          metaCountry: metaCountry(meta),
-          episodeTitle: type === 'series' ? metaEpisodeTitle(meta, id) : undefined,
-          metaRuntimeMinutes: parseRuntimeMinutes(meta.runtime)
-            ?? parseRuntimeMinutes(meta.runtimeMinutes)
-            ?? undefined,
+          metaTitle: hintedTitle ?? metadataTitle,
+          trustedTitles: trustedTitles.length > 0 ? trustedTitles : undefined,
+          identityCertifiable,
+          ...(identityCertifiable ? {
+            metaYear: metadataYear ?? requestedYear,
+            metaCountry: metaCountry(meta),
+            episodeTitle: type === 'series' ? metaEpisodeTitle(meta, id) : undefined,
+            metaRuntimeMinutes: parseRuntimeMinutes(meta.runtime)
+              ?? parseRuntimeMinutes(meta.runtimeMinutes)
+              ?? undefined,
+          } : {}),
         };
       }
     } catch {
@@ -3423,6 +3454,12 @@ export class CatalogCore {
     if (options.deadlineAtMs !== undefined && remainingPlayBudgetMs(options.deadlineAtMs) <= 0) {
       throw new CatalogError(504, 'play deadline exceeded', undefined, {
         couchMessage: 'playback took too long — try again',
+      });
+    }
+    if (options.requestClass === 'background' && filterContext.identityCertifiable === false) {
+      throw new CatalogError(409, 'identity_conflict', {
+        identity_certifiable: false,
+        resolve_ms: raw.resolveMs,
       });
     }
     if (raw.streams.length === 0) {

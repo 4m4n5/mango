@@ -117,6 +117,13 @@ Order:
 The wrapper distinguishes ownership failure from downstream degradation: a failed/unpublished playability phase fails the run; a validated playability publication followed by VOD/YouTube/proof failure records `partial` and retains the last-good downstream output.
 Set `MANGO_NIGHTLY_RELIABILITY_PROOF=0` only for targeted diagnosis.
 
+The ordinary timer does not enable the source-hitrate benchmark. Source
+benchmarking is an explicit isolated diagnostic, not a prerequisite for causal
+nightly growth. Playability status also reports proof-version counts, expired
+verified rows, verified/stale dual-type collisions, exact-episode state, and a
+rolling 256-request terminal-outcome aggregate by bounded failure stage. The
+terminal aggregate is process-local observability, not a durable proof ledger.
+
 The calendar timer is `Persistent=true`, so a missed 03:00 event can run after
 boot while still respecting playback/idle/overlap guards. There is no separate
 uncontrolled daytime retry watcher after a failed chain. When proof is yellow,

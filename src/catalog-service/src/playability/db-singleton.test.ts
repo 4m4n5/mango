@@ -64,7 +64,7 @@ FROM playability_migrations;
 `).get() as { version: number };
     const status = await getPlayabilityStatus([]);
 
-    assert.equal(latestMigration.version, 18);
+    assert.equal(latestMigration.version, 19);
     assert.equal(status.schema_version, latestMigration.version);
   });
 });

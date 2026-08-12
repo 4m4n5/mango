@@ -26,6 +26,8 @@ export type VerifyTitleResult = {
   type: string;
   id: string;
   ok: boolean;
+  identity_certifiable: boolean;
+  exact_main_win: boolean;
   status: 'verified' | 'failed' | 'stale';
   reason?: string;
   resolve_ms?: number;
@@ -170,6 +172,8 @@ function failReason(error: unknown): string {
   const cls = classifyPlayError(message);
   const kind = garbageKind(message);
 
+  if (lower.includes('identity_conflict')) return 'identity_conflict';
+
   if (kind === 'nfo' || /debrid_playback_unreadable/i.test(message)) {
     return 'transient_upstream';
   }
@@ -229,6 +233,7 @@ function isInfrastructureFailure(reason: string): boolean {
 
 function isConfirmedPlaybackFailure(reason: string): boolean {
   return reason === 'no_stream'
+    || reason === 'identity_conflict'
     || reason === 'title_mismatch'
     || reason === 'bad_stream'
     || reason === 'status_clip'
@@ -244,7 +249,7 @@ async function recordFailure(
   options: VerifyTitleOptions,
   request: VerificationRequest,
   context?: VerifyContext,
-): Promise<'failed' | 'stale' | 'preserved'> {
+): Promise<{ status: 'failed' | 'stale' | 'verified'; persisted: boolean }> {
   const staleReprobe = options.forceReprobe === true;
   const existing = await getTitlePlayability(type, id);
 
@@ -252,8 +257,9 @@ async function recordFailure(
     options.preserveVerified !== false
     && existing?.status === 'verified'
     && !staleReprobe
+    && reason !== 'identity_conflict'
   ) {
-    return 'preserved';
+    return { status: 'verified', persisted: false };
   }
 
   // Couch play-first: do not overwrite a couch demotion (stale/play_miss) with
@@ -264,7 +270,7 @@ async function recordFailure(
     && existing.fail_reason === 'play_miss'
     && isConfirmedPlaybackFailure(reason)
   ) {
-    return 'preserved';
+    return { status: 'stale', persisted: false };
   }
 
   const status = isConfirmedPlaybackFailure(reason) && !isInfrastructureFailure(reason)
@@ -281,7 +287,7 @@ async function recordFailure(
     outcome: staleReprobe ? `${status}_reprobe_failed` : reason,
     ...requestProof(request, false),
   }, context);
-  return status;
+  return { status, persisted: true };
 }
 
 /** Demote verified titles when play-order top candidate no longer matches stored win_url_hash. */
@@ -365,6 +371,10 @@ export async function prepareVerifyTitle(
       zeroStreamRetryAttempts: playabilityVerifyZeroStreamRetryAttempts(),
       zeroStreamRetryDelayMs: playabilityVerifyZeroStreamRetryDelayMs(),
       requestClass: 'background',
+      identityHint: {
+        title: request.title ?? undefined,
+        year: request.year ?? undefined,
+      },
     });
     const candidates = expandPlayLadder(
       resolved.streams,
@@ -441,7 +451,9 @@ export async function verifyPreparedTitle(
       type: prepared.type,
       id: prepared.id,
       ok: false,
-      status: recorded === 'preserved' ? 'verified' : recorded,
+      identity_certifiable: false,
+      exact_main_win: false,
+      status: recorded.status,
       reason: prepared.reason,
       resolve_ms: prepared.resolve_ms,
       prepare_ms: prepared.prepare_ms,
@@ -500,6 +512,8 @@ export async function verifyPreparedTitle(
       type: prepared.type,
       id: prepared.id,
       ok: true,
+      identity_certifiable: true,
+      exact_main_win: true,
       status: 'verified',
       resolve_ms: prepared.resolve_ms,
       prepare_ms: prepared.prepare_ms,
@@ -525,7 +539,9 @@ export async function verifyPreparedTitle(
     type: prepared.type,
     id: prepared.id,
     ok: false,
-    status: recorded === 'preserved' ? 'verified' : recorded,
+    identity_certifiable: false,
+    exact_main_win: false,
+    status: recorded.status,
     reason,
     resolve_ms: prepared.resolve_ms,
     prepare_ms: prepared.prepare_ms,

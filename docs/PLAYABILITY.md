@@ -122,9 +122,16 @@ is pipeline-fatal and stops all later candidates.
 **Display vs play:** `GET /stream` expands **main** first. If empty, expands last-resort (and obligation floor) marked `unverified`.
 
 **Title identity:** play and detail-list filtering start with the requested IMDb
-ID plus launcher title/year, then enrich from cached metadata with origin country
-and the exact episode title. Explicit contradictory IMDb IDs, remake years, and
-UK/US edition qualifiers remain hard rejects. Numeric episode identity is
+ID plus launcher title/year, and background verification carries that same
+immutable identity into resolution. Cached metadata may enrich origin country
+and the exact episode title only when its declared ID/type matches the request.
+The requested title and exact-ID metadata title are trusted together only when
+they normalize equally or one is a bounded whole-token prefix/suffix extension
+of the other (at least two significant tokens and at least half of the longer
+title). An incompatible metadata title cannot broaden matching: foreground may
+still try request-title streams, but it cannot certify the result; background
+verification records `identity_conflict`. Explicit contradictory IMDb IDs,
+remake years, and UK/US edition qualifiers remain hard rejects. Numeric episode identity is
 authoritative: Mango parses `S01E03`, `1x03`, `E03`, and `EP03`; a contradictory
 season/episode is rejected, a full marker outranks a bare marker, and an
 otherwise matching unmarked release remains eligible at low confidence.
@@ -392,6 +399,10 @@ not a fresh grow proof. Use `playability-status.py` and
 
 - `/etc/mango/playability.db` remains the fixed live database. Grow/nightly use a staged DB, validate integrity/domain invariants, take a verified prepublish snapshot, publish through SQLite Online Backup, inspect the checkpoint result, restart catalog, and read back the exact publication receipt. WAL/SHM files and lock pathnames are never unlinked as cleanup.
 - Verification carries an immutable request identity and run/source/rail receipt. Only an exact requested main-path win writes proof version 2; a fallback may play now but cannot certify global playability. Existing proof-version-1 rows are grandfathered until a natural touchpoint.
+- Playability migration 19 quarantines only bare IMDb identities concurrently verified as both movie and series. Both typed rows become `stale/identity_type_collision`, retain their evidence/memberships/user state, and enter the existing priority retry queue for exact typed verification; it is not a corpus-wide recheck.
+- Failed verification always returns `ok: false`, including when availability policy preserves an older verified row. Trigger promotion additionally requires an identity-certifiable exact-main win. Exact episode triggers can renew episode proof but never assign a Home rail.
+- Exact later-episode failures own episode state rather than demoting the show: transient/infrastructure failures enqueue an exact retry; the first confirmed full-ladder miss becomes `stale/play_miss`; a second confirmed miss within 24 hours becomes `failed/play_failure`. An exact-main recovery renews that episode.
+- Every asynchronous launcher Play emits one bounded `play_request_terminal` outcome (`playing`, `failed_before_frame`, or `cancelled`). `/playability/status` exposes only a rolling in-memory aggregate by outcome/failure stage; terminal records exclude title text, content IDs, URLs, provider payloads, and raw errors.
 - One permanent machine-wide coordinator lease owns API, targeted, fill, startup/background, nightly, and overnight maintenance. API starts return a durable `run_id`; simultaneous starts yield one claim and one `409 active_run_id`.
 - One permanent probe-pool lease owns every mpv verification process. Crash recovery relies on closing the file descriptor, never deleting a lock pathname.
 - Stale work is a durable priority queue. Active play failures lead; cause-specific retries back off exponentially; default admission is at most 200 due rows. Home serves verified rows only, while Saved/Continue can retain unavailable intent outside this Home selection path.
@@ -415,6 +426,10 @@ titles, duplicate candidate pressure, wasted candidate ratio, and retheme
 finalization results when present. During an active staged grow, status reads
 the isolated work DB and labels it as `staged work DB`; couch-visible rails
 switch only after a completed publishable run.
+
+Ordinary 03:00 maintenance does not run the source-hitrate benchmark. It remains
+an explicit isolated operator diagnostic (`MANGO_SOURCE_HITRATE_PREFLIGHT=1`)
+and must not consume the nightly verification window by default.
 
 ### Idle-gated maintenance
 

@@ -16,6 +16,7 @@ import {
 } from './db.js';
 import { verifyTitle } from './verify.js';
 import { assignVerifiedTitleToBestRail } from './rail-pool-retheme.js';
+import { isSeriesEpisodeId } from './ids.js';
 import { emitPlaybackTelemetry } from '../playback-telemetry.js';
 import { recordResolveMetric } from '../resolve-metrics.js';
 
@@ -35,6 +36,19 @@ export type DrainTriggersResult = {
   promoted: number;
   by_trigger_type: Record<string, number>;
 };
+
+function isVerifiedVerification(
+  result: Awaited<ReturnType<typeof verifyTitle>>,
+): boolean {
+  return result.ok === true
+    && result.status === 'verified'
+    && result.identity_certifiable === true
+    && result.exact_main_win === true;
+}
+
+function isPromotableVerification(type: string, id: string): boolean {
+  return !(type === 'series' && isSeriesEpisodeId(id));
+}
 
 /**
  * H1: drains playability_triggers (handled_at IS NULL), probing + promoting title-bearing rows
@@ -91,17 +105,19 @@ export async function drainTriggers(
     result.drained += 1;
     try {
       const verifyResult = await verify(core, type, id, { railId });
-      if (verifyResult.status === 'verified') {
+      if (isVerifiedVerification(verifyResult)) {
         result.verified += 1;
-        try {
-          await promote(core, { type, id, preferredRailId: railId });
-          result.promoted += 1;
-        } catch (assignError) {
-          console.warn(
-            `trigger-consumer: rail assign failed type=${type} id=${id}: ${
-              assignError instanceof Error ? assignError.message : String(assignError)
-            }`,
-          );
+        if (isPromotableVerification(type, id)) {
+          try {
+            await promote(core, { type, id, preferredRailId: railId });
+            result.promoted += 1;
+          } catch (assignError) {
+            console.warn(
+              `trigger-consumer: rail assign failed type=${type} id=${id}: ${
+                assignError instanceof Error ? assignError.message : String(assignError)
+              }`,
+            );
+          }
         }
       } else {
         result.failed += 1;
@@ -153,21 +169,23 @@ export async function drainTriggersForTitle(
       railId: options.railId ?? null,
       forceReprobe: true,
     });
-    if (verifyResult.status === 'verified') {
+    if (isVerifiedVerification(verifyResult)) {
       result.verified = 1;
-      try {
-        await promote(core, {
-          type: options.type,
-          id: options.id,
-          preferredRailId: options.railId ?? null,
-        });
-        result.promoted = 1;
-      } catch (assignError) {
-        console.warn(
-          `drainTriggersForTitle: rail assign failed type=${options.type} id=${options.id}: ${
-            assignError instanceof Error ? assignError.message : String(assignError)
-          }`,
-        );
+      if (isPromotableVerification(options.type, options.id)) {
+        try {
+          await promote(core, {
+            type: options.type,
+            id: options.id,
+            preferredRailId: options.railId ?? null,
+          });
+          result.promoted = 1;
+        } catch (assignError) {
+          console.warn(
+            `drainTriggersForTitle: rail assign failed type=${options.type} id=${options.id}: ${
+              assignError instanceof Error ? assignError.message : String(assignError)
+            }`,
+          );
+        }
       }
     } else {
       result.failed = 1;

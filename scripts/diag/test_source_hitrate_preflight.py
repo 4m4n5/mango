@@ -20,6 +20,11 @@ from source_hitrate_preflight import (
 
 
 class SourceHitratePreflightTests(unittest.TestCase):
+    def test_nightly_timer_does_not_enable_source_hitrate_preflight(self) -> None:
+        installer = Path("scripts/m3-play/playability/install-playability-timer.sh")
+        text = installer.read_text(encoding="utf-8")
+        self.assertNotIn("Environment=MANGO_SOURCE_HITRATE_PREFLIGHT=1", text)
+
     def test_grow_mode_maintenance_forwards_force_env(self) -> None:
         script = Path("scripts/m3-play/playability/playability-maintenance.sh")
         text = script.read_text(encoding="utf-8")

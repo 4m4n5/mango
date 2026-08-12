@@ -4,9 +4,19 @@ import { couchPlayFailureMessage, publicPlayFailureDetails } from './catalog-err
 import { isMpvActive, playUrl } from './mpv.js';
 import { playWithLadder } from './play-orchestrator.js';
 import { assertPlayEpoch, bumpPlayEpoch, isPlayEpochStale, PlayCancelledError } from './play-cancel.js';
-import { reconcileSuccessfulEpisodePlayability } from './episode-playability-reconcile.js';
+import {
+  reconcileFailedEpisodePlayability,
+  reconcileSuccessfulEpisodePlayability,
+} from './episode-playability-reconcile.js';
 import { createPlayDeadline, remainingPlayBudgetMs, type PlayDeadline } from './play-deadline.js';
-import { emitPlaybackTelemetry } from './playback-telemetry.js';
+import {
+  createPlayRequestTerminalEmitter,
+  emitPlaybackTelemetry,
+  getRecentPlayRequestTerminalSummary,
+  noPlayableStreamTerminalStage,
+  type PlayRequestTerminalDetails,
+  type PlayRequestTerminalOutcome,
+} from './playback-telemetry.js';
 import {
   cancelPlayRequest,
   finishPlayRequest,
@@ -940,6 +950,7 @@ async function handlePlay(
   const verifiedHint = profileHint;
 
   let resolved: Awaited<ReturnType<CatalogCore['resolveForPlay']>> | null = null;
+  const playMode = body.prefer_url ? 'picker' as const : 'auto' as const;
   try {
     resolved = await core.resolveForPlay(body.type, playId, overrides, {
       requestClass: 'user',
@@ -947,7 +958,6 @@ async function handlePlay(
       identityHint: { title: body.title, year: body.year },
     });
 
-    const playMode = body.prefer_url ? 'picker' as const : 'auto' as const;
     const playResolved = () => playWithLadder(resolved!.streams, resolved!.filters, {
       mode: playMode,
       contentType: body.type,
@@ -998,16 +1008,20 @@ async function handlePlay(
     }
 
     await assertPlayEpoch(playEpoch);
+    const identityCertifiable = resolved.filterContext.identityCertifiable !== false;
 
     try {
-      await reconcileSuccessfulEpisodePlayability({
-        contentType: body.type,
-        playId,
-        playMode,
-        usePlayabilityIndex,
-        playEpoch,
-        playback,
-      });
+      if (identityCertifiable) {
+        await reconcileSuccessfulEpisodePlayability({
+          contentType: body.type,
+          playId,
+          playMode,
+          usePlayabilityIndex,
+          identityCertifiable,
+          playEpoch,
+          playback,
+        });
+      }
     } catch (writeError) {
       if (writeError instanceof PlayCancelledError) {
         throw writeError;
@@ -1024,7 +1038,7 @@ async function handlePlay(
       usePlayabilityIndex,
       typeof profile?.first_verified_at === 'number',
     );
-    if (usePlayabilityIndex && playMode === 'auto') {
+    if (identityCertifiable && usePlayabilityIndex && playMode === 'auto') {
       if (playback.win_on_main) {
         await assertPlayEpoch(playEpoch);
         await recordVerifyResult({
@@ -1149,7 +1163,9 @@ async function handlePlay(
         applied: resolved.filters,
         play_ladder: resolved.filters.play_ladder.map((step) => step.step),
       },
-      ...(firstTimeVerified && playback.win_on_main ? { first_time_verified: true } : {}),
+      ...(identityCertifiable && firstTimeVerified && playback.win_on_main
+        ? { first_time_verified: true }
+        : {}),
     };
   } catch (error) {
     if (error instanceof PlayCancelledError) {
@@ -1168,6 +1184,34 @@ async function handlePlay(
     const attempts = details?.attempts;
     const obligationFloorRan = details?.obligation_floor_ran === true;
     const isNoPlayableStream = error instanceof CatalogError && error.message === 'no_playable_stream';
+
+    if (!usePlayabilityIndex) {
+      try {
+        const episodeAction = await reconcileFailedEpisodePlayability({
+          contentType: body.type,
+          playId,
+          playMode,
+          usePlayabilityIndex,
+          playEpoch,
+          isNoPlayableStream,
+          attempts,
+          candidates: details?.candidates,
+          obligationFloorRan,
+        });
+        if (episodeAction === 'failed') {
+          core.invalidateStreams(body.type, playId);
+        }
+      } catch (writeError) {
+        if (writeError instanceof PlayCancelledError) {
+          throw new CatalogError(499, 'play cancelled');
+        }
+        console.warn(
+          `episode playability failure reconcile failed type=${body.type} id=${playId}: ${
+            writeError instanceof Error ? writeError.message : String(writeError)
+          }`,
+        );
+      }
+    }
 
     if (usePlayabilityIndex && isNoPlayableStream) {
       const prior = await getTitlePlayability(body.type, playId).catch(() => null);
@@ -1262,6 +1306,66 @@ function playbackSessionErrorMessage(error: unknown): string {
   return 'could not start playback — try again';
 }
 
+function playbackTerminalFailure(
+  error: unknown,
+  cancelled: boolean,
+): { failureClass: string; stage: string } {
+  if (cancelled) return { failureClass: 'cancelled', stage: 'session' };
+  if (error instanceof CatalogError) {
+    if (error.message === 'no_playable_stream') {
+      return {
+        failureClass: 'no_stream',
+        stage: noPlayableStreamTerminalStage(error.details),
+      };
+    }
+    if (error.status === 504 || /deadline/i.test(error.message)) {
+      return { failureClass: 'deadline', stage: 'play_start' };
+    }
+    if (error.status === 409) {
+      return { failureClass: 'ownership', stage: 'session' };
+    }
+    if (error.status >= 500) {
+      return { failureClass: 'provider', stage: 'resolve' };
+    }
+  }
+  return { failureClass: 'unknown', stage: 'play_start' };
+}
+
+function playbackTerminalResult(result: Record<string, unknown>): {
+  resolveMs: unknown;
+  attempts: unknown;
+  candidateCount: unknown;
+  exactMain: unknown;
+  cached: unknown;
+} {
+  const stream = result.stream && typeof result.stream === 'object'
+    ? result.stream as Record<string, unknown>
+    : {};
+  const filters = result.filters && typeof result.filters === 'object'
+    ? result.filters as Record<string, unknown>
+    : {};
+  const applied = filters.applied && typeof filters.applied === 'object'
+    ? filters.applied as Record<string, unknown>
+    : {};
+  const mainLadder = Array.isArray(applied.main_ladder) ? applied.main_ladder : [];
+  const winLadderStep = typeof result.win_ladder_step === 'string'
+    ? result.win_ladder_step
+    : null;
+  const exactMain = winLadderStep === null
+    ? null
+    : mainLadder.some((entry) => (
+      entry && typeof entry === 'object'
+      && (entry as Record<string, unknown>).step === winLadderStep
+    ));
+  return {
+    resolveMs: stream.resolve_ms,
+    attempts: result.attempts,
+    candidateCount: result.candidate_count,
+    exactMain,
+    cached: stream.cached,
+  };
+}
+
 async function startPlaybackSession(
   core: CatalogCore,
   youtube: YoutubeService,
@@ -1327,6 +1431,12 @@ async function startPlaybackSession(
       session_async: true,
     });
     const source: PlaybackSessionSource = body.source === 'youtube' ? 'youtube' : 'catalog';
+    const emitTerminal = createPlayRequestTerminalEmitter({
+      requestId,
+      epoch: playEpoch,
+      contentType: source === 'youtube' ? 'youtube' : body.type,
+      startedAtMs: deadline.startedAtMs,
+    });
     let created: Awaited<ReturnType<typeof createPlaybackSession>>;
     try {
       created = await createPlaybackSession({
@@ -1338,6 +1448,8 @@ async function startPlaybackSession(
         title: body.title,
       });
     } catch (error) {
+      const failure = playbackTerminalFailure(error, false);
+      emitTerminal('failed_before_frame', failure);
       finishPlayRequest(requestId, playEpoch, false);
       throw error;
     }
@@ -1345,6 +1457,8 @@ async function startPlaybackSession(
 
     void (async () => {
       let succeeded = false;
+      let terminalOutcome: PlayRequestTerminalOutcome = 'failed_before_frame';
+      let terminalFields: PlayRequestTerminalDetails = {};
       try {
         await transitionPlaybackSession(requestId, 'resolving');
         if (source === 'youtube') {
@@ -1376,6 +1490,11 @@ async function startPlaybackSession(
             acceptedVodAttribution,
           );
         succeeded = true;
+        terminalOutcome = 'playing';
+        terminalFields = {
+          stage: 'play_start',
+          ...playbackTerminalResult(result),
+        };
         await transitionPlaybackSession(requestId, 'playing', {
           result,
           error: null,
@@ -1384,12 +1503,15 @@ async function startPlaybackSession(
         const cancelled = error instanceof PlayCancelledError
           || (error instanceof CatalogError && error.status === 499)
           || await isPlayEpochStale(playEpoch);
+        terminalOutcome = cancelled ? 'cancelled' : 'failed_before_frame';
+        terminalFields = playbackTerminalFailure(error, cancelled);
         await transitionPlaybackSession(
           requestId,
           cancelled ? 'cancelled' : 'failed_before_frame',
           { error: cancelled ? null : playbackSessionErrorMessage(error) },
         );
       } finally {
+        emitTerminal(terminalOutcome, terminalFields);
         finishPlayRequest(requestId, playEpoch, succeeded);
       }
     })();
@@ -3554,6 +3676,7 @@ async function main(): Promise<void> {
         }
         sendJson(res, 200, {
           ...await core.playabilityStatus(),
+          playback_terminal: getRecentPlayRequestTerminalSummary(),
           policy: {
             ...PLAYABILITY_POLICY.policy,
             policy_hash: PLAYABILITY_POLICY.policy_hash,

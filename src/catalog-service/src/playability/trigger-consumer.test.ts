@@ -14,6 +14,7 @@ import {
 } from './db.js';
 import {
   drainTriggers,
+  drainTriggersForTitle,
   isCouchIdleForTriggerConsumer,
   isPlaybackActiveForTriggerConsumer,
 } from './trigger-consumer.js';
@@ -115,6 +116,8 @@ function verifyResult(type: string, id: string, status: 'verified' | 'failed'): 
     type,
     id,
     ok: status === 'verified',
+    identity_certifiable: status === 'verified',
+    exact_main_win: status === 'verified',
     status,
     attempts: [],
   };
@@ -178,6 +181,54 @@ test('H1: drainTriggers probes each distinct title once, sets handled_at, and pr
     const remaining = await listUnhandledPlayabilityTriggers(10);
     assert.equal(remaining.length, 0);
   });
+});
+
+test('trigger promotion requires a successful certifiable exact-main result', async () => {
+  const promoteCalls: string[] = [];
+  const cases: VerifyTitleResult[] = [
+    { ...verifyResult('movie', 'tt-preserved', 'verified'), ok: false },
+    { ...verifyResult('movie', 'tt-conflict', 'verified'), identity_certifiable: false },
+    { ...verifyResult('movie', 'tt-fallback', 'verified'), exact_main_win: false },
+  ];
+
+  for (const result of cases) {
+    const drained = await drainTriggersForTitle(fakeCore, {
+      type: result.type,
+      id: result.id,
+      verify: (async () => result) as unknown as typeof import('./verify.js').verifyTitle,
+      promote: (async (_core: RethemeCore, input: { type: string; id: string }) => {
+        promoteCalls.push(`${input.type}:${input.id}`);
+        return {
+          ok: true,
+          rail_id: 'movies-india-trending',
+          type: input.type,
+          id: input.id,
+          score: 10,
+          reason: 'preferred_fit',
+        };
+      }) as unknown as typeof import('./rail-pool-retheme.js').assignVerifiedTitleToBestRail,
+    });
+    assert.equal(drained.failed, 1);
+    assert.equal(drained.promoted, 0);
+  }
+  assert.deepEqual(promoteCalls, []);
+});
+
+test('an exact episode verification is successful but never promoted to a Home rail', async () => {
+  let promoted = false;
+  const result = await drainTriggersForTitle(fakeCore, {
+    type: 'series',
+    id: 'tt12004706:2:4',
+    verify: (async () => verifyResult('series', 'tt12004706:2:4', 'verified')) as unknown as typeof import('./verify.js').verifyTitle,
+    promote: (async () => {
+      promoted = true;
+      throw new Error('episode promotion must not run');
+    }) as unknown as typeof import('./rail-pool-retheme.js').assignVerifiedTitleToBestRail,
+  });
+  assert.equal(result.verified, 1);
+  assert.equal(result.failed, 0);
+  assert.equal(result.promoted, 0);
+  assert.equal(promoted, false);
 });
 
 test('H1: drainTriggers dedupes multiple triggers for the same title into one verify call', async () => {
