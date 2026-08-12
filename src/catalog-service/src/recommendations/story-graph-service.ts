@@ -2348,13 +2348,14 @@ export function storyGraphServeAuthorized(tab: StoryGraphTab): boolean {
 export async function storyGraphRefreshRequired(
   tab: StoryGraphTab,
   now = Date.now(),
+  options: { preserveActiveDecayBucket?: boolean } = {},
 ): Promise<boolean> {
   const type = contentTypeForTab(tab);
   const active = libraryDatabase().prepare(`
 SELECT ranks.status, ranks.model_version, ranks.feature_version,
        ranks.ontology_version, ranks.corpus_generation, ranks.taste_revision,
        story.semantic_revision, story.compiler_version, story.status AS story_status,
-       taste.selected_k, active.shuffle_epoch,
+       taste.selected_k, active.shuffle_epoch, ranks.started_at,
        (SELECT COUNT(*) FROM vod_cached_slate_items items
         WHERE items.rank_generation_id = ranks.rank_generation_id
           AND items.content_type = ranks.content_type
@@ -2379,6 +2380,7 @@ WHERE active.content_type = ?
     story_status: string;
     selected_k: number;
     shuffle_epoch: number;
+    started_at: number;
     slate_items: number;
   } | undefined;
   if (!active
@@ -2399,7 +2401,18 @@ WHERE active.content_type = ?
     || active.semantic_revision !== String(semanticGeneration)) return true;
   const ratings = listRatings(type, 'household');
   const signals = readHouseholdSignals(type);
-  return active.taste_revision !== tasteRevision(type, ratings, signals, now);
+  const tasteClock = options.preserveActiveDecayBucket ? active.started_at : now;
+  return active.taste_revision !== tasteRevision(type, ratings, signals, tasteClock);
+}
+
+/**
+ * Startup must recover real signal/corpus drift without launching a full
+ * in-process rerank solely because midnight advanced the decay bucket. The
+ * ordinary maintenance gate still observes the current day and can schedule
+ * that non-urgent decay refresh away from process boot.
+ */
+export function storyGraphStartupRefreshRequired(tab: StoryGraphTab): Promise<boolean> {
+  return storyGraphRefreshRequired(tab, Date.now(), { preserveActiveDecayBucket: true });
 }
 
 function buildStoryGraphForYouRail(input: {

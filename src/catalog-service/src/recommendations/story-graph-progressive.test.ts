@@ -19,6 +19,7 @@ import {
   storyGraphTitleSupportsOfflineEvaluation,
   storyGraphDiagnostics,
   storyGraphRefreshRequired,
+  storyGraphStartupRefreshRequired,
   storyGraphServingDecision,
   type StoryGraphRefreshDependencies,
 } from './story-graph-service.js';
@@ -294,6 +295,17 @@ WHERE rank_generation_id = ? AND content_id = 'm204'
 SELECT COUNT(*) AS count FROM vod_story_graph_backgrounds WHERE content_type = 'movie'
 `).get() as { count: number }).count, 1);
     assert.equal(await storyGraphRefreshRequired('movies'), false);
+    const twoDaysLater = Date.now() + 2 * 24 * 60 * 60 * 1_000;
+    assert.equal(
+      await storyGraphRefreshRequired('movies', twoDaysLater),
+      true,
+      'ordinary maintenance observes a newer watch-decay day',
+    );
+    assert.equal(
+      await storyGraphStartupRefreshRequired('movies'),
+      false,
+      'calendar-only decay never launches a full rerank during process boot',
+    );
 
     const activeEpoch = () => (libraryDatabase().prepare(`
 SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = 'movie'

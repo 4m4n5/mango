@@ -119,7 +119,7 @@ import { assertCurrentVodRecommendationSource } from './recommendations/source-r
 import {
   setStoryDnaStructuredLookupProvider,
   setStoryGraphLowWaterEnqueueHook,
-  storyGraphRefreshRequired,
+  storyGraphStartupRefreshRequired,
 } from './recommendations/story-graph-service.js';
 import { readFreshRecommendationMaintenanceLease } from './recommendations/maintenance.js';
 import { CouchPreemptedRecommendationRefreshError } from './recommendations/maintenance.js';
@@ -1581,7 +1581,7 @@ async function main(): Promise<void> {
   // however, justify repeating a complete current full-corpus refresh.
   if (vodRecommendationsV2Mode() !== 'off') {
     const startupTabs = (await Promise.all((['movies', 'series'] as const).map(async (tab) => (
-      await storyGraphRefreshRequired(tab) ? tab : null
+      await storyGraphStartupRefreshRequired(tab) ? tab : null
     )))).filter((tab): tab is 'movies' | 'series' => tab !== null);
     if (startupTabs.length > 0) {
       await queueRecommendationRefresh(
