@@ -33,6 +33,8 @@ import {
   growIngestFreshTarget,
   playabilityGrowSourceAdvancePages,
   playabilityGrowSourceResetCycles,
+  playabilityAdmissionDeadlineReached,
+  playabilityCouchYieldRequested,
   playabilityGrowHeadAdvancePages,
   playabilityGrowHeadTombstoneRatio,
   playabilityGrowHeadAdvanceMaxCycles,
@@ -125,6 +127,7 @@ export type GrowRailResult = {
   sources_touched?: number;
   source_stats?: SourceGrowStats[];
   failure_category?: GrowFailureCategory;
+  stop_reason?: 'admission_deadline' | 'couch_activity';
   repair_suggestions?: string[];
   ingest?: IngestCandidatesStats;
   candidate_audit?: GrowCandidateAuditEntry[];
@@ -281,6 +284,8 @@ export async function growRail(
   let sourceResetCycles = 0;
   let headAdvanceCycles = 0;
   let usedDeepSourceAdvance = false;
+  let deadlineStopped = false;
+  let couchStopped = false;
   let preDeepSourceOffsets: Map<string, number> | undefined;
   let preDeepIngestOffset: number | undefined;
   const suppressedSources = new Map<string, string>();
@@ -630,6 +635,20 @@ export async function growRail(
     await recordRejectedResults(globalLink.results);
 
     while (Date.now() - startedAt < wallMs && attempts < maxAttempts) {
+      if (playabilityAdmissionDeadlineReached()) {
+        deadlineStopped = true;
+        heartbeat(`grow ${rail.id}: yielding at admission deadline`, {
+          stop_reason: 'admission_deadline',
+        });
+        break;
+      }
+      if (playabilityCouchYieldRequested()) {
+        couchStopped = true;
+        heartbeat(`grow ${rail.id}: yielding to couch activity`, {
+          stop_reason: 'couch_activity',
+        });
+        break;
+      }
       if (freshQuotaSoFar() >= growTarget) {
         break;
       }
@@ -944,6 +963,7 @@ export async function growRail(
     wall_ms: wallMs,
     ok: targetMet,
     failure_category: failureCategory,
+    stop_reason: deadlineStopped ? 'admission_deadline' : couchStopped ? 'couch_activity' : undefined,
   });
 
   return {

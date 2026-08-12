@@ -1,6 +1,8 @@
 services:
   aiostreams:
-    image: ghcr.io/viren070/aiostreams:latest
+    # v2.32.0 introduced date-based series discovery/matching. Keep the default
+    # reproducible; an operator can advance this explicit stable tag via .env.
+    image: ghcr.io/viren070/aiostreams:${MANGO_AIOSTREAMS_IMAGE_TAG:-v2.32.1}
     container_name: mango-aiostreams
     restart: unless-stopped
     mem_limit: 1g

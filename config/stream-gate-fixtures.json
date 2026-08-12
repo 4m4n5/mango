@@ -57,6 +57,15 @@
       "min_unique_display_labels": 1
     },
     {
+      "label": "Alliance daily tail",
+      "tier": "soft",
+      "type": "series",
+      "id": "tt40914930:1:36",
+      "notes": "Daily Indian reality series tail; catches date-based release discovery and post-E30 episode matching regressions",
+      "min_streams": 1,
+      "min_unique_urls": 1
+    },
+    {
       "label": "SpongeBob",
       "tier": "required",
       "type": "series",

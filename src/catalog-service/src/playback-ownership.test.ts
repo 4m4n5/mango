@@ -219,8 +219,8 @@ test('S2: background probe defers before touching a live couch process', async (
         stderr,
       }));
     });
-    assert.equal(result.code, 75);
-    assert.match(result.stdout, /DEFERRED: foreground_playback_active/);
+    assert.equal(result.code, 75, `${result.stdout}\n${result.stderr}`);
+    assert.match(`${result.stdout}\n${result.stderr}`, /DEFERRED: foreground_playback_active/);
     assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /mpv-play:/);
     assert.doesNotThrow(() => process.kill(process.pid, 0));
   } finally {
@@ -363,8 +363,8 @@ test('S2: the persistent probe pool defers while couch playback is active', asyn
         stderr,
       }));
     });
-    assert.equal(result.code, 75);
-    assert.match(result.stdout, /DEFERRED: foreground_playback_active/);
+    assert.equal(result.code, 75, `${result.stdout}\n${result.stderr}`);
+    assert.match(`${result.stdout}\n${result.stderr}`, /DEFERRED: foreground_playback_active/);
   } finally {
     await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
     await rm(dir, { recursive: true, force: true });

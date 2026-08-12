@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
+import type { RailPlayabilityConfig } from '../rails.js';
 
 import {
   demoteTitle,
@@ -49,7 +50,42 @@ async function addVerifiedPoolTitle(railId: string, id: string): Promise<void> {
   });
 }
 
-test('stale invalidation remains published until confirmed failure', async () => {
+test('active Home pool honors pool_max without deleting verified membership', async () => {
+  await withTempDb(async () => {
+    const railId = 'movies-india-trending';
+    for (const id of ['tt-cap-1', 'tt-cap-2', 'tt-cap-3']) {
+      await recordVerifyResult({
+        type: 'movie',
+        id,
+        status: 'verified',
+        expires_at: Date.now() + 60_000,
+      });
+      await addVerifiedPoolTitle(railId, id);
+    }
+    const playability: RailPlayabilityConfig = {
+      display_limit: 3,
+      display_max: 3,
+      min_display: 1,
+      ingest_multiplier: 1,
+      pool_target: 2,
+      pool_growth_per_refresh: 1,
+      pool_max: 2,
+      grow_per_pass: 1,
+    };
+
+    const session = await getOrCreateRailSession({
+      railId,
+      sessionId: 'session-capped',
+      displayLimit: 3,
+      playability,
+    });
+    assert.equal(session.verified_pool, 2);
+    assert.equal(session.items.length, 2);
+    assert.equal((await getRailPoolTitleKeys(railId)).size, 3);
+  });
+});
+
+test('stale invalidation keeps pool evidence but is immediately excluded from Home', async () => {
   await withTempDb(async () => {
     await recordVerifyResult({
       type: 'movie',
@@ -77,11 +113,11 @@ test('stale invalidation remains published until confirmed failure', async () =>
       sessionId: 'session-1',
       displayLimit: 9,
     });
-    assert.deepEqual(session.items.map((item) => item.id), ['tt-stale-visible']);
+    assert.deepEqual(session.items, []);
   });
 });
 
-test('play_miss demotion keeps rail_pool and session posters', async () => {
+test('play_miss demotion keeps pool/session state but excludes the stale title from Home', async () => {
   await withTempDb(async () => {
     await recordVerifyResult({
       type: 'movie',
@@ -121,7 +157,7 @@ test('play_miss demotion keeps rail_pool and session posters', async () => {
       sessionId: 'session-1',
       displayLimit: 9,
     });
-    assert.deepEqual(after.items.map((item) => item.id), ['tt-play-miss']);
+    assert.deepEqual(after.items, []);
   });
 });
 

@@ -8,6 +8,8 @@ import { isSeriesEpisodeId } from './playability/ids.js';
 
 export type SuccessfulEpisodePlayback = {
   ok: boolean;
+  /** Only a win from the requested title's main ladder may create durable proof. */
+  win_on_main?: boolean;
   stream: {
     source?: unknown;
     cache_status?: unknown;
@@ -47,6 +49,7 @@ export async function reconcileSuccessfulEpisodePlayability(
     || input.usePlayabilityIndex
     || input.playMode !== 'auto'
     || input.playback.ok !== true
+    || input.playback.win_on_main !== true
   ) {
     return false;
   }
@@ -76,6 +79,11 @@ export async function reconcileSuccessfulEpisodePlayability(
     expires_at: now() + verifyTtlMs(),
     stage: 'play',
     outcome: 'verified',
+    proof_version: 2,
+    exact_main_win: true,
+    request_id: input.playId,
+    request_title_id: input.playId,
+    run_id: process.env.MANGO_OPS_RUN_ID ?? null,
   }), assertCurrent);
   return true;
 }

@@ -246,7 +246,7 @@ export function buildSourceGrowMultipliers(
   if (railId && report.rail_sources?.[railId]) {
     addEntries(report.rail_sources[railId], true);
   }
-  return multipliers;
+  return normalizeRelativeMultipliers(multipliers);
 }
 
 export function buildRailSourceGrowMultipliers(
@@ -269,7 +269,33 @@ export function buildRailSourceGrowMultipliers(
     }
     multipliers.set(entry.source_key, clampMultiplier(entry.multiplier));
   }
-  return multipliers;
+  return normalizeRelativeMultipliers(multipliers);
+}
+
+/**
+ * Allocation is relative to current peers, not to an absolute success floor.
+ * Decayed observations still determine ordering; the median productive source
+ * receives multiplier 1 while probation sources retain the exploration marker.
+ */
+export function normalizeRelativeMultipliers(
+  multipliers: ReadonlyMap<string, number>,
+): Map<string, number> {
+  const probation = sourceGrowProbationMultiplier();
+  const productive = [1, 1, ...multipliers.values()]
+    .filter((value) => Number.isFinite(value) && value > probation + 0.0001)
+    .sort((left, right) => left - right);
+  const middle = Math.floor(productive.length / 2);
+  const median = productive.length % 2 === 1
+    ? productive[middle]
+    : ((productive[middle - 1] + productive[middle]) / 2);
+  const normalized = new Map<string, number>();
+  for (const [key, value] of multipliers) {
+    normalized.set(
+      key,
+      value <= probation + 0.0001 ? probation : clampMultiplier(value / Math.max(0.01, median)),
+    );
+  }
+  return normalized;
 }
 
 export function loadHitrateMultipliersForContentType(

@@ -89,6 +89,10 @@ test('sourceCircuitDecision classifies infrastructure, theme, and stream failure
   );
   assert.deepEqual(
     sourceCircuitDecision(stat({ catalog_errors: 2 })),
+    { suppress: false },
+  );
+  assert.deepEqual(
+    sourceCircuitDecision(stat({ catalog_errors: 3 })),
     { suppress: true, reason: 'catalog_errors' },
   );
   assert.deepEqual(

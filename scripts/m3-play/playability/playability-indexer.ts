@@ -146,6 +146,14 @@ function structuredRefreshFailure(options: {
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
 
+  if (
+    process.env.MANGO_PLAYABILITY_COORDINATOR_LOCK_HELD !== '1'
+    && process.env.MANGO_PLAYABILITY_INDEXER_TEST_ALLOW !== '1'
+  ) {
+    console.error('playability-indexer: direct mutation refused; use a coordinated playability operator command');
+    process.exit(75);
+  }
+
   if (command === 'verify') {
     const type = readFlag(args, '--type');
     const id = readFlag(args, '--id');

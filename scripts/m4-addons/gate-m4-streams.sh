@@ -46,9 +46,17 @@ for fixture in fixtures:
 print(f"fixture tiers ok ({len(fixtures)} titles)")
 PY
 
-curl -sf --max-time 5 http://127.0.0.1:3035/api/v1/status >/dev/null \
-  && gate_pass "AIOStreams /api/v1/status" \
-  || gate_fail "AIOStreams down at http://127.0.0.1:3035/api/v1/status"
+AIO_STATUS="$TMP_DIR/aiostreams-status.json"
+if curl -sf --max-time 5 http://127.0.0.1:3035/api/v1/status >"$AIO_STATUS"; then
+  gate_pass "AIOStreams /api/v1/status"
+  if version_summary="$(python3 "$SCRIPT_DIR/aiostreams_version.py" "$AIO_STATUS" 2>&1)"; then
+    gate_pass "$version_summary"
+  else
+    gate_fail "$version_summary"
+  fi
+else
+  gate_fail "AIOStreams down at http://127.0.0.1:3035/api/v1/status"
+fi
 
 curl -sf --max-time 5 http://127.0.0.1:3020/health >/dev/null \
   && gate_pass "catalog /health" \

@@ -1,5 +1,6 @@
 import type { RailPlayabilityConfig } from '../rails.js';
 import { anchorGrowDietEnabled, isAnchorRail } from './grow-anchors.js';
+import { playabilityPolicySnapshot } from './policy.js';
 
 export type GrowPresetId = 'quick' | 'nightly' | 'overnight';
 
@@ -50,7 +51,8 @@ export function normalizeRefreshMode(mode: string | undefined, fallback: Refresh
 
 /**
  * Per-rail grow target at session start.
- * Strict grow SLA is exactly grow_per_pass for every active rail.
+ * Freshness fills configured pool headroom; a bounded breadth lane continues
+ * global discovery after the active pool is full.
  * Anchor rails at/above pool_target receive 0 when anchor diet is on (P1).
  */
 export function resolveGrowTarget(
@@ -69,7 +71,13 @@ export function resolveGrowTarget(
     return 0;
   }
 
-  return base;
+  if (playability.pool_max === null) return base;
+  const breadth = Math.max(
+    1,
+    Math.ceil(base * playabilityPolicySnapshot().policy.allocation.breadth_fraction),
+  );
+  const headroom = Math.max(0, playability.pool_max - verifiedPool);
+  return Math.min(base, headroom + breadth);
 }
 
 export function resolveGrowPreset(preset?: GrowPresetId): GrowPreset {

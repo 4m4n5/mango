@@ -128,10 +128,11 @@ start_playability_topup() {
   [[ "${MANGO_CATALOG:-0}" == "1" ]] || return 0
   [[ "${MANGO_PLAYABILITY_TOPUP_ON_START:-0}" == "1" ]] || return 0
   mkdir -p "$CACHE_DIR"
+  local run_id="startup-$(python3 -c 'import uuid; print(uuid.uuid4())')"
   (
     cd "$REPO_DIR"
-    nice -n 10 npm --prefix src/catalog-service exec tsx -- \
-      scripts/m3-play/playability/playability-indexer.ts top-up --all
+    nice -n 10 bash scripts/m3-play/playability/playability-coordinator.sh \
+      --run-id "$run_id" --level grow_quick
   ) >"${CACHE_DIR}/playability-indexer.log" 2>&1 &
   [[ "${MANGO_STACK_VERBOSE:-0}" == "1" ]] && echo "playability indexer background (log: ${CACHE_DIR}/playability-indexer.log)"
 }

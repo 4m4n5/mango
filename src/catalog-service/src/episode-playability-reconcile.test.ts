@@ -64,6 +64,7 @@ test('successful auto play clears a stale failed non-gate episode row', async ()
       playEpoch: 42,
       playback: {
         ok: true,
+        win_on_main: true,
         stream: {
           source: 'AIOStreams',
           cache_status: 'cached',
@@ -113,6 +114,11 @@ test('failed or picker episode plays never write verified state', async () => {
     ...base,
     playMode: 'picker',
     playback: { ok: true, stream: {} },
+  }, dependencies), false);
+  assert.equal(await reconcileSuccessfulEpisodePlayability({
+    ...base,
+    playMode: 'auto',
+    playback: { ok: true, win_on_main: false, stream: {} },
   }, dependencies), false);
   assert.deepEqual(writes, []);
 });

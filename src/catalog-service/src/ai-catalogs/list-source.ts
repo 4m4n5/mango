@@ -155,12 +155,13 @@ export class AiCatalogListSource implements ListSource, SourceCursorListSource {
         continue;
       }
       try {
+        let rawPageCount = 0;
         const candidates = await fetchAddonCatalogCandidates(
           source.manifestUrl,
           this.contentType,
           source.catalog,
           source.sourceLabel,
-          { offset: start, limit: fetchLimit },
+          { offset: start, limit: fetchLimit, onRawPage: (count) => { rawPageCount = count; } },
           {
             sourceKey: key,
             addon: source.addon,
@@ -168,8 +169,8 @@ export class AiCatalogListSource implements ListSource, SourceCursorListSource {
             sourceName: source.sourceName,
           },
         );
-        this.sourceOffsets.set(key, start + candidates.length);
-        if (candidates.length < fetchLimit) {
+        this.sourceOffsets.set(key, start + rawPageCount);
+        if (rawPageCount < fetchLimit) {
           this.exhaustedSources.add(key);
         }
         batches.push({

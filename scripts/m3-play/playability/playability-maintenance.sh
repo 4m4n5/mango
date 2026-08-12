@@ -16,7 +16,7 @@
 #   MANGO_MAINTENANCE_SKIP_GATE=1      skip pi-pre-couch-gate after refresh (default 1 for grow/nightly)
 #   MANGO_PLAYABILITY_BOOTSTRAP=1      target min_display per rail + early exit (set by --bootstrap)
 #   MANGO_GROW_PRESET=quick|nightly   preset for grow phase (default: quick for --mode grow, nightly for nightly)
-#   MANGO_SOURCE_HITRATE_PREFLIGHT=1  refresh hit-rate before grow (default 1)
+#   MANGO_SOURCE_HITRATE_PREFLIGHT=1  explicit isolated source benchmark (default 0)
 #   MANGO_SOURCE_HITRATE_QUICK_FRESH_HOURS=24  skip quick preflight when report newer (default 24)
 #   MANGO_SOURCE_HITRATE_QUICK_PER_SOURCE=1    probes/source for quick grow preflight (default 1)
 #   MANGO_SOURCE_HITRATE_NIGHTLY_PER_SOURCE=3  probes/source before nightly grow phase (default 3)
@@ -40,6 +40,10 @@ fi
 LIVE_PLAYABILITY_DB="${MANGO_PLAYABILITY_DB:-/etc/mango/playability.db}"
 WORK_PLAYABILITY_DB=""
 STAGED_GROW_DB=0
+PUBLICATION_ID=""
+PUBLICATION_SNAPSHOT=""
+PUBLICATION_RECEIPT=""
+PUBLISHED_STAGED_DB=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -65,15 +69,39 @@ normalize_mode() {
 
 MODE="$(normalize_mode "$MODE")"
 
+# Direct/familiar invocations enter the same coordinator before catalog sync,
+# provider work, or any database mutation. Coordinator-owned children carry the
+# inherited fd and continue below without a second admission decision.
+if [[ "${MANGO_PLAYABILITY_COORDINATOR_LOCK_HELD:-0}" != "1" ]]; then
+  delegate_args=(--mode "$MODE")
+  if [[ -n "${MANGO_GROW_PRESET:-}" ]]; then
+    delegate_args+=(--preset "$MANGO_GROW_PRESET")
+  fi
+  exec bash "$REPO_DIR/scripts/m3-play/playability/playability-grow.sh" "${delegate_args[@]}"
+fi
+
 if [[ -z "$SKIP_GATE" ]]; then
   SKIP_GATE=$([[ "$MODE" == "grow" || "$MODE" == "nightly" ]] && echo 1 || echo 0)
 fi
 
 mkdir -p "$CACHE_DIR"
 OPS_DIR="${CACHE_DIR}/ops"
-RUN_ID="playability-$(date +%Y%m%d-%H%M%S)"
+RUN_ID="${MANGO_PLAYABILITY_RUN_ID:-playability-$(date +%Y%m%d-%H%M%S)}"
 export MANGO_OPS_RUN_ID="$RUN_ID"
 export MANGO_OPS_SOURCE="playability-maintenance"
+RUN_STARTED_MS="$(python3 -c 'import time; print(int(time.time()*1000))')"
+NIGHTLY_DEADLINE_MINUTES="${MANGO_PLAYABILITY_NIGHTLY_DEADLINE_MINUTES:-150}"
+ADMISSION_STOP_MINUTES="${MANGO_PLAYABILITY_ADMISSION_STOP_MINUTES:-135}"
+if [[ ! "$NIGHTLY_DEADLINE_MINUTES" =~ ^[0-9]+$ ]] || [[ "$NIGHTLY_DEADLINE_MINUTES" -lt 30 ]]; then
+  NIGHTLY_DEADLINE_MINUTES=150
+fi
+if [[ ! "$ADMISSION_STOP_MINUTES" =~ ^[0-9]+$ ]] \
+    || [[ "$ADMISSION_STOP_MINUTES" -lt 1 ]] \
+    || [[ "$ADMISSION_STOP_MINUTES" -ge "$NIGHTLY_DEADLINE_MINUTES" ]]; then
+  ADMISSION_STOP_MINUTES=$((NIGHTLY_DEADLINE_MINUTES - 15))
+fi
+export MANGO_PLAYABILITY_RUN_DEADLINE_MS=$((RUN_STARTED_MS + NIGHTLY_DEADLINE_MINUTES * 60 * 1000))
+export MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS=$((RUN_STARTED_MS + ADMISSION_STOP_MINUTES * 60 * 1000))
 mkdir -p "$OPS_DIR"
 MAINT_LOG="${OPS_DIR}/maintenance-${RUN_ID}.log"
 exec > >(tee -a "$MAINT_LOG") 2>&1
@@ -82,12 +110,6 @@ exec > >(tee -a "$MAINT_LOG") 2>&1
 source "$REPO_DIR/scripts/lib/catalog-yaml.sh"
 export MANGO_CATALOG_YAML="$(resolve_catalog_yaml)" || exit 1
 echo "catalog: $MANGO_CATALOG_YAML"
-
-if [[ "${MANGO_SKIP_AIOMETADATA_SYNC:-0}" != "1" ]]; then
-  bash "$REPO_DIR/scripts/m4-addons/sync-aiometadata-rail-catalogs.sh" || {
-    echo "warn: AIOMetadata rail catalog sync failed — grow may miss mdblist sources" >&2
-  }
-fi
 
 FILTERS_JSON="$(resolve_catalog_filters)"
 if [[ -z "${MANGO_PLAYABILITY_PROBE_MS:-}" && -f "$FILTERS_JSON" ]]; then
@@ -211,24 +233,28 @@ PY
 sqlite_publish_db() {
   local src="$1"
   local dest="$2"
-  python3 - "$src" "$dest" <<'PY'
-import sqlite3
-import sys
-from pathlib import Path
-
-src = Path(sys.argv[1])
-dest = Path(sys.argv[2])
-dest.parent.mkdir(parents=True, exist_ok=True)
-with sqlite3.connect(src) as source:
-    with sqlite3.connect(dest) as target:
-        source.backup(target)
-        target.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-for suffix in ("-wal", "-shm"):
-    try:
-        Path(str(dest) + suffix).unlink()
-    except FileNotFoundError:
-        pass
-PY
+  local helper git_sha config_hash hash_json
+  helper="$REPO_DIR/scripts/m3-play/playability/sqlite-publication.py"
+  git_sha="$(git -C "$REPO_DIR" rev-parse HEAD)"
+  hash_json="$(python3 "$helper" hash-config \
+    "$MANGO_CATALOG_YAML" \
+    "$FILTERS_JSON" \
+    "$REPO_DIR/config/playability-policy.json" \
+    "$REPO_DIR/config/rail-theme-profiles.yaml")"
+  config_hash="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["config_hash"])' <<<"$hash_json")"
+  PUBLICATION_ID="${RUN_ID}-${git_sha:0:12}"
+  PUBLICATION_SNAPSHOT="${OPS_DIR}/prepublish-${RUN_ID}.db"
+  PUBLICATION_RECEIPT="${OPS_DIR}/publication-${RUN_ID}.json"
+  python3 "$helper" publish \
+    --staged "$src" \
+    --live "$dest" \
+    --snapshot "$PUBLICATION_SNAPSHOT" \
+    --publication-id "$PUBLICATION_ID" \
+    --run-id "$RUN_ID" \
+    --git-sha "$git_sha" \
+    --config-hash "$config_hash" \
+    | tee "$PUBLICATION_RECEIPT"
+  PUBLISHED_STAGED_DB=1
 }
 
 sqlite_publish_cursor_rewinds() {
@@ -384,7 +410,7 @@ run_source_hitrate_preflight() {
     force_args+=(--force)
   fi
 
-  if [[ "${MANGO_SOURCE_HITRATE_PREFLIGHT:-1}" != "1" ]]; then
+  if [[ "${MANGO_SOURCE_HITRATE_PREFLIGHT:-0}" != "1" ]]; then
     grow_state set --phase preflight --message "hit-rate preflight disabled" \
       --mode "$MODE" --preset "$preset" \
       --log "source-hitrate preflight: skipped (MANGO_SOURCE_HITRATE_PREFLIGHT=0)"
@@ -447,10 +473,13 @@ run_source_hitrate_preflight() {
     --log "source-hitrate preflight: complete"
 }
 
-exec 200>"$LOCK_FILE"
-if ! flock -n 200; then
-  echo "another maintenance run is in progress ($LOCK_FILE)" >&2
-  exit 2
+INHERITED_COORDINATOR_LOCK="${MANGO_PLAYABILITY_COORDINATOR_LOCK_HELD:-0}"
+if [[ "$INHERITED_COORDINATOR_LOCK" != "1" ]]; then
+  exec 200>>"$LOCK_FILE"
+  if ! flock -n 200; then
+    echo "another maintenance run is in progress ($LOCK_FILE)" >&2
+    exit 2
+  fi
 fi
 LOCK_RELEASED=0
 
@@ -459,9 +488,20 @@ cd "$REPO_DIR"
 if ! couch_is_idle; then
   echo "maintenance deferred: couch active"
   write_deferred_report initial
-  flock -u 200 >/dev/null 2>&1 || true
-  exec 200>&- || true
+  if [[ "$INHERITED_COORDINATOR_LOCK" != "1" ]]; then
+    flock -u 200 >/dev/null 2>&1 || true
+    exec 200>&- || true
+  fi
   exit 0
+fi
+
+# This configured-source mutation is inside the coordinator and after the
+# initial couch-idle decision. It remains an explicit existing-ecosystem step,
+# never part of a read-only status or source benchmark.
+if [[ "${MANGO_SKIP_AIOMETADATA_SYNC:-0}" != "1" ]]; then
+  bash "$REPO_DIR/scripts/m4-addons/sync-aiometadata-rail-catalogs.sh" || {
+    echo "warn: AIOMetadata rail catalog sync failed — grow may miss mdblist sources" >&2
+  }
 fi
 
 preflight_native_deps() {
@@ -476,19 +516,57 @@ release_maintenance_lock() {
   if [[ "${LOCK_RELEASED:-1}" == "1" ]]; then
     return 0
   fi
+  if [[ "${INHERITED_COORDINATOR_LOCK:-0}" == "1" ]]; then
+    LOCK_RELEASED=1
+    return 0
+  fi
   flock -u 200 >/dev/null 2>&1 || true
   exec 200>&- || true
   LOCK_RELEASED=1
 }
 
 restore_couch() {
-  release_maintenance_lock
+  local restore_rc=0
   set_live_playability_db_env
   bash scripts/m3-play/playability/mpv-probe-pool.sh stop-all >/dev/null 2>&1 || true
   bash scripts/mango-kill-strays.sh >/dev/null 2>&1 || true
-  MANGO_CATALOG=1 MANGO_PLAYABILITY_TOPUP_ON_START=0 bash scripts/mango-refresh.sh >/dev/null 2>&1 \
-    || echo "warn: mango-refresh failed — run manually" >&2
+  if ! MANGO_CATALOG=1 MANGO_PLAYABILITY_TOPUP_ON_START=0 bash scripts/mango-refresh.sh >/dev/null 2>&1; then
+    echo "warn: mango-refresh failed during publication handoff" >&2
+    restore_rc=1
+  fi
+  if [[ "$restore_rc" -eq 0 && "$PUBLISHED_STAGED_DB" == "1" ]]; then
+    if ! curl -fsS --max-time 10 http://127.0.0.1:3020/playability/status \
+      | python3 -c 'import json,sys; expected=sys.argv[1]; data=json.load(sys.stdin); actual=(data.get("publication") or {}).get("publication_id"); raise SystemExit(0 if actual == expected else 1)' \
+        "$PUBLICATION_ID"; then
+      echo "publication readback failed for $PUBLICATION_ID" >&2
+      restore_rc=1
+    else
+      echo "publication readback: $PUBLICATION_ID"
+      grow_state log "publication readback: $PUBLICATION_ID"
+      python3 - "$OPS_DIR" <<'PY'
+import sys
+from pathlib import Path
+ops = Path(sys.argv[1])
+snapshots = sorted(ops.glob("prepublish-playability-*.db"), key=lambda path: path.stat().st_mtime, reverse=True)
+for old in snapshots[3:]:
+    old.unlink()
+PY
+    fi
+  fi
+  if [[ "$restore_rc" -ne 0 && "$PUBLISHED_STAGED_DB" == "1" && -f "$PUBLICATION_SNAPSHOT" ]]; then
+    echo "publication handoff failed — restoring verified prepublish snapshot" >&2
+    stop_catalog_service_only >/dev/null 2>&1 || true
+    if python3 scripts/m3-play/playability/sqlite-publication.py restore \
+        --snapshot "$PUBLICATION_SNAPSHOT" --live "$LIVE_PLAYABILITY_DB"; then
+      PUBLISHED_STAGED_DB=0
+      MANGO_CATALOG=1 MANGO_PLAYABILITY_TOPUP_ON_START=0 bash scripts/mango-refresh.sh >/dev/null 2>&1 \
+        || echo "warn: couch restart failed after publication rollback" >&2
+    else
+      echo "error: publication rollback failed" >&2
+    fi
+  fi
   cleanup_work_playability_db
+  return "$restore_rc"
 }
 
 trap restore_couch EXIT
@@ -636,14 +714,18 @@ if [[ "$MODE" == "nightly" ]]; then
     REFRESH_RC=0
   else
     echo "== phase 2: grow pass (preset=$MANGO_GROW_PRESET) =="
-    grow_state set --phase preflight \
-      --message "starting catalog for nightly hit-rate preflight" \
-      --mode "$MODE" --preset "$MANGO_GROW_PRESET" \
-      --log "nightly grow: hit-rate preflight before grow phase"
-    MANGO_CATALOG=1 start_catalog_service_only \
-      || grow_state log "warn: catalog start for hitrate failed — using cached report"
-    run_source_hitrate_preflight nightly "${MANGO_SOURCE_HITRATE_FORCE:-0}"
-    stop_catalog_service_only
+    if [[ "${MANGO_SOURCE_HITRATE_PREFLIGHT:-0}" == "1" ]]; then
+      grow_state set --phase preflight \
+        --message "starting catalog for explicit hit-rate benchmark" \
+        --mode "$MODE" --preset "$MANGO_GROW_PRESET" \
+        --log "nightly grow: explicit hit-rate benchmark before grow phase"
+      MANGO_CATALOG=1 start_catalog_service_only \
+        || grow_state log "warn: catalog start for hitrate failed — using cached report"
+      run_source_hitrate_preflight nightly "${MANGO_SOURCE_HITRATE_FORCE:-0}"
+      stop_catalog_service_only
+    else
+      grow_state log "nightly grow: source hit-rate benchmark excluded from critical path"
+    fi
     write_grow_baseline_if_needed grow
     grow_state set --phase grow --message "grow refresh in progress" --mode "$MODE" --preset "$MANGO_GROW_PRESET"
     REFRESH_JSON="$(run_refresh grow 2>&1)"
@@ -722,7 +804,29 @@ fi
 
 trap - EXIT
 grow_state set --phase restore --message "restoring couch stack" --mode "$MODE" --preset "$MANGO_GROW_PRESET"
-restore_couch
+if ! restore_couch; then
+  echo "maintenance failed during catalog publication handoff; previous DB restored when possible" >&2
+  exit 1
+fi
+
+REFRESH_STOP_REASON=""
+if [[ "$REFRESH_OUT_WRITTEN" == "1" && -f "$REFRESH_OUT" ]]; then
+  REFRESH_STOP_REASON="$(python3 - "$REFRESH_OUT" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    print(json.load(handle).get("stop_reason") or "")
+PY
+  )"
+fi
+if [[ "$REFRESH_STOP_REASON" == "couch_activity" || "$REFRESH_STOP_REASON" == "admission_deadline" ]]; then
+  echo "maintenance yielded safely: $REFRESH_STOP_REASON"
+  grow_state set --phase yielded --message "yielded: $REFRESH_STOP_REASON" \
+    --mode "$MODE" --preset "$MANGO_GROW_PRESET" \
+    --log "maintenance yielded stop_reason=$REFRESH_STOP_REASON"
+  release_maintenance_lock
+  exit 10
+fi
 
 python3 "$REPO_DIR/scripts/diag/grow_monitor.py" status 2>/dev/null || true
 python3 "$REPO_DIR/scripts/diag/playability-status.py" 2>/dev/null | tail -20 || true
@@ -764,7 +868,7 @@ PY
       )"; then
         rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
         echo "VOD recommendation refresh response was invalid; last-good remains active" >&2
-        exit 1
+        exit 10
       fi
       echo "playability maintenance: waiting for VOD recommendation jobs $VOD_RECOMMENDATION_JOB_IDS"
       IFS=',' read -r -a VOD_RECOMMENDATION_JOB_ID_LIST <<<"$VOD_RECOMMENDATION_JOB_IDS"
@@ -779,7 +883,7 @@ PY
               >>"$VOD_RECOMMENDATION_STATE"; then
             rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
             echo "VOD recommendation exact job read failed for ${VOD_RECOMMENDATION_JOB_ID}; last-good remains active" >&2
-            exit 1
+            exit 10
           fi
           printf '\n' >>"$VOD_RECOMMENDATION_STATE"
         done
@@ -826,12 +930,12 @@ PY
           missing|failed|invalid)
             rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
             echo "VOD recommendation refresh $VOD_RECOMMENDATION_STATUS: $VOD_RECOMMENDATION_DETAIL; last-good remains active" >&2
-            exit 1
+            exit 10
             ;;
           *)
             rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
             echo "VOD recommendation refresh returned an invalid aggregate status; last-good remains active" >&2
-            exit 1
+            exit 10
             ;;
         esac
       done
@@ -839,13 +943,13 @@ PY
       trap - EXIT
       if [[ "$VOD_RECOMMENDATION_STATUS" != "complete" ]]; then
         echo "VOD recommendation jobs timed out after ${VOD_RECOMMENDATION_TIMEOUT_SEC}s ($VOD_RECOMMENDATION_DETAIL); last-good remains active" >&2
-        exit 1
+        exit 10
       fi
       echo "playability maintenance: VOD recommendation jobs complete ($VOD_RECOMMENDATION_DETAIL)"
     else
       rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
       echo "VOD recommendation refresh enqueue failed; last-good remains active" >&2
-      exit 1
+      exit 10
     fi
   fi
 fi
@@ -853,3 +957,4 @@ fi
 echo "maintenance complete"
 grow_state set --phase done --message "complete rc=$REFRESH_RC" --mode "$MODE" --preset "$MANGO_GROW_PRESET" \
   --log "maintenance complete mode=$MODE rc=$REFRESH_RC duration_ms=$((END_MS - START_MS))"
+release_maintenance_lock

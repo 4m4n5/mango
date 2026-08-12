@@ -422,7 +422,7 @@ maintenance lock/process is active; the watchdog systemd service must not
 `Wants=` launcher/catalog units because systemd starts wanted units before the
 repair script can check the maintenance lock.
 
-Grow operator state: `~/.cache/mango/grow-run-state.json`, `~/.cache/mango/ops/refresh-*.json`, `~/.cache/mango/source-grow/latest.json`.
+Grow operator state: `~/.cache/mango/grow-run-state.json`, durable claims/history in `~/.cache/mango/playability-runs/`, serialized events in `~/.cache/mango/ops/events.jsonl`, `~/.cache/mango/ops/refresh-*.json`, and DB-backed source-grow weights. Existing `.lock` pathnames are permanent: never remove them to “clear” a run; inspect the flock owner and use the exact-owner abort command.
 Reliability proof state: `/etc/mango/reliability/proofs.jsonl`.
 
 The 03:00 and 06:00 calendar timers are `Persistent=true`: a missed event can
@@ -688,6 +688,14 @@ Easynews only from the live, credential-safe contribution counters and Pi logs.
 An AIO target-policy change is stateful: Git deploy alone does not apply it.
 The fixed-field `verify` is diagnostic only; after an authorized human UI
 change, verify again and use credential-safe contribution counters.
+
+For an actively airing/daily series, also distinguish metadata absence from a
+true stream miss. The AIOMetadata config must use an explicit TVDB key when its
+series provider is `tvdb`; Mango's self-host config builder otherwise uses
+`tvmaze`. Compare the exact episode tail returned by AIOMetadata with its
+selected upstream provider. A stale episode list can hide released episodes
+before AIOStreams is called, while an AIOStreams version older than 2.32.0 can
+miss date-named releases even when its indexers find them.
 
 ---
 

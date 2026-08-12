@@ -17,6 +17,7 @@ import type {
   ReliabilityFacts,
   ReliabilityProofRecord,
   ReliabilityState,
+  PlayabilityRunReceipt,
 } from './types.js';
 
 type CatalogHealth = Record<string, unknown>;
@@ -37,6 +38,7 @@ export type ReliabilityActionResult = {
   ok: boolean;
   action: string;
   pid?: number;
+  run_id?: string;
   message: string;
   state?: ReliabilityState;
   error?: string;
@@ -47,7 +49,39 @@ function repoDir(): string {
 }
 
 function cacheDir(): string {
-  return process.env.XDG_CACHE_HOME || join(process.env.HOME || '/tmp', '.cache', 'mango');
+  const base = process.env.XDG_CACHE_HOME || join(process.env.HOME || '/tmp', '.cache');
+  return join(base, 'mango');
+}
+
+export function listPlayabilityRunReceipts(limit = 20): PlayabilityRunReceipt[] {
+  const directory = join(cacheDir(), 'playability-runs');
+  let names: string[];
+  try {
+    names = readdirSync(directory).filter((name) => name.endsWith('.json')
+      && name !== 'active.json' && !name.endsWith('.claim.json'));
+  } catch {
+    return [];
+  }
+  return names.flatMap((name) => {
+    try {
+      const row = JSON.parse(readFileSync(join(directory, name), 'utf8')) as Record<string, unknown>;
+      if (
+        typeof row.run_id !== 'string' || typeof row.level !== 'string'
+        || typeof row.updated_at !== 'number' || typeof row.policy_hash !== 'string'
+        || !['claimed', 'succeeded', 'partial', 'failed'].includes(String(row.state))
+      ) return [];
+      return [{
+        run_id: row.run_id,
+        level: row.level,
+        state: row.state as PlayabilityRunReceipt['state'],
+        updated_at: row.updated_at,
+        policy_hash: row.policy_hash,
+        exit_code: typeof row.exit_code === 'number' ? row.exit_code : undefined,
+      }];
+    } catch {
+      return [];
+    }
+  }).sort((left, right) => right.updated_at - left.updated_at).slice(0, Math.max(1, Math.min(100, limit)));
 }
 
 function couchActivityPath(): string {
@@ -83,6 +117,56 @@ function safeNumber(value: unknown, fallback = 0): number {
 
 function safeString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
+}
+
+const PROOF_NUMBER_KEYS = new Set([
+  'playability_rc', 'youtube_rc', 'proof_rc', 'maintenance_rc',
+  'attempts', 'exact_main_wins', 'fallback_wins', 'failures', 'elapsed_ms',
+  'verified', 'failed', 'publication_count',
+]);
+const PROOF_BOOLEAN_KEYS = new Set(['playability_ok', 'published', 'readback_ok']);
+const PROOF_STRING_KEYS = new Set([
+  'run_id', 'publication_id', 'git_sha', 'config_hash', 'policy_hash',
+  'failure_category', 'stop_reason', 'stage',
+]);
+
+export function sanitizeReliabilityProofReason(value: unknown): string {
+  const reason = typeof value === 'string' ? value.trim() : 'manual';
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,79}$/.test(reason)) {
+    throw new Error('proof reason must be a bounded identifier');
+  }
+  return reason;
+}
+
+export function sanitizeReliabilityProofMetadata(
+  metadata: Record<string, unknown>,
+): Record<string, string | number | boolean> {
+  const entries = Object.entries(metadata);
+  if (entries.length > 32) throw new Error('proof metadata has too many fields');
+  const sanitized: Record<string, string | number | boolean> = {};
+  for (const [key, value] of entries) {
+    if (PROOF_NUMBER_KEYS.has(key)) {
+      if (typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > 1e12) {
+        throw new Error(`invalid numeric proof metadata: ${key}`);
+      }
+      sanitized[key] = value;
+      continue;
+    }
+    if (PROOF_BOOLEAN_KEYS.has(key)) {
+      if (typeof value !== 'boolean') throw new Error(`invalid boolean proof metadata: ${key}`);
+      sanitized[key] = value;
+      continue;
+    }
+    if (PROOF_STRING_KEYS.has(key)) {
+      if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(value)) {
+        throw new Error(`invalid string proof metadata: ${key}`);
+      }
+      sanitized[key] = value;
+      continue;
+    }
+    throw new Error(`unknown proof metadata field: ${key}`);
+  }
+  return sanitized;
 }
 
 function safeBool(value: unknown): boolean {
@@ -216,7 +300,7 @@ function maintenanceBusy(): boolean {
 }
 
 function gitCommit(): string {
-  return commandText('git', ['rev-parse', '--short', 'HEAD'], 1500) || 'unknown';
+  return commandText('git', ['rev-parse', 'HEAD'], 1500) || 'unknown';
 }
 
 async function launcherHealth(): Promise<ReliabilityFacts['launcher']> {
@@ -501,6 +585,8 @@ export class ReliabilityService {
         rails: [],
         totals: { pool_depth: 0, verified_pool: 0, pending: 0, stale: 0, failed: 0 },
         last_indexer_run_at: null,
+        retry_queue: { total: 0, due: 0, oldest_requested_at: null, by_reason: {} },
+        publication: null,
         error: error instanceof Error ? error.message : String(error),
       } as PlayabilityStatusLike)),
     ]);
@@ -529,7 +615,10 @@ export class ReliabilityService {
   }
 
   async state(): Promise<ReliabilityState> {
-    return evaluateReliability(await this.gatherFacts());
+    return {
+      ...evaluateReliability(await this.gatherFacts()),
+      playability_runs: listPlayabilityRunReceipts(),
+    };
   }
 
   async controller(): Promise<ReliabilityFacts['controller']> {
@@ -545,14 +634,19 @@ export class ReliabilityService {
     proof: ReliabilityProofRecord;
     state: ReliabilityState;
   }> {
+    const sanitizedReason = sanitizeReliabilityProofReason(reason);
+    const sanitizedMetadata = sanitizeReliabilityProofMetadata(metadata);
     const facts = await this.gatherFacts();
-    const state = evaluateReliability(facts);
+    const state = {
+      ...evaluateReliability(facts),
+      playability_runs: listPlayabilityRunReceipts(),
+    };
     const starvingRails = computeStarvingRails(facts.rail_growth.history)
       .filter((rail) => rail.nights_missed >= facts.rail_growth.threshold_nights);
     // Operator-only digest of starving rails, attached automatically so it is
     // never lost even if the caller (e.g. the nightly proof shell hop) does
     // not know about rail-growth tracking. Never surfaced on the TV.
-    const mergedMetadata: Record<string, unknown> = { ...metadata };
+    const mergedMetadata: Record<string, unknown> = { ...sanitizedMetadata };
     if (starvingRails.length > 0) {
       mergedMetadata.starving_rails = starvingRails.map((rail) => ({
         rail_id: rail.rail_id,
@@ -563,7 +657,7 @@ export class ReliabilityService {
     }
     const record: ReliabilityProofRecord = {
       proof_id: randomUUID(),
-      reason,
+      reason: sanitizedReason,
       status: state.status,
       ok: state.status !== 'red',
       summary: state.summary,
@@ -644,7 +738,7 @@ export class ReliabilityService {
     return {
       ok: true,
       action: 'refresh',
-      pid: started.pid,
+      run_id: started.run_id,
       message: 'nightly movie/TV plus YouTube refresh started',
       state,
     };

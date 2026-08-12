@@ -253,7 +253,7 @@ export async function fetchAddonCatalogCandidates(
   contentType: string,
   catalog: string,
   sourceLabel: string,
-  options: { offset: number; limit: number },
+  options: { offset: number; limit: number; onRawPage?: (count: number) => void },
   source?: { sourceKey?: string; addon?: string; catalog?: string; sourceName?: string },
 ): Promise<CandidateMeta[]> {
   const controller = new AbortController();
@@ -285,7 +285,9 @@ export async function fetchAddonCatalogCandidates(
         }, timeoutMs);
       }),
     ]);
-    return (data.metas || [])
+    const rawMetas = data.metas || [];
+    options.onRawPage?.(rawMetas.length);
+    return rawMetas
       .slice(0, options.limit)
       .filter((preview) => {
         const title = previewTitle(preview);
@@ -412,13 +414,14 @@ export class AddonCatalogListSource implements ListSource, SourceCursorListSourc
       return [];
     }
     let candidates: CandidateMeta[] = [];
+    let rawPageCount = 0;
     try {
       candidates = await fetchAddonCatalogCandidates(
         this.manifestUrl,
         this.contentType,
         this.catalog,
         this.sourceLabel,
-        { offset: start, limit: options.limit },
+        { offset: start, limit: options.limit, onRawPage: (count) => { rawPageCount = count; } },
         {
           sourceKey: key,
           addon: this.addonName,
@@ -440,8 +443,8 @@ export class AddonCatalogListSource implements ListSource, SourceCursorListSourc
       });
       throw error;
     }
-    this.sourceOffsets.set(this.cursorKey(), start + candidates.length);
-    if (candidates.length < options.limit) {
+    this.sourceOffsets.set(this.cursorKey(), start + rawPageCount);
+    if (rawPageCount < options.limit) {
       this.catalogExhausted = true;
     }
     this.lastFetchStats.push({
@@ -612,13 +615,14 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
 
     const fetchPlan = async (plan: typeof fetchPlans[number]): Promise<void> => {
       const { index, source, key, start, fetchLimit, weight } = plan;
+      let rawPageCount = 0;
       try {
         const candidates = await fetchAddonCatalogCandidates(
           source.manifestUrl,
           this.contentType,
           source.catalog,
           source.sourceLabel,
-          { offset: start, limit: fetchLimit },
+          { offset: start, limit: fetchLimit, onRawPage: (count) => { rawPageCount = count; } },
           {
             sourceKey: key,
             addon: source.addon,
@@ -626,8 +630,8 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
             sourceName: source.sourceName,
           },
         );
-        this.sourceOffsets.set(key, start + candidates.length);
-        if (candidates.length < fetchLimit) {
+        this.sourceOffsets.set(key, start + rawPageCount);
+        if (rawPageCount < fetchLimit) {
           this.exhaustedSources.add(key);
         }
         stats[index] = {

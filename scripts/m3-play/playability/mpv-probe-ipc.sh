@@ -5,6 +5,7 @@
 set -euo pipefail
 
 SOCKET_DIR="${MANGO_MPV_PROBE_SOCKET_DIR:-${HOME}/.cache/mango/mpv-probe}"
+LEASE_FILE="${MANGO_MPV_PROBE_LEASE_FILE:-${XDG_CACHE_HOME:-${HOME}/.cache}/mango/mpv-probe-pool.lock}"
 COUCH_SOCKET="${MANGO_MPV_SOCKET:-${HOME}/.cache/mango/mpv.sock}"
 COUCH_PID_FILE="${MANGO_MPV_PID_FILE:-${HOME}/.cache/mango/mpv.pid}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -51,6 +52,15 @@ if [[ -z "${MANGO_PROBE_TIMEOUT_WRAPPER:-}" ]]; then
   export MANGO_PROBE_TIMEOUT_WRAPPER=1
   HARD_LIMIT_SEC=$(( (TIMEOUT_MS + 999) / 1000 + 8 ))
   exec timeout --kill-after=3 "$HARD_LIMIT_SEC" "$0" "${ORIGINAL_ARGS[@]}"
+fi
+
+# Catalog maintenance holds this lease across its full concurrent pool lifetime.
+# Direct diagnostics acquire it for this single probe. The pathname is stable
+# and must never be unlinked as crash cleanup; closing the fd releases flock.
+if [[ "${MANGO_MPV_PROBE_LEASE_HELD:-0}" != "1" ]]; then
+  exec python3 "$SCRIPT_DIR/../../lib/stable-flock-exec.py" \
+    "$LEASE_FILE" MANGO_MPV_PROBE_LEASE_HELD "DEFERRED: mpv_probe_pool_owned" -- \
+    bash "$0" "${ORIGINAL_ARGS[@]}"
 fi
 
 SOCKET="${SOCKET_DIR}/probe-${WORKER_ID}.sock"

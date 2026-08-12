@@ -38,7 +38,9 @@ sync, every provider, subjective UI quality, or recommendation relevance.
 |------|---------|
 | `/etc/mango/reliability/proofs.jsonl` | Append-only local proof ledger, pruned to 30 days |
 | `~/.cache/mango/couch-activity.json` | Idle marker used before disruptive actions |
-| `~/.cache/mango/*.lock` | Maintenance locks checked for stale blockers |
+| `~/.cache/mango/*.lock` | Permanent ownership pathnames; a held fd is busy, an unheld pathname is normal and is never deleted as “stale” |
+| `~/.cache/mango/playability-runs/*.json` | Durable coordinator claim and terminal run receipts surfaced in Reliability history |
+| `~/.cache/mango/ops/events.jsonl` | Serialized, fsynced, run-bound stage/outcome ledger |
 | `~/.cache/mango/recommendation-maintenance.lease` | Atomic 15-minute heavy-refresh lease; heartbeat is fresh for 30 seconds |
 
 No cloud telemetry, secrets, or live proof data are committed.
@@ -56,14 +58,16 @@ never suppresses repair.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/reliability/state` | Current Green/Yellow/Red state, component cards, action availability, latest proof |
-| `GET` | `/reliability/controller` | Current controller-link state and pad-ready evidence |
-| `GET` | `/reliability/proofs?limit=20` | Recent proof ledger rows |
+| `GET` | `/reliability/state` | Localhost-only Green/Yellow/Red state, component cards, action availability, latest proof |
+| `GET` | `/reliability/controller` | Localhost-only controller-link state and pad-ready evidence |
+| `GET` | `/reliability/proofs?limit=20` | Localhost-only recent proof ledger rows |
 | `POST` | `/reliability/proof/run` | Localhost-only proof write; accepts `{ reason, metadata }` |
 | `POST` | `/reliability/repair` | Localhost-only safe repair; starts `mango-health-repair.sh --quiet` when idle |
 | `POST` | `/reliability/controller/repair` | Localhost-only Bluetooth-only repair request when idle |
 | `POST` | `/reliability/stack/restart` | Localhost-only detached `mango-stack.sh restart` when idle |
-| `POST` | `/reliability/refresh/run` | Localhost-only detached nightly movie/TV + YouTube refresh when idle |
+| `POST` | `/reliability/refresh/run` | Localhost-only atomically claimed nightly movie/TV + YouTube refresh when idle |
+
+Proof metadata is a typed bounded allowlist (return codes, counts, run/publication/config/policy identifiers, stage/stop reason). Unknown keys, URLs, and unbounded caller text are rejected. Proof and ops ledgers serialize writers with permanent locks, fsync content, and use unique atomic report/compaction files.
 
 Launcher uses the proxy path `/api/catalog/reliability/*`.
 
@@ -110,7 +114,7 @@ Order:
    lock is still active.
 5. WAL checkpoint and Reliability proof, recording phase return codes/metadata.
 
-The wrapper exits non-zero if movie/TV, YouTube, or proof is red/unreachable.
+The wrapper distinguishes ownership failure from downstream degradation: a failed/unpublished playability phase fails the run; a validated playability publication followed by VOD/YouTube/proof failure records `partial` and retains the last-good downstream output.
 Set `MANGO_NIGHTLY_RELIABILITY_PROOF=0` only for targeted diagnosis.
 
 The calendar timer is `Persistent=true`, so a missed 03:00 event can run after

@@ -28,7 +28,12 @@ docker_compose pull
 docker_compose up -d
 
 for _ in $(seq 1 60); do
-  if curl -sf --max-time 3 http://127.0.0.1:3035/api/v1/status >/dev/null; then
+  if status_json="$(curl -sf --max-time 3 http://127.0.0.1:3035/api/v1/status)"; then
+    if ! printf '%s' "$status_json" \
+      | python3 "$REPO_DIR/scripts/m4-addons/aiostreams_version.py" -; then
+      echo "AIOStreams started but does not satisfy Mango's runtime contract" >&2
+      exit 1
+    fi
     echo "AIOStreams ready: http://127.0.0.1:3035"
     exit 0
   fi

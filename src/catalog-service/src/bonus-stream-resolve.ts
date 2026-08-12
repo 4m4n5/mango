@@ -215,13 +215,30 @@ export function streamConflictsMainEpisodeNumber(
   haystack: string,
   season: number,
   episode: number,
-  maxEpisode = 30,
+  maxEpisode = 999,
 ): boolean {
-  for (let other = 1; other <= maxEpisode; other += 1) {
-    if (other === episode) {
-      continue;
+  const labelled = [
+    ...haystack.matchAll(/\bs0*(\d+)[\s._-]*e0*(\d+)\b/gi),
+    ...haystack.matchAll(/\b(\d+)[\s._-]*x0*(\d+)\b/gi),
+  ];
+  for (const match of labelled) {
+    const labelledSeason = Number(match[1]);
+    const labelledEpisode = Number(match[2]);
+    if (
+      labelledEpisode >= 1
+      && labelledEpisode <= maxEpisode
+      && (labelledSeason !== season || labelledEpisode !== episode)
+    ) {
+      return true;
     }
-    if (streamMatchesMainEpisodeNumber(haystack, season, other)) {
+  }
+  for (const match of haystack.matchAll(/\b(?:e|ep|episode)[\s._-]*0*(\d+)\b/gi)) {
+    const labelledEpisode = Number(match[1]);
+    if (
+      labelledEpisode >= 1
+      && labelledEpisode <= maxEpisode
+      && labelledEpisode !== episode
+    ) {
       return true;
     }
   }

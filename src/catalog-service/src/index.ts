@@ -137,7 +137,12 @@ import {
   youtubeRecommendationsV2Mode,
 } from './youtube/service.js';
 import type { YoutubeItemKind } from './youtube/types.js';
-import { ReliabilityService } from './reliability/service.js';
+import {
+  ReliabilityService,
+  listPlayabilityRunReceipts,
+  sanitizeReliabilityProofMetadata,
+  sanitizeReliabilityProofReason,
+} from './reliability/service.js';
 import { resolvePosterFromMeta, enrichMetaForLauncher, stubMetaForLauncher } from './poster.js';
 import {
   flushWatchProgress,
@@ -158,6 +163,7 @@ import {
   startRefreshJob,
   resolveRefreshLevelId,
 } from './playability/refresh-control.js';
+import { playabilityPolicySnapshot } from './playability/policy.js';
 import type { GrowPresetId } from './playability/grow-target.js';
 import { GROW_PRESETS } from './playability/grow-target.js';
 import { parseCatalogTab, loadRailConfig } from './rails.js';
@@ -226,6 +232,7 @@ import {
 const HOST = process.env.MANGO_CATALOG_HOST || '127.0.0.1';
 const PORT = Number(process.env.MANGO_CATALOG_PORT || 3020);
 const BODY_LIMIT = 64 * 1024;
+const PLAYABILITY_POLICY = playabilityPolicySnapshot();
 let activeStreams: ActiveStreamService | null = null;
 
 type PlayBody = StreamFilterOverrides & {
@@ -1033,6 +1040,15 @@ async function handlePlay(
           expires_at: Date.now() + playabilityVerifyTtlMs(),
           stage: 'play',
           outcome: 'verified',
+          proof_version: 2,
+          exact_main_win: true,
+          run_id: process.env.MANGO_OPS_RUN_ID ?? null,
+          request_id: requestId || null,
+          request_title_id: playId,
+          request_title: body.title ?? null,
+          request_year: body.year ?? null,
+          source_key: typeof playback.stream.source === 'string' ? playback.stream.source : null,
+          attempt_kind: 'main',
         }).catch((writeError) => {
           console.warn(
             `playability refresh on play failed type=${body.type} id=${body.id}: ${
@@ -3302,16 +3318,25 @@ async function main(): Promise<void> {
 
       if (parts.length >= 1 && parts[0] === 'reliability') {
         if (req.method === 'GET' && parts.length === 2 && parts[1] === 'state') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'reliability state is localhost-only');
+          }
           sendJson(res, 200, await reliability.state());
           return;
         }
 
         if (req.method === 'GET' && parts.length === 2 && parts[1] === 'controller') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'reliability controller state is localhost-only');
+          }
           sendJson(res, 200, { ok: true, controller: await reliability.controller() });
           return;
         }
 
         if (req.method === 'GET' && parts.length === 2 && parts[1] === 'proofs') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'reliability proofs are localhost-only');
+          }
           const limit = Number(url.searchParams.get('limit') || 20);
           sendJson(res, 200, {
             ok: true,
@@ -3325,12 +3350,16 @@ async function main(): Promise<void> {
             throw new CatalogError(403, 'reliability proof is localhost-only');
           }
           const body = await readBody(req) as Record<string, unknown>;
-          const reason = typeof body.reason === 'string' && body.reason.trim()
-            ? body.reason.trim()
-            : 'manual';
+          let reason: string;
           const metadata = body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)
             ? body.metadata as Record<string, unknown>
             : {};
+          try {
+            reason = sanitizeReliabilityProofReason(body.reason);
+            sanitizeReliabilityProofMetadata(metadata);
+          } catch (error) {
+            throw new CatalogError(400, error instanceof Error ? error.message : String(error));
+          }
           sendJson(res, 200, await reliability.runProof(reason, metadata));
           return;
         }
@@ -3421,6 +3450,14 @@ async function main(): Promise<void> {
             detach: body.detach === true,
           });
           if (!started.ok) {
+            if (started.busy) {
+              sendJson(res, 409, {
+                ok: false,
+                error: started.error,
+                active_run_id: started.active_run_id,
+              });
+              return;
+            }
             throw new CatalogError(started.busy ? 409 : 400, started.error);
           }
           if (started.mode !== 'background') {
@@ -3433,7 +3470,8 @@ async function main(): Promise<void> {
             refresh_mode: refreshMode,
             preset: preset ?? 'nightly',
             level: started.level,
-            pid: started.pid,
+            run_id: started.run_id,
+            state: started.state,
             estimated_sec: level?.estimated_sec,
             estimated_label: level?.estimated_label,
             blocks_couch: level?.blocks_couch,
@@ -3454,6 +3492,14 @@ async function main(): Promise<void> {
         }
         const started = await startRefreshLevel(levelId);
         if (!started.ok) {
+          if (started.busy) {
+            sendJson(res, 409, {
+              ok: false,
+              error: started.error,
+              active_run_id: started.active_run_id,
+            });
+            return;
+          }
           throw new CatalogError(started.busy ? 409 : 400, started.error);
         }
         if (started.mode === 'inline') {
@@ -3473,7 +3519,8 @@ async function main(): Promise<void> {
           level: started.level,
           requested_level: levelId !== started.level ? levelId : undefined,
           mode: 'background',
-          pid: started.pid,
+          run_id: started.run_id,
+          state: started.state,
           estimated_sec: level.estimated_sec,
           estimated_label: level.estimated_label,
           blocks_couch: level.blocks_couch,
@@ -3494,7 +3541,24 @@ async function main(): Promise<void> {
       }
 
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'playability' && parts[1] === 'status') {
-        sendJson(res, 200, await core.playabilityStatus());
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'playability status is localhost-only');
+        }
+        sendJson(res, 200, {
+          ...await core.playabilityStatus(),
+          policy: {
+            ...PLAYABILITY_POLICY.policy,
+            policy_hash: PLAYABILITY_POLICY.policy_hash,
+          },
+          runs: (() => {
+            const history = listPlayabilityRunReceipts();
+            return {
+              current: history.find((run) => run.state === 'claimed') ?? null,
+              last: history[0] ?? null,
+              history,
+            };
+          })(),
+        });
         return;
       }
 

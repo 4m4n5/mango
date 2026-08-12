@@ -80,6 +80,16 @@ export type ReliabilityState = {
   components: ReliabilityComponent[];
   actions: ReliabilityAction[];
   last_proof: ReliabilityProofRecord | null;
+  playability_runs?: PlayabilityRunReceipt[];
+};
+
+export type PlayabilityRunReceipt = {
+  run_id: string;
+  level: string;
+  state: 'claimed' | 'succeeded' | 'partial' | 'failed';
+  updated_at: number;
+  policy_hash: string;
+  exit_code?: number;
 };
 
 export type ReliabilityFacts = {

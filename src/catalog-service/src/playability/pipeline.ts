@@ -6,6 +6,8 @@ import { isRecentFailedTitle } from './candidate-ingest.js';
 import {
   playabilityBatchDbEnabled,
   playabilityEarlyExitMinDisplay,
+  playabilityAdmissionDeadlineReached,
+  playabilityCouchYieldRequested,
   playabilityProbeConcurrency,
   playabilityResolveConcurrency,
   playabilityUseProbePool,
@@ -157,6 +159,7 @@ export type ProcessVerifyQueueResult = {
   linked_existing: number;
   skipped_existing: number;
   skipped_recent_failed: number;
+  stopped_reason?: 'admission_deadline' | 'couch_activity';
   results: Array<{
     type: string;
     id: string;
@@ -198,6 +201,8 @@ export async function processVerifyQueue(
   let verified = 0;
   let failed = 0;
   let earlyStopped = false;
+  let deadlineStopped = false;
+  let couchStopped = false;
 
   const resolveConcurrency = playabilityResolveConcurrency();
   const probeConcurrency = playabilityProbeConcurrency();
@@ -353,6 +358,18 @@ export async function processVerifyQueue(
     if (earlyStopped) {
       return;
     }
+    if (playabilityAdmissionDeadlineReached()) {
+      deadlineStopped = true;
+      earlyStopped = true;
+      pendingProbes.length = 0;
+      return;
+    }
+    if (playabilityCouchYieldRequested()) {
+      couchStopped = true;
+      earlyStopped = true;
+      pendingProbes.length = 0;
+      return;
+    }
     while (
       prepareInFlight.size < resolveConcurrency
       && nextVerifyIndex < queue.length
@@ -369,8 +386,8 @@ export async function processVerifyQueue(
   };
 
   fillPrepareQueue();
-  while (!earlyStopped && (prepareInFlight.size > 0 || pendingProbes.length > 0 || activeProbes.size > 0)) {
-    if (prepareInFlight.size > 0) {
+  while (prepareInFlight.size > 0 || pendingProbes.length > 0 || activeProbes.size > 0) {
+    if (!earlyStopped && prepareInFlight.size > 0) {
       const prepared = await Promise.race(prepareInFlight.values());
       prepareInFlight.delete(prepared.queueId);
       enqueueProbe(prepared);
@@ -379,7 +396,9 @@ export async function processVerifyQueue(
     }
     if (activeProbes.size > 0) {
       await Promise.race(activeProbes);
+      continue;
     }
+    break;
   }
 
   return {
@@ -388,6 +407,7 @@ export async function processVerifyQueue(
     linked_existing: 0,
     skipped_existing: 0,
     skipped_recent_failed: 0,
+    stopped_reason: deadlineStopped ? 'admission_deadline' : couchStopped ? 'couch_activity' : undefined,
     results,
   };
 }
@@ -397,10 +417,16 @@ async function prepareQueueItem(
   item: VerifyQueueItem,
   core: CatalogCore,
 ): Promise<PreparedQueueItem> {
+  const primaryRef = item.refs[0];
   return {
     queueId,
     item,
-    prepared: await prepareVerifyTitle(core, item.candidate.type, item.candidate.id),
+    prepared: await prepareVerifyTitle(core, item.candidate.type, item.candidate.id, {
+      railId: primaryRef?.railId ?? null,
+      sourceKey: item.candidate.source_key ?? item.candidate.source ?? null,
+      title: item.candidate.title ?? null,
+      year: item.candidate.year ?? null,
+    }),
   };
 }
 

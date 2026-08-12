@@ -19,20 +19,37 @@ cd "$REPO_DIR"
 TYPE="${1:-}"
 ID="${2:-}"
 CATALOG="${MANGO_CATALOG_URL:-http://127.0.0.1:3020}"
-TMP="${TMPDIR:-/tmp}/mango-probe-one-$$"
-mkdir -p "$TMP"
-trap 'bash scripts/m2-catalog/service/mpv-stop.sh >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
 
 [[ -n "$TYPE" && -n "$ID" ]] || {
   echo "usage: $0 <movie|series> <id>" >&2
   exit 2
 }
 
+if [[ "${MANGO_PLAYABILITY_COORDINATOR_LOCK_HELD:-0}" != "1" ]]; then
+  RUN_ID="diagnostic-$(python3 -c 'import uuid; print(uuid.uuid4())')"
+  export MANGO_PROBE_DIAG_TYPE="$TYPE"
+  export MANGO_PROBE_DIAG_ID="$ID"
+  exec bash "$REPO_DIR/scripts/m3-play/playability/playability-coordinator.sh" \
+    --run-id "$RUN_ID" --level diagnostic
+fi
+
+if [[ "${MANGO_MPV_PROBE_LEASE_HELD:-0}" != "1" ]]; then
+  LEASE_FILE="${MANGO_MPV_PROBE_LEASE_FILE:-${XDG_CACHE_HOME:-${HOME}/.cache}/mango/mpv-probe-pool.lock}"
+  exec python3 "$REPO_DIR/scripts/lib/stable-flock-exec.py" \
+    "$LEASE_FILE" MANGO_MPV_PROBE_LEASE_HELD "DEFERRED: mpv_probe_pool_owned" -- \
+    bash "$0" "$TYPE" "$ID"
+fi
+
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/mango-probe-one.XXXXXX")"
+trap 'bash scripts/m2-catalog/service/mpv-stop.sh >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
+
 step() { echo; echo "== $* =="; }
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 step "0. preflight"
+bash scripts/lib/couch-activity.sh is-idle >/dev/null 2>&1 \
+  || fail "couch is active; diagnostic will not interrupt foreground playback"
 curl -sf --max-time 5 "$CATALOG/health" >/dev/null || fail "catalog down at $CATALOG"
 echo "OK catalog"
 
@@ -70,7 +87,7 @@ if not streams:
     raise SystemExit("no streams after filters")
 s = streams[0]
 print(f"  top: source={s.get('source')} cache={s.get('cache_status')} debrid={s.get('debrid_service')}")
-print(f"  url_host={s.get('url','')[:80]}...")
+print(f"  top_url_present={bool(s.get('url'))}")
 with open(sys.argv[1].replace('.json', '.url'), 'w') as f:
     f.write(s['url'])
 PY

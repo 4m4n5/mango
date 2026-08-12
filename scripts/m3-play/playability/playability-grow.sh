@@ -19,7 +19,7 @@ set -euo pipefail
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
 LOG="${CACHE_DIR}/playability-grow.log"
-PIDFILE="${CACHE_DIR}/playability-grow.pid"
+COORDINATOR="$REPO_DIR/scripts/m3-play/playability/playability-coordinator.sh"
 
 MODE="${MANGO_PLAYABILITY_REFRESH_MODE:-grow}"
 PRESET="${MANGO_GROW_PRESET:-}"
@@ -30,7 +30,7 @@ usage() {
 usage:
   $0 [--mode grow|stale|nightly] [--preset quick|nightly|overnight]
   $0 --detach   run in background (nohup)
-  $0 --status   show pid + recent log
+  $0 --status   show current/last durable run status
 EOF
 }
 
@@ -80,32 +80,57 @@ if [[ -z "$PRESET" ]]; then
 fi
 PRESET="$(normalize_preset "$PRESET")"
 
+if [[ "${MANGO_PLAYABILITY_COORDINATOR_LOCK_HELD:-0}" != "1" ]]; then
+  case "$MODE:$PRESET" in
+    stale:*) LEVEL=stale_refresh ;;
+    nightly:*) LEVEL=grow_nightly ;;
+    grow:quick) LEVEL=grow_quick ;;
+    grow:nightly) LEVEL=grow_standard ;;
+    grow:overnight) LEVEL=grow_overnight ;;
+    *) echo "unsupported coordinated grow mode: $MODE preset=$PRESET" >&2; exit 2 ;;
+  esac
+  RUN_ID="playability-$(python3 -c 'import uuid; print(uuid.uuid4())')"
+  if [[ "$DETACH" -eq 1 ]]; then
+    mkdir -p "$CACHE_DIR"
+    nohup bash "$COORDINATOR" --run-id "$RUN_ID" --level "$LEVEL" >>"$LOG" 2>&1 &
+    CLAIM_FILE="${CACHE_DIR}/playability-runs/${RUN_ID}.claim.json"
+    CLAIM_STATE=""
+    ACTIVE_RUN_ID=""
+    for _ in $(seq 1 100); do
+      if [[ -f "$CLAIM_FILE" ]]; then
+        read -r CLAIM_STATE ACTIVE_RUN_ID < <(python3 - "$CLAIM_FILE" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    claim = json.load(handle)
+print(claim.get("state", ""), claim.get("active_run_id", ""))
+PY
+        )
+        [[ -n "$CLAIM_STATE" ]] && break
+      fi
+      sleep 0.02
+    done
+    if [[ "$CLAIM_STATE" == "claimed" ]]; then
+      echo "started run_id=$RUN_ID state=claimed mode=$MODE preset=$PRESET log=$LOG"
+      exit 0
+    fi
+    if [[ "$CLAIM_STATE" == "busy" ]]; then
+      echo "playability job already running active_run_id=${ACTIVE_RUN_ID:-unknown}" >&2
+      exit 75
+    fi
+    echo "playability coordinator did not acknowledge run_id=$RUN_ID" >&2
+    exit 1
+  fi
+  exec bash "$COORDINATOR" --run-id "$RUN_ID" --level "$LEVEL"
+fi
+
 if [[ "$DETACH" -eq 1 ]]; then
-  mkdir -p "$CACHE_DIR"
-  if [[ -f "$PIDFILE" ]] && ! kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-    rm -f "$PIDFILE"
-  fi
-  if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-    echo "already running pid=$(cat "$PIDFILE") log=$LOG"
-    exit 0
-  fi
-  nohup env MANGO_REPO_DIR="$REPO_DIR" MANGO_GROW_PRESET="$PRESET" bash "$0" --mode "$MODE" >/dev/null 2>&1 &
-  echo $! >"$PIDFILE"
-  disown -h 2>/dev/null || true
-  echo "started pid=$(cat "$PIDFILE") mode=$MODE preset=$PRESET log=$LOG"
-  echo "check: bash $0 --status"
-  exit 0
+  echo "--detach is invalid inside an already claimed coordinator run" >&2
+  exit 2
 fi
 
 mkdir -p "$CACHE_DIR"
 touch "$LOG"
-
-cleanup_grow_pidfile() {
-  if [[ -f "$PIDFILE" ]] && [[ "$(cat "$PIDFILE" 2>/dev/null || true)" == "$$" ]]; then
-    rm -f "$PIDFILE"
-  fi
-}
-trap cleanup_grow_pidfile EXIT
 
 echo "playability-grow: mode=$MODE preset=$PRESET" | tee -a "$LOG"
 export MANGO_GROW_PRESET="$PRESET"

@@ -71,13 +71,21 @@ if [[ "${1:-}" == "--detach" ]]; then
     echo "already running pid=$(cat "$PIDFILE") log=$LOG"
     exit 0
   fi
-  nohup env MANGO_REPO_DIR="$REPO_DIR" bash "$0" >>"$LOG" 2>&1 &
+  RUN_ID="overnight-$(python3 -c 'import uuid; print(uuid.uuid4())')"
+  nohup env MANGO_REPO_DIR="$REPO_DIR" \
+    bash "$REPO_DIR/scripts/m3-play/playability/playability-coordinator.sh" \
+      --run-id "$RUN_ID" --level grow_overnight >>"$LOG" 2>&1 &
   echo $! >"$PIDFILE"
   disown -h 2>/dev/null || true
-  echo "started pid=$(cat "$PIDFILE") log=$LOG"
+  echo "started run_id=$RUN_ID pid=$(cat "$PIDFILE") log=$LOG"
   echo "check: bash $0 --status"
   exit 0
 fi
+
+RUN_ID="overnight-$(python3 -c 'import uuid; print(uuid.uuid4())')"
+echo "overnight grow delegates to staged coordinator run_id=$RUN_ID"
+exec bash "$REPO_DIR/scripts/m3-play/playability/playability-coordinator.sh" \
+  --run-id "$RUN_ID" --level grow_overnight
 
 mkdir -p "$CACHE_DIR"
 touch "$LOG"

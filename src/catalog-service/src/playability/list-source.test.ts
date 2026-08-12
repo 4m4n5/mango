@@ -80,6 +80,34 @@ test('fetchAddonCatalogCandidates canonicalizes series episode ids to title ids'
   }
 });
 
+test('source cursor advances by the raw page and exhaustion ignores filtered output', async () => {
+  const originalFetch = globalThis.fetch;
+  const visited: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    visited.push(String(input));
+    return new Response(JSON.stringify({
+      metas: [
+        { id: 'tt1', name: 'Rate limit exceeded' },
+        { id: 'tt2', name: 'Good title' },
+      ],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  try {
+    const source = new CompositeListSource('rail', 'movie', [{
+      addon: 'A', catalog: 'c1', weight: 1,
+      manifestUrl: 'http://127.0.0.1:3036/stremio/a/manifest.json', sourceLabel: 'A/c1',
+    }]);
+    const first = await source.candidates({ offset: 0, limit: 2 });
+    assert.deepEqual(first.map((candidate) => candidate.id), ['tt2']);
+    assert.equal(source.readSourceOffsets().get('A:c1'), 2);
+    assert.equal(source.areAllSourcesExhausted(), false);
+    await source.candidates({ offset: 0, limit: 2 });
+    assert.match(visited[1] ?? '', /skip=2/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('fetchAddonCatalogCandidates hard-times out stalled catalog body fetches', async () => {
   const originalFetch = globalThis.fetch;
   const originalTimeout = process.env.MANGO_CATALOG_FETCH_TIMEOUT_MS;

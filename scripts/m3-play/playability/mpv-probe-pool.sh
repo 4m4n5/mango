@@ -8,9 +8,18 @@
 set -euo pipefail
 
 SOCKET_DIR="${MANGO_MPV_PROBE_SOCKET_DIR:-${HOME}/.cache/mango/mpv-probe}"
+LEASE_FILE="${MANGO_MPV_PROBE_LEASE_FILE:-${XDG_CACHE_HOME:-${HOME}/.cache}/mango/mpv-probe-pool.lock}"
 WORKERS="${MANGO_PLAYABILITY_PROBE_CONCURRENCY:-1}"
+ORIGINAL_ARGS=("$@")
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+
+if [[ "${MANGO_MPV_PROBE_LEASE_HELD:-0}" != "1" ]]; then
+  exec python3 "$SCRIPT_DIR/../../lib/stable-flock-exec.py" \
+    "$LEASE_FILE" MANGO_MPV_PROBE_LEASE_HELD \
+    "mpv-probe-pool: another process owns the probe pool" -- \
+    bash "$0" "${ORIGINAL_ARGS[@]}"
+fi
 
 usage() {
   echo "usage: $0 ensure [--workers N] | restart-worker <id> | stop-all" >&2

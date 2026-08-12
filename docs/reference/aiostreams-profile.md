@@ -4,9 +4,12 @@
 **State boundary:** AIOStreams `userData` and credentials are Pi-owned runtime
 state. Repository deployment never overwrites them.
 
-An older home snapshot observed AIOStreams v2.30.3. Treat the actual `/status`
-and API schema on the current Pi as authoritative; do not pin an observed
-container version as the product contract.
+Mango requires AIOStreams **v2.32.0 or newer**. That release added date-based
+series discovery and matching; older releases can return zero streams for daily
+shows even when their indexers find date-named releases. The compose default is
+the reviewed stable `v2.32.1`, overridable only through the explicit
+`MANGO_AIOSTREAMS_IMAGE_TAG` operator setting. Treat `/api/v1/status` as runtime
+truth and advance the stable tag deliberately after gate validation.
 
 ## Target role and current exception
 
@@ -242,6 +245,7 @@ clear cache/databases, or print URLs to make a contribution check pass.
 | MediaFusion | Fresh manifest 2xx, bounded latency/errors, incremental regional yield, no duplicate direct export |
 | Detail vs Play timing | Detail late-join must not start a duplicate fan-out; Play keeps its independent deadline |
 | Clean-empty recovery | Empty→empty→playable succeeds inside one exact-ID B press only for eligible clean/transient aggregate results |
+| Daily/date-based series | `/api/v1/status` reports >=2.32.0 and the Alliance tail fixture returns an exact requested-episode candidate |
 | 4K/HDR | Provider labels are not proof; record actual output/decode/drops/audio on target TV |
 
 ## References

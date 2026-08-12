@@ -177,6 +177,14 @@ provider counts, cumulative outcomes/latency, and the latest user/background
 indexer and debrid contribution counts; it never exposes manifests, URLs,
 tokens, title IDs, or stream IDs.
 
+**Series metadata freshness:** AIOMetadata must not prefer TVDB on a self-host
+that has no explicit TVDB API key. Mango's config builder selects TVMaze in
+that case and preserves TVDB only when a key is configured. This affects which
+episode IDs reach the resolver, not stream supply itself. For an actively
+airing or daily series, compare the latest numbered/aired episode in the
+AIOMetadata response with the upstream metadata provider before concluding
+that a missing tail episode has no streams.
+
 **Resolve request class:** Couch play and `GET /stream` use `requestClass: 'user'`. Background verify/grow use `requestClass: 'background'`.
 
 **Empty-result confirmation:** AIOStreams can finish successfully at the HTTP
@@ -211,8 +219,8 @@ The couch hot path is deliberately play-first: read an existing verified hint, p
 | Couch outcome | DB effect |
 |---------------|-----------|
 | Transient / zero-stream / opaque mpv | Enqueue `play_failure_reverify` only — no status change |
-| Last-resort / floor Play success | `demoteTitle(last_resort_play)` → `stale`, **keep `rail_pool`** |
-| First obligation-floor exhaustion (play fail) | `demoteTitle(play_miss)` → `stale`, **keep `rail_pool`**, preserve session |
+| Last-resort / floor Play success | `demoteTitle(last_resort_play)` → `stale`, keep recovery evidence but exclude from Home |
+| First obligation-floor exhaustion (play fail) | `demoteTitle(play_miss)` → `stale`, keep pool/session evidence but exclude from Home |
 | Second exhaustion within 24h after `play_miss` | `invalidateTitle(play_failure)` → `failed`, purge pools, reshuffle session |
 
 Recovery: targeted cache invalidation after confirmed failure, queued/background reverify, and nightly stale reverify + grow. Background verify must not overwrite a couch `play_miss` demotion with `failed` unless `forceReprobe`.
@@ -337,7 +345,18 @@ not a fresh grow proof. Use `playability-status.py` and
 
 **Presets:** `quick` (8 min / 100 attempts per rail) · `nightly` (25 min / 250 attempts per rail) · `overnight` (45 min / 400 attempts per rail chunk) — see [LIBRARY-GROWER-OPS.md](../scripts/m3-play/playability/LIBRARY-GROWER-OPS.md)
 
-**Grow target:** fresh **new-to-rail probe-verified** titles per rail (`+20` default). Existing verified links, orphan reattachments, and pool reshuffles do **not** satisfy the target. Anchor rails are included by default; the old anchor diet is opt-in only (`MANGO_GROW_ANCHOR_DIET=1`). By default, target misses are warnings and usable verified work still publishes; set `MANGO_GROW_REQUIRE_TARGET=1` for strict proof runs.
+**Grow target:** fresh **new-to-rail exact-main probe-verified** titles. Below `pool_max`, the target fills active-pool headroom up to `+20`; at/above the cap it falls to the policy's 20% breadth lane (`+4` with current defaults). Existing verified links, orphan reattachments, fallback wins, and pool reshuffles do **not** satisfy the target. Anchor rails are included by default; the old anchor diet is opt-in only (`MANGO_GROW_ANCHOR_DIET=1`). By default, target misses are warnings and usable verified work still publishes; set `MANGO_GROW_REQUIRE_TARGET=1` for strict proof runs.
+
+### In-place hardening contract
+
+- `/etc/mango/playability.db` remains the fixed live database. Grow/nightly use a staged DB, validate integrity/domain invariants, take a verified prepublish snapshot, publish through SQLite Online Backup, inspect the checkpoint result, restart catalog, and read back the exact publication receipt. WAL/SHM files and lock pathnames are never unlinked as cleanup.
+- Verification carries an immutable request identity and run/source/rail receipt. Only an exact requested main-path win writes proof version 2; a fallback may play now but cannot certify global playability. Existing proof-version-1 rows are grandfathered until a natural touchpoint.
+- One permanent machine-wide coordinator lease owns API, targeted, fill, startup/background, nightly, and overnight maintenance. API starts return a durable `run_id`; simultaneous starts yield one claim and one `409 active_run_id`.
+- One permanent probe-pool lease owns every mpv verification process. Crash recovery relies on closing the file descriptor, never deleting a lock pathname.
+- Stale work is a durable priority queue. Active play failures lead; cause-specific retries back off exponentially; default admission is at most 200 due rows. Home serves verified rows only, while Saved/Continue can retain unavailable intent outside this Home selection path.
+- The nightly budget is 150 minutes from start. New candidate/page admission stops at 135 minutes so in-flight work can finish and publication/service restoration retain 15 minutes. A validated playability publish followed by VOD/YouTube failure is `partial`, with last-good downstream generations retained.
+- New couch activity yields maintenance at the next candidate/page boundary; completed staged work can publish, the cursor is retained, and the run is recorded as yielded/partial before the couch stack is restored.
+- `config/playability-policy.json` is the single schema-validated policy snapshot. Its hash is present in run claims and the publication configuration hash. Public-source automation defaults off.
 
 **Monitor:**
 
@@ -399,7 +418,7 @@ Addons (Cinemeta, AIOMetadata, AIOStreams) throttle aggressive meta/stream burst
 | Full gate played every couch item per rail (old behavior) | **Fixed:** `MANGO_GATE_FULL=1` samples **3 plays/rail** |
 | `rail-pool-retheme apply` on full library | Full metadata retheme can issue thousands of sequential meta calls — run off-hours; grow finalization uses the lightweight overlap/orphan path |
 | Gate-lite + deploy restart | M4 stream gate uses fixture corpus only — bounded |
-| Grow preflight | Reuse report if <24h; otherwise quick: 1 probe/source, nightly: 3/source. Force with `MANGO_SOURCE_HITRATE_FORCE=1` |
+| Source hit-rate benchmark | Excluded from the nightly critical path. Run explicitly with `MANGO_SOURCE_HITRATE_PREFLIGHT=1`; normal source quality comes from causal run outcomes. |
 | Live/IPTV addon rate limit during VOD grow | Playability refresh boots catalog-service in VOD mode and skips optional Live manifests |
 | Repeated bad candidates during long grow | Rail-specific rejection ledger skips recent theme/stream misses before probing; deep-page bypass for stream misses is debug-only |
 | TMDB-only candidates that cannot map to IMDb | Grow marks them `unresolved_external_id`, skips stream probes, records a rail TTL, and demotes the source through runtime-only weights |
@@ -421,11 +440,13 @@ Grow negative memory is runtime-only:
 - Unresolved external catalog IDs are structural candidate failures, not playback failures; they should show up as `skipped_unresolved_external_id` and source `unresolved_external_id`, not as repeated `no_stream` probes.
 - `uncached_verify_legacy` is a migration quarantine reason for older rows proven by stale cache metadata; it retries immediately by default so the current stream parser can re-verify them.
 - Source hit-rate reports written by Python use seconds timestamps; the grow loader normalizes seconds/milliseconds before age checks.
-- Catastrophic zero-yield or near-zero-yield runtime source outcomes fall to the 5-10% probation floor so weak sources can recover without burning the rail window.
+- Decayed runtime source outcomes are normalized relative to productive peers. A rotating 5% exploration lane keeps weak/new sources observable; no productive source exceeds 50% when alternatives exist.
 - Nonzero but unsustainable stream yield is still demoted: `MANGO_GROW_SOURCE_MIN_VERIFY_RATE` defaults to `0.05`, so sources with enough samples but <=5% verified yield stay in the small probation budget.
+- Catalog short/empty pages are terminal for that source revision and raw source continuation positions persist independently of filtering/merge output. Three catalog failures or 30 eligible candidates without an exact-main win suppress the source under the current policy.
+- Public catalog discovery is metadata-only and disabled by default. The client accepts only HTTPS movie/series catalog descriptors from an explicitly configured Stremio collection, pins a public DNS result for TLS, revalidates redirects, bounds time/bytes, sends no Mango credentials, and ignores stream resources. Promotion/quarantine is driven only by run-causal exact-main canary outcomes.
 - Monitor state is written to `~/.cache/mango/grow-run-state.json`; it is operator-only and not shown on TV.
 - Completed grow finalization attaches verified orphans and prunes unpinned overlap above two rails per title without full-library metadata rescoring. Failed or aborted grows keep the previous stable couch sessions visible.
-- Manual `playability-indexer top-up` and `playability-top-up-rail.sh` default to grow mode with playability VOD boot. Legacy incremental top-up is debug-only via `--mode incremental`; it can verify globally playable titles that do not fit the target rail and should not be used for thematic repair.
+- `playability-indexer.ts` is an internal worker and refuses direct mutation without an inherited coordinator claim. Use `playability-top-up-rail.sh` or the familiar grow/nightly/fill commands; all delegate before syncing sources, stopping services, probing, or writing.
 
 If refresh fails, `refresh-*.json` now records `ok:false`, `stage`, `failure_category`, and `repair_suggestions`; use `python3 scripts/diag/grow_monitor.py assess --refresh-json <file>`.
 

@@ -1,4 +1,5 @@
 import type { CandidateMeta } from './list-source.js';
+import { playabilityPolicySnapshot } from './policy.js';
 
 export type WeightedCandidateBatch = {
   sourceIndex: number;
@@ -7,10 +8,8 @@ export type WeightedCandidateBatch = {
   candidates: CandidateMeta[];
 };
 
-const DEFAULT_SOURCE_CAP_RATIO = 0.55;
 const DEFAULT_TITLE_CLUSTER_CAP = 3;
 const DEFAULT_PROBATION_MULTIPLIER = 0.08;
-const DEFAULT_PROBATION_BUDGET_RATIO = 0.08;
 
 export function candidateIdentity(candidate: CandidateMeta): string {
   return `${candidate.type}:${candidate.id}`;
@@ -78,11 +77,11 @@ export function mergeCompositeCandidates(
 function sourceCapRatioForMerge(): number {
   const raw = process.env.MANGO_GROW_SOURCE_CAP_RATIO;
   if (raw === undefined || raw === '') {
-    return DEFAULT_SOURCE_CAP_RATIO;
+    return playabilityPolicySnapshot().policy.allocation.max_source_fraction;
   }
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1) {
-    return DEFAULT_SOURCE_CAP_RATIO;
+    return playabilityPolicySnapshot().policy.allocation.max_source_fraction;
   }
   return parsed;
 }
@@ -213,11 +212,11 @@ function sourceProbationMultiplier(): number {
 function sourceProbationBudgetRatio(): number {
   const raw = process.env.MANGO_GROW_SOURCE_PROBATION_BUDGET_RATIO;
   if (raw === undefined || raw === '') {
-    return DEFAULT_PROBATION_BUDGET_RATIO;
+    return playabilityPolicySnapshot().policy.allocation.exploration_fraction;
   }
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed < 0.05 || parsed > 0.10) {
-    return DEFAULT_PROBATION_BUDGET_RATIO;
+    return playabilityPolicySnapshot().policy.allocation.exploration_fraction;
   }
   return parsed;
 }

@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import {
   playabilityFailedRetryMsForReason,
+  playabilityAdmissionDeadlineReached,
+  playabilityCouchYieldRequested,
   playabilityPlayFailureRetryMs,
+  playabilityStaleCandidateLimit,
   playabilityRailRejectionTtlMsForReason,
   playabilitySeriesCrossProbeLimit,
   playabilityVerifyTtlMs,
@@ -93,6 +99,37 @@ test('Q2: play_failure gets a short dedicated retry window, distinct from the 7d
   assert.equal(playabilityPlayFailureRetryMs(), 60 * 60 * 1000);
   assert.equal(playabilityFailedRetryMsForReason('play_failure'), 60 * 60 * 1000);
   assert.equal(playabilityFailedRetryMsForReason('no_stream'), 7 * 24 * 60 * 60 * 1000);
+});
+
+test('nightly stale candidate admission is bounded', () => {
+  delete process.env.MANGO_PLAYABILITY_STALE_CANDIDATE_LIMIT;
+  assert.equal(playabilityStaleCandidateLimit(), 200);
+  process.env.MANGO_PLAYABILITY_STALE_CANDIDATE_LIMIT = '99999';
+  assert.equal(playabilityStaleCandidateLimit(), 2000);
+});
+
+test('admission deadline is fail-closed only after a valid absolute deadline', () => {
+  delete process.env.MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS;
+  assert.equal(playabilityAdmissionDeadlineReached(1_000), false);
+  process.env.MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS = '2000';
+  assert.equal(playabilityAdmissionDeadlineReached(1_999), false);
+  assert.equal(playabilityAdmissionDeadlineReached(2_000), true);
+});
+
+test('maintenance yields to couch activity at a work boundary', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mango-couch-yield-'));
+  try {
+    process.env.MANGO_MAINTENANCE_MODE = '1';
+    process.env.MANGO_COUCH_ACTIVITY_STATE = join(directory, 'couch.json');
+    process.env.MANGO_COUCH_IDLE_SEC = '1800';
+    await writeFile(process.env.MANGO_COUCH_ACTIVITY_STATE, JSON.stringify({ ts: 10_000 }));
+    assert.equal(playabilityCouchYieldRequested(10_001), true);
+    assert.equal(playabilityCouchYieldRequested(10_000 + 1_800_000), false);
+    process.env.MANGO_MAINTENANCE_IGNORE_COUCH_ACTIVITY = '1';
+    assert.equal(playabilityCouchYieldRequested(10_001), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('Q2: MANGO_PLAY_FAILURE_RETRY_HOURS overrides the play_failure window', () => {

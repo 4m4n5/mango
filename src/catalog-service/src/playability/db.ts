@@ -19,7 +19,11 @@ import {
 } from './rail-overrides.js';
 import type { RailPlayabilityConfig } from '../rails.js';
 import { effectiveDisplayLimit } from './pool-growth.js';
-import { playabilityPlayFailureRetryMs } from './config.js';
+import {
+  playabilityFailedRetryMsForReason,
+  playabilityPlayFailureRetryMs,
+  playabilityStaleCandidateLimit,
+} from './config.js';
 import { AI_CATALOG_RAIL_PREFIX } from '../ai-catalogs/types.js';
 import {
   loadRailThemeProfiles,
@@ -38,7 +42,7 @@ import {
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const DEFAULT_VERIFY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const SCHEMA_VERSION = 17;
+const SCHEMA_VERSION = 18;
 
 export type StreamCapabilityClass = 'proven_smooth' | 'unknown' | 'known_risky';
 
@@ -88,6 +92,20 @@ export type PlayabilityStatus = {
     previous_tab_deals: number;
   };
   last_indexer_run_at: number | null;
+  retry_queue: {
+    total: number;
+    due: number;
+    oldest_requested_at: number | null;
+    by_reason: Record<string, number>;
+  };
+  publication: {
+    publication_id: string;
+    run_id: string;
+    git_sha: string;
+    config_hash: string;
+    schema_version: number;
+    published_at: number;
+  } | null;
 };
 
 export type PlayabilityVerifyRecord = {
@@ -105,7 +123,61 @@ export type PlayabilityVerifyRecord = {
   expires_at?: number | null;
   stage?: string;
   outcome?: string;
+  /** Version 1 rows are grandfathered legacy proof; version 2 requires an exact main-path win. */
+  proof_version?: 1 | 2;
+  exact_main_win?: boolean;
+  run_id?: string | null;
+  request_id?: string | null;
+  request_title_id?: string | null;
+  request_title?: string | null;
+  request_year?: string | number | null;
+  source_key?: string | null;
+  attempt_kind?: 'main' | 'fallback' | null;
+  /** Outcome time captured before any deferred batch flush. */
+  observed_at?: number;
 };
+
+export type PlayabilityProofFields = {
+  proof_version: 1 | 2;
+  proof_exact_main: 0 | 1;
+  proof_run_id: string | null;
+  request_id: string | null;
+  request_title_id: string | null;
+  request_title: string | null;
+  request_year: string | null;
+  source_key: string | null;
+  attempt_kind: 'main' | 'fallback' | null;
+};
+
+function boundedProofText(value: unknown, max: number): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text ? text.slice(0, max) : null;
+}
+
+export function validatePlayabilityProof(record: PlayabilityVerifyRecord): PlayabilityProofFields {
+  const proofVersion = record.proof_version ?? 1;
+  const requestTitleId = boundedProofText(record.request_title_id, 160);
+  if (record.status === 'verified' && proofVersion >= 2) {
+    if (record.exact_main_win !== true || record.attempt_kind === 'fallback') {
+      throw new Error('strict playability proof requires an exact main-path win');
+    }
+    if (!requestTitleId || requestTitleId.toLowerCase() !== record.id.trim().toLowerCase()) {
+      throw new Error('strict playability proof request identity must match the persisted title id');
+    }
+  }
+  return {
+    proof_version: proofVersion,
+    proof_exact_main: record.exact_main_win === true ? 1 : 0,
+    proof_run_id: boundedProofText(record.run_id, 160),
+    request_id: boundedProofText(record.request_id, 160),
+    request_title_id: requestTitleId,
+    request_title: boundedProofText(record.request_title, 300),
+    request_year: boundedProofText(record.request_year, 16),
+    source_key: boundedProofText(record.source_key, 300),
+    attempt_kind: record.attempt_kind ?? null,
+  };
+}
 
 export type TitlePlayabilityRecord = {
   type: string;
@@ -636,6 +708,9 @@ CREATE TABLE IF NOT EXISTS titles (
   debrid_service TEXT,
   probe_ms INTEGER,
   win_url_hash TEXT,
+  proof_version INTEGER NOT NULL DEFAULT 1,
+  proof_run_id TEXT,
+  proof_exact_main INTEGER NOT NULL DEFAULT 0 CHECK(proof_exact_main IN (0, 1)),
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (type, id)
 );
@@ -680,7 +755,16 @@ CREATE TABLE IF NOT EXISTS verify_log (
   id_value TEXT NOT NULL,
   stage TEXT NOT NULL,
   ms INTEGER NOT NULL DEFAULT 0,
-  outcome TEXT NOT NULL
+  outcome TEXT NOT NULL,
+  run_id TEXT,
+  request_id TEXT,
+  request_title_id TEXT,
+  request_title TEXT,
+  request_year TEXT,
+  source_key TEXT,
+  attempt_kind TEXT CHECK(attempt_kind IS NULL OR attempt_kind IN ('main', 'fallback')),
+  exact_main_win INTEGER NOT NULL DEFAULT 0 CHECK(exact_main_win IN (0, 1)),
+  proof_version INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS playability_triggers (
@@ -762,6 +846,31 @@ CREATE TABLE IF NOT EXISTS stream_path_evidence (
   PRIMARY KEY (release_fingerprint, profile_id)
 );
 
+CREATE TABLE IF NOT EXISTS playability_publication (
+  state_id INTEGER PRIMARY KEY CHECK(state_id = 1),
+  publication_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  git_sha TEXT NOT NULL,
+  config_hash TEXT NOT NULL,
+  schema_version INTEGER NOT NULL,
+  published_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS playability_retry_queue (
+  type TEXT NOT NULL,
+  id TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  priority INTEGER NOT NULL,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  requested_at INTEGER NOT NULL,
+  last_attempt_at INTEGER,
+  next_eligible_at INTEGER NOT NULL,
+  resume_position INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(type, id)
+);
+CREATE INDEX IF NOT EXISTS idx_playability_retry_due
+  ON playability_retry_queue(next_eligible_at, priority DESC, requested_at);
+
 CREATE INDEX IF NOT EXISTS idx_titles_status_expires ON titles(status, expires_at);
 CREATE INDEX IF NOT EXISTS idx_rail_pool_rail_score ON rail_pool(rail_id, score DESC);
 CREATE INDEX IF NOT EXISTS idx_rail_session_session ON rail_session(session_id, rail_id, slot);
@@ -838,7 +947,7 @@ SELECT
 FROM rail_pool rp
 JOIN titles t ON t.type = rp.type AND t.id = rp.id
 WHERE rp.rail_id = @rail_id
-  AND t.status IN ('verified', 'stale')
+  AND t.status = 'verified'
 ORDER BY rp.score DESC;
 `).all({ rail_id: railId }) as RailPoolRow[];
   if (railPoolCache.size >= RAIL_POOL_CACHE_LIMIT) {
@@ -876,7 +985,7 @@ JOIN rail_pool rp ON rp.rail_id = rs.rail_id AND rp.type = rs.type AND rp.id = r
 JOIN titles t ON t.type = rs.type AND t.id = rs.id
 WHERE rs.rail_id = @rail_id
   AND rs.session_id = @session_id
-  AND t.status IN ('verified', 'stale')
+  AND t.status = 'verified'
 ORDER BY rs.slot ASC;
 `).all({
     rail_id: railId,
@@ -1000,6 +1109,11 @@ function applySchemaMigrations(db: Database.Database): void {
   const appliedVersion = Number(
     (db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM playability_migrations').get() as { version?: number } | undefined)?.version ?? 0,
   );
+  if (appliedVersion > SCHEMA_VERSION) {
+    throw new Error(
+      `playability DB schema ${appliedVersion} is newer than supported ${SCHEMA_VERSION}; refusing unsafe downgrade`,
+    );
+  }
   const hasVersion7 = Boolean(
     db.prepare('SELECT 1 FROM playability_migrations WHERE version = 7 LIMIT 1').get(),
   );
@@ -1576,6 +1690,66 @@ CREATE TABLE IF NOT EXISTS vod_browse_active_reservoirs_v3 (
     db.prepare(`
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (17, @applied_at);
+`).run({ applied_at: nowMs() });
+  }
+  if (appliedVersion < 18) {
+    const titleProofColumns = db.prepare('PRAGMA table_info(titles)').all() as Array<{ name: string }>;
+    if (!titleProofColumns.some((column) => column.name === 'proof_version')) {
+      db.exec('ALTER TABLE titles ADD COLUMN proof_version INTEGER NOT NULL DEFAULT 1');
+    }
+    if (!titleProofColumns.some((column) => column.name === 'proof_run_id')) {
+      db.exec('ALTER TABLE titles ADD COLUMN proof_run_id TEXT');
+    }
+    if (!titleProofColumns.some((column) => column.name === 'proof_exact_main')) {
+      db.exec('ALTER TABLE titles ADD COLUMN proof_exact_main INTEGER NOT NULL DEFAULT 0');
+    }
+    const verifyProofColumns = db.prepare('PRAGMA table_info(verify_log)').all() as Array<{ name: string }>;
+    const verifyProofDefinitions: Array<[string, string]> = [
+      ['run_id', 'TEXT'],
+      ['request_id', 'TEXT'],
+      ['request_title_id', 'TEXT'],
+      ['request_title', 'TEXT'],
+      ['request_year', 'TEXT'],
+      ['source_key', 'TEXT'],
+      ['attempt_kind', 'TEXT'],
+      ['exact_main_win', 'INTEGER NOT NULL DEFAULT 0'],
+      ['proof_version', 'INTEGER NOT NULL DEFAULT 1'],
+    ];
+    for (const [name, definition] of verifyProofDefinitions) {
+      if (!verifyProofColumns.some((column) => column.name === name)) {
+        db.exec(`ALTER TABLE verify_log ADD COLUMN ${name} ${definition}`);
+      }
+    }
+    db.exec(`
+CREATE INDEX IF NOT EXISTS idx_verify_log_run ON verify_log(run_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_titles_proof ON titles(status, proof_version, proof_exact_main);
+CREATE TABLE IF NOT EXISTS playability_publication (
+  state_id INTEGER PRIMARY KEY CHECK(state_id = 1),
+  publication_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  git_sha TEXT NOT NULL,
+  config_hash TEXT NOT NULL,
+  schema_version INTEGER NOT NULL,
+  published_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS playability_retry_queue (
+  type TEXT NOT NULL,
+  id TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  priority INTEGER NOT NULL,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  requested_at INTEGER NOT NULL,
+  last_attempt_at INTEGER,
+  next_eligible_at INTEGER NOT NULL,
+  resume_position INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(type, id)
+);
+CREATE INDEX IF NOT EXISTS idx_playability_retry_due
+  ON playability_retry_queue(next_eligible_at, priority DESC, requested_at);
+`);
+    db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (18, @applied_at);
 `).run({ applied_at: nowMs() });
   }
 }
@@ -2170,6 +2344,26 @@ SELECT
   (SELECT COUNT(*) FROM vod_tab_deals_v3 WHERE state = 'active') AS active_tab_deals,
   (SELECT COUNT(*) FROM vod_tab_deals_v3 WHERE state = 'previous') AS previous_tab_deals
 `).get() as PlayabilityStatus['vod_browse_v3'];
+  const publication = db.prepare(`
+SELECT publication_id, run_id, git_sha, config_hash, schema_version, published_at
+FROM playability_publication
+WHERE state_id = 1
+`).get() as PlayabilityStatus['publication'] | undefined;
+  const schemaVersion = toNumber((db.prepare(`
+SELECT COALESCE(MAX(version), 0) AS version FROM playability_migrations
+`).get() as { version: number }).version);
+  const retryQueue = db.prepare(`
+SELECT COUNT(*) AS total,
+       SUM(CASE WHEN next_eligible_at <= @now THEN 1 ELSE 0 END) AS due,
+       MIN(requested_at) AS oldest_requested_at
+FROM playability_retry_queue
+`).get({ now: nowMs() }) as { total: number; due: number; oldest_requested_at: number | null };
+  const retryReasons = db.prepare(`
+SELECT reason, COUNT(*) AS count
+FROM playability_retry_queue
+GROUP BY reason
+ORDER BY reason
+`).all() as Array<{ reason: string; count: number }>;
 
   const byRail = new Map(rows.map((row) => [row.rail_id, row]));
   const allRailIds = [...new Set([...railIds, ...rows.map((row) => row.rail_id)])].sort();
@@ -2190,7 +2384,7 @@ SELECT
   return {
     ok: true,
     db_path: dbPath(),
-    schema_version: SCHEMA_VERSION,
+    schema_version: schemaVersion,
     rails,
     totals: rails.reduce(
       (totals, rail) => ({
@@ -2204,13 +2398,21 @@ SELECT
     ),
     vod_browse_v3: browse,
     last_indexer_run_at: lastRun[0]?.last_indexer_run_at ?? null,
+    retry_queue: {
+      total: toNumber(retryQueue.total),
+      due: toNumber(retryQueue.due),
+      oldest_requested_at: retryQueue.oldest_requested_at ?? null,
+      by_reason: Object.fromEntries(retryReasons.map((row) => [row.reason, toNumber(row.count)])),
+    },
+    publication: publication ?? null,
   };
 }
 
 export async function recordVerifyResult(record: PlayabilityVerifyRecord): Promise<void> {
   await initPlayabilityDb();
   const db = openDb();
-  const timestamp = nowMs();
+  const timestamp = record.observed_at ?? nowMs();
+  const proof = validatePlayabilityProof(record);
   const verifiedAt = record.status === 'verified' ? timestamp : null;
   const firstVerifiedAt = record.status === 'verified' ? timestamp : null;
   const expiresAt = record.status === 'verified'
@@ -2221,10 +2423,12 @@ export async function recordVerifyResult(record: PlayabilityVerifyRecord): Promi
     db.prepare(`
 INSERT INTO titles (
   type, id, status, verified_at, expires_at, fail_reason, best_source,
-  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step, first_verified_at, updated_at
+  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step,
+  proof_version, proof_run_id, proof_exact_main, first_verified_at, updated_at
 ) VALUES (
   @type, @id, @status, @verified_at, @expires_at, @fail_reason, @best_source,
-  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step, @first_verified_at, @updated_at
+  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step,
+  @proof_version, @proof_run_id, @proof_exact_main, @first_verified_at, @updated_at
 )
 ON CONFLICT(type, id) DO UPDATE SET
   status = excluded.status,
@@ -2237,6 +2441,9 @@ ON CONFLICT(type, id) DO UPDATE SET
   probe_ms = excluded.probe_ms,
   win_url_hash = excluded.win_url_hash,
   win_ladder_step = excluded.win_ladder_step,
+  proof_version = CASE WHEN excluded.status = 'verified' THEN excluded.proof_version ELSE titles.proof_version END,
+  proof_run_id = CASE WHEN excluded.status = 'verified' THEN excluded.proof_run_id ELSE titles.proof_run_id END,
+  proof_exact_main = CASE WHEN excluded.status = 'verified' THEN excluded.proof_exact_main ELSE titles.proof_exact_main END,
   first_verified_at = CASE
     WHEN titles.first_verified_at IS NULL AND excluded.status = 'verified' THEN excluded.first_verified_at
     ELSE titles.first_verified_at
@@ -2255,6 +2462,7 @@ ON CONFLICT(type, id) DO UPDATE SET
       probe_ms: record.probe_ms ?? null,
       win_url_hash: record.win_url_hash ?? null,
       win_ladder_step: record.win_ladder_step ?? null,
+      ...proof,
       first_verified_at: firstVerifiedAt,
       updated_at: timestamp,
     });
@@ -2262,10 +2470,12 @@ ON CONFLICT(type, id) DO UPDATE SET
       db.prepare(`
 INSERT INTO titles (
   type, id, status, verified_at, expires_at, fail_reason, best_source,
-  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step, first_verified_at, updated_at
+  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step,
+  proof_version, proof_run_id, proof_exact_main, first_verified_at, updated_at
 ) VALUES (
   @type, @id, @status, @verified_at, @expires_at, @fail_reason, @best_source,
-  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step, @first_verified_at, @updated_at
+  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step,
+  @proof_version, @proof_run_id, @proof_exact_main, @first_verified_at, @updated_at
 )
 ON CONFLICT(type, id) DO UPDATE SET
   status = excluded.status,
@@ -2278,6 +2488,9 @@ ON CONFLICT(type, id) DO UPDATE SET
   probe_ms = excluded.probe_ms,
   win_url_hash = excluded.win_url_hash,
   win_ladder_step = excluded.win_ladder_step,
+  proof_version = CASE WHEN excluded.status = 'verified' THEN excluded.proof_version ELSE titles.proof_version END,
+  proof_run_id = CASE WHEN excluded.status = 'verified' THEN excluded.proof_run_id ELSE titles.proof_run_id END,
+  proof_exact_main = CASE WHEN excluded.status = 'verified' THEN excluded.proof_exact_main ELSE titles.proof_exact_main END,
   first_verified_at = CASE
     WHEN titles.first_verified_at IS NULL AND excluded.status = 'verified' THEN excluded.first_verified_at
     ELSE titles.first_verified_at
@@ -2296,14 +2509,23 @@ ON CONFLICT(type, id) DO UPDATE SET
         probe_ms: record.probe_ms ?? null,
         win_url_hash: record.win_url_hash ?? null,
         win_ladder_step: record.win_ladder_step ?? null,
+        ...proof,
         first_verified_at: firstVerifiedAt,
         updated_at: timestamp,
       });
     }
 
     db.prepare(`
-INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)
-VALUES (@started_at, @rail_id, @type, @id_value, @stage, @ms, @outcome);
+INSERT INTO verify_log (
+  started_at, rail_id, type, id_value, stage, ms, outcome, run_id,
+  request_id, request_title_id, request_title, request_year, source_key,
+  attempt_kind, exact_main_win, proof_version
+)
+VALUES (
+  @started_at, @rail_id, @type, @id_value, @stage, @ms, @outcome, @proof_run_id,
+  @request_id, @request_title_id, @request_title, @request_year, @source_key,
+  @attempt_kind, @proof_exact_main, @proof_version
+);
 `).run({
       started_at: timestamp,
       rail_id: record.rail_id ?? null,
@@ -2312,7 +2534,9 @@ VALUES (@started_at, @rail_id, @type, @id_value, @stage, @ms, @outcome);
       stage: record.stage ?? 'verify',
       ms: record.probe_ms ?? 0,
       outcome: record.outcome ?? record.status,
+      ...proof,
     });
+    updateRetryQueueForVerifyRecord(db, record, timestamp);
   });
   transaction();
   // Verification metadata is included in rail snapshots even when status is
@@ -2369,33 +2593,151 @@ WHERE (type, id) IN ( VALUES ${placeholders} );
   return result;
 }
 
-export async function getStaleTitlesForRefresh(): Promise<Array<{ type: string; id: string; rail_id: string | null }>> {
+export type PlayabilityRetryCandidate = {
+  type: string;
+  id: string;
+  rail_id: string | null;
+  reason: string;
+  attempt_count: number;
+  next_eligible_at: number;
+};
+
+function retryPriority(reason?: string | null, visible = false): number {
+  if (reason === 'play_failure' || reason === 'play_miss') return 100;
+  if (visible) return 70;
+  if (reason === 'expired_stale') return 50;
+  return 20;
+}
+
+function scheduleRetry(
+  db: Database.Database,
+  input: { type: string; id: string; reason: string; now: number; delay_ms: number; priority: number },
+): void {
+  const prior = db.prepare(`
+SELECT attempt_count FROM playability_retry_queue WHERE type = @type AND id = @id;
+`).get(input) as { attempt_count: number } | undefined;
+  const attemptCount = (prior?.attempt_count ?? 0) + 1;
+  const exponent = Math.min(Math.max(0, attemptCount - 1), 5);
+  const delay = Math.min(input.delay_ms * (2 ** exponent), 30 * 24 * 60 * 60 * 1000);
+  db.prepare(`
+INSERT INTO playability_retry_queue (
+  type, id, reason, priority, attempt_count, requested_at,
+  last_attempt_at, next_eligible_at, resume_position
+) VALUES (
+  @type, @id, @reason, @priority, @attempt_count, @now,
+  @now, @next_eligible_at, 0
+)
+ON CONFLICT(type, id) DO UPDATE SET
+  reason = excluded.reason,
+  priority = MAX(playability_retry_queue.priority, excluded.priority),
+  attempt_count = excluded.attempt_count,
+  last_attempt_at = excluded.last_attempt_at,
+  next_eligible_at = excluded.next_eligible_at;
+`).run({
+    ...input,
+    attempt_count: attemptCount,
+    next_eligible_at: input.now + delay,
+  });
+}
+
+function enqueueRetryNow(
+  db: Database.Database,
+  input: { type: string; id: string; reason: string; now: number; priority: number },
+): void {
+  db.prepare(`
+INSERT INTO playability_retry_queue (
+  type, id, reason, priority, attempt_count, requested_at,
+  last_attempt_at, next_eligible_at, resume_position
+) VALUES (@type, @id, @reason, @priority, 0, @now, NULL, @now, 0)
+ON CONFLICT(type, id) DO UPDATE SET
+  reason = excluded.reason,
+  priority = MAX(playability_retry_queue.priority, excluded.priority),
+  requested_at = MIN(playability_retry_queue.requested_at, excluded.requested_at),
+  next_eligible_at = MIN(playability_retry_queue.next_eligible_at, excluded.next_eligible_at);
+`).run(input);
+}
+
+export function updateRetryQueueForVerifyRecord(
+  db: Database.Database,
+  record: PlayabilityVerifyRecord,
+  now: number,
+): void {
+  if (record.status === 'verified') {
+    db.prepare('DELETE FROM playability_retry_queue WHERE type=@type AND id=@id')
+      .run({ type: record.type, id: record.id });
+    return;
+  }
+  if (record.status !== 'failed' && record.status !== 'stale') return;
+  const reason = record.fail_reason ?? record.outcome ?? record.status;
+  scheduleRetry(db, {
+    type: record.type,
+    id: record.id,
+    reason,
+    now,
+    delay_ms: record.status === 'stale' ? 0 : playabilityFailedRetryMsForReason(reason),
+    priority: retryPriority(reason, Boolean(record.rail_id)),
+  });
+}
+
+export async function getStaleTitlesForRefresh(
+  limit = playabilityStaleCandidateLimit(),
+  now = nowMs(),
+): Promise<PlayabilityRetryCandidate[]> {
   await initPlayabilityDb();
   const db = openDb();
-  return db.prepare(`
+  const transaction = db.transaction(() => {
+    // Lazy grandfathering: build queue state only for rows that are already stale.
+    db.prepare(`
+INSERT OR IGNORE INTO playability_retry_queue (
+  type, id, reason, priority, attempt_count, requested_at,
+  last_attempt_at, next_eligible_at, resume_position
+)
+SELECT t.type, t.id, COALESCE(t.fail_reason, 'stale'),
+  CASE
+    WHEN t.fail_reason IN ('play_failure', 'play_miss') THEN 100
+    WHEN EXISTS (SELECT 1 FROM rail_pool rp WHERE rp.type=t.type AND rp.id=t.id) THEN 70
+    ELSE 20
+  END,
+  0, t.updated_at, NULL, t.updated_at, 0
+FROM titles t
+WHERE (t.status = 'stale'
+   OR (t.status = 'failed' AND t.fail_reason = 'play_failure'))
+  AND NOT (t.type = 'series' AND instr(t.id, char(58)) > 0);
+`).run();
+    return db.prepare(`
 SELECT DISTINCT
-  t.type,
-  t.id,
+  q.type,
+  q.id,
   COALESCE(
     (
       SELECT rp.rail_id
       FROM rail_pool rp
-      WHERE rp.type = t.type AND rp.id = t.id
+      WHERE rp.type = q.type AND rp.id = q.id
       LIMIT 1
     ),
     (
       SELECT vl.rail_id
       FROM verify_log vl
-      WHERE vl.type = t.type
-        AND vl.id_value = t.id
+      WHERE vl.type = q.type
+        AND vl.id_value = q.id
         AND vl.rail_id IS NOT NULL
       ORDER BY vl.started_at DESC
       LIMIT 1
     )
-  ) AS rail_id
-FROM titles t
-WHERE t.status = 'stale';
-`).all() as Array<{ type: string; id: string; rail_id: string | null }>;
+  ) AS rail_id,
+  q.reason,
+  q.attempt_count,
+  q.next_eligible_at
+FROM playability_retry_queue q
+JOIN titles t ON t.type=q.type AND t.id=q.id
+WHERE (t.status = 'stale' OR (t.status = 'failed' AND t.fail_reason = 'play_failure'))
+  AND NOT (t.type = 'series' AND instr(t.id, char(58)) > 0)
+  AND q.next_eligible_at <= @now
+ORDER BY q.priority DESC, q.next_eligible_at, q.requested_at, q.type, q.id
+LIMIT @limit;
+`).all({ now, limit }) as PlayabilityRetryCandidate[];
+  });
+  return transaction();
 }
 
 export async function getStaleTitlesInPools(): Promise<Array<{ type: string; id: string }>> {
@@ -2795,6 +3137,20 @@ function curatedPool(
   return mergePinnedPoolItems(pool, railId, overrides) as RailPoolRow[];
 }
 
+/**
+ * Bound the viewer-facing reservoir without deleting historical rail
+ * membership or global verification evidence. Pinned items are merged before
+ * this boundary, so they retain their operator-defined precedence.
+ */
+function activeRailPool<T extends RailPoolRow>(
+  pool: T[],
+  playability?: RailPlayabilityConfig,
+): T[] {
+  const maximum = playability?.pool_max;
+  if (maximum === null || maximum === undefined) return pool;
+  return pool.slice(0, maximum);
+}
+
 function toRailSessionPoolItem(
   railId: string,
   sessionId: string,
@@ -3020,8 +3376,11 @@ INSERT INTO vod_browse_reservoir_generations_v3(
 SELECT type, id FROM titles WHERE status = 'verified' AND type IN ('movie', 'series')
 `).all() as Array<{ type: string; id: string }>).map((row) => titleKey(row.type, row.id)));
     for (const rail of input.rails) {
-      const pool = curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides)
-        .filter((row) => verifiedKeys.has(titleKey(row.type, row.id)));
+      const pool = activeRailPool(
+        curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides)
+          .filter((row) => verifiedKeys.has(titleKey(row.type, row.id))),
+        rail.playability,
+      );
       const pins = new Set(pinsForRail(rail.railId, overrides).map((pin) => titleKey(pin.type, pin.id)));
       const items = pool.map((row, index) => {
         const key = titleKey(row.type, row.id);
@@ -3818,12 +4177,13 @@ export async function allocateTabRailSessions(
 
   for (const rail of options.rails) {
     const prepared = browseReservoir?.rails.get(rail.railId) ?? [];
-    const rawPool = options.browseV3
+    const uncappedPool = options.browseV3
       ? prepared.filter((item) => (
         item.trusted && !options.excludedKeys?.has(titleKey(item.type, item.id))
       ))
       : curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides)
         .filter((item) => !options.excludedKeys?.has(titleKey(item.type, item.id)));
+    const rawPool = activeRailPool(uncappedPool, rail.playability);
     const decisions = new Map<string, VodBrowseMembershipDecision>();
     if (options.browseV3) {
       (rawPool as VodBrowseReservoirItem[]).forEach((row) => decisions.set(titleKey(row.type, row.id), {
@@ -4149,7 +4509,10 @@ export async function getOrCreateRailSession(
   const cooldownCutoff = now - 7 * 24 * 60 * 60 * 1000;
   const siblingRailIds = options.siblingRailIds ?? [];
 
-  const pool = curatedPool(readRailPool(db, options.railId, now), options.railId, overrides);
+  const pool = activeRailPool(
+    curatedPool(readRailPool(db, options.railId, now), options.railId, overrides),
+    options.playability,
+  );
   const displayLimit = resolveRailDisplayLimit(options, pool.length);
   const existing = readExistingRailSession(db, options.railId, options.sessionId, now);
   const siblingOccupied = readSiblingSessionOccupiedKeys(db, options.sessionId, siblingRailIds);
@@ -4344,6 +4707,15 @@ VALUES (@started_at, NULL, @type, @id, 'sweep', 0, 'expired_stale');
       if (changes > 0) {
         swept += changes;
         logStmt.run({ ...row, started_at: now });
+        const visible = Boolean(db.prepare(`
+SELECT 1 FROM rail_pool WHERE type=@type AND id=@id LIMIT 1;
+`).get(row));
+        enqueueRetryNow(db, {
+          ...row,
+          reason: 'expired_stale',
+          now,
+          priority: retryPriority('expired_stale', visible),
+        });
       }
     }
     return swept;
@@ -4439,6 +4811,14 @@ VALUES (@started_at, @rail_id, @type, @id_value, 'invalidate', 0, @outcome);
       type: record.type,
       id_value: record.id,
       outcome: reason,
+    });
+    scheduleRetry(db, {
+      type: record.type,
+      id: record.id,
+      reason,
+      now: timestamp,
+      delay_ms: reason === 'play_miss' ? 0 : playabilityFailedRetryMsForReason(reason),
+      priority: retryPriority(reason, true),
     });
   });
   transaction();

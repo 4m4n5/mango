@@ -1,6 +1,8 @@
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { OpsEvent, OpsEventKind, OpsRailDelta } from './types.js';
 
 function opsRoot(): string {
@@ -14,6 +16,20 @@ export function opsEventsPath(): string {
 
 function reportDirForDate(isoDate: string): string {
   return path.join(opsRoot(), 'reports', isoDate);
+}
+
+function ledgerHelper(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../scripts/diag/ops_ledger.py');
+}
+
+function durableLedgerWrite(mode: '--append' | '--write', target: string, payload: unknown): void {
+  const result = spawnSync('python3', [ledgerHelper(), mode, target], {
+    encoding: 'utf8',
+    input: JSON.stringify(payload),
+  });
+  if (result.status !== 0) {
+    throw new Error(`ops ledger write failed: ${result.stderr.trim() || `rc=${result.status}`}`);
+  }
 }
 
 export function appendOpsEvent(
@@ -32,7 +48,7 @@ export function appendOpsEvent(
   };
   const root = opsRoot();
   mkdirSync(root, { recursive: true });
-  appendFileSync(opsEventsPath(), `${JSON.stringify(event)}\n`, 'utf8');
+  durableLedgerWrite('--append', opsEventsPath(), event);
   return event;
 }
 
@@ -44,7 +60,7 @@ export function writeOpsRunReport(
   const dir = reportDirForDate(date);
   mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, `${runId}.json`);
-  writeFileSync(filePath, JSON.stringify(report, null, 2), 'utf8');
+  durableLedgerWrite('--write', filePath, report);
   return filePath;
 }
 

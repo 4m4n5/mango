@@ -85,6 +85,38 @@ export function playabilityPlayFailureRetryMs(): number {
   return Math.round(hours * 60 * 60 * 1000);
 }
 
+/** Hard nightly stale-admission ceiling; queue backoff can make the due set smaller. */
+export function playabilityStaleCandidateLimit(): number {
+  return boundedInt(
+    process.env.MANGO_PLAYABILITY_STALE_CANDIDATE_LIMIT,
+    playabilityPolicySnapshot().policy.nightly.stale_candidate_limit,
+    1,
+    2000,
+  );
+}
+
+export function playabilityAdmissionDeadlineReached(now = Date.now()): boolean {
+  const raw = Number(process.env.MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS);
+  return Number.isFinite(raw) && raw > 0 && now >= raw;
+}
+
+/** Yield at the next candidate/page boundary when the couch becomes active. */
+export function playabilityCouchYieldRequested(now = Date.now()): boolean {
+  if (!isMaintenanceMode() || process.env.MANGO_MAINTENANCE_IGNORE_COUCH_ACTIVITY === '1') {
+    return false;
+  }
+  const statePath = process.env.MANGO_COUCH_ACTIVITY_STATE
+    || join(process.env.XDG_CACHE_HOME || join(homedir(), '.cache'), 'mango/couch-activity.json');
+  const idleSeconds = boundedInt(process.env.MANGO_COUCH_IDLE_SEC, 1800, 1, 24 * 60 * 60);
+  try {
+    const state = JSON.parse(readFileSync(statePath, 'utf8')) as { ts?: unknown };
+    const timestamp = Number(state.ts);
+    return Number.isFinite(timestamp) && timestamp > 0 && now - timestamp < idleSeconds * 1000;
+  } catch {
+    return false;
+  }
+}
+
 export function playabilityFailedRetryMsForReason(reason?: string | null): number {
   if (playabilityBootstrapFill()) {
     // Bootstrap re-probes titles poisoned by prior bad runs (e.g. probe argv bug).
@@ -303,7 +335,12 @@ export function playabilityGrowSourceCircuitBreakerEnabled(): boolean {
 }
 
 export function playabilityGrowSourceNoVerifyScanLimit(): number {
-  return boundedInt(process.env.MANGO_GROW_SOURCE_NO_VERIFY_SCAN_LIMIT, 60, 25, 5000);
+  return boundedInt(
+    process.env.MANGO_GROW_SOURCE_NO_VERIFY_SCAN_LIMIT,
+    playabilityPolicySnapshot().policy.source_lifecycle.no_win_candidate_limit,
+    25,
+    5000,
+  );
 }
 
 export function playabilityGrowSourceThemeRejectMinSamples(): number {
@@ -328,7 +365,12 @@ export function playabilityGrowSourceMinVerifyRate(): number {
 }
 
 export function playabilityGrowSourceCatalogErrorLimit(): number {
-  return boundedInt(process.env.MANGO_GROW_SOURCE_CATALOG_ERROR_LIMIT, 2, 1, 20);
+  return boundedInt(
+    process.env.MANGO_GROW_SOURCE_CATALOG_ERROR_LIMIT,
+    playabilityPolicySnapshot().policy.source_lifecycle.consecutive_fetch_failures,
+    1,
+    20,
+  );
 }
 
 /** Bounded per-rail candidate audit samples included in grow reports. */
@@ -378,3 +420,7 @@ export function isPlayabilityGrowthMode(mode?: string): boolean {
   }
   return process.env.MANGO_PLAYABILITY_GROWTH_MODE === '1';
 }
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { playabilityPolicySnapshot } from './policy.js';

@@ -100,11 +100,11 @@ test('mergeCompositeCandidates interleaves weighted sources instead of source-or
     },
   ];
   const previous = process.env.MANGO_GROW_SOURCE_CAP_RATIO;
-  process.env.MANGO_GROW_SOURCE_CAP_RATIO = '0.55';
+  process.env.MANGO_GROW_SOURCE_CAP_RATIO = '0.5';
   try {
     const merged = mergeCompositeCandidates(batches, 10);
     assert.ok(merged.some((item) => item.source === 'fallback'));
-    assert.ok(merged.filter((item) => item.source === 'primary').length <= 6);
+    assert.ok(merged.filter((item) => item.source === 'primary').length <= 5);
   } finally {
     if (previous === undefined) {
       delete process.env.MANGO_GROW_SOURCE_CAP_RATIO;

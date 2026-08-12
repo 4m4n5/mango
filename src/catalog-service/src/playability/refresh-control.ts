@@ -1,6 +1,8 @@
-import { spawn, spawnSync } from 'node:child_process';
-import { access, readFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { GrowPresetId } from './grow-target.js';
 import { GROW_PRESETS } from './grow-target.js';
 
@@ -238,86 +240,32 @@ export function buildLlmRefreshToolManifest(): LlmRefreshToolManifest {
 }
 
 function repoDir(): string {
-  return process.env.MANGO_REPO_DIR || path.resolve(process.cwd(), '../..');
+  return process.env.MANGO_REPO_DIR
+    || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 }
 
 function cacheDir(): string {
-  return process.env.XDG_CACHE_HOME || path.join(process.env.HOME || '/tmp', '.cache', 'mango');
-}
-
-async function lockFileActive(relativePath: string): Promise<boolean> {
-  const lockPath = path.join(cacheDir(), relativePath);
-  try {
-    await access(lockPath);
-  } catch {
-    return false;
-  }
-  const probe = spawnSync('python3', [
-    '-c',
-    [
-      'import fcntl, os, sys',
-      'path = sys.argv[1]',
-      'try:',
-      '    fd = os.open(path, os.O_RDWR)',
-      'except OSError:',
-      '    sys.exit(0)',
-      'try:',
-      '    try:',
-      '        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)',
-      '    except BlockingIOError:',
-      '        sys.exit(1)',
-      '    sys.exit(0)',
-      'finally:',
-      '    os.close(fd)',
-    ].join('\n'),
-    lockPath,
-  ], { stdio: 'ignore' });
-  if (probe.status === 0) {
-    return false;
-  }
-  if (probe.status === 1) {
-    return true;
-  }
-  return true;
-}
-
-async function pidFileRunning(relativePath: string): Promise<boolean> {
-  try {
-    const pid = Number((await readFile(path.join(cacheDir(), relativePath), 'utf8')).trim());
-    if (!Number.isInteger(pid) || pid <= 0) {
-      return false;
-    }
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function playabilityJobBusy(): Promise<boolean> {
-  if (await lockFileActive('playability-maintenance.lock')) {
-    return true;
-  }
-  if (await pidFileRunning('overnight-fill.pid')) {
-    return true;
-  }
-  if (await pidFileRunning('playability-grow.pid')) {
-    return true;
-  }
-  if (await pidFileRunning('nightly-library-refresh.pid')) {
-    return true;
-  }
-  return false;
+  const base = process.env.XDG_CACHE_HOME || path.join(process.env.HOME || '/tmp', '.cache');
+  return path.join(base, 'mango');
 }
 
 export type StartRefreshResult =
   | { ok: true; level: RefreshLevelId; mode: 'inline' }
-  | { ok: true; level: RefreshLevelId; mode: 'background'; pid: number }
-  | { ok: false; error: string; busy?: boolean };
+  | { ok: true; level: RefreshLevelId; mode: 'background'; run_id: string; state: 'claimed' }
+  | { ok: false; error: string; busy?: boolean; active_run_id?: string };
 
-function spawnDetached(args: string[], scriptName = 'playability-grow.sh'): { pid: number } {
-  const script = path.join(repoDir(), 'scripts/m3-play/playability', scriptName);
-  const child = spawn('bash', [script, ...args], {
+type CoordinatorClaim = {
+  run_id: string;
+  state: 'claimed' | 'busy';
+  active_run_id?: string;
+};
+
+async function claimRefreshRun(level: RefreshLevelId): Promise<CoordinatorClaim> {
+  const runId = `playability-${randomUUID()}`;
+  const script = path.join(repoDir(), 'scripts/m3-play/playability/playability-coordinator.sh');
+  const claimFile = path.join(cacheDir(), 'playability-runs', `${runId}.claim.json`);
+  let spawnError: Error | null = null;
+  const child = spawn('bash', [script, '--run-id', runId, '--level', level], {
     cwd: repoDir(),
     detached: true,
     stdio: 'ignore',
@@ -327,24 +275,44 @@ function spawnDetached(args: string[], scriptName = 'playability-grow.sh'): { pi
       MANGO_MAINTENANCE_SKIP_GATE: '1',
     },
   });
+  child.once('error', (error) => { spawnError = error; });
   child.unref();
-  return { pid: child.pid ?? 0 };
+  // Process creation can be delayed substantially while the Pi is restarting
+  // catalog services (and while the local suite runs many test files).  The
+  // API must wait for the coordinator's fsynced decision, not guess that a
+  // slow claim means failure and invite an operator retry.
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (spawnError) {
+      throw spawnError;
+    }
+    try {
+      const claim = JSON.parse(await readFile(claimFile, 'utf8')) as CoordinatorClaim;
+      if (claim.run_id === runId && (claim.state === 'claimed' || claim.state === 'busy')) {
+        return claim;
+      }
+    } catch {
+      // The coordinator fsyncs its atomic claim before this loop can succeed.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error('playability coordinator did not acknowledge ownership');
 }
 
-function spawnRefreshLevelScript(levelId: string): { pid: number } {
-  const script = path.join(repoDir(), 'scripts/m3-play/playability/playability-refresh-level.sh');
-  const child = spawn('bash', [script, levelId], {
-    cwd: repoDir(),
-    detached: true,
-    stdio: 'ignore',
-    env: {
-      ...process.env,
-      MANGO_REPO_DIR: repoDir(),
-      MANGO_MAINTENANCE_SKIP_GATE: '1',
-    },
-  });
-  child.unref();
-  return { pid: child.pid ?? 0 };
+async function startCoordinatedLevel(level: RefreshLevelId): Promise<StartRefreshResult> {
+  try {
+    const claim = await claimRefreshRun(level);
+    if (claim.state === 'busy') {
+      return {
+        ok: false,
+        error: 'playability job already running',
+        busy: true,
+        active_run_id: claim.active_run_id,
+      };
+    }
+    return { ok: true, level, mode: 'background', run_id: claim.run_id, state: 'claimed' };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export async function startRefreshLevel(levelId: string): Promise<StartRefreshResult> {
@@ -356,12 +324,7 @@ export async function startRefreshLevel(levelId: string): Promise<StartRefreshRe
     return { ok: true, level: resolved, mode: 'inline' };
   }
 
-  if (await playabilityJobBusy()) {
-    return { ok: false, error: 'playability job already running', busy: true };
-  }
-
-  const { pid } = spawnRefreshLevelScript(levelId);
-  return { ok: true, level: resolved, mode: 'background', pid };
+  return startCoordinatedLevel(resolved);
 }
 
 export async function startRefreshJob(options: {
@@ -378,18 +341,6 @@ export async function startRefreshJob(options: {
     return { ok: false, error: `unknown grow preset: ${preset}` };
   }
 
-  if (await playabilityJobBusy()) {
-    return { ok: false, error: 'playability job already running', busy: true };
-  }
-
-  const args = ['--mode', mode, '--preset', preset];
-  if (options.detach) {
-    args.push('--detach');
-  }
-  const { pid } = mode === 'nightly'
-    ? spawnDetached(args, 'nightly-library-refresh.sh')
-    : spawnDetached(args);
-
   const level: RefreshLevelId =
     mode === 'stale' ? 'stale_refresh'
     : mode === 'nightly' ? 'grow_nightly'
@@ -397,5 +348,5 @@ export async function startRefreshJob(options: {
     : preset === 'overnight' ? 'grow_overnight'
     : 'grow_nightly';
 
-  return { ok: true, level, mode: 'background', pid };
+  return startCoordinatedLevel(level);
 }

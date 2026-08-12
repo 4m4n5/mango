@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
 const COOLDOWN_MS = Number(process.env.MANGO_PLAYABILITY_TOPUP_COOLDOWN_MS || 5 * 60 * 1000);
@@ -31,14 +32,16 @@ export function schedulePlayabilityTopUp(railId: string): void {
   lastScheduled.set(railId, now);
 
   const root = repoDir();
-  const indexer = join(root, 'scripts/m3-play/playability/playability-indexer.ts');
+  const coordinator = join(root, 'scripts/m3-play/playability/playability-coordinator.sh');
+  const runId = `background-${randomUUID()}`;
   const child = spawn(
-    'npm',
-    ['--prefix', join(root, 'src/catalog-service'), 'exec', 'tsx', '--', indexer, 'top-up', '--rail', railId],
+    'bash',
+    [coordinator, '--run-id', runId, '--level', 'grow_quick'],
     {
       cwd: root,
       detached: true,
       stdio: 'ignore',
+      env: { ...process.env, MANGO_REPO_DIR: root, MANGO_PLAYABILITY_TARGET_RAIL: railId },
     },
   );
   child.unref();

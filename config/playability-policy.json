@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "hardening_mode": "shadow",
+  "source_automation": "off",
+  "nightly": {
+    "deadline_minutes": 150,
+    "admission_stop_minutes": 135,
+    "stale_candidate_limit": 200,
+    "stale_budget_fraction": 0.25
+  },
+  "allocation": {
+    "breadth_fraction": 0.2,
+    "exploration_fraction": 0.05,
+    "max_source_fraction": 0.5
+  },
+  "source_lifecycle": {
+    "consecutive_fetch_failures": 3,
+    "no_win_candidate_limit": 30,
+    "quarantine_days": 7,
+    "promotion_nights": 3,
+    "promotion_unique_candidates": 30,
+    "promotion_exact_main_wins": 3,
+    "promotion_min_yield": 0.05,
+    "retire_failed_recanaries": 3,
+    "retire_min_days": 30,
+    "max_promoted_per_rail": 3,
+    "canary_candidates_per_night": 10,
+    "canary_budget_fraction": 0.05
+  }
+}

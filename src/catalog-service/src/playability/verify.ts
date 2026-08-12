@@ -17,7 +17,7 @@ import {
   getTitleVerifyProfile,
   recordVerifyResult,
 } from './db.js';
-import { normalizeSeriesVerifyId } from './ids.js';
+import { canonicalTitleId, normalizeSeriesVerifyId } from './ids.js';
 import { probeUrlViaPool } from './mpv-probe-pool.js';
 import { probeUrl } from '../mpv.js';
 import type { RailThemeGate } from './rail-theme-gate.js';
@@ -51,7 +51,67 @@ export type VerifyTitleOptions = {
   railId?: string | null;
   forceReprobe?: boolean;
   preserveVerified?: boolean;
+  request?: VerificationRequestInput;
 };
+
+export type VerificationRequestInput = {
+  requestId?: string | null;
+  runId?: string | null;
+  railId?: string | null;
+  sourceKey?: string | null;
+  title?: string | null;
+  year?: string | number | null;
+};
+
+export type VerificationRequest = Readonly<{
+  request_id: string;
+  run_id: string | null;
+  type: string;
+  requested_id: string;
+  canonical_title_id: string;
+  verify_id: string;
+  rail_id: string | null;
+  source_key: string | null;
+  title: string | null;
+  year: string | null;
+  season: number | null;
+  episode: number | null;
+  attempt_kind: 'main';
+}>;
+
+function boundedRequestText(value: unknown, max: number): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text ? text.slice(0, max) : null;
+}
+
+export function createVerificationRequest(
+  type: string,
+  id: string,
+  input: VerificationRequestInput = {},
+): VerificationRequest {
+  const requestedId = id.trim();
+  const verifyId = normalizeSeriesVerifyId(type, requestedId);
+  const episodeMatch = type === 'series' ? verifyId.match(/:(\d+):(\d+)$/) : null;
+  const runId = boundedRequestText(input.runId ?? process.env.MANGO_OPS_RUN_ID, 160);
+  const sourceKey = boundedRequestText(input.sourceKey, 300);
+  return Object.freeze({
+    request_id: boundedRequestText(input.requestId, 160)
+      ?? [runId ?? 'standalone', type, requestedId, sourceKey ?? 'unknown'].join(':'),
+    run_id: runId,
+    type,
+    requested_id: requestedId,
+    canonical_title_id: canonicalTitleId(type, requestedId),
+    verify_id: verifyId,
+    rail_id: boundedRequestText(input.railId, 160),
+    source_key: sourceKey,
+    title: boundedRequestText(input.title, 300),
+    year: boundedRequestText(input.year, 16),
+    season: episodeMatch ? Number(episodeMatch[1]) : null,
+    episode: episodeMatch ? Number(episodeMatch[2]) : null,
+    attempt_kind: 'main' as const,
+  });
+}
 
 export type VerifyContext = {
   batchWriter?: PlayabilityBatchWriter | null;
@@ -67,6 +127,7 @@ export type PreparedVerifyTitleResult = {
   prepare_ms: number;
   resolved: Awaited<ReturnType<CatalogCore['resolveForPlay']>>;
   candidates: LadderCandidate[];
+  request: VerificationRequest;
 } | {
   type: string;
   id: string;
@@ -75,7 +136,22 @@ export type PreparedVerifyTitleResult = {
   resolve_ms?: number;
   prepare_ms: number;
   filters?: Record<string, unknown>;
+  request: VerificationRequest;
 };
+
+function requestProof(request: VerificationRequest, exactMainWin: boolean) {
+  return {
+    proof_version: 2 as const,
+    exact_main_win: exactMainWin,
+    run_id: request.run_id,
+    request_id: request.request_id,
+    request_title_id: request.requested_id,
+    request_title: request.title,
+    request_year: request.year,
+    source_key: request.source_key,
+    attempt_kind: request.attempt_kind,
+  };
+}
 
 function cleanError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
@@ -166,6 +242,7 @@ async function recordFailure(
   reason: string,
   probeMs: number | null,
   options: VerifyTitleOptions,
+  request: VerificationRequest,
   context?: VerifyContext,
 ): Promise<'failed' | 'stale' | 'preserved'> {
   const staleReprobe = options.forceReprobe === true;
@@ -202,6 +279,7 @@ async function recordFailure(
     probe_ms: probeMs,
     stage: 'verify',
     outcome: staleReprobe ? `${status}_reprobe_failed` : reason,
+    ...requestProof(request, false),
   }, context);
   return status;
 }
@@ -265,16 +343,22 @@ export async function verifyTitle(
   options: VerifyTitleOptions = {},
   context?: VerifyContext,
 ): Promise<VerifyTitleResult> {
-  return verifyPreparedTitle(await prepareVerifyTitle(core, type, id), options, context);
+  return verifyPreparedTitle(
+    await prepareVerifyTitle(core, type, id, options.request),
+    options,
+    context,
+  );
 }
 
 export async function prepareVerifyTitle(
   core: CatalogCore,
   type: string,
   id: string,
+  requestInput: VerificationRequestInput = {},
 ): Promise<PreparedVerifyTitleResult> {
   const started = Date.now();
-  const verifyId = normalizeSeriesVerifyId(type, id);
+  const request = createVerificationRequest(type, id, requestInput);
+  const verifyId = request.verify_id;
   try {
     const resolved = await core.resolveForPlay(type, verifyId, {}, {
       seriesCrossProbeLimit: playabilitySeriesCrossProbeLimit(),
@@ -308,6 +392,7 @@ export async function prepareVerifyTitle(
           applied: resolved.filters,
           play_ladder: resolved.filters.play_ladder.map((step) => step.step),
         },
+        request,
       };
     }
 
@@ -319,6 +404,7 @@ export async function prepareVerifyTitle(
       prepare_ms: Date.now() - started,
       resolved,
       candidates,
+      request,
     };
   } catch (error) {
     const reason = failReason(error);
@@ -331,6 +417,7 @@ export async function prepareVerifyTitle(
       filters: error instanceof CatalogError
         ? error.details?.filters as Record<string, unknown> | undefined
         : undefined,
+      request,
     };
   }
 }
@@ -341,7 +428,15 @@ export async function verifyPreparedTitle(
   context?: VerifyContext,
 ): Promise<VerifyTitleResult> {
   if (!prepared.ok) {
-    const recorded = await recordFailure(prepared.type, prepared.id, prepared.reason, null, options, context);
+    const recorded = await recordFailure(
+      prepared.type,
+      prepared.id,
+      prepared.reason,
+      null,
+      options,
+      prepared.request,
+      context,
+    );
     return {
       type: prepared.type,
       id: prepared.id,
@@ -399,6 +494,7 @@ export async function verifyPreparedTitle(
       expires_at: Date.now() + playabilityVerifyTtlMs(),
       stage: 'verify',
       outcome: 'verified',
+      ...requestProof(prepared.request, true),
     }, context);
     return {
       type: prepared.type,
@@ -422,6 +518,7 @@ export async function verifyPreparedTitle(
     reason,
     ladderResult.attempts.reduce((total, attempt) => total + attempt.ms, 0),
     options,
+    prepared.request,
     context,
   );
   return {

@@ -10,6 +10,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ops_ledger import append_json_line, write_json_atomic
+
 
 def ops_root() -> Path:
     base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
@@ -34,8 +36,7 @@ def append_event(
         "summary": summary,
         "payload": payload,
     }
-    with (root / "events.jsonl").open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+    append_json_line(root / "events.jsonl", event)
 
 
 def write_run_report(run_id: str, report: dict) -> Path:
@@ -43,7 +44,7 @@ def write_run_report(run_id: str, report: dict) -> Path:
     directory = ops_root() / "reports" / date
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{run_id}.json"
-    path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    write_json_atomic(path, report)
     return path
 
 

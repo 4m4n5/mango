@@ -7,8 +7,28 @@ import { computeStarvingRails } from './model.js';
 import {
   playabilityFacts,
   railGrowthHistory,
+  sanitizeReliabilityProofMetadata,
+  sanitizeReliabilityProofReason,
   type PlayabilityStatusLike,
 } from './service.js';
+
+test('proof metadata accepts bounded receipts and rejects privacy-risk fields', () => {
+  assert.deepEqual(sanitizeReliabilityProofMetadata({
+    playability_rc: 0,
+    run_id: 'playability-run-123',
+    readback_ok: true,
+  }), {
+    playability_rc: 0,
+    run_id: 'playability-run-123',
+    readback_ok: true,
+  });
+  assert.throws(
+    () => sanitizeReliabilityProofMetadata({ stream_url: 'https://secret.example/token' }),
+    /unknown proof metadata field/,
+  );
+  assert.throws(() => sanitizeReliabilityProofReason('manual reason with spaces'), /bounded identifier/);
+  assert.equal(sanitizeReliabilityProofReason('nightly_after_playability_grow'), 'nightly_after_playability_grow');
+});
 
 function statusRail(railId: string, verifiedPool: number) {
   return {
@@ -40,6 +60,8 @@ function playabilityStatus(): PlayabilityStatusLike {
       failed: 0,
     },
     last_indexer_run_at: 1,
+    retry_queue: { total: 0, due: 0, oldest_requested_at: null, by_reason: {} },
+    publication: null,
   };
 }
 

@@ -1,6 +1,8 @@
 import {
   getPlayabilityDb,
   initPlayabilityDb,
+  updateRetryQueueForVerifyRecord,
+  validatePlayabilityProof,
   type PlayabilityVerifyRecord,
   type RailPoolEntry,
 } from './db.js';
@@ -25,7 +27,7 @@ export class PlayabilityBatchWriter {
   private poolEntries: RailPoolEntry[] = [];
 
   queueVerify(record: PlayabilityVerifyRecord): void {
-    this.verifyRecords.push(record);
+    this.verifyRecords.push({ ...record, observed_at: record.observed_at ?? nowMs() });
   }
 
   queuePool(entry: RailPoolEntry): void {
@@ -50,10 +52,12 @@ export class PlayabilityBatchWriter {
       const upsertTitle = db.prepare(`
 INSERT INTO titles (
   type, id, status, verified_at, expires_at, fail_reason, best_source,
-  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step, updated_at
+  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step,
+  proof_version, proof_run_id, proof_exact_main, first_verified_at, updated_at
 ) VALUES (
   @type, @id, @status, @verified_at, @expires_at, @fail_reason, @best_source,
-  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step, @updated_at
+  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step,
+  @proof_version, @proof_run_id, @proof_exact_main, @first_verified_at, @updated_at
 )
 ON CONFLICT(type, id) DO UPDATE SET
   status = excluded.status,
@@ -66,11 +70,26 @@ ON CONFLICT(type, id) DO UPDATE SET
   probe_ms = excluded.probe_ms,
   win_url_hash = excluded.win_url_hash,
   win_ladder_step = excluded.win_ladder_step,
+  proof_version = CASE WHEN excluded.status = 'verified' THEN excluded.proof_version ELSE titles.proof_version END,
+  proof_run_id = CASE WHEN excluded.status = 'verified' THEN excluded.proof_run_id ELSE titles.proof_run_id END,
+  proof_exact_main = CASE WHEN excluded.status = 'verified' THEN excluded.proof_exact_main ELSE titles.proof_exact_main END,
+  first_verified_at = CASE
+    WHEN titles.first_verified_at IS NULL AND excluded.status = 'verified' THEN excluded.first_verified_at
+    ELSE titles.first_verified_at
+  END,
   updated_at = excluded.updated_at;
 `);
       const insertLog = db.prepare(`
-INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)
-VALUES (@started_at, @rail_id, @type, @id_value, @stage, @ms, @outcome);
+INSERT INTO verify_log (
+  started_at, rail_id, type, id_value, stage, ms, outcome, run_id,
+  request_id, request_title_id, request_title, request_year, source_key,
+  attempt_kind, exact_main_win, proof_version
+)
+VALUES (
+  @started_at, @rail_id, @type, @id_value, @stage, @ms, @outcome, @proof_run_id,
+  @request_id, @request_title_id, @request_title, @request_year, @source_key,
+  @attempt_kind, @proof_exact_main, @proof_version
+);
 `);
       const upsertPool = db.prepare(`
 INSERT INTO rail_pool (
@@ -102,9 +121,11 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
 `);
 
       for (const record of this.verifyRecords) {
-        const verifiedAt = record.status === 'verified' ? timestamp : null;
+        const observedAt = record.observed_at ?? timestamp;
+        const proof = validatePlayabilityProof(record);
+        const verifiedAt = record.status === 'verified' ? observedAt : null;
         const expiresAt = record.status === 'verified'
-          ? record.expires_at ?? timestamp + 48 * 60 * 60 * 1000
+          ? record.expires_at ?? observedAt + 48 * 60 * 60 * 1000
           : record.expires_at ?? null;
         upsertTitle.run({
           type: record.type,
@@ -119,7 +140,9 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
           probe_ms: record.probe_ms ?? null,
           win_url_hash: record.win_url_hash ?? null,
           win_ladder_step: record.win_ladder_step ?? null,
-          updated_at: timestamp,
+          ...proof,
+          first_verified_at: verifiedAt,
+          updated_at: observedAt,
         });
         if (shouldMirrorSeriesGateRecord(record.type, record.id)) {
           upsertTitle.run({
@@ -135,18 +158,22 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
             probe_ms: record.probe_ms ?? null,
             win_url_hash: record.win_url_hash ?? null,
             win_ladder_step: record.win_ladder_step ?? null,
-            updated_at: timestamp,
+            ...proof,
+            first_verified_at: verifiedAt,
+            updated_at: observedAt,
           });
         }
         insertLog.run({
-          started_at: timestamp,
+          started_at: observedAt,
           rail_id: record.rail_id ?? null,
           type: record.type,
           id_value: record.id,
           stage: record.stage ?? 'verify',
           ms: record.probe_ms ?? 0,
           outcome: record.outcome ?? record.status,
+          ...proof,
         });
+        updateRetryQueueForVerifyRecord(db, record, observedAt);
       }
 
       for (const entry of this.poolEntries) {

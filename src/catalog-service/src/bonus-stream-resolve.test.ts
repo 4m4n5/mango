@@ -196,6 +196,27 @@ test('pickMainEpisodeStreams rejects wrong-episode labels (IGL E07 on S1E1)', ()
   assert.equal(streamMatchesMainEpisodeNumber('igl e07 avc', 1, 7), true);
 });
 
+test('pickMainEpisodeStreams rejects wrong labels beyond episode 30', () => {
+  const wrongEpisode = pickMainEpisodeStreams(
+    [stream('AIOStreams', '📁 The Alliance S01E35 WEB-DL 1080p')],
+    1,
+    36,
+  );
+  assert.equal(wrongEpisode.length, 0);
+  assert.equal(
+    streamConflictsMainEpisodeNumber('the alliance s01e35 web-dl', 1, 36),
+    true,
+  );
+  assert.equal(
+    streamMatchesMainEpisodeNumber('the alliance s01e36 web-dl', 1, 36),
+    true,
+  );
+  assert.equal(
+    streamConflictsMainEpisodeNumber('the alliance s02e36 web-dl', 1, 36),
+    true,
+  );
+});
+
 test('pickMainEpisodeStreams cross-probe mode requires episode label match', () => {
   const strict = pickMainEpisodeStreams(
     [

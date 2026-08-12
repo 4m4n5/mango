@@ -179,11 +179,36 @@ def apply_self_host_api_keys(api: dict[str, Any], env_keys: dict[str, str]) -> N
         mdblist = env_keys.get("MDBLIST_API_KEY", "")
         if mdblist.strip():
             api["mdblist"] = mdblist.strip()
+    if not str(api.get("tvdb") or "").strip():
+        tvdb = env_keys.get("TVDB_API_KEY", "") or env_keys.get(
+            "BUILT_IN_TVDB_API_KEY", ""
+        )
+        if tvdb.strip():
+            api["tvdb"] = tvdb.strip()
     api["hasBuiltInTmdb"] = False
     api["hasBuiltInTvdb"] = False
     blurb = str(api.get("customDescriptionBlurb") or "")
     if "elfhosted.com" in blurb.lower():
         api["customDescriptionBlurb"] = ""
+
+
+def normalize_metadata_providers(
+    providers: dict[str, Any],
+    api_keys: dict[str, Any],
+) -> dict[str, Any]:
+    """Return a self-host-safe provider selection without mutating the export.
+
+    AIOMetadata cannot use TVDB as the preferred series provider without a
+    caller-supplied TVDB key. TVMaze provides keyed-by-IMDb episode metadata
+    without an additional credential and is the safe series fallback.
+    """
+    normalized = json.loads(json.dumps(providers))
+    if (
+        str(normalized.get("series") or "").strip().lower() == "tvdb"
+        and not str(api_keys.get("tvdb") or "").strip()
+    ):
+        normalized["series"] = "tvmaze"
+    return normalized
 
 
 def select_catalogs_from_export(
@@ -259,15 +284,22 @@ def build_mango_config_with_extras(
         inventory,
     )
 
-    config: dict[str, Any] = {
-        "language": source.get("language", "en-US"),
-        "providers": source.get("providers") or {
+    api_keys = json.loads(json.dumps(source.get("apiKeys") or {}))
+    apply_self_host_api_keys(api_keys, load_env_keys(env_path))
+    providers = normalize_metadata_providers(
+        source.get("providers") or {
             "movie": "tmdb",
             "series": "tvdb",
             "anime": "mal",
         },
+        api_keys,
+    )
+
+    config: dict[str, Any] = {
+        "language": source.get("language", "en-US"),
+        "providers": providers,
         "artProviders": source.get("artProviders"),
-        "apiKeys": json.loads(json.dumps(source.get("apiKeys") or {})),
+        "apiKeys": api_keys,
         "search": {
             "enabled": False,
             "ai_enabled": False,
@@ -282,7 +314,6 @@ def build_mango_config_with_extras(
         "showDisabledCatalogs": False,
     }
 
-    apply_self_host_api_keys(config["apiKeys"], load_env_keys(env_path))
     return config, warnings
 
 

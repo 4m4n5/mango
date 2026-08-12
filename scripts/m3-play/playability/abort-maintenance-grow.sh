@@ -13,15 +13,34 @@ echo "abort: stopping playability grow/maintenance"
 
 stop_pidfile() {
   local path="$1"
-  local pid
+  local pid command
   if [[ ! -f "$path" ]]; then
     return 0
   fi
   pid="$(cat "$path" 2>/dev/null || true)"
   if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-    kill "$pid" 2>/dev/null || true
-    sleep 1
-    kill -9 "$pid" 2>/dev/null || true
+    command="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+    case "$command" in
+      *playability-grow.sh*|*nightly-library-refresh.sh*|*overnight-playability-grow.sh*) ;;
+      *)
+        echo "abort: refusing unattributed pid=$pid from $path command=${command:-unknown}" >&2
+        return 1
+        ;;
+    esac
+    pkill -TERM -P "$pid" 2>/dev/null || true
+    kill -TERM "$pid" 2>/dev/null || true
+    for _ in $(seq 1 20); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      pkill -KILL -P "$pid" 2>/dev/null || true
+      kill -KILL "$pid" 2>/dev/null || true
+    fi
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "abort: owner pid=$pid did not terminate" >&2
+      return 1
+    fi
   fi
   rm -f "$path"
 }
@@ -30,15 +49,12 @@ stop_pidfile "$CACHE_DIR/playability-grow.pid"
 stop_pidfile "$CACHE_DIR/nightly-library-refresh.pid"
 stop_pidfile "$CACHE_DIR/overnight-fill.pid"
 
-pkill -f '[p]layability-grow.sh' 2>/dev/null || true
-pkill -f '[n]ightly-library-refresh.sh' 2>/dev/null || true
-pkill -f '[p]layability-indexer.ts' 2>/dev/null || true
-pkill -f '[p]layability-maintenance.sh' 2>/dev/null || true
-pkill -f '[o]vernight-playability-grow.sh' 2>/dev/null || true
-pkill -f '[s]ource-hitrate.py' 2>/dev/null || true
+if pgrep -f '[p]layability-maintenance.sh|[p]layability-indexer.ts|[s]ource-hitrate.py' >/dev/null 2>&1; then
+  echo "abort: unattributed maintenance child remains; refusing lock/work-DB cleanup" >&2
+  pgrep -af '[p]layability-maintenance.sh|[p]layability-indexer.ts|[s]ource-hitrate.py' >&2 || true
+  exit 1
+fi
 bash scripts/m3-play/playability/mpv-probe-pool.sh stop-all >/dev/null 2>&1 || true
-rm -f "$CACHE_DIR/playability-maintenance.lock"
-rm -f "$CACHE_DIR/overnight-fill.lock"
 rm -f "$CACHE_DIR"/playability-work-*.db "$CACHE_DIR"/playability-work-*.db-wal "$CACHE_DIR"/playability-work-*.db-shm
 bash scripts/lib/stale-flock-cleanup.sh >/dev/null 2>&1 || true
 

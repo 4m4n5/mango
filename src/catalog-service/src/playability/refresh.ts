@@ -8,7 +8,6 @@ import {
   getRailPoolOverlapSummary,
   getRailIngestOffsetsBulk,
   getRailPoolTitleKeysBulk,
-  getPlayFailureTitlesForReverify,
   getStaleTitlesForRefresh,
   getTitlesPlayabilityBulk,
   pruneNonPlayableFromRailPools,
@@ -122,6 +121,7 @@ export type RefreshRailSummary = {
   sources_touched?: number;
   source_stats?: SourceIngestStats[];
   failure_category?: string;
+  stop_reason?: 'admission_deadline' | 'couch_activity';
   repair_suggestions?: string[];
   candidate_audit?: Awaited<ReturnType<typeof growRail>>['candidate_audit'];
   min_display: number;
@@ -171,6 +171,7 @@ export type RefreshAllResult = {
   best_effort_publish?: boolean;
   all_rails_publishable?: boolean;
   failure_category?: string;
+  stop_reason?: 'admission_deadline' | 'couch_activity';
   repair_suggestions?: string[];
   /** Global library size — distinct active verified titles (not rail pool slots). */
   unique_verified_before?: number;
@@ -279,6 +280,7 @@ function growResultToRailSummary(
     sources_touched: result.sources_touched,
     source_stats: result.source_stats,
     failure_category: result.failure_category,
+    stop_reason: result.stop_reason,
     repair_suggestions: result.repair_suggestions,
     candidate_audit: result.candidate_audit,
     min_display: result.min_display,
@@ -309,7 +311,11 @@ async function refreshAllRailsGrow(
   const uniqueVerifiedBefore = await getUniqueVerifiedLibraryCount();
   const orphanTotalBefore = await countOrphanVerifiedPoolTitles();
   const overlapBefore = await getRailPoolOverlapSummary({ maxRailsPerTitle: 2 });
-  const browsable = core.growableRails();
+  const targetRail = process.env.MANGO_PLAYABILITY_TARGET_RAIL?.trim();
+  const browsable = core.growableRails().filter((rail) => !targetRail || rail.id === targetRail);
+  if (targetRail && browsable.length === 0) {
+    throw new Error(`target playability rail is not growable: ${targetRail}`);
+  }
   const status = await getPlayabilityStatus(browsable.map((rail) => rail.id));
   const statusByRail = new Map(status.rails.map((rail) => [rail.rail_id, rail]));
   const verifiedPoolByRail = new Map(
@@ -553,6 +559,11 @@ async function refreshAllRailsGrow(
     ),
     ingest_scanned: railSummaries.reduce((sum, rail) => sum + rail.candidates_seen, 0),
     failure_category: publishPolicy.failure_category,
+    stop_reason: railSummaries.some((rail) => rail.stop_reason === 'couch_activity')
+      ? 'couch_activity'
+      : railSummaries.some((rail) => rail.stop_reason === 'admission_deadline')
+        ? 'admission_deadline'
+        : undefined,
     repair_suggestions: repairSuggestions.length > 0 ? repairSuggestions : undefined,
     rails: railSummaries,
   };
@@ -718,23 +729,6 @@ export async function refreshAllRails(
     }
   }
 
-  // Q2: play_failure rows past their short retry window are force-reprobed here (via staleKeys)
-  // even though they're status='failed', not 'stale' — this is the guarantee that a couch play
-  // failure is re-verified on the next nightly stale phase regardless of rail pool capacity or
-  // whether the title resurfaces in a curated source-list scan.
-  const playFailureReverifyTitles = mode === 'stale' ? await getPlayFailureTitlesForReverify() : [];
-  for (const title of playFailureReverifyTitles) {
-    const key = candidateKey(title);
-    staleKeys.add(key);
-    if (!refsByKey.has(key)) {
-      refsByKey.set(key, [{
-        railId: title.rail_id ?? railIds[0] ?? 'unknown',
-        index: 0,
-        candidate: { id: title.id, type: title.type, source: 'play_failure_reverify' },
-      }]);
-    }
-  }
-
   const titleStatuses = await getTitlesPlayabilityBulk(
     [...refsByKey.values()].flatMap((refs) => refs.map((ref) => ({
       type: ref.candidate.type,
@@ -754,7 +748,7 @@ export async function refreshAllRails(
     context,
   });
 
-  let processed = {
+  let processed: Awaited<ReturnType<typeof processVerifyQueue>> = {
     verified: 0,
     failed: 0,
     linked_existing: 0,
@@ -882,6 +876,7 @@ export async function refreshAllRails(
     ingest_scanned: ingestScanned,
     swept_expired: sweptExpired,
     trigger_drain: triggerDrain,
+    stop_reason: processed.stopped_reason,
     rails: railSummaries,
   };
 

@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   buildLlmRefreshToolManifest,
   getRefreshLevel,
   listRefreshLevelsForUi,
   resolveRefreshLevelId,
+  startRefreshJob,
 } from '../playability/refresh-control.js';
 
 test('listRefreshLevelsForUi orders quick before overnight', () => {
@@ -48,4 +52,41 @@ test('buildLlmRefreshToolManifest exposes actionable levels for voice tools', ()
   assert.ok(levelEnum.includes('quick_topup'));
   assert.ok(!levelEnum.includes('shuffle_rails'));
   assert.equal(manifest.levels.length, 4);
+});
+
+test('simultaneous refresh starts yield exactly one durable coordinator claim', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-playability-coordinator-'));
+  const priorCache = process.env.XDG_CACHE_HOME;
+  const priorHold = process.env.MANGO_PLAYABILITY_COORDINATOR_TEST_HOLD_MS;
+  try {
+    process.env.XDG_CACHE_HOME = dir;
+    // Keep the winning owner alive long enough that both children necessarily
+    // contend even when the full test suite delays process scheduling.
+    process.env.MANGO_PLAYABILITY_COORDINATOR_TEST_HOLD_MS = '4000';
+    const [first, second] = await Promise.all([
+      startRefreshJob({ mode: 'grow', preset: 'quick' }),
+      startRefreshJob({ mode: 'grow', preset: 'quick' }),
+    ]);
+    const claimed = [first, second].filter((result) => result.ok);
+    const busy = [first, second].filter((result) => !result.ok && result.busy);
+    assert.equal(claimed.length, 1);
+    assert.equal(busy.length, 1);
+    const winner = claimed[0];
+    assert.ok(winner?.ok && winner.mode === 'background');
+    if (!winner?.ok || winner.mode !== 'background') return;
+    assert.equal(!busy[0]?.ok && busy[0]?.active_run_id, winner.run_id);
+    const receipt = JSON.parse(readFileSync(
+      join(dir, 'mango', 'playability-runs', `${winner.run_id}.json`),
+      'utf8',
+    )) as { run_id: string; state: string };
+    assert.equal(receipt.run_id, winner.run_id);
+    assert.equal(receipt.state, 'claimed');
+    await new Promise((resolve) => setTimeout(resolve, 4200));
+  } finally {
+    if (priorCache === undefined) delete process.env.XDG_CACHE_HOME;
+    else process.env.XDG_CACHE_HOME = priorCache;
+    if (priorHold === undefined) delete process.env.MANGO_PLAYABILITY_COORDINATOR_TEST_HOLD_MS;
+    else process.env.MANGO_PLAYABILITY_COORDINATOR_TEST_HOLD_MS = priorHold;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

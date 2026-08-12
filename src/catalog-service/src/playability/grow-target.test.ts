@@ -28,6 +28,14 @@ test('resolveGrowTarget uses grow_per_pass even when verified pool is below disp
   assert.equal(resolveGrowTarget(base, 50), 20);
 });
 
+test('resolveGrowTarget shifts a full active pool to the bounded breadth lane', () => {
+  const capped = { ...base, pool_max: 120 };
+  assert.equal(resolveGrowTarget(capped, 80), 20);
+  assert.equal(resolveGrowTarget(capped, 110), 14);
+  assert.equal(resolveGrowTarget(capped, 120), 4);
+  assert.equal(resolveGrowTarget(capped, 500), 4);
+});
+
 test('resolveGrowTarget includes anchor rails by default and diets only when explicitly enabled', () => {
   const prev = process.env.MANGO_GROW_ANCHOR_DIET;
   delete process.env.MANGO_GROW_ANCHOR_DIET;

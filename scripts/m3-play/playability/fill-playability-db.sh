@@ -23,6 +23,13 @@
 set -euo pipefail
 
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
+
+if [[ "${MANGO_FILL_COORDINATED:-0}" != "1" ]]; then
+  RUN_ID="fill-$(python3 -c 'import uuid; print(uuid.uuid4())')"
+  echo "fill delegates to coordinator run_id=$RUN_ID"
+  exec bash "$REPO_DIR/scripts/m3-play/playability/playability-coordinator.sh" \
+    --run-id "$RUN_ID" --level fill
+fi
 cd "$REPO_DIR"
 
 SKIP_SYNC="${MANGO_FILL_SKIP_CATALOG_SYNC:-0}"
@@ -114,7 +121,6 @@ fi
 
 echo
 echo "pass 1: additive growth toward min_display…"
-rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/mango/playability-maintenance.lock"
 export MANGO_PLAYABILITY_BOOTSTRAP=1
 export MANGO_MAINTENANCE_SKIP_GATE=1
 export MANGO_PLAYABILITY_CANDIDATE_LIMIT="${MANGO_FILL_CANDIDATE_LIMIT:-250}"
@@ -123,7 +129,6 @@ bash scripts/m3-play/playability/playability-maintenance.sh --mode grow --bootst
 if [[ "$POOL_TOPUP" == "1" ]]; then
   echo
   echo "pass 2: additive pool growth (pool_growth_per_refresh)…"
-  rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/mango/playability-maintenance.lock"
   export MANGO_PLAYABILITY_BOOTSTRAP=0
   export MANGO_PLAYABILITY_EARLY_EXIT_MIN_DISPLAY=0
   export MANGO_MAINTENANCE_SKIP_GATE=1

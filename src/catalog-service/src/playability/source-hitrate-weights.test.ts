@@ -12,6 +12,7 @@ import {
   loadHitrateMultipliersForContentType,
   loadSourceHitrateReport,
   loadSourceGrowReport,
+  normalizeRelativeMultipliers,
   recordSourceGrowOutcome,
   sourceGrowProbationMinSamples,
   sourceGrowProbationMultiplier,
@@ -160,6 +161,19 @@ test('buildSourceGrowMultipliers uses runtime grow outcomes', () => {
   const multipliers = buildSourceGrowMultipliers(report, 'movie');
   assert.equal(multipliers.get('AIOMetadata:good'), 1.6);
   assert.equal(multipliers.get('AIOMetadata:bad'), sourceGrowProbationMultiplier());
+});
+
+test('grow weights normalize productive sources relative to their peer median', () => {
+  assert.deepEqual(
+    [...normalizeRelativeMultipliers(new Map([
+      ['weak', 0.5], ['median', 1], ['strong', 2], ['probation', 0.08],
+    ]))],
+    [['weak', 0.5], ['median', 1], ['strong', 2], ['probation', 0.08]],
+  );
+  assert.deepEqual(
+    [...normalizeRelativeMultipliers(new Map([['only', 1.6], ['probation', 0.08]]))],
+    [['only', 1.6], ['probation', 0.08]],
+  );
 });
 
 test('buildSourceGrowMultipliers reapplies current probation policy to stored reports', () => {

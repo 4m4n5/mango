@@ -14,7 +14,7 @@ if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
   source "${HOME}/.config/mango/voice.env"
 fi
 
-echo "=== pre-couch $(hostname) $(git rev-parse --short HEAD 2>/dev/null) ==="
+echo "=== pre-couch $(hostname) $(git rev-parse HEAD 2>/dev/null) ==="
 
 CACHE_MANGO="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
 MAINT_LOCK="${CACHE_MANGO}/playability-maintenance.lock"
@@ -57,15 +57,24 @@ if [[ "$MAINT_RUNNING" -eq 1 ]] || [[ "$OVERNIGHT_RUNNING" -eq 1 ]] || pgrep -f 
   exit 1
 fi
 
-BRANCH="$(git branch --show-current 2>/dev/null || echo main)"
-if git fetch origin 2>/dev/null; then
-  LOCAL="$(git rev-parse HEAD)"
-  REMOTE="$(git rev-parse "origin/${BRANCH}" 2>/dev/null || echo "")"
-  [[ -z "$REMOTE" || "$LOCAL" == "$REMOTE" ]] || {
-    echo "FAIL: behind origin/${BRANCH} — git pull" >&2
-    exit 1
-  }
-fi
+BRANCH="$(git branch --show-current 2>/dev/null || true)"
+[[ "$BRANCH" == "feat/native-experience" ]] || {
+  echo "FAIL: expected branch feat/native-experience, got ${BRANCH:-detached}" >&2
+  exit 1
+}
+git fetch origin feat/native-experience >/dev/null 2>&1 || {
+  echo "FAIL: could not fetch origin/feat/native-experience; exact revision is unproved" >&2
+  exit 1
+}
+LOCAL="$(git rev-parse HEAD)"
+REMOTE="$(git rev-parse origin/feat/native-experience 2>/dev/null)" || {
+  echo "FAIL: origin/feat/native-experience cannot be resolved" >&2
+  exit 1
+}
+[[ "$LOCAL" == "$REMOTE" ]] || {
+  echo "FAIL: HEAD $LOCAL differs from origin/feat/native-experience $REMOTE" >&2
+  exit 1
+}
 
 if [[ "$BRANCH" == "feat/native-experience" ]]; then
   if [[ "${MANGO_GATE_FULL:-0}" == "1" ]]; then

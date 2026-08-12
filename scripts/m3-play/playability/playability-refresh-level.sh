@@ -47,12 +47,12 @@ case "$RESOLVED" in
     exec bash scripts/m3-play/playability/playability-grow.sh --mode stale
     ;;
   grow_quick)
-    exec bash scripts/m3-play/playability/playability-grow.sh --mode grow --preset quick --detach
+    exec bash scripts/m3-play/playability/playability-grow.sh --mode grow --preset quick
     ;;
   grow_nightly)
-    exec bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly --detach
+    exec bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly
     ;;
   grow_overnight)
-    exec bash scripts/m3-play/playability/overnight-playability-grow.sh --detach
+    exec bash scripts/m3-play/playability/nightly-library-refresh.sh --mode grow --preset overnight
     ;;
 esac

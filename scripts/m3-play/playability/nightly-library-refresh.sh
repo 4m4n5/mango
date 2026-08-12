@@ -6,9 +6,6 @@ set -uo pipefail
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
 LOG="${CACHE_DIR}/nightly-library-refresh.log"
-PIDFILE="${CACHE_DIR}/nightly-library-refresh.pid"
-LOCK_FILE="${CACHE_DIR}/playability-maintenance.lock"
-SCRIPT_PATH="$REPO_DIR/scripts/m3-play/playability/nightly-library-refresh.sh"
 MODE="${MANGO_PLAYABILITY_REFRESH_MODE:-nightly}"
 PRESET="${MANGO_GROW_PRESET:-}"
 DETACH=0
@@ -55,55 +52,24 @@ if [[ -n "$PRESET" ]]; then
 fi
 
 if [[ "$STATUS" -eq 1 ]]; then
-  if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-    echo "running pid=$(cat "$PIDFILE")"
-  else
-    echo "not running"
-  fi
-  echo "log: $LOG"
-  [[ -f "$LOG" ]] && tail -40 "$LOG"
+  python3 "$REPO_DIR/scripts/diag/grow_monitor.py" status || true
   exit 0
 fi
 
-if [[ "$DETACH" -eq 1 ]]; then
-  mkdir -p "$CACHE_DIR"
-  if [[ -f "$PIDFILE" ]] && ! kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-    rm -f "$PIDFILE"
-  fi
-  if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-    echo "already running pid=$(cat "$PIDFILE") log=$LOG"
-    exit 0
-  fi
-  env_args=(MANGO_REPO_DIR="$REPO_DIR" MANGO_PLAYABILITY_REFRESH_MODE="$MODE")
-  if [[ -n "$PRESET" ]]; then
-    env_args+=(MANGO_GROW_PRESET="$PRESET")
-  fi
-  env_args+=(MANGO_NIGHTLY_REFRESH_LOG_WRAPPED=1)
+if [[ "${MANGO_PLAYABILITY_COORDINATOR_LOCK_HELD:-0}" != "1" ]]; then
   run_args=(--mode "$MODE")
   if [[ -n "$PRESET" ]]; then
     run_args+=(--preset "$PRESET")
   fi
-  nohup env "${env_args[@]}" bash "$SCRIPT_PATH" "${run_args[@]}" >>"$LOG" 2>&1 &
-  echo $! >"$PIDFILE"
-  disown -h 2>/dev/null || true
-  echo "started pid=$(cat "$PIDFILE") mode=$MODE preset=${PRESET:-auto} log=$LOG"
-  echo "check: bash $0 --status"
-  exit 0
+  [[ "$DETACH" -eq 1 ]] && run_args+=(--detach)
+  exec bash "$REPO_DIR/scripts/m3-play/playability/playability-grow.sh" "${run_args[@]}"
 fi
 
 mkdir -p "$CACHE_DIR"
 touch "$LOG"
-echo $$ >"$PIDFILE"
 if [[ "${MANGO_NIGHTLY_REFRESH_LOG_WRAPPED:-0}" != "1" ]]; then
   exec > >(tee -a "$LOG") 2>&1
 fi
-
-cleanup_pidfile() {
-  if [[ -f "$PIDFILE" ]] && [[ "$(cat "$PIDFILE" 2>/dev/null || true)" == "$$" ]]; then
-    rm -f "$PIDFILE"
-  fi
-}
-trap cleanup_pidfile EXIT
 
 cd "$REPO_DIR"
 
@@ -129,17 +95,9 @@ if [[ "${MANGO_NIGHTLY_SESSION_RESHUFFLE:-1}" == "1" ]]; then
   fi
 fi
 
-playability_lock_busy() (
-  exec 201>"$LOCK_FILE"
-  ! flock -n 201
-)
-
 YOUTUBE_RC=0
 if [[ "${MANGO_NIGHTLY_YOUTUBE_REFRESH:-1}" != "1" ]]; then
   echo "nightly library refresh: youtube skipped (MANGO_NIGHTLY_YOUTUBE_REFRESH=${MANGO_NIGHTLY_YOUTUBE_REFRESH:-})"
-elif playability_lock_busy; then
-  echo "nightly library refresh: youtube skipped because playability maintenance is still running" >&2
-  YOUTUBE_RC=2
 else
   bash "$REPO_DIR/scripts/m6-ship/youtube-refresh-cache.sh" \
       --reason "${MANGO_YOUTUBE_REFRESH_REASON:-nightly_after_playability_${MODE}}" \
@@ -155,10 +113,8 @@ if [[ "${MANGO_NIGHTLY_WAL_CHECKPOINT:-1}" == "1" ]]; then
   bash "$REPO_DIR/scripts/lib/checkpoint-wal-dbs.sh" || true
 fi
 
-# Playability + YouTube phases are done here; any *.lock file still on disk
-# with no live flock holder is a crash leftover from a prior aborted run
-# (e.g. the STATUS.md rc=143 SIGTERM case). Clear those before the proof so
-# a stale lock file cannot red-stamp an otherwise-successful grow.
+# Inspect stable lock ownership before proof. Existing lock pathnames are
+# normal permanent state and are never removed as crash cleanup.
 if [[ -f "$REPO_DIR/scripts/lib/stale-flock-cleanup.sh" ]]; then
   echo "nightly library refresh: pre-proof stale-flock cleanup"
   bash "$REPO_DIR/scripts/lib/stale-flock-cleanup.sh" || true
@@ -175,6 +131,10 @@ else
   echo "nightly library refresh: reliability proof skipped (MANGO_NIGHTLY_RELIABILITY_PROOF=${MANGO_NIGHTLY_RELIABILITY_PROOF:-})"
 fi
 echo "nightly library refresh: proof_rc=$PROOF_RC"
-if [[ "$PLAYABILITY_RC" -ne 0 || "$YOUTUBE_RC" -ne 0 || "$PROOF_RC" -ne 0 ]]; then
+if [[ "$PLAYABILITY_RC" -ne 0 && "$PLAYABILITY_RC" -ne 10 ]]; then
   exit 1
+fi
+if [[ "$PLAYABILITY_RC" -eq 10 || "$YOUTUBE_RC" -ne 0 || "$PROOF_RC" -ne 0 ]]; then
+  echo "nightly library refresh: partial — validated playability output retained with last-good downstream output" >&2
+  exit 10
 fi
