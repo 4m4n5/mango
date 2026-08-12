@@ -2,21 +2,21 @@
 
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
-Latest recorded Pi deployment: **2026-08-11**,
-`04171bb1c771f5fc713d192e50e0fc79e966c3cc`. Its release line is `e7b7c57`
-(Saved integrity + YouTube v2.7), `2a93582` (sanitized compatibility-play
-diagnostics), `5a0dc7e` (cached Shuffle read optimization), and `04171bb`
-(active-rail Reliability accounting). Library migration 18 and YouTube migration
-17 applied with `quick_check` OK; 12 stale tab classifications became zero
-without changing durable user-state keys/counts. YouTube v2.7 generation 22
-serves 1,441 candidates and passed a quota-flat 50-X cache test at p95
-174.66 ms. The standard pre-couch gate passed at `2a93582`, and final-SHA
-targeted library/YouTube smoke plus one real Movie and Series lite play passed.
-The first full N3c run stopped at 31/36 and was not rerun by user direction;
-there is no final-SHA full-gate or human couch verdict. Reliability is usable
-yellow: every core component is green, with only proof freshness and rail growth
-yellow. Use `git status`,
-`git rev-parse HEAD`, and the Pi commands below before acting.
+Latest recorded Pi deployment: **2026-08-12**,
+`aac293dbc266946f90c0b29e751d17ffbb990be1`. The release line is `275ceb2`
+(minimal playback-trust hardening) plus `aac293d` (linear-time status
+diagnostics). Playability migration 19 applied with `quick_check` OK: 77 bare
+IMDb identities that were verified as both movie and series became 154 targeted
+stale typed rows, with zero verified dual-type conflicts afterward. The Mac and
+Pi catalog suites passed 1,022/1,022; Pi playback-SSOT and launcher/UX gates
+passed. Reliability is usable-yellow and its served-card resolver sample found
+16/32 legacy proof-v1 cards without a current stream response. Full N3c reached
+33/36: all 18 movie samples and 15/18 series samples played; the three series
+misses had zero candidate attempts. A bounded launcher-path check played My Next
+Guest S1E1 and Dead Silent, while Alliance E35/E36 each produced an exact-episode
+retry obligation after a resolver-stage no-stream result. The monitor was off,
+so the whole-product pre-couch gate and human couch verdict remain **DEFERRED**.
+Use `git status`, `git rev-parse HEAD`, and the Pi commands below before acting.
 
 ## How to read this page
 
@@ -38,17 +38,17 @@ prove only their exact revision and contract.
 | Area | Source | Latest recorded runtime/proof | Remaining |
 |------|--------|-------------------------------|-----------|
 | Native launcher, Detail, Search, D-pad | Complete | Final SHA deployed; standard pre-couch passed at `2a93582`, with final targeted smoke after the cache/Reliability-only follow-ups | Final exact-revision whole-product couch pass |
-| Native mpv playback | Complete | Final-SHA real Movie and Series lite plays passed; compatibility-play diagnostics are couch-safe at `2a93582` | Full failure matrix, target-TV/audio proof, legacy direct-MediaFusion topology decision |
+| Native mpv playback | Complete; proof-v2 identity and exact-episode failure tracking at `aac293d` | Final-SHA My Next Guest and Dead Silent played; Alliance E35/E36 were classified as resolver-stage source absence with exact retry obligations | Target-TV/audio proof; proof-v2 Home admission policy after natural legacy renewal |
 | HUD and Streams drawer | Complete | Local fixture/source gates; home-agent deployment work recorded | Current exact-SHA screenshots and 4K dropped-frame/no-regression couch pass |
 | Mango library and Fire/Water input | Canonical Saved placement and tab-only library migration 18; ratings remain complete | Final Pi migration/readback passed: 12 misclassified tabs repaired to 0, user-state keys/counts preserved, Movies Saved 6 / Series Saved 8 / wrong-tab 0 | Human Dune-from-TV-Search placement and physical UI check |
 | VOD recommendations | `fb20baa` progressive profiles + Household Story Frontier + Browse v3 + StoryDNA Related; all historical data preserved | Pi serves complete 5,930/3,974 accounting with 720/675 rank reserves. Two active atomic browse reservoirs contain 19,950 candidate rows. Forty X presses per tab yielded 2,121/1,897 unique cards at p95 121.9/119.5 ms with global dedupe and zero provider/rank work | Human For You/category/Related verdict and physical focus/picture/audio checks |
 | Native YouTube base | Complete | Previously deployed/Pi-gated | Current exact-SHA revalidation and account-specific proof |
 | YouTube recommendations | `youtube-household-v2.7`: quality-gated reserves up to 512 per rail and independent weighted cache-only X | Final Pi generation 22: 1,441 candidates; reserves 512 For You / 405 Subscriptions / 274 Beyond / 250 More Like / 0 Live; 55 subscriptions; 50 X p50 58.83 ms, p95 174.66 ms with quota/generation flat and History stable | Human relevance, perceived repetition, focus/Back, offline, picture/audio observation |
 | Voice/phone companion | Complete for trusted-LAN development contract | Automated corpus/memory/UX gates on earlier revisions; partial couch work | Full V1–V12/current coherence plus per-device client auth/pairing before appliance release |
-| Reliability Center/nightly proof | Implemented; active-rail accounting fixed at `04171bb`; known optional-Live policy gap remains | Final Pi state `ok=true`, yellow only for proof and rail growth; all core components green and prior Library false-yellow removed | Fresh successful nightly/grow proof, intentionally-disabled-Live policy, controller-action UI mismatch |
+| Reliability Center/nightly proof | Implemented; sanitized launcher terminal outcomes and proof-version/type-conflict/episode counts added at `275ceb2` | Final Pi state is usable-yellow; terminal fixture recorded 2 playing and 2 `resolve/no_stream` failures, and the served-card sample found 16/32 legacy proof-v1 misses | Three clean nightly proofs, intentionally-disabled-Live policy, controller-action UI mismatch |
 | Controller reconnect | Source-complete | Automated gate exists; normal-wake behavior partially exercised | Five physical power-on reconnect cycles without pairing mode |
 | Display sleep | **Not implemented** | Recorded Pi still exposed accidental Xorg 600-second DPMS values | Implement locked Settings/idle/mpv/DPMS/CEC contract and prove on TV |
-| Library grow | Complete, hardening | Large verified corpus exists; older successful/aborted runs are recorded | Repeated unattended publishability and thin-rail source yield |
+| Library grow | Complete, hardening | Ordinary nightly timer no longer enables the non-causal source-hitrate benchmark; schema 19 and the fixed 30-second user resolve budget were read back on Pi | Three clean unattended nights, causal thin-rail yield, then evidence-backed source expansion |
 | 4K SDR / HDR | 4K SDR path implemented; native HDR unsupported | Older experiment proved smooth source-matched 4K SDR HEVC; HDR/X11 was not usable | Final-TV SDR/audio matrix; either credible HDR integration or explicit no-HDR ship boundary |
 | Deployment | Git-only contract; current wrappers unsafe for unattended agents | Older deployments exist | Enforce/pin branch+SHA, fail closed on fetch, remove/default-disable and harden implicit AIOMetadata mutation |
 | First boot | Not implemented | Operator-installed system | M6.4 no-SSH installer/wizard |
@@ -56,6 +56,14 @@ prove only their exact revision and contract.
 ## Recorded source and Pi baseline
 
 ### Source audit
+
+- Playback-trust hardening is source-complete at `aac293d`: immutable title/year
+  identity reaches background resolution, exact metadata ID/type/year is fenced,
+  fallback or identity-conflicted playback cannot certify, preserved failures
+  cannot promote, and later-series episodes own independent failure/retry state.
+  Launcher terminal telemetry is bounded and identity-free. The release keeps
+  the 120-second total wall and 30-second user resolver budget; it does not claim
+  strict proof-v2 Home admission or a permanent upstream playback guarantee.
 
 - Deep weighted Shuffle is source-complete: Browse v3 no longer applies the
   120-title growth cap to eligibility or serving, exact typed evidence can add
@@ -192,7 +200,7 @@ prove only their exact revision and contract.
   `serve_eligible` as operational authorization, and neither as the human couch
   verdict.
 
-### Current exact-SHA Pi deployment
+### Prior 2026-08-11 Pi deployment
 
 The Pi was read back at
 `04171bb1c771f5fc713d192e50e0fc79e966c3cc` after a Git-only exact-SHA
