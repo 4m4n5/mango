@@ -285,13 +285,11 @@ function lockHeld(lockPath: string): boolean {
 }
 
 function staleLocks(): string[] {
-  let names: string[];
-  try {
-    names = readdirSync(cacheDir()).filter((name) => name.endsWith('.lock'));
-  } catch {
-    return [];
-  }
-  return names.filter((name) => !lockHeld(join(cacheDir(), name))).sort();
+  // Ownership locks deliberately keep a stable pathname for their lifetime.
+  // An existing, currently unlocked inode is therefore healthy idle state, not
+  // stale state.  Kernel lock ownership is the admission signal; never infer
+  // staleness from the pathname and never unlink it as cleanup.
+  return [];
 }
 
 function maintenanceBusy(): boolean {

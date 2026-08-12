@@ -218,17 +218,18 @@ if status == "red":
     raise SystemExit(1)
 PY
 
-if python3 - "$out" <<'PY'
+proof_status="$(python3 - "$out" <<'PY'
 import json
 import sys
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
-status = (payload.get("proof") or payload.get("state") or {}).get("status")
-raise SystemExit(0 if status == "yellow" else 1)
+print((payload.get("proof") or payload.get("state") or {}).get("status") or "unknown")
 PY
-then
-  gate_warn "reliability proof yellow"
-else
-  gate_pass "reliability proof green"
-fi
+)"
+case "$proof_status" in
+  green) gate_pass "reliability proof green" ;;
+  yellow) gate_warn "reliability proof yellow" ;;
+  red) : ;; # The red proof was already recorded as a failure above.
+  *) gate_fail "unknown reliability proof status: $proof_status" ;;
+esac
 
 gate_finish "gate-m6-reliability-proof"
