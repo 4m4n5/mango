@@ -9,7 +9,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 
-from aiometadata_mango import apply_self_host_api_keys, normalize_metadata_providers
+from aiometadata_mango import (
+    apply_self_host_api_keys,
+    build_mango_config_with_extras,
+    normalize_metadata_providers,
+)
 
 
 class AIOMetadataProviderPolicyTest(unittest.TestCase):
@@ -44,6 +48,32 @@ class AIOMetadataProviderPolicyTest(unittest.TestCase):
 
         self.assertEqual(api_keys["tvdb"], "from-env")
         self.assertFalse(api_keys["hasBuiltInTvdb"])
+
+    def test_build_supplies_age_rating_required_by_tvmaze(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            export_path = root / "export.json"
+            catalog_path = root / "catalog.yaml"
+            env_path = root / ".env"
+            export_path.write_text(
+                '{"config":{"providers":{"movie":"tmdb","series":"tvdb"},'
+                '"apiKeys":{},"catalogs":[]}}',
+                encoding="utf-8",
+            )
+            catalog_path.write_text("rails: []\n", encoding="utf-8")
+            env_path.write_text("", encoding="utf-8")
+
+            config, _warnings = build_mango_config_with_extras(
+                export_path,
+                catalog_path,
+                env_path,
+                set(),
+            )
+
+        self.assertEqual(config["providers"]["series"], "tvmaze")
+        self.assertEqual(config["ageRating"], "none")
 
 
 if __name__ == "__main__":

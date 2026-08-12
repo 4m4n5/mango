@@ -297,6 +297,11 @@ def build_mango_config_with_extras(
 
     config: dict[str, Any] = {
         "language": source.get("language", "en-US"),
+        # AIOMetadata's TVMaze path unconditionally normalizes this field while
+        # deciding whether it also needs TMDB for ratings. Older Mango exports
+        # can omit it, which makes every series lookup throw before TVMaze is
+        # queried. Keep the upstream no-filter value explicit.
+        "ageRating": source.get("ageRating") or "none",
         "providers": providers,
         "artProviders": source.get("artProviders"),
         "apiKeys": api_keys,
