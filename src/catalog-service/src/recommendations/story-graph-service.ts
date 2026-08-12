@@ -447,6 +447,16 @@ const storyGraphServingWorkCounters: StoryGraphServingWorkCounters = {
   queue_slates_scanned: 0,
   slate_items_revalidated: 0,
 };
+const eligibleRankRowsCache = new Map<RatingContentType, {
+  db: ReturnType<typeof libraryDatabase>;
+  rank_generation_id: number;
+  rows: PersistedRankRow[];
+}>();
+const franchiseKeysCache = new Map<RatingContentType, {
+  db: ReturnType<typeof libraryDatabase>;
+  story_generation_id: number;
+  keys: Map<StoryGraphContentId, string[]>;
+}>();
 
 export function storyGraphServingWorkSnapshot(): StoryGraphServingWorkCounters {
   return { ...storyGraphServingWorkCounters };
@@ -458,6 +468,8 @@ export function resetStoryGraphServingWorkCounters(): void {
   storyGraphServingWorkCounters.dealer_calls = 0;
   storyGraphServingWorkCounters.queue_slates_scanned = 0;
   storyGraphServingWorkCounters.slate_items_revalidated = 0;
+  eligibleRankRowsCache.clear();
+  franchiseKeysCache.clear();
 }
 
 function contentTypeForTab(tab: StoryGraphTab): RatingContentType {
@@ -1724,7 +1736,11 @@ async function currentlyEligibleRankRows(
   type: RatingContentType,
 ): Promise<PersistedRankRow[]> {
   storyGraphServingWorkCounters.full_reserve_queries += 1;
-  const rows = libraryDatabase().prepare(`
+  const db = libraryDatabase();
+  const cached = eligibleRankRowsCache.get(type);
+  const rows = cached?.db === db && cached.rank_generation_id === rankGenerationId
+    ? cached.rows
+    : db.prepare(`
 SELECT rank_generation_id, content_type, content_id, title, poster, year, rank,
        best_thread, predicted_fire, predicted_water, explicit_support,
        implicit_support, uncertainty, rank_score
@@ -1734,6 +1750,9 @@ WHERE rank_generation_id = ? AND serving_eligible = 1
   AND rank IS NOT NULL AND best_thread IS NOT NULL AND rank_score IS NOT NULL
 ORDER BY rank ASC
 `).all(rankGenerationId, type) as PersistedRankRow[];
+  if (cached?.db !== db || cached.rank_generation_id !== rankGenerationId) {
+    eligibleRankRowsCache.set(type, { db, rank_generation_id: rankGenerationId, rows });
+  }
   storyGraphServingWorkCounters.full_reserve_rows_loaded += rows.length;
   const playability = await getTitlesPlayabilityBulk(rows.map((row) => ({
     type: row.content_type,
@@ -1819,7 +1838,10 @@ function franchiseKeysForGeneration(
   storyGenerationId: number,
   type: RatingContentType,
 ): Map<StoryGraphContentId, string[]> {
-  const rows = libraryDatabase().prepare(`
+  const db = libraryDatabase();
+  const cached = franchiseKeysCache.get(type);
+  if (cached?.db === db && cached.story_generation_id === storyGenerationId) return cached.keys;
+  const rows = db.prepare(`
 SELECT content_id, node_key
 FROM vod_content_profile_edges
 WHERE generation_id = ? AND content_type = ? AND family = 'franchise'
@@ -1832,6 +1854,7 @@ ORDER BY content_id, node_key
     keys.push(row.node_key);
     result.set(identity, keys);
   }
+  franchiseKeysCache.set(type, { db, story_generation_id: storyGenerationId, keys: result });
   return result;
 }
 
