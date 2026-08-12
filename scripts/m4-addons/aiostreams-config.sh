@@ -75,6 +75,15 @@ all_presets = {
     for preset in config.get("presets", [])
     if isinstance(preset, dict)
 }
+easynews = all_presets.get("easynews-search")
+easynews_timeout = int(((easynews or {}).get("options") or {}).get("timeout") or 0)
+if not easynews or easynews.get("enabled") is not True:
+    errors.append("Easynews Search preset disabled or missing")
+elif easynews_timeout < 30000:
+    errors.append(
+        f"Easynews Search timeout={easynews_timeout}ms, expected at least 30000ms "
+        "for daily-series season searches"
+    )
 enabled_presets = {
     key: preset
     for key, preset in all_presets.items()
@@ -185,6 +194,15 @@ def deep_merge(base, overlay):
             base[key] = value
 
 deep_merge(merged, patch)
+
+# Easynews season searches routinely take 18-25 seconds on the Pi. AIOStreams'
+# 7-second preset default aborts before exact daily-series results already found
+# by the source can be transformed. Preserve the credential-bearing preset and
+# adjust only its non-secret timeout in-place.
+for preset in merged.get("presets", []):
+    if isinstance(preset, dict) and str(preset.get("type") or "").lower() == "easynews-search":
+        options = preset.setdefault("options", {})
+        options["timeout"] = max(int(options.get("timeout") or 0), 30000)
 
 if mode == "diff":
     changed = sorted({k for k in set(config) | set(merged) if config.get(k) != merged.get(k)})
