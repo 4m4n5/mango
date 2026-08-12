@@ -665,11 +665,9 @@ stale cached transport may cause one fresh resolve inside the same request wall.
 Cache state is written only after the logical request settles.
 
 On the Pi, capture the exact episode before diagnosing; never probe `:1:1` as a
-stand-in and never clear runtime databases/caches. Do not use the current
-`aiostreams-config.sh diff/apply` paths from an agent: `diff` exposes full state,
-while `apply` prints and leaves a potentially secret-bearing fixed `/tmp`
-response. Use fixed-field `verify`; an authorized human can review/change AIO
-state through the Configure UI until the helper is hardened.
+stand-in and never clear runtime databases/caches. AIO mutations use private
+temporary files, fixed redacted output, post-write readback, and automatic
+rollback; `get` remains a full secret-bearing export and must never be logged.
 
 ```bash
 cd ~/mango

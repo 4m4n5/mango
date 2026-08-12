@@ -10,6 +10,8 @@ REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CREDS="${MANGO_AIOSTREAMS_CREDS:-$HOME/.config/mango/aiostreams.credentials}"
 BASE_URL="${MANGO_AIOSTREAMS_URL:-http://127.0.0.1:3035}"
 PATCH_FILE="${MANGO_AIOSTREAMS_PATCH:-$REPO_DIR/config/aiostreams-target-patch.json}"
+POLICY_TOOL="$SCRIPT_DIR/aiostreams_policy.py"
+MEDIAFUSION_BASE_MANIFEST="https://mediafusion.elfhosted.com/manifest.json"
 
 die() { echo "aiostreams-config: $*" >&2; exit 1; }
 
@@ -24,6 +26,23 @@ load_creds() {
 
 api_get() {
   curl -sf -u "$AIOSTREAMS_UUID:$AIOSTREAMS_PASSWORD" "$BASE_URL/api/v1/user"
+}
+
+secure_tmpdir() {
+  local previous_umask
+  previous_umask="$(umask)"
+  umask 077
+  mktemp -d
+  umask "$previous_umask"
+}
+
+api_put_payload() {
+  local payload_file="$1"
+  local response_file="$2"
+  curl -sS -o "$response_file" -w '%{http_code}' \
+    -u "$AIOSTREAMS_UUID:$AIOSTREAMS_PASSWORD" \
+    -H "Content-Type: application/json" -X PUT -d @"$payload_file" \
+    "$BASE_URL/api/v1/user"
 }
 
 verify_policy() {
@@ -167,19 +186,42 @@ print(
     "uncached RD excluded; stream errors observable"
 )
 PY
+  if python3 - "$tmp" <<'PY'
+import json
+import sys
+
+body = json.load(open(sys.argv[1], encoding="utf-8"))
+presets = body["data"]["userData"].get("presets", [])
+enabled = any(
+    isinstance(preset, dict)
+    and str(preset.get("type") or "").lower() == "mediafusion"
+    and preset.get("enabled") is True
+    for preset in presets
+)
+raise SystemExit(0 if enabled else 1)
+PY
+  then
+    python3 "$POLICY_TOOL" verify-mediafusion "$tmp"
+  fi
 }
 
 merge_patch() {
   local mode="$1"
+  local output_file="${2:-}"
+  local input_file="${3:-}"
   local tmp
-  tmp="$(mktemp)"
-  trap 'rm -f "$tmp"' RETURN
-  api_get >"$tmp"
-  python3 - "$PATCH_FILE" "$mode" "$tmp" <<'PY'
+  if [[ -n "$input_file" ]]; then
+    tmp="$input_file"
+  else
+    tmp="$(mktemp)"
+    trap 'rm -f "$tmp"' RETURN
+    api_get >"$tmp"
+  fi
+  python3 - "$PATCH_FILE" "$mode" "$tmp" "$output_file" <<'PY'
 import json
 import sys
 
-patch_path, mode, body_path = sys.argv[1], sys.argv[2], sys.argv[3]
+patch_path, mode, body_path, output_path = sys.argv[1:5]
 patch = json.load(open(patch_path, encoding="utf-8"))
 patch.pop("_comment", None)
 body = json.load(open(body_path, encoding="utf-8"))
@@ -207,14 +249,89 @@ for preset in merged.get("presets", []):
 if mode == "diff":
     changed = sorted({k for k in set(config) | set(merged) if config.get(k) != merged.get(k)})
     print("keys that would change:", ", ".join(changed) or "(none)")
-    for key in changed:
-        print(f"\n--- {key} ---")
-        print("current:", json.dumps(config.get(key), indent=2)[:1200])
-        print("target: ", json.dumps(merged.get(key), indent=2)[:1200])
+    print("values hidden: AIOStreams user state may contain credentials and signed URLs")
 else:
-    print(json.dumps(merged))
+    if not output_path:
+        raise SystemExit("apply mode requires an output path")
+    body["data"]["userData"] = merged
+    with open(output_path, "w", encoding="utf-8") as output:
+        json.dump(body, output, separators=(",", ":"))
 PY
 }
+
+apply_target_patch() (
+  set -euo pipefail
+  local tmpdir current patched payload rollback response code rollback_code
+  tmpdir="$(secure_tmpdir)"
+  trap 'rm -rf "$tmpdir"' EXIT
+  current="$tmpdir/current.json"
+  patched="$tmpdir/patched.json"
+  payload="$tmpdir/payload.json"
+  rollback="$tmpdir/rollback-payload.json"
+  response="$tmpdir/response.json"
+  api_get >"$current"
+  merge_patch apply "$patched" "$current"
+  python3 "$POLICY_TOOL" prepare-put "$patched" "$payload"
+  python3 "$POLICY_TOOL" prepare-put "$current" "$rollback"
+  code="$(api_put_payload "$payload" "$response" || true)"
+  if [[ "$code" != "200" ]]; then
+    rollback_code="$(api_put_payload "$rollback" "$response" || true)"
+    if [[ "$rollback_code" == "200" ]]; then
+      die "PUT /api/v1/user failed (HTTP ${code:-unavailable}); original user state restored"
+    fi
+    die "PUT /api/v1/user failed (HTTP ${code:-unavailable}) and automatic rollback failed (HTTP ${rollback_code:-unavailable})"
+  fi
+  if ! verify_policy; then
+    rollback_code="$(api_put_payload "$rollback" "$response" || true)"
+    if [[ "$rollback_code" == "200" ]]; then
+      die "AIOStreams patch verification failed; original user state restored"
+    fi
+    die "AIOStreams patch verification failed and automatic rollback failed (HTTP $rollback_code)"
+  fi
+  echo "applied patch from $PATCH_FILE (response hidden)"
+)
+
+enable_mediafusion() (
+  set -euo pipefail
+  local tmpdir current payload rollback response manifest readback code rollback_code
+  tmpdir="$(secure_tmpdir)"
+  trap 'rm -rf "$tmpdir"' EXIT
+  current="$tmpdir/current.json"
+  payload="$tmpdir/mediafusion-payload.json"
+  rollback="$tmpdir/rollback-payload.json"
+  response="$tmpdir/response.json"
+  manifest="$tmpdir/mediafusion-manifest.json"
+  readback="$tmpdir/readback.json"
+
+  code="$(curl -sS --max-time 12 --max-filesize 1048576 -o "$manifest" \
+    -w '%{http_code}' "$MEDIAFUSION_BASE_MANIFEST" || true)"
+  [[ "$code" == "200" ]] \
+    || die "MediaFusion base manifest is unhealthy (HTTP ${code:-unavailable})"
+  python3 "$POLICY_TOOL" verify-manifest "$manifest"
+
+  api_get >"$current"
+  python3 "$POLICY_TOOL" prepare-mediafusion "$current" "$payload"
+  python3 "$POLICY_TOOL" prepare-put "$current" "$rollback"
+  code="$(api_put_payload "$payload" "$response" || true)"
+  if [[ "$code" != "200" ]]; then
+    rollback_code="$(api_put_payload "$rollback" "$response" || true)"
+    if [[ "$rollback_code" == "200" ]]; then
+      die "MediaFusion enable PUT failed (HTTP ${code:-unavailable}); original AIOStreams user state restored"
+    fi
+    die "MediaFusion enable PUT failed (HTTP ${code:-unavailable}) and automatic rollback failed (HTTP ${rollback_code:-unavailable})"
+  fi
+
+  if ! api_get >"$readback" \
+    || ! python3 "$POLICY_TOOL" verify-mediafusion "$readback" \
+    || ! verify_policy; then
+    rollback_code="$(api_put_payload "$rollback" "$response" || true)"
+    if [[ "$rollback_code" == "200" ]]; then
+      die "MediaFusion readback failed; original AIOStreams user state restored"
+    fi
+    die "MediaFusion readback failed and automatic rollback failed (HTTP $rollback_code)"
+  fi
+  verify_policy
+)
 
 cmd="${1:-}"
 case "$cmd" in
@@ -230,22 +347,12 @@ case "$cmd" in
   apply)
     load_creds
     [[ -f "$PATCH_FILE" ]] || die "missing patch file $PATCH_FILE"
-    merged="$(merge_patch apply)"
-    payload="$(MERGED="$merged" python3 - <<'PY'
-import json, os
-config = json.loads(os.environ["MERGED"])
-import os as o
-print(json.dumps({"uuid": o.environ["AIOSTREAMS_UUID"], "password": o.environ["AIOSTREAMS_PASSWORD"], "config": config}))
-PY
-)"
-    http_code="$(printf '%s' "$payload" | curl -s -w '%{http_code}' -o /tmp/aiostreams-put.json -u "$AIOSTREAMS_UUID:$AIOSTREAMS_PASSWORD" \
-      -H "Content-Type: application/json" -X PUT -d @- "$BASE_URL/api/v1/user")"
-    if [[ "$http_code" != "200" ]]; then
-      cat /tmp/aiostreams-put.json >&2
-      die "PUT /api/v1/user failed (HTTP $http_code)"
-    fi
-    python3 -m json.tool /tmp/aiostreams-put.json
-    echo "applied patch from $PATCH_FILE"
+    apply_target_patch
+    ;;
+  enable-mediafusion)
+    load_creds
+    [[ -f "$POLICY_TOOL" ]] || die "missing policy tool $POLICY_TOOL"
+    enable_mediafusion
     ;;
   verify)
     load_creds
@@ -253,11 +360,14 @@ PY
     ;;
   *)
     cat <<EOF
-Usage: $(basename "$0") <get|diff|apply|verify>
+Usage: $(basename "$0") <get|diff|apply|enable-mediafusion|verify>
 
   get    Download full user config (contains secrets — do not commit)
-  diff   Show delta vs config/aiostreams-target-patch.json
-  apply  Merge patch and PUT /api/v1/user
+  diff   Show only changed keys vs target patch (credential values hidden)
+  apply  Merge patch and PUT via private temporary files (response hidden)
+  enable-mediafusion
+         Validate the public base manifest, enable the AIO-native cached-only
+         MediaFusion integration, wire provider groups, read back, or roll back
   verify Assert the live stream topology/policy without printing credentials
 
 Env: MANGO_AIOSTREAMS_URL, MANGO_AIOSTREAMS_CREDS, MANGO_AIOSTREAMS_PATCH

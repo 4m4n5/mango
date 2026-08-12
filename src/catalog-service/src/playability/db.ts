@@ -3151,6 +3151,25 @@ function activeRailPool<T extends RailPoolRow>(
   return pool.slice(0, maximum);
 }
 
+/**
+ * Browse reservoirs are immutable publication snapshots, but title
+ * verification can expire independently after publication. Re-check the
+ * current title state when dealing from a snapshot so an otherwise healthy
+ * reservoir cannot repeatedly select a now-stale/failed Home item.
+ */
+function currentlyVerifiedTitleKeys(
+  db: Database.Database,
+  contentType: 'movie' | 'series',
+): Set<string> {
+  return new Set((db.prepare(`
+SELECT type, id
+FROM titles
+WHERE type = ? AND status = 'verified'
+`).all(contentType) as Array<{ type: string; id: string }>).map(
+    (row) => titleKey(row.type, row.id),
+  ));
+}
+
 function toRailSessionPoolItem(
   railId: string,
   sessionId: string,
@@ -4168,6 +4187,9 @@ export async function allocateTabRailSessions(
   if (options.browseV3 && !browseReservoir) {
     throw new Error('Browse v3 reservoir is not ready; retain the previous complete tab deal');
   }
+  const browseVerifiedKeys = options.browseV3
+    ? currentlyVerifiedTitleKeys(db, options.browseV3Tab === 'series' ? 'series' : 'movie')
+    : null;
 
   const existingByRail = new Map<string, RailSessionPoolItem[]>();
   const curatedPools = new Map<string, ReturnType<typeof readRailPool>>();
@@ -4179,7 +4201,9 @@ export async function allocateTabRailSessions(
     const prepared = browseReservoir?.rails.get(rail.railId) ?? [];
     const uncappedPool = options.browseV3
       ? prepared.filter((item) => (
-        item.trusted && !options.excludedKeys?.has(titleKey(item.type, item.id))
+        item.trusted
+        && browseVerifiedKeys?.has(titleKey(item.type, item.id))
+        && !options.excludedKeys?.has(titleKey(item.type, item.id))
       ))
       : curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides)
         .filter((item) => !options.excludedKeys?.has(titleKey(item.type, item.id)));
@@ -4384,9 +4408,13 @@ ORDER BY sessions.slot
   if (!reservoir || rows.length === 0) {
     throw new Error(`Browse v3 ${options.tab} Explore reservoir is not ready`);
   }
+  const verifiedKeys = currentlyVerifiedTitleKeys(
+    db,
+    options.tab === 'series' ? 'series' : 'movie',
+  );
   const candidates = rows.flatMap((row) => {
     const key = titleKey(row.type, row.id);
-    if (occupied.has(key) || excluded.has(key)) return [];
+    if (!verifiedKeys.has(key) || occupied.has(key) || excluded.has(key)) return [];
     return [{
       ...row,
       weight: row.weight,

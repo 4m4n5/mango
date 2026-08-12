@@ -143,3 +143,65 @@ VALUES ('movies-global-popular', 'movie', ?, ?, ?, ?, ?, '2026')
     assert.equal(session?.verified_pool, 20);
   });
 });
+
+test('serve-time category and Explore deals fence titles that expired after reservoir publication', async () => {
+  await withBrowseDb(async () => {
+    const db = getPlayabilityDb();
+    const now = Date.now();
+    const insertTitle = db.prepare(`
+INSERT INTO titles(type, id, status, verified_at, first_verified_at, best_source, updated_at)
+VALUES ('series', ?, 'verified', ?, ?, 'fixture', ?)
+`);
+    const insertEvidence = db.prepare(`
+INSERT INTO title_story_evidence(type, id, title, poster_url, year, updated_at)
+VALUES ('series', ?, ?, ?, '2026', ?)
+`);
+    const insertMembership = db.prepare(`
+INSERT INTO rail_pool(rail_id, type, id, score, ingested_at, title, poster_url, year)
+VALUES ('series-reality-casual', 'series', ?, ?, ?, ?, ?, '2026')
+`);
+    const staleIds = new Set<string>();
+    db.transaction(() => {
+      for (let index = 0; index < 20; index += 1) {
+        const id = `tt${String(index + 200).padStart(7, '0')}`;
+        insertTitle.run(id, now, now, now);
+        insertEvidence.run(id, `Series ${index}`, `https://img/${id}.jpg`, now);
+        insertMembership.run(id, 20 - index, now, `Series ${index}`, `https://img/${id}.jpg`);
+        if (index < 10) staleIds.add(id);
+      }
+    })();
+    await prepareVodBrowseReservoirV3({
+      tab: 'series',
+      rails: [{ railId: 'series-reality-casual', displayLimit: 9, minDisplay: 6 }],
+      affinityRevision: 'fixture-rank-expiry',
+    });
+
+    const expire = db.prepare(`UPDATE titles SET status = 'stale', updated_at = ? WHERE id = ?`);
+    db.transaction(() => {
+      for (const id of staleIds) expire.run(now + 1, id);
+    })();
+
+    const sessions = await allocateTabRailSessions({
+      sessionId: 'post-expiry-category',
+      rails: [{ railId: 'series-reality-casual', displayLimit: 9, minDisplay: 6 }],
+      forceReshuffle: true,
+      browseV3: true,
+      browseV3Tab: 'series',
+      seed: 'post-expiry-category',
+    });
+    const category = sessions.get('series-reality-casual');
+    assert.equal(category?.verified_pool, 10);
+    assert.equal(category?.items.length, 9);
+    assert.ok(category?.items.every((item) => !staleIds.has(item.id)));
+
+    const explore = await allocateVodExploreSession({
+      tab: 'series',
+      sessionId: 'post-expiry-explore',
+      displayLimit: 9,
+      seed: 'post-expiry-explore',
+    });
+    assert.equal(explore.verified_pool, 10);
+    assert.equal(explore.items.length, 9);
+    assert.ok(explore.items.every((item) => !staleIds.has(item.id)));
+  });
+});

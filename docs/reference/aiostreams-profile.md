@@ -114,7 +114,7 @@ credentials or generated manifest URLs into Git or logs.
 | Easynews | Enabled | Usenet fallback; cache-and-play scoped to usenet |
 | Torrentio | Enabled, stream resource only | One instance; avoid multiplying public hits |
 | Comet | Enabled, stream resource only | Secondary indexer; no direct Mango export |
-| MediaFusion | Optional, stream resource only | Latest recorded manifest returned 404, so preset was present but disabled; enable only after fresh health/yield proof |
+| MediaFusion | Enabled target, stream-only movie/series | Use AIO's non-secret HTTPS base integration with existing TorBox/RD services, cached-search-only; never retain an expired secret share-manifest override |
 | Other addons | Disabled unless a measured, reviewed need exists | Preserve sole-AIO topology |
 
 The latest recorded home snapshot had Torrentio/Comet contributing and
@@ -124,18 +124,19 @@ claims.
 
 ## AIO groups
 
-Groups condition whether Easynews results are included and can avoid waiting
-for later results when cached torrent supply is healthy. Current AIOStreams
-starts all group fetches in parallel, so this does not guarantee Easynews was
-never queried:
+Groups condition whether Easynews is queried when cached primary supply is
+healthy. Mango uses AIOStreams' explicit `sequential` behavior; its parallel
+behavior starts all group fetches before evaluating result inclusion.
 
 | Group | Members | Condition |
 |-------|---------|-----------|
-| Primary | Torrentio/Comet through configured services | Always |
+| Primary | Torrentio/Comet/MediaFusion through TorBox + Real-Debrid | Always |
 | Easynews fallback | Easynews Search | `count(cached(previousStreams)) < 3` |
 
-Internal addon IDs are Pi/version-specific. Never invent or commit them. Group
-drift is an operator optimization signal, not the mpv Streams drawer contract.
+Internal addon IDs are Pi/version-specific. The credential-safe helper derives
+them from current user state, reads the result back, and rolls back on mismatch;
+never invent or commit them. Group drift is an operator optimization signal,
+not the mpv Streams drawer contract.
 
 ## Mango quality boundary
 
@@ -184,24 +185,23 @@ reachability without printing it.
 
 ## Stateful workflow
 
-The current headless mutation helper is **not approved for agent/unattended
-use**. `diff` exposes full user-state deltas; `apply` writes the potentially
-secret-bearing response to fixed `/tmp/aiostreams-put.json`, prints it, and does
-not remove it. Harden it with private temporary files, cleanup traps, and
-redacted success/error output before restoring this workflow. Until then, an
-authorized human changes state in the Configure UI and agents use the fixed-
-field `verify` plus credential-safe topology/yield diagnostics.
+The headless helper now hides `diff` values, holds request/response state only in
+private temporary files with cleanup traps, emits fixed summaries, reads policy
+back after mutation, and restores the original user object on verification
+failure. `get` remains a deliberate full secret-bearing export and must not be
+logged.
 
 ```bash
 bash scripts/m4-addons/aiostreams-config.sh verify
+bash scripts/m4-addons/aiostreams-config.sh enable-mediafusion
 ```
 
 `verify` fails when required TorBox/RD/Easynews service policy,
 Torrentio/Comet stream presets, Service Wrap, uncached rules, or error visibility
 drift. It inspects AIOStreams `/api/v1/user` only: it does **not** validate
 `/etc/mango/stremio-export.json` or the catalog-service direct MediaFusion
-trigger. MediaFusion should be enabled only for an explicitly accepted healthy
-trial; a broken optional manifest must not break the normal aggregate.
+trigger. MediaFusion enablement validates the public base manifest first and
+uses AIO's native credential injection rather than a secret share-manifest URL.
 
 Audit the two missing topology surfaces without printing URLs:
 

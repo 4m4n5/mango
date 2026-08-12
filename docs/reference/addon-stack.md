@@ -107,17 +107,18 @@ enforce/pin that revision and can implicitly mutate AIOMetadata state. Follow
 the reviewed exception/manual path in `DEPLOY.md` until the helper is hardened.
 
 Git deployment does **not** overwrite the Pi-owned AIOStreams `userData`.
-Current `diff/apply` is blocked for agents: it exposes full user state and the
-apply path prints/leaves a fixed secret-bearing `/tmp` response. Use the human
-Configure UI for authorized state changes until the helper is hardened.
+The AIO helper now uses private temporary files, fixed redacted output,
+post-write readback, and automatic rollback. `get` remains secret-bearing and
+must not be logged. AIOMetadata mutation remains independently blocked.
 
 ```bash
 bash scripts/m4-addons/aiostreams-config.sh verify
 ```
 
-The latest recorded home snapshot had Torrentio and Comet active,
-RD/TorBox/Easynews configured, and MediaFusion present but disabled after a 404
-manifest response. Reverify rather than treating this dated state as permanent.
+The pre-repair snapshot had Torrentio and Comet active, RD/TorBox/Easynews
+configured, and an expired MediaFusion share-manifest override returning 404.
+Reverify the transactional native-base integration rather than treating that
+dated state as permanent.
 
 ## Known gaps
 
@@ -127,4 +128,4 @@ manifest response. Reverify rather than treating this dated state as permanent.
 | India-series source yield | Current hardest source-quality area; many catalog rows are no-stream, duplicate, unresolved, or off-theme |
 | Bharat Binge | Latest recorded manifest returned HTTP 403; URL presence from deploy is not catalog-health proof |
 | AIO runtime drift/contribution | Prove target policy and credential-safe nested indexer/transport counters separately from Git |
-| MediaFusion | Historical trial only; latest recorded manifest returned 404, so keep disabled until a fresh measured trial passes |
+| MediaFusion | Native AIO base integration; cached-search-only movie/series through TorBox/RD; prove causal contribution separately from policy presence |

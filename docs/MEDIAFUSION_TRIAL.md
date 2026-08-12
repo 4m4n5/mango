@@ -1,12 +1,12 @@
-# MediaFusion India-regional trial (historical experiment; currently disabled)
+# MediaFusion India-regional trial (historical secret-manifest experiment)
 
-> **Current runtime record:** the latest home report found the MediaFusion
-> preset present in AIOStreams but disabled because the configured ElfHosted
-> manifest returned 404. Torrentio and Comet remained the active nested
-> indexers. The enabled/healthy measurements below are historical trial evidence,
-> not current state. Reverify the manifest and run a fresh credential-safe yield
-> comparison before enabling; Git deployment does not change AIOStreams
-> `userData`.
+> **Superseded wiring:** the old credential-bearing share-manifest override
+> expired with HTTP 404. Current source instead configures AIOStreams' native
+> non-secret MediaFusion base URL, lets AIO supply its existing TorBox/RD
+> services, restricts the preset to cached-search-only movie/series streams,
+> and performs transactional readback/rollback. The measurements and manual
+> share-URL steps below remain historical evidence, not the current runbook;
+> use `scripts/m4-addons/configure-aiostreams.md`.
 
 > **Why:** `series-india-picks` is ~80% Hindi with only ~11% regional (Tamil/Telugu/Malayalam/Kannada);
 > Bharat Binge regional catalogs are wired but yield ~0 verified titles because those releases don't

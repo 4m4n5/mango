@@ -5,17 +5,17 @@ Run these on the Pi after `bash scripts/m4-addons/install-aiostreams.sh` or
 
 **Full knob map + optimal profile:** [`docs/reference/aiostreams-profile.md`](../../docs/reference/aiostreams-profile.md)
 
-**Current headless blocker:** `diff` exposes the full user delta and `apply`
-writes its potentially secret-bearing API response to fixed
-`/tmp/aiostreams-put.json`, prints it, and leaves it behind. Do not run either
-path from an agent or unattended workflow until the helper uses a private
-temporary file, trap cleanup, and redacted output. Use the Configure UI for an
-explicit human-reviewed mutation. `verify` emits fixed policy summaries but
-does not inspect the exported addon graph or the catalog-service direct
-MediaFusion trigger.
+The headless helper keeps credential-bearing request/response bodies in a
+mode-700 temporary directory, removes them on exit, emits fixed summaries only,
+and restores the original user object if post-write verification fails. `get`
+is intentionally still a full secret-bearing export and must never be logged.
+`verify` emits fixed policy summaries but does not inspect the exported addon
+graph or the catalog-service direct MediaFusion trigger.
 
 ```bash
 bash scripts/m4-addons/aiostreams-config.sh verify  # fixed-field AIO policy summary
+bash scripts/m4-addons/aiostreams-config.sh diff    # changed top-level keys only
+bash scripts/m4-addons/aiostreams-config.sh enable-mediafusion
 ```
 
 ## Open Configure UI
@@ -43,7 +43,7 @@ Add the existing paid accounts in the AIOStreams UI. Do not paste keys into git.
 | Easynews | enable Easynews Search |
 | Torrentio | enable as a stream-only indexer through configured services |
 | Comet | enable as the second required stream-only indexer |
-| MediaFusion | optional preset must exist; keep disabled unless its override manifest is currently healthy and a measured trial is authorized |
+| MediaFusion | enable through AIO's native base-URL integration; stream-only movie/series, cached-search-only, TorBox + Real-Debrid |
 
 Keep the addon name shown to mango as `AIOStreams`.
 
@@ -64,7 +64,7 @@ nested manifests, and `userData` can drift independently of this repository.
 | Easynews | ON (API key set) |
 | Torrentio | Installed as built-in resource (stream-only) |
 | Comet | Installed as built-in resource (stream-only) |
-| MediaFusion | Preset present; optional/disabled is valid when manifest is unhealthy |
+| MediaFusion | ON through the non-secret HTTPS base URL; AIO supplies its existing TorBox/RD credentials in the encoded request header |
 | All others | OFF (AllDebrid, Premiumize, Offcloud, NNTP, etc.) |
 
 ### Built-in toggles
@@ -108,40 +108,26 @@ See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for layer boundaries.
 
 ## Groups — conditional Easynews
 
-Use AIOStreams Groups so Easynews results are included only when primary cached
-supply is thin and later-group waits can end early. AIOStreams begins fetching
-all groups in parallel, so this is **not** proof that Easynews was never queried;
-conditions decide inclusion/discard/early exit as results arrive. Configure it
-after TorBox, Real-Debrid, Easynews Search, Torrentio, and Comet are installed.
+Use AIOStreams Groups so Easynews is queried only when primary cached supply is
+thin. Mango explicitly selects AIOStreams' `sequential` group behavior; the
+default/parallel behavior starts all groups before evaluating inclusion and is
+not a provider-call suppression mechanism.
 
 | Group | Addons | Condition |
 |-------|--------|-----------|
-| Primary | Torrentio + Comet, service-wrapped through TorBox + Real-Debrid | always |
+| Primary | Torrentio + Comet + MediaFusion, using TorBox + Real-Debrid | always |
 | Easynews fallback | Easynews Search | `count(cached(previousStreams)) < 3` |
 
-Steps:
-
-1. Open **Addons → Groups**.
-2. Create `Primary` and put both Torrentio and Comet stream addons in it.
-3. Create `Easynews fallback` and put Easynews Search in it.
-4. Set the Easynews group condition to:
-
-```text
-count(cached(previousStreams)) < 3
-```
-
-5. Save / update the user.
-
-Verify with:
+The transactional helper derives current Pi-owned instance IDs instead of
+guessing or committing them. It verifies the bounded public base manifest,
+replaces any stale secret share-manifest override, enables cached-search-only
+MediaFusion, creates both groups, reads back the exact policy, and automatically
+restores the original user object on mismatch:
 
 ```bash
-bash scripts/m4-addons/aiostreams-config.sh get \
-  | python3 -c "import json,sys; g=json.load(sys.stdin)['data']['userData'].get('groups'); assert g, 'groups still null'; print(json.dumps(g, indent=2))"
+bash scripts/m4-addons/aiostreams-config.sh enable-mediafusion
+bash scripts/m4-addons/aiostreams-config.sh verify
 ```
-
-If the GET output is stable, save a redacted copy as
-`config/aiostreams-groups.example.json`. Do not guess internal addon IDs and do
-not commit credentials.
 
 ## Export Manifest
 

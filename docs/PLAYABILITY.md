@@ -165,7 +165,11 @@ is skipped (no extra ~8s dead wait).
 **Resolver topology:** Mango's intended VOD graph has one stream-capable
 aggregate, AIOStreams. Torrentio, MediaFusion, and Comet are indexers inside its
 profile; TorBox and Real-Debrid are debrid/transport services used by those
-results. They are not six parallel Mango addons. Direct copies of the three
+results. MediaFusion uses AIO's native base-URL integration so AIO supplies the
+existing services without persisting a second expiring secret manifest, and is
+limited to cached-search movie/series results. The three indexers form the
+primary AIO group; sequential Easynews fallback is admitted only when that group
+returns fewer than three cached streams. They are not six parallel Mango addons. Direct copies of the three
 indexers in `stremio-export.json` duplicate work and bypass AIOStreams dedup and
 policy. Current source also retains a separate Pi-state-triggered direct
 MediaFusion supplement when the AIO pool has at most one cacheable candidate;

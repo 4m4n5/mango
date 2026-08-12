@@ -379,22 +379,22 @@ aggregate; hardening must either remove the bypass or explicitly feature-gate,
 diagnose, and accept its latency/security behavior.
 
 Repository deployment deliberately does not overwrite AIOStreams `userData`.
-The current `aiostreams-config.sh diff/apply` implementation is a hardening gap:
-it exposes full state and `apply` leaves/prints fixed
-`/tmp/aiostreams-put.json`. Do not run it from an agent until private temp,
-cleanup, and redaction are implemented. Human Configure UI plus fixed-field
-`verify` is the interim boundary. AIOMetadata's headless import has the same
+`aiostreams-config.sh diff/apply/enable-mediafusion` now keeps state in private
+temporary files, hides values/responses, performs fixed-field readback, and
+rolls back the original user object on policy failure. `get` remains an explicit
+secret-bearing export and must not be logged. AIOMetadata's headless import has the same
 class of unresolved issue: it leaves fixed `/tmp/aiometadata-save.json` and
-prints the secret manifest URL. Keep both mutation helpers out of agent and
-unattended flows until hardened; this is an operations-security blocker. The
+prints the secret manifest URL. Keep that mutation helper out of agent and
+unattended flows until hardened; the AIO half is closed but AIOMetadata remains
+an operations-security blocker. The
 current `pi-deploy.sh` nevertheless calls the AIOMetadata rail sync implicitly,
 so the deploy wrapper itself is also blocked for unattended agents; Git-only is
 the intended transport contract, not proof that this implementation is safe.
 
-The latest recorded home snapshot had Torrentio and Comet contributing,
-RD/TorBox/Easynews configured,
-and the MediaFusion preset present but disabled because its manifest returned
-404. That is a dated runtime finding, not a permanent configuration choice.
+Before the current MediaFusion repair, the home snapshot had Torrentio and
+Comet contributing, RD/TorBox/Easynews configured, and an expired secret
+MediaFusion override returning 404. Current runtime enablement must be recorded
+only after the transactional base-integration write and causal Pi readback.
 
 That same home report observed the separately exported Bharat Binge regional
 catalog manifest returning HTTP 403. The deploy helper ensures the repository
