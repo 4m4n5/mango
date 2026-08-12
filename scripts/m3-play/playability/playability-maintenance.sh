@@ -492,7 +492,9 @@ if ! couch_is_idle; then
     flock -u 200 >/dev/null 2>&1 || true
     exec 200>&- || true
   fi
-  exit 0
+  # A deliberate couch-activity defer is a safe partial outcome, not a
+  # completed maintenance run. The coordinator records exit 10 as partial.
+  exit 10
 fi
 
 # This configured-source mutation is inside the coordinator and after the
@@ -590,7 +592,7 @@ if pgrep -f 'chromium.*127.0.0.1:3000|firefox.*127.0.0.1:3000' >/dev/null 2>&1; 
     write_deferred_report pre_stop_launcher
     release_maintenance_lock
     trap - EXIT
-    exit 0
+    exit 10
   fi
   echo "stopping launcher browser"
   pkill -f 'chromium.*127.0.0.1:3000' >/dev/null 2>&1 || true
@@ -603,7 +605,7 @@ if curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
     echo "maintenance deferred before stopping catalog: couch active"
     write_deferred_report pre_stop_catalog
     release_maintenance_lock
-    exit 0
+    exit 10
   fi
   if [[ "$MODE" == "grow" ]]; then
     run_source_hitrate_preflight quick "${MANGO_SOURCE_HITRATE_FORCE:-0}"
