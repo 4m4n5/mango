@@ -2348,7 +2348,10 @@ export function storyGraphServeAuthorized(tab: StoryGraphTab): boolean {
 export async function storyGraphRefreshRequired(
   tab: StoryGraphTab,
   now = Date.now(),
-  options: { preserveActiveDecayBucket?: boolean } = {},
+  options: {
+    preserveActiveDecayBucket?: boolean;
+    preserveActiveSemanticRevision?: boolean;
+  } = {},
 ): Promise<boolean> {
   const type = contentTypeForTab(tab);
   const active = libraryDatabase().prepare(`
@@ -2397,8 +2400,9 @@ WHERE active.content_type = ?
     playabilityRecommendationCorpusGeneration(),
     playabilityRecommendationSemanticGeneration(),
   ]);
-  if (active.corpus_generation !== corpusGeneration
-    || active.semantic_revision !== String(semanticGeneration)) return true;
+  if (active.corpus_generation !== corpusGeneration) return true;
+  if (!options.preserveActiveSemanticRevision
+    && active.semantic_revision !== String(semanticGeneration)) return true;
   const ratings = listRatings(type, 'household');
   const signals = readHouseholdSignals(type);
   const tasteClock = options.preserveActiveDecayBucket ? active.started_at : now;
@@ -2412,7 +2416,14 @@ WHERE active.content_type = ?
  * that non-urgent decay refresh away from process boot.
  */
 export function storyGraphStartupRefreshRequired(tab: StoryGraphTab): Promise<boolean> {
-  return storyGraphRefreshRequired(tab, Date.now(), { preserveActiveDecayBucket: true });
+  return storyGraphRefreshRequired(tab, Date.now(), {
+    preserveActiveDecayBucket: true,
+    // The semantic counter is global while active generations are per domain:
+    // publishing Series necessarily makes the Movie number older. Semantic
+    // mutations already enqueue their exact domain; this global mismatch is
+    // not valid startup evidence for reranking the other domain.
+    preserveActiveSemanticRevision: true,
+  });
 }
 
 function buildStoryGraphForYouRail(input: {

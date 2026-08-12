@@ -306,6 +306,22 @@ SELECT COUNT(*) AS count FROM vod_story_graph_backgrounds WHERE content_type = '
       false,
       'calendar-only decay never launches a full rerank during process boot',
     );
+    getPlayabilityDb().prepare(`
+UPDATE recommendation_semantic_state SET generation = generation + 1 WHERE state_id = 1
+`).run();
+    assert.equal(
+      await storyGraphRefreshRequired('movies'),
+      true,
+      'ordinary maintenance observes the global semantic revision',
+    );
+    assert.equal(
+      await storyGraphStartupRefreshRequired('movies'),
+      false,
+      'a global revision advanced by another domain is not startup evidence for this domain',
+    );
+    getPlayabilityDb().prepare(`
+UPDATE recommendation_semantic_state SET generation = generation - 1 WHERE state_id = 1
+`).run();
 
     const activeEpoch = () => (libraryDatabase().prepare(`
 SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = 'movie'
