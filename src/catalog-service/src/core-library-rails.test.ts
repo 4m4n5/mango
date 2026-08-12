@@ -121,6 +121,38 @@ test('Browse v3 rejects a cached Saved rail whose membership belongs to another 
   ), true);
 });
 
+test('concurrent deep Shuffle requests coalesce to one tab epoch winner', async () => {
+  const previous = process.env.MANGO_VOD_BROWSE_V3;
+  process.env.MANGO_VOD_BROWSE_V3 = 'serve';
+  type ShuffleHarness = {
+    tabRailItems: CatalogCore['tabRailItems'];
+    tabRailItemsUncoalesced: () => Promise<TabRailItemsResponse>;
+  };
+  const TestCatalogCore = CatalogCore as unknown as new (...args: unknown[]) => CatalogCore;
+  const core = new TestCatalogCore(
+    { available: false, error: 'fixture' }, [], {}, null, null, null, null, [],
+  ) as unknown as ShuffleHarness;
+  let calls = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  core.tabRailItemsUncoalesced = async () => {
+    calls += 1;
+    await gate;
+    return { tab: 'movies', rails: [], resolve_ms: 1 };
+  };
+  try {
+    const first = core.tabRailItems('movies', { reshuffle: true });
+    const second = core.tabRailItems('movies', { reshuffle: true });
+    release();
+    const [winner, loser] = await Promise.all([first, second]);
+    assert.equal(calls, 1);
+    assert.deepEqual(loser, winner);
+  } finally {
+    if (previous === undefined) delete process.env.MANGO_VOD_BROWSE_V3;
+    else process.env.MANGO_VOD_BROWSE_V3 = previous;
+  }
+});
+
 test('Browse v3 rejects and replaces a persisted deal contaminated by another tab\'s Saved title', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mango-core-saved-deal-'));
   const previous = {

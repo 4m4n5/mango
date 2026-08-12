@@ -1,4 +1,4 @@
-import { weightedDeal } from '../recommendations/vod-browse-v3.js';
+import { deepWeightedDeal } from '../recommendations/vod-browse-v3.js';
 
 export function titleKey(type: string, id: string): string {
   return `${type}:${id}`;
@@ -86,6 +86,7 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
     seed?: string;
     weightForItem?: (railId: string, item: T, index: number, poolSize: number) => number;
     initiallyOccupiedKeys?: ReadonlySet<string>;
+    allocationOffset?: number;
   } = {},
 ): Map<string, SessionSelectedItem<T>[]> {
   const floor = options.reserveFloor ?? TAB_SESSION_RESERVE_FLOOR;
@@ -120,14 +121,25 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
     }
   };
 
-  for (const rail of railsInYamlOrder.slice(0, anchorCount)) {
-    reserveForRail(rail);
-  }
-  for (const rail of railsForTabSessionAllocation(railsInYamlOrder.slice(anchorCount))) {
-    reserveForRail(rail);
+  const rotated = options.allocationOffset === undefined || railsInYamlOrder.length === 0
+    ? null
+    : [...railsInYamlOrder.slice(
+      ((options.allocationOffset % railsInYamlOrder.length) + railsInYamlOrder.length)
+        % railsInYamlOrder.length,
+    ), ...railsInYamlOrder.slice(0,
+      ((options.allocationOffset % railsInYamlOrder.length) + railsInYamlOrder.length)
+        % railsInYamlOrder.length,
+    )];
+  if (rotated) {
+    for (const rail of rotated) reserveForRail(rail);
+  } else {
+    for (const rail of railsInYamlOrder.slice(0, anchorCount)) reserveForRail(rail);
+    for (const rail of railsForTabSessionAllocation(railsInYamlOrder.slice(anchorCount))) {
+      reserveForRail(rail);
+    }
   }
 
-  for (const rail of railsForTabSessionAllocation(railsInYamlOrder)) {
+  for (const rail of rotated ?? railsForTabSessionAllocation(railsInYamlOrder)) {
     const pool = pools.get(rail.railId) ?? [];
     const existing = selections.get(rail.railId) ?? [];
     const need = Math.max(0, rail.displayLimit - existing.length);
@@ -195,18 +207,35 @@ export function selectRailSessionItems<T extends { type: string; id: string }>(
   const chosen = new Map(stable.map((item) => [titleKey(item.type, item.id), item]));
   const freshPool = available.filter((item) => !chosen.has(titleKey(item.type, item.id)));
   const freshSlots = Math.max(0, displayLimit - stable.length);
-  const fresh = weightForItem
-    ? weightedDeal(
-      freshPool.map((item, index) => ({
+  const preferredFreshPool = stableRatio === 0
+    ? freshPool.filter((item) => !recentKeys.has(titleKey(item.type, item.id)))
+    : freshPool;
+  const weightedPick = (candidates: T[], count: number, suffix: string): T[] => (
+    deepWeightedDeal(
+      candidates.map((item, index) => ({
         item,
         type: item.type,
         id: item.id,
-        weight: weightForItem(item, index),
+        weight: weightForItem!(item, index),
       })),
-      freshSlots,
-      seed,
+      count,
+      `${seed}:${suffix}`,
     ).map((entry) => entry.item)
-    : weightedSampleWithoutReplacement(freshPool, freshSlots, now, rng);
+  );
+  const preferredFresh = weightForItem
+    ? weightedPick(preferredFreshPool, freshSlots, 'preferred')
+    : weightedSampleWithoutReplacement(preferredFreshPool, freshSlots, now, rng);
+  const preferredKeys = new Set(preferredFresh.map((item) => titleKey(item.type, item.id)));
+  const shortagePool = stableRatio === 0
+    ? freshPool.filter((item) => recentKeys.has(titleKey(item.type, item.id)) && !preferredKeys.has(titleKey(item.type, item.id)))
+    : [];
+  const shortage = Math.max(0, freshSlots - preferredFresh.length);
+  const relaxedFresh = shortage > 0
+    ? weightForItem
+      ? weightedPick(shortagePool, shortage, 'relaxed-oldest')
+      : weightedSampleWithoutReplacement(shortagePool, shortage, now, rng)
+    : [];
+  const fresh = [...preferredFresh, ...relaxedFresh];
 
   return [
     ...stable.map((item) => ({ ...item, mix_bucket: 'stable' as const })),

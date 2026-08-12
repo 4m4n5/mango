@@ -92,6 +92,8 @@ import {
 } from './story-frontier-calibration.js';
 import {
   clampUnit,
+  DEEP_WEIGHTED_ALGORITHM_VERSION,
+  DEEP_WEIGHTED_EXPLORATION_FRACTION,
   relatedEvidenceQualifies,
   relatedScore,
   relatedWeight,
@@ -428,8 +430,7 @@ type PersistedRankRow = {
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_BOOTSTRAP_MINIMUM = 200;
 const VISIBLE_LIMIT = 6;
-const DEFAULT_PREDEALT_SLATE_COUNT = 32;
-const DEFAULT_COUCH_QUEUE_SCAN_LIMIT = 8;
+const DYNAMIC_SLATE_HISTORY_DEPTH = 4;
 
 export type StoryGraphServingWorkCounters = {
   full_reserve_queries: number;
@@ -1739,9 +1740,13 @@ ORDER BY rank ASC
     id: row.content_id,
   })));
   const excluded = currentExactExclusions(type);
+  const now = Date.now();
   return rows.filter((row) => {
     const key = contentKey(row.content_type, row.content_id);
-    return playability.get(key)?.status === 'verified' && !excluded.has(key);
+    const state = playability.get(key);
+    return state?.status === 'verified'
+      && (state.expires_at === null || state.expires_at > now)
+      && !excluded.has(key);
   });
 }
 
@@ -1810,7 +1815,27 @@ INSERT INTO vod_cached_slate_items(
   })();
 }
 
-function createPredealtSlateQueue(input: {
+function franchiseKeysForGeneration(
+  storyGenerationId: number,
+  type: RatingContentType,
+): Map<StoryGraphContentId, string[]> {
+  const rows = libraryDatabase().prepare(`
+SELECT content_id, node_key
+FROM vod_content_profile_edges
+WHERE generation_id = ? AND content_type = ? AND family = 'franchise'
+ORDER BY content_id, node_key
+`).all(storyGenerationId, type) as Array<{ content_id: string; node_key: string }>;
+  const result = new Map<StoryGraphContentId, string[]>();
+  for (const row of rows) {
+    const identity = contentKey(type, row.content_id);
+    const keys = result.get(identity) ?? [];
+    keys.push(row.node_key);
+    result.set(identity, keys);
+  }
+  return result;
+}
+
+function createInitialDynamicSlate(input: {
   type: RatingContentType;
   storyGenerationId: number;
   rankGenerationId: number;
@@ -1820,63 +1845,31 @@ function createPredealtSlateQueue(input: {
   now: number;
 }): number | null {
   if (input.selectedK <= 0 || input.rows.length < VISIBLE_LIMIT) return null;
-  const queueDepth = boundedInteger(
-    process.env.MANGO_VOD_STORY_GRAPH_PREDEALT_SLATES,
-    DEFAULT_PREDEALT_SLATE_COUNT,
-    8,
-    128,
-  );
   const threadIndex = new Map(input.threadIds.map((_thread, index) => [
     `thread-index:${index}`, index,
   ]));
-  const franchiseRows = libraryDatabase().prepare(`
-SELECT content_id, node_key
-FROM vod_content_profile_edges
-WHERE generation_id = ? AND content_type = ? AND family = 'franchise'
-ORDER BY content_id, node_key
-`).all(input.storyGenerationId, input.type) as Array<{ content_id: string; node_key: string }>;
-  const franchiseKeysById = new Map<StoryGraphContentId, string[]>();
-  for (const row of franchiseRows) {
-    const identity = contentKey(input.type, row.content_id);
-    const keys = franchiseKeysById.get(identity) ?? [];
-    keys.push(row.node_key);
-    franchiseKeysById.set(identity, keys);
-  }
+  const franchiseKeysById = franchiseKeysForGeneration(input.storyGenerationId, input.type);
   libraryDatabase().prepare(`
 DELETE FROM vod_cached_slates WHERE rank_generation_id = ? AND content_type = ?
 `).run(input.rankGenerationId, input.type);
-  const generated: Array<{ epoch: number; ids: StoryGraphContentId[] }> = [];
-  for (let epoch = 0; epoch < queueDepth; epoch += 1) {
-    // Close the queue as a ring. These cross-boundary exclusions guarantee
-    // that wrapping from the final predealt slate back to epoch zero still
-    // avoids every card rendered in the preceding four slates.
-    const closingOffset = epoch - (queueDepth - 4);
-    const fixedExcludeIds = closingOffset >= 0
-      ? generated.slice(0, closingOffset + 1).flatMap((slate) => slate.ids)
-      : [];
-    const items = selectCachedSlateIds({
-      rows: input.rows,
-      selectedK: input.selectedK,
-      seed: `${input.type}:${input.rankGenerationId}:${epoch}`,
-      recentSlates: generated.slice(-4).reverse(),
-      fixedExcludeIds,
-      franchiseKeysById,
-    });
-    if (items.length !== VISIBLE_LIMIT) break;
-    persistCachedSlate({
-      type: input.type,
-      epoch,
-      rankGenerationId: input.rankGenerationId,
-      items,
-      threadIndex,
-      now: input.now,
-    });
-    generated.push({
-      epoch,
-      ids: items.map((item) => contentKey(input.type, item.id)),
-    });
-  }
-  return generated.length > 0 ? generated[0]!.epoch : null;
+  const epoch = 0;
+  const items = selectCachedSlateIds({
+    rows: input.rows,
+    selectedK: input.selectedK,
+    seed: `deep-weighted-v1:${input.type}:${input.rankGenerationId}:${epoch}:for-you`,
+    recentSlates: [],
+    franchiseKeysById,
+  });
+  if (items.length !== VISIBLE_LIMIT) return null;
+  persistCachedSlate({
+    type: input.type,
+    epoch,
+    rankGenerationId: input.rankGenerationId,
+    items,
+    threadIndex,
+    now: input.now,
+  });
+  return epoch;
 }
 
 function updateActiveGeneration(input: {
@@ -2881,7 +2874,7 @@ SELECT active_rank_generation_id FROM vod_active_generations WHERE content_type 
   const publishedEmptyState = !priorityPhase && ranked.selected_k === 0;
   let epoch: number | null = null;
   if (published) {
-    epoch = createPredealtSlateQueue({
+    epoch = createInitialDynamicSlate({
       type,
       storyGenerationId,
       rankGenerationId: rankGeneration.rank_generation_id,
@@ -3273,55 +3266,54 @@ async function validateSlateRows(rows: PersistedRankRow[], type: RatingContentTy
   storyGraphServingWorkCounters.slate_items_revalidated += rows.length;
   const current = await getTitlesPlayabilityBulk(rows.map((row) => ({ type, id: row.content_id })));
   const exclusions = currentExactExclusionsForIds(type, rows.map((row) => row.content_id));
+  const now = Date.now();
   return rows.every((row) => {
     const key = contentKey(type, row.content_id);
-    return current.get(key)?.status === 'verified' && !exclusions.has(key);
+    const state = current.get(key);
+    return state?.status === 'verified'
+      && (state.expires_at === null || state.expires_at > now)
+      && !exclusions.has(key);
   });
 }
 
-function queuedSlateEpochs(
-  rankGenerationId: number,
-  type: RatingContentType,
-  afterEpoch: number,
-  limit: number,
-): number[] {
-  return (libraryDatabase().prepare(`
-SELECT shuffle_epoch
-FROM vod_cached_slates
-WHERE rank_generation_id = ? AND content_type = ? AND shuffle_epoch != ?
-ORDER BY CASE WHEN shuffle_epoch > ? THEN 0 ELSE 1 END, shuffle_epoch ASC
-LIMIT ?
-`).all(rankGenerationId, type, afterEpoch, afterEpoch, limit) as Array<{ shuffle_epoch: number }>)
-    .map((row) => row.shuffle_epoch);
-}
-
-function advanceActiveSlate(input: {
+/** Persist one freshly dealt slate and advance its active pointer in one CAS transaction. */
+function persistAndAdvanceDynamicSlate(input: {
   type: RatingContentType;
   rankGenerationId: number;
   expectedEpoch: number;
   nextEpoch: number;
+  selectedK: number;
+  items: StoryGraphScoredRecommendation[];
   now: number;
 }): boolean {
+  if (input.items.length !== VISIBLE_LIMIT) return false;
   const db = libraryDatabase();
   return db.transaction(() => {
-    const target = db.prepare(`
-SELECT COUNT(*) AS item_count, COUNT(DISTINCT content_id) AS unique_count
-FROM vod_cached_slate_items
-WHERE rank_generation_id = ? AND content_type = ? AND shuffle_epoch = ?
-`).get(input.rankGenerationId, input.type, input.nextEpoch) as {
-      item_count: number;
-      unique_count: number;
-    };
-    if (target.item_count !== VISIBLE_LIMIT || target.unique_count !== VISIBLE_LIMIT) return false;
-    const mostRecent = db.prepare(`
-SELECT MAX(rendered_at) AS rendered_at
-FROM vod_cached_slates
-WHERE rank_generation_id = ? AND content_type = ?
-`).get(input.rankGenerationId, input.type) as { rendered_at: number | null };
-    const renderedAt = Math.max(input.now, (mostRecent.rendered_at ?? 0) + 1);
+    const active = db.prepare(`
+SELECT shuffle_epoch FROM vod_active_generations
+WHERE content_type = ? AND active_rank_generation_id = ?
+`).get(input.type, input.rankGenerationId) as { shuffle_epoch: number } | undefined;
+    if (!active || active.shuffle_epoch !== input.expectedEpoch) return false;
+    const threadIndex = new Map(Array.from({ length: input.selectedK }, (_, index) => [
+      `thread-index:${index}`, index,
+    ]));
+    db.prepare(`
+INSERT INTO vod_cached_slates(
+  rank_generation_id, content_type, shuffle_epoch, created_at, rendered_at
+) VALUES (?, ?, ?, ?, ?)
+`).run(input.rankGenerationId, input.type, input.nextEpoch, input.now, input.now);
+    const insert = db.prepare(`
+INSERT INTO vod_cached_slate_items(
+  rank_generation_id, content_type, shuffle_epoch, slot, content_id, thread_index
+) VALUES (?, ?, ?, ?, ?, ?)
+`);
+    input.items.forEach((item, slot) => {
+      const index = item.best_thread_id ? threadIndex.get(item.best_thread_id) : undefined;
+      if (index === undefined) throw new Error('dynamic Story Graph item has no supported taste thread');
+      insert.run(input.rankGenerationId, input.type, input.nextEpoch, slot, item.id, index);
+    });
     const advanced = db.prepare(`
-UPDATE vod_active_generations
-SET shuffle_epoch = ?, updated_at = ?
+UPDATE vod_active_generations SET shuffle_epoch = ?, updated_at = ?
 WHERE content_type = ? AND active_rank_generation_id = ? AND shuffle_epoch = ?
 `).run(
       input.nextEpoch,
@@ -3330,13 +3322,22 @@ WHERE content_type = ? AND active_rank_generation_id = ? AND shuffle_epoch = ?
       input.rankGenerationId,
       input.expectedEpoch,
     ).changes === 1;
-    if (advanced) {
-      db.prepare(`
-UPDATE vod_cached_slates SET rendered_at = ?
-WHERE rank_generation_id = ? AND content_type = ? AND shuffle_epoch = ?
-`).run(renderedAt, input.rankGenerationId, input.type, input.nextEpoch);
-    }
-    return advanced;
+    if (!advanced) throw new Error('dynamic Story Graph pointer CAS lost inside transaction');
+    db.prepare(`
+DELETE FROM vod_cached_slates
+WHERE rank_generation_id = ? AND content_type = ? AND shuffle_epoch NOT IN (
+  SELECT shuffle_epoch FROM vod_cached_slates
+  WHERE rank_generation_id = ? AND content_type = ?
+  ORDER BY rendered_at DESC, shuffle_epoch DESC LIMIT ?
+)
+`).run(
+      input.rankGenerationId,
+      input.type,
+      input.rankGenerationId,
+      input.type,
+      DYNAMIC_SLATE_HISTORY_DEPTH + 1,
+    );
+    return true;
   })();
 }
 
@@ -3694,6 +3695,7 @@ export async function loadStoryGraphForYouRail(
   const db = libraryDatabase();
   const active = db.prepare(`
 SELECT active.active_rank_generation_id AS rank_generation_id,
+       active.active_story_generation_id AS story_generation_id,
        active.active_taste_generation_id AS taste_generation_id,
        active.shuffle_epoch, taste.selected_k
 FROM vod_active_generations active
@@ -3702,6 +3704,7 @@ JOIN vod_taste_generations taste ON taste.taste_generation_id = active.active_ta
 WHERE active.content_type = ? AND ranks.status IN ('bootstrap', 'complete')
 `).get(type) as {
     rank_generation_id: number;
+    story_generation_id: number;
     taste_generation_id: number;
     shuffle_epoch: number;
     selected_k: number;
@@ -3719,88 +3722,49 @@ SELECT eligible_count FROM vod_rank_generations WHERE rank_generation_id = ?
   let currentValid = !hasExternalExclusion(rows) && await validateSlateRows(rows, type);
   let lowWater = false;
   if (options.reshuffle || !currentValid) {
-    const scanLimit = boundedInteger(
-      process.env.MANGO_VOD_STORY_GRAPH_COUCH_QUEUE_SCAN,
-      DEFAULT_COUCH_QUEUE_SCAN_LIMIT,
-      1,
-      32,
-    );
-    let replacement: { epoch: number; rows: PersistedRankRow[] } | null = null;
-    const queued = queuedSlateEpochs(
-      active.rank_generation_id,
-      type,
-      epoch,
-      scanLimit,
-    ).map((candidateEpoch) => ({
-      epoch: candidateEpoch,
-      rows: cachedSlateRows(type, candidateEpoch, active.rank_generation_id),
-    }));
-    const validation = new Map<number, boolean>();
-    const valid = async (candidate: { epoch: number; rows: PersistedRankRow[] }): Promise<boolean> => {
-      const cached = validation.get(candidate.epoch);
-      if (cached !== undefined) return cached;
-      storyGraphServingWorkCounters.queue_slates_scanned += 1;
-      const result = !hasExternalExclusion(candidate.rows) && await validateSlateRows(candidate.rows, type);
-      validation.set(candidate.epoch, result);
-      return result;
-    };
-    const rendered = recentCachedSlates(active.rank_generation_id, type, 4, true);
-    const retainedRendered = [...rendered];
-    while (!replacement && queued.length > 0) {
-      const excluded = new Set(retainedRendered.flatMap((slate) => slate.ids));
-      for (const candidate of queued) {
-        if (candidate.rows.some((row) => excluded.has(contentKey(type, row.content_id)))) continue;
-        if (await valid(candidate)) {
-          replacement = candidate;
-          break;
-        }
-      }
-      if (replacement || retainedRendered.length === 0) break;
-      // Rendered history is newest-first; relax the oldest slate first.
-      retainedRendered.pop();
-    }
-    if (!replacement) {
-      for (const candidate of queued) {
-        if (await valid(candidate)) {
-          replacement = candidate;
-          break;
-        }
-      }
-    }
-    if (!replacement && !currentValid) {
-      for (const previous of rendered.filter((slate) => slate.epoch !== epoch).slice(0, scanLimit)) {
-        storyGraphServingWorkCounters.queue_slates_scanned += 1;
-        const candidateRows = cachedSlateRows(type, previous.epoch, active.rank_generation_id);
-        if (!hasExternalExclusion(candidateRows) && await validateSlateRows(candidateRows, type)) {
-          replacement = { epoch: previous.epoch, rows: candidateRows };
-          break;
-        }
-      }
-    }
-    if (replacement) {
-      const advanced = advanceActiveSlate({
+    const eligibleRows = await currentlyEligibleRankRows(active.rank_generation_id, type);
+    const nextEpoch = Number((db.prepare(`
+SELECT COALESCE(MAX(shuffle_epoch), -1) + 1 AS next_epoch
+FROM vod_cached_slates WHERE rank_generation_id = ? AND content_type = ?
+`).get(active.rank_generation_id, type) as { next_epoch: number }).next_epoch);
+    const selected = selectCachedSlateIds({
+      rows: eligibleRows,
+      selectedK: active.selected_k,
+      seed: `deep-weighted-v1:${type}:${active.rank_generation_id}:${nextEpoch}:for-you`,
+      recentSlates: recentCachedSlates(
+        active.rank_generation_id,
         type,
-        rankGenerationId: active.rank_generation_id,
-        expectedEpoch: epoch,
-        nextEpoch: replacement.epoch,
-        now: Date.now(),
-      });
-      if (advanced) {
-        epoch = replacement.epoch;
-        rows = replacement.rows;
-        currentValid = true;
-      } else {
-        const current = db.prepare(`
+        DYNAMIC_SLATE_HISTORY_DEPTH,
+        true,
+      ),
+      fixedExcludeIds: [...externalExclusions] as StoryGraphContentId[],
+      franchiseKeysById: franchiseKeysForGeneration(active.story_generation_id, type),
+    });
+    const advanced = selected.length === VISIBLE_LIMIT && persistAndAdvanceDynamicSlate({
+      type,
+      rankGenerationId: active.rank_generation_id,
+      expectedEpoch: epoch,
+      nextEpoch,
+      selectedK: active.selected_k,
+      items: selected,
+      now: Date.now(),
+    });
+    if (advanced) {
+      epoch = nextEpoch;
+      rows = cachedSlateRows(type, epoch, active.rank_generation_id);
+      currentValid = !hasExternalExclusion(rows) && await validateSlateRows(rows, type);
+    } else if (selected.length === VISIBLE_LIMIT) {
+      // A concurrent Shuffle won the CAS. Serve that winner, never a second epoch.
+      const current = db.prepare(`
 SELECT active_rank_generation_id AS rank_generation_id, shuffle_epoch
 FROM vod_active_generations WHERE content_type = ?
 `).get(type) as { rank_generation_id: number; shuffle_epoch: number } | undefined;
-        if (!current || current.rank_generation_id !== active.rank_generation_id) return null;
-        epoch = current.shuffle_epoch;
-        rows = cachedSlateRows(type, epoch, active.rank_generation_id);
-        currentValid = !hasExternalExclusion(rows) && await validateSlateRows(rows, type);
-      }
+      if (!current || current.rank_generation_id !== active.rank_generation_id) return null;
+      epoch = current.shuffle_epoch;
+      rows = cachedSlateRows(type, epoch, active.rank_generation_id);
+      currentValid = !hasExternalExclusion(rows) && await validateSlateRows(rows, type);
     }
-    if (!replacement || !currentValid) {
+    if ((!advanced && selected.length !== VISIBLE_LIMIT) || !currentValid) {
       lowWater = true;
       enqueueStoryGraphLowWater({
         tab,
@@ -3835,6 +3799,11 @@ FROM vod_active_generations WHERE content_type = ?
 }
 
 export type StoryGraphDiagnostics = {
+  algorithm: typeof DEEP_WEIGHTED_ALGORITHM_VERSION;
+  exploration_fraction: number;
+  dynamic_dealer_mode: true;
+  retained_history_limit: number;
+  previous_slate_exclusion: 'four_slates';
   model_version: typeof VOD_STORY_GRAPH_MODEL_VERSION | typeof VOD_STORY_FRONTIER_MODEL_VERSION;
   profile_mode: VodContentProfileMode;
   frontier: ReturnType<typeof storyDnaFrontierDiagnostics>;
@@ -3867,6 +3836,8 @@ export type StoryGraphDiagnostics = {
     unscored_count: number;
     coverage: number;
     reserve_depth: number;
+    theoretical_probability_floor: number;
+    retained_history_depth: number;
     active_thread_count: number;
     cursor: string | null;
     last_good_publication: number | null;
@@ -4040,6 +4011,15 @@ WHERE active.content_type = ?
         ? ((row?.scored_count ?? 0) + (row?.excluded_count ?? 0)) / row!.verified_count
         : 1,
       reserve_depth: row?.eligible_count ?? 0,
+      theoretical_probability_floor: (row?.eligible_count ?? 0) > 0
+        ? DEEP_WEIGHTED_EXPLORATION_FRACTION / row!.eligible_count
+        : 0,
+      retained_history_depth: active?.active_rank_generation_id
+        ? Number((db.prepare(`
+SELECT COUNT(*) AS count FROM vod_cached_slates
+WHERE rank_generation_id = ? AND content_type = ? AND rendered_at IS NOT NULL
+`).get(active.active_rank_generation_id, type) as { count: number }).count)
+        : 0,
       active_thread_count: row?.selected_k ?? 0,
       cursor: row?.cursor ?? null,
       last_good_publication: row?.published_at ?? null,
@@ -4088,6 +4068,11 @@ SELECT value_json FROM recommendation_runtime_state WHERE state_key = ?
     };
   });
   return {
+    algorithm: DEEP_WEIGHTED_ALGORITHM_VERSION,
+    exploration_fraction: DEEP_WEIGHTED_EXPLORATION_FRACTION,
+    dynamic_dealer_mode: true,
+    retained_history_limit: DYNAMIC_SLATE_HISTORY_DEPTH,
+    previous_slate_exclusion: 'four_slates',
     model_version: VOD_STORY_FRONTIER_MODEL_VERSION,
     profile_mode: vodContentProfileMode(),
     frontier: storyDnaFrontierDiagnostics(),

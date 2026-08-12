@@ -32,7 +32,6 @@ async function withProgressiveDatabases(fn: () => Promise<void>): Promise<void> 
     playability: process.env.MANGO_PLAYABILITY_DB,
     worker: process.env.MANGO_STORY_DNA_WORKER_MODE,
     vodMode: process.env.MANGO_VOD_RECS_V2,
-    predealtSlates: process.env.MANGO_VOD_STORY_GRAPH_PREDEALT_SLATES,
   };
   process.env.MANGO_LIBRARY_DB_PATH = join(directory, 'library.db');
   process.env.MANGO_USER_PINS_PATH = join(directory, 'pins.json');
@@ -52,8 +51,7 @@ async function withProgressiveDatabases(fn: () => Promise<void>): Promise<void> 
         : name === 'pins' ? 'MANGO_USER_PINS_PATH'
           : name === 'playability' ? 'MANGO_PLAYABILITY_DB'
             : name === 'worker' ? 'MANGO_STORY_DNA_WORKER_MODE'
-              : name === 'vodMode' ? 'MANGO_VOD_RECS_V2'
-                : 'MANGO_VOD_STORY_GRAPH_PREDEALT_SLATES';
+              : 'MANGO_VOD_RECS_V2';
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
@@ -209,10 +207,9 @@ test('offline quality labels require a thematically rankable profile', () => {
   }), false);
 });
 
-test('progressive full-corpus refresh accounts for sparse titles without a teacher dependency', async () => {
+test('progressive full-corpus refresh publishes one initial slate and deals the full reserve dynamically', async () => {
   await withProgressiveDatabases(async () => {
     process.env.MANGO_VOD_RECS_V2 = 'serve';
-    process.env.MANGO_VOD_STORY_GRAPH_PREDEALT_SLATES = '8';
     seedTitles('movie', 205);
     putRating({
       profile_id: 'household', type: 'movie', id: 'm000', title: 'Movie 0',
@@ -258,6 +255,9 @@ WHERE rank_generation_id = ? AND content_id = 'm204'
       exclusion_reason: 'sparse_unresolved',
     });
     const diagnostics = storyGraphDiagnostics();
+    assert.equal(diagnostics.algorithm, 'deep-weighted-v1');
+    assert.equal(diagnostics.dynamic_dealer_mode, true);
+    assert.equal(diagnostics.exploration_fraction, 0.05);
     assert.equal(diagnostics.profile_mode, 'progressive-v2');
     assert.equal(diagnostics.frontier.worker_mode, 'off');
     assert.equal(diagnostics.domains[0]?.base_profile_count, 204);
@@ -311,10 +311,19 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = 'movie'
     const rendered = [new Set(initial.items.map((item) => item.id))];
     const visitedEpochs = new Set([activeEpoch()]);
     for (let press = 0; press < 24; press += 1) {
-      const shuffled = await loadForYouRail('movies', {
-        reshuffle: true,
-        profileId: 'household',
+      const request = () => loadForYouRail('movies', {
+        reshuffle: true, profileId: 'household',
       });
+      const shuffled = press === 0
+        ? await Promise.all([request(), request()]).then(([winner, loser]) => {
+          assert.deepEqual(
+            loser?.items.map((item) => item.id),
+            winner?.items.map((item) => item.id),
+            'concurrent X requests read the one CAS winner',
+          );
+          return winner;
+        })
+        : await request();
       assert.ok(shuffled);
       const ids = new Set(shuffled.items.map((item) => item.id));
       for (const prior of rendered.slice(-4)) {
@@ -327,13 +336,17 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = 'movie'
       rendered.push(ids);
       visitedEpochs.add(activeEpoch());
     }
-    assert.ok(activeEpoch() < 8, 'serve X wraps within the finite predealt cache');
-    assert.ok(visitedEpochs.size > 1, 'serve X advances a published cached slate');
+    assert.equal(activeEpoch(), 24, 'each accepted X commits one monotonic dynamic epoch');
+    assert.equal(visitedEpochs.size, 25, 'dynamic epochs never wrap through a finite queue');
+    assert.equal((libraryDatabase().prepare(`
+SELECT COUNT(*) AS count FROM vod_cached_slates
+WHERE rank_generation_id = ? AND content_type = 'movie'
+`).get(repeated.rank_generation_id) as { count: number }).count, 5);
     const servingWork = storyGraphServingWorkSnapshot();
-    assert.equal(servingWork.dealer_calls, 0, 'X consumes only predealt slates');
-    assert.equal(servingWork.full_reserve_queries, 0, 'X never scans or ranks the reserve');
-    assert.equal(servingWork.full_reserve_rows_loaded, 0, 'X never loads the reserve');
-    assert.equal(servingWork.queue_slates_scanned, 24, 'each X validates only its selected slate');
+    assert.equal(servingWork.dealer_calls, 25, 'each request deals from captured rank rows only');
+    assert.equal(servingWork.full_reserve_queries, 25, 'each request considers the complete eligible reserve');
+    assert.equal(servingWork.full_reserve_rows_loaded, 25 * 203);
+    assert.equal(servingWork.queue_slates_scanned, 0, 'no future-slate queue is scanned');
 
     const failed = libraryDatabase().prepare(`
 INSERT INTO vod_rank_generations(

@@ -4,6 +4,8 @@ import test from 'node:test';
 import {
   aiCatalogWeight,
   categoryWeight,
+  deepSamplingMasses,
+  deepWeightedDeal,
   exploreWeight,
   forYouRelevanceWeight,
   recencyWeight,
@@ -13,6 +15,39 @@ import {
   strongestRelatedFrontier,
   weightedDeal,
 } from './vod-browse-v3.js';
+
+test('deep sampler assigns the 5% floor, is deterministic, and reaches the long tail', () => {
+  const two = [
+    { type: 'movie', id: 'high', weight: 9 },
+    { type: 'movie', id: 'low', weight: 1 },
+  ];
+  const masses = deepSamplingMasses(two);
+  assert.ok(Math.abs(masses.reduce((sum, mass) => sum + mass, 0) - 1) < 1e-12);
+  assert.deepEqual(masses, [0.88, 0.12]);
+  assert.deepEqual(deepSamplingMasses([
+    { type: 'movie', id: 'positive', weight: 1 },
+    { type: 'movie', id: 'zero', weight: 0 },
+  ]), [0.975, 0.025]);
+
+  let high = 0;
+  for (let epoch = 0; epoch < 20_000; epoch += 1) {
+    if (deepWeightedDeal(two, 1, `distribution:${epoch}`)[0]?.id === 'high') high += 1;
+  }
+  assert.ok(Math.abs(high / 20_000 - 0.88) < 0.02);
+
+  const corpus = Array.from({ length: 200 }, (_, index) => ({
+    type: 'movie', id: `tail-${index}`, weight: index === 199 ? 0 : 1 + index / 200,
+  }));
+  const seen = new Set<string>();
+  for (let epoch = 0; epoch < 5_000; epoch += 1) {
+    deepWeightedDeal(corpus, 9, `reach:${epoch}`).forEach((item) => seen.add(item.id));
+  }
+  assert.equal(seen.size, corpus.length);
+  assert.deepEqual(
+    deepWeightedDeal(corpus, 9, 'same-epoch'),
+    deepWeightedDeal(corpus, 9, 'same-epoch'),
+  );
+});
 
 test('Browse v3 keeps every eligible discovery candidate at finite positive weight', () => {
   const sparseExplore = exploreWeight({});

@@ -5,7 +5,7 @@ import {
   type StoryDnaDocument,
   type StoryDnaGraphEdge,
 } from './story-dna.js';
-import { forYouRelevanceWeight } from './vod-browse-v3.js';
+import { deepSamplingMasses, forYouRelevanceWeight } from './vod-browse-v3.js';
 
 /** The v2 model consumes typed StoryDNA graph edges through a local posterior. */
 export const VOD_STORY_GRAPH_MODEL_VERSION = 'vod-story-graph-v2' as const;
@@ -1623,14 +1623,21 @@ export function buildStoryDealerCache(
 }
 
 function dealerOrder(items: StoryDealerCacheItem[], seed: string): StoryDealerCacheItem[] {
-  return [...items].sort((left, right) => {
-    const leftIdentity = contentKey(left.recommendation.type, left.recommendation.id);
-    const rightIdentity = contentKey(right.recommendation.type, right.recommendation.id);
+  const masses = deepSamplingMasses(items.map((item) => ({
+    type: item.recommendation.type,
+    id: item.recommendation.id,
+    weight: item.dealer_weight,
+  })));
+  return items.map((item, index) => ({ item, mass: masses[index]! })).sort((left, right) => {
+    const leftItem = left.item;
+    const rightItem = right.item;
+    const leftIdentity = contentKey(leftItem.recommendation.type, leftItem.recommendation.id);
+    const rightIdentity = contentKey(rightItem.recommendation.type, rightItem.recommendation.id);
     // Exponential-race sampling is deterministic, weighted, and without replacement.
-    const leftKey = -Math.log(stableUnit(`${seed}:${leftIdentity}`)) / left.dealer_weight;
-    const rightKey = -Math.log(stableUnit(`${seed}:${rightIdentity}`)) / right.dealer_weight;
-    return leftKey - rightKey || left.rank - right.rank || leftIdentity.localeCompare(rightIdentity);
-  });
+    const leftKey = -Math.log(stableUnit(`${seed}:${leftIdentity}`)) / left.mass;
+    const rightKey = -Math.log(stableUnit(`${seed}:${rightIdentity}`)) / right.mass;
+    return leftKey - rightKey || leftItem.rank - rightItem.rank || leftIdentity.localeCompare(rightIdentity);
+  }).map(({ item }) => item);
 }
 
 /**

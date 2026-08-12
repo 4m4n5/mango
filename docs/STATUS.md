@@ -57,6 +57,16 @@ prove only their exact revision and contract.
 
 ### Source audit
 
+- Deep weighted Shuffle is source-complete: Browse v3 no longer applies the
+  120-title growth cap to eligibility or serving, exact typed evidence can add
+  bounded source-less thematic membership, and all discovery selection uses a
+  deterministic 95% relevance / 5% uniform sampler. For You deals from the
+  complete fit-qualified reserve per epoch and retains only current plus four
+  rendered slates. Existing APIs, databases, active/previous pointers, rail
+  order, Continue, and Saved are unchanged. Exact-SHA Pi publication, latency,
+  reachability, automated gates, and human couch proof remain distinct until
+  recorded for the deployed revision.
+
 - `fb20baa344daa37585141096e55f47bedb87de0e` is the historical 2026-08-06
   fully gated recommendation target. It preserves the progressive Story Frontier and all
   historical database rows/schemas while adding immutable verified browse

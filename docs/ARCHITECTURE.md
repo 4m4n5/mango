@@ -340,10 +340,10 @@ known item, and enqueue a serialized/coalesced rescore followed by a full scan.
 Manual refresh returns HTTP 202 with a job ID, captured revisions, and trigger
 reasons. `MANGO_VOD_BROWSE_V3=off|shadow|serve` independently stages the couch
 browse dealer. In serve, Movies/TV X atomically advances every visible rail:
-recency-weighted Continue/Saved, the cached six-card `For You`, trusted category
-and AI-catalog samples, and full-corpus `Explore`. The deal is epoch-seeded,
+recency-weighted Continue/Saved, a dynamically dealt six-card `For You`, deep
+trusted/typed category and AI-catalog samples, and full-corpus `Explore`. The deal is epoch-seeded,
 globally deduplicated, and persisted as active/previous state. Classification
-and full-corpus Explore weights publish through a separate atomic
+and complete eligibility/Explore weights publish through a separate atomic
 active/previous reservoir during shadow or post-rank background work. X reads
 that reservoir and never waits for reclassification, enrichment, graph, scan,
 ranking, metadata, or network work; a failed deal cannot replace the previous
@@ -458,8 +458,9 @@ cannot expose or falsely advance Shuffle, and diagnostics distinguish the
 active/previous serving pointers from the newest attempted generation. Focused
 mode/owner/publication/migration/rollback tests and the full Mac suites pass.
 The Pi now serves both domains with provider work off, complete accounting,
-bounded memory, and cached latency proof. VOD predealt queues are cyclic, so X
-can rotate `For You` indefinitely while retaining four-slate avoidance; the
+bounded memory, and cached latency proof. VOD `For You` deals dynamically from
+the complete fit-qualified ranked reserve, so X is not bounded by a future-slate
+queue while retaining four-slate avoidance; the
 same tab-scoped request also deals fresh cached selections for every category
 rail and recency-rotates Continue and Saved. YouTube's exact
 meaningful-watch veto lasts 30 days after the most recent watch; older events

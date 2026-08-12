@@ -3,11 +3,36 @@ import test from 'node:test';
 import type { Meta } from '../core.js';
 import {
   haystackHasThemeTag,
+  evaluateRailCorpusRule,
   metaHaystack,
   parseRuntimeMinutes,
   scoreThematicFit,
   type RailThemeProfile,
 } from './rail-theme.js';
+
+test('typed corpus rules use exact structured fields and ignore synopsis coincidences', () => {
+  assert.equal(evaluateRailCorpusRule('genre_comedy', {
+    id: 'tt1', type: 'movie', genres: ['Comedy', 'Drama'],
+  }), 'match');
+  assert.equal(evaluateRailCorpusRule('genre_comedy', {
+    id: 'tt2', type: 'movie', genres: ['Drama'], description: 'A funny comic adventure',
+  }), 'conflict');
+  assert.equal(evaluateRailCorpusRule('genre_comedy', {
+    id: 'tt3', type: 'movie', description: 'A comedy of errors',
+  }), 'unknown');
+  assert.equal(evaluateRailCorpusRule('country_india', {
+    id: 'tt4', type: 'series', countries: ['India'],
+  }), 'match');
+  assert.equal(evaluateRailCorpusRule('quick_light_movie', {
+    id: 'tt5', type: 'movie', runtimeMinutes: 111, genres: ['Comedy'],
+  }), 'conflict');
+  assert.equal(evaluateRailCorpusRule('format_miniseries', {
+    id: 'tt6', type: 'series', keywords: ['Limited Series'],
+  }), 'match');
+  assert.equal(evaluateRailCorpusRule('genre_reality', {
+    id: 'tt7', type: 'series', genres: ['Drama'], keywords: ['Game Show'],
+  }), 'match');
+});
 import { tokenizeIntent } from '../ai-catalogs/compose.js';
 
 function profile(

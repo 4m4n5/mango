@@ -34,6 +34,41 @@ The grow system is implemented as a best-effort, couch-silent maintenance workfl
 - A title may appear in **multiple rails**; the **unique library** is distinct `type:id` in `titles` where `status=verified`.
 - **Grow** adds fresh probes; optional global links are metrics only. The configured fresh target is an SLA warning, while publish safety is based on the run completing cleanly, rails staying displayable, and finalization preserving orphan/overlap hygiene.
 
+### Deep weighted Shuffle
+
+Browse v3 publishes a complete eligibility index rather than future pages. The
+`pool_max` value remains a growth/acquisition budget and never truncates a
+published or served Browse v3 corpus. Source-backed memberships require current
+exact playability plus display artwork; sparse structured metadata stays
+eligible, while a typed structured conflict excludes the membership. Exact
+typed corpus rules may additionally derive Comedy, Documentary, India, Quick &
+Easy, Miniseries, and Reality membership from `title_story_evidence`. Popular,
+Classics/Highly Rated, and AI-catalog rails remain source-backed.
+
+Every X press filters current playability, Household exclusions, the prior rail
+slate, and current-page occupancy, then performs deterministic weighted sampling
+without replacement across all remaining eligible titles. Five percent of the
+normalized probability mass is uniform and 95% follows source position,
+thematic confidence, Household affinity, and novelty. The prior slate is relaxed
+only when genuine supply shortage prevents a full row. The seed binds
+`deep-weighted-v1`, eligibility/rank generation, tab, epoch, rail, and title.
+
+For You applies the same exploration mixture after its existing fit floor,
+taste-thread quotas, franchise caps, playability, and Household exclusions. It
+deals from the complete ranked reserve on demand, persists only the current plus
+four rendered slates, and advances by compare-and-swap. Continue and Saved keep
+their chronological/recency behavior. Shuffle performs no provider, metadata,
+graph, ranking, verification, or acquisition call.
+
+This keeps Mango's candidate generation/eligibility, scoring, and final
+constraint re-ranking separate, matching Google's documented recommender
+architecture: <https://developers.google.com/machine-learning/recommendation/overview/types>.
+The explicit exploration share is a product policy informed by Google's RecSys
+2021 work connecting exploration with diversity, novelty, and serendipity:
+<https://research.google/pubs/values-of-exploration-in-recommender-systems/>.
+The without-replacement key construction follows Efraimidis and Spirakis:
+<https://utopia.duth.gr/~pefraimi/research/data/2007EncOfAlg.pdf>.
+
 ---
 
 ## Couch play-first policy
@@ -510,9 +545,10 @@ a For You card uses the exact same play-session and playback ladder as every
 curated rail, including the existing 4K policy and proof boundary.
 
 `MANGO_VOD_BROWSE_V3` is a separate presentation rollout. Its Explore pool is
-the complete current verified, poster-bearing corpus after the same exact-title
-exclusions; every eligible row has positive weight. Category and AI-catalog
-deals only read existing verified pools and never mutate membership. The active
+the complete current verified, unexpired, poster-bearing corpus after the same
+exact-title exclusions; every eligible row has positive weight. Category and
+AI-catalog deals read an atomic complete eligibility index and never mutate
+source membership. The active
 tab deal is persisted atomically with one previous fallback, globally
 deduplicated, and revalidated before reuse. Browse-v3 Home/X performs no
 provider verification, metadata enrichment, StoryDNA, or ranking work; any

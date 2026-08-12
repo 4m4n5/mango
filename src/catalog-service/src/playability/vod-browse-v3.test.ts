@@ -8,12 +8,24 @@ import {
   allocateTabRailSessions,
   allocateVodExploreSession,
   getPlayabilityDb,
+  getPlayabilityStatus,
   initPlayabilityDb,
   prepareVodBrowseReservoirV3,
   persistVodTabDealV3,
   readVodTabDealV3,
   resetPlayabilityDbForTests,
 } from './db.js';
+
+const CAPPED_GROWTH_POLICY = {
+  display_limit: 9,
+  display_max: 9,
+  min_display: 6,
+  ingest_multiplier: 5,
+  pool_target: 60,
+  pool_growth_per_refresh: 10,
+  pool_max: 120,
+  grow_per_pass: 20,
+};
 
 const ENV = { ...process.env };
 
@@ -144,6 +156,81 @@ VALUES ('movies-global-popular', 'movie', ?, ?, ?, ?, ?, '2026')
   });
 });
 
+test('deep eligibility keeps source members beyond pool_max, derives exact themes, and excludes structured conflicts', async () => {
+  await withBrowseDb(async () => {
+    const db = getPlayabilityDb();
+    const now = Date.now();
+    const insertTitle = db.prepare(`
+INSERT INTO titles(type, id, status, verified_at, first_verified_at, best_source, updated_at)
+VALUES ('movie', ?, 'verified', ?, ?, 'fixture', ?)
+`);
+    const insertEvidence = db.prepare(`
+INSERT INTO title_story_evidence(type, id, title, poster_url, year, evidence_json, updated_at)
+VALUES ('movie', ?, ?, ?, '2026', ?, ?)
+`);
+    const insertMembership = db.prepare(`
+INSERT INTO rail_pool(
+  rail_id, type, id, score, ingested_at, title, poster_url, year, evidence_json
+) VALUES ('movies-comedy', 'movie', ?, ?, ?, ?, ?, '2026', ?)
+`);
+    db.transaction(() => {
+      for (let index = 0; index < 140; index += 1) {
+        const id = `tt${String(index + 500).padStart(7, '0')}`;
+        const evidence = index === 139 ? JSON.stringify({ genres: ['Drama'] }) : null;
+        insertTitle.run(id, now, now, now);
+        insertEvidence.run(id, `Comedy source ${index}`, `https://img/${id}.jpg`, evidence, now);
+        insertMembership.run(id, 140 - index, now, `Comedy source ${index}`, `https://img/${id}.jpg`, evidence);
+      }
+      insertTitle.run('tt9999991', now, now, now);
+      insertEvidence.run(
+        'tt9999991', 'Derived exact comedy', 'https://img/tt9999991.jpg',
+        JSON.stringify({ genres: ['Comedy'] }), now,
+      );
+    })();
+    await prepareVodBrowseReservoirV3({
+      tab: 'movies',
+      rails: [{
+        railId: 'movies-comedy', displayLimit: 9, minDisplay: 6,
+        playability: CAPPED_GROWTH_POLICY,
+      }],
+      affinityRevision: 'deep-eligibility-fixture',
+    });
+
+    const seen = new Set<string>();
+    let previous = new Set<string>();
+    for (let epoch = 0; epoch < 500; epoch += 1) {
+      const sessions = await allocateTabRailSessions({
+        sessionId: `deep-${epoch}`,
+        rails: [{
+          railId: 'movies-comedy', displayLimit: 9, minDisplay: 6,
+          playability: CAPPED_GROWTH_POLICY,
+        }],
+        forceReshuffle: true,
+        browseV3: true,
+        browseV3Tab: 'movies',
+        seed: `deep:${epoch}`,
+        previousSlateKeysByRail: new Map([['movies-comedy', previous]]),
+      });
+      const items = sessions.get('movies-comedy')?.items ?? [];
+      assert.equal(items.length, 9);
+      assert.equal(items.some((item) => previous.has(`${item.type}:${item.id}`)), false);
+      items.forEach((item) => seen.add(item.id));
+      previous = new Set(items.map((item) => `${item.type}:${item.id}`));
+    }
+    assert.ok(seen.has('tt0000630'), 'a source member beyond position 120 remains reachable');
+    assert.ok(seen.has('tt9999991'), 'an exact typed source-less title is reachable');
+    assert.equal(seen.has('tt0000639'), false, 'a structured source conflict is excluded');
+    const status = await getPlayabilityStatus(['movies-comedy']);
+    const rail = status.vod_browse_v3?.rails.find((item) => item.rail_id === 'movies-comedy');
+    assert.deepEqual(rail && {
+      total_eligible: rail.total_eligible,
+      source_backed: rail.source_backed,
+      derived: rail.derived,
+      conflict_excluded: rail.conflict_excluded,
+    }, { total_eligible: 140, source_backed: 139, derived: 1, conflict_excluded: 1 });
+  });
+});
+
 test('serve-time category and Explore deals fence titles that expired after reservoir publication', async () => {
   await withBrowseDb(async () => {
     const db = getPlayabilityDb();
@@ -179,6 +266,8 @@ VALUES ('series-reality-casual', 'series', ?, ?, ?, ?, ?, '2026')
     const expire = db.prepare(`UPDATE titles SET status = 'stale', updated_at = ? WHERE id = ?`);
     db.transaction(() => {
       for (const id of staleIds) expire.run(now + 1, id);
+      db.prepare("UPDATE titles SET expires_at = ?, updated_at = ? WHERE id = 'tt0000210'")
+        .run(now - 1, now + 1);
     })();
 
     const sessions = await allocateTabRailSessions({
@@ -190,7 +279,7 @@ VALUES ('series-reality-casual', 'series', ?, ?, ?, ?, ?, '2026')
       seed: 'post-expiry-category',
     });
     const category = sessions.get('series-reality-casual');
-    assert.equal(category?.verified_pool, 10);
+    assert.equal(category?.verified_pool, 9);
     assert.equal(category?.items.length, 9);
     assert.ok(category?.items.every((item) => !staleIds.has(item.id)));
 
@@ -200,7 +289,7 @@ VALUES ('series-reality-casual', 'series', ?, ?, ?, ?, ?, '2026')
       displayLimit: 9,
       seed: 'post-expiry-explore',
     });
-    assert.equal(explore.verified_pool, 10);
+    assert.equal(explore.verified_pool, 9);
     assert.equal(explore.items.length, 9);
     assert.ok(explore.items.every((item) => !staleIds.has(item.id)));
   });

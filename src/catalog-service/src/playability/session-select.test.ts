@@ -166,6 +166,51 @@ test('buildTabSessionSelections does not starve india anchor during top-up', () 
   assert.ok((selections.get('series-india-picks') ?? []).length >= 8);
 });
 
+test('deep allocation rotates ownership without changing visible rail order', () => {
+  const rails = [
+    { railId: 'rail-a', displayLimit: 1, minDisplay: 1 },
+    { railId: 'rail-b', displayLimit: 1, minDisplay: 1 },
+  ];
+  const shared = [{ type: 'movie', id: 'only', score: 1 }];
+  const pools = new Map(rails.map((rail) => [rail.railId, shared]));
+  const recent = new Map(rails.map((rail) => [rail.railId, new Set<string>()]));
+  const first = buildTabSessionSelections(rails, pools, recent, {
+    allocationOffset: 0, stableRatio: 0, seed: 'epoch-0',
+    weightForItem: () => 1,
+  });
+  const second = buildTabSessionSelections(rails, pools, recent, {
+    allocationOffset: 1, stableRatio: 0, seed: 'epoch-1',
+    weightForItem: () => 1,
+  });
+  assert.equal(first.get('rail-a')?.length, 1);
+  assert.equal(first.get('rail-b')?.length, 0);
+  assert.equal(second.get('rail-a')?.length, 0);
+  assert.equal(second.get('rail-b')?.length, 1);
+  assert.deepEqual(rails.map((rail) => rail.railId), ['rail-a', 'rail-b']);
+});
+
+test('deep weighted selection avoids one prior slate and relaxes only on shortage', () => {
+  const weights = () => 1;
+  const preferred = selectRailSessionItems(pool, {
+    displayLimit: 2,
+    recentKeys: new Set([titleKey('movie', 'tt1'), titleKey('movie', 'tt2')]),
+    occupiedKeys: new Set(),
+    stableRatio: 0,
+    seed: 'avoid-prior',
+    weightForItem: weights,
+  });
+  assert.deepEqual(new Set(preferred.map((item) => item.id)), new Set(['tt3', 'tt4']));
+  const relaxed = selectRailSessionItems(pool, {
+    displayLimit: 3,
+    recentKeys: new Set(pool.map((item) => titleKey(item.type, item.id))),
+    occupiedKeys: new Set(),
+    stableRatio: 0,
+    seed: 'relax-shortage',
+    weightForItem: weights,
+  });
+  assert.equal(relaxed.length, 3);
+});
+
 test('selectRailSessionItems excludes tab-occupied titles', () => {
   const occupied = new Set([titleKey('movie', 'tt1')]);
   const selected = selectRailSessionItems(pool, {

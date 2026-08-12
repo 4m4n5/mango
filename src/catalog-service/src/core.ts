@@ -45,6 +45,7 @@ import {
   prepareVodBrowseReservoirV3,
   persistVodTabDealV3,
   readVodTabDealV3,
+  recordVodBrowseShuffleOutcome,
   type PlayabilityStatus,
   type RailSessionPoolItem,
   type RailSessionSnapshot,
@@ -1245,6 +1246,10 @@ export class CatalogCore {
   private readonly recommendationRevisionFence = new RecommendationTabRevisionFence();
   private readonly vodBrowseAffinityCache = new Map<VodRecommendationTab, VodBrowseAffinitySnapshot>();
   private readonly vodBrowseShadowBuilds = new Map<VodRecommendationTab, Promise<void>>();
+  private readonly vodBrowseShuffleFlights = new Map<
+    VodRecommendationTab,
+    Promise<TabRailItemsResponse | ProfileOwnedTabRailItemsResponse>
+  >();
   private liveTabRailItemsCache: {
     payload: TabRailItemsResponse;
     expiresAt: number;
@@ -2605,7 +2610,12 @@ export class CatalogCore {
       }
     }
     const states = await getTitlesPlayabilityBulk(discovery);
-    return discovery.every((item) => states.get(titleKey(item.type, item.id))?.status === 'verified');
+    const now = Date.now();
+    return discovery.every((item) => {
+      const state = states.get(titleKey(item.type, item.id));
+      return state?.status === 'verified'
+        && (state.expires_at === null || state.expires_at > now);
+    });
   }
 
   private async stageVodBrowseV3(
@@ -2670,6 +2680,20 @@ export class CatalogCore {
     const dealSeed = `${tab}:deal:${nextEpoch}`;
     const sessionId = `${this.playabilitySessionId}:v3:${tab}:${nextEpoch}`;
     const utilityProfileId = vodUtilityProfileId(tab, personalization.active_profile_id);
+    const previousSlateKeysByRail = new Map<string, ReadonlySet<string>>();
+    if (stored) {
+      try {
+        const previous = JSON.parse(stored.payload_json) as TabRailItemsResponse;
+        for (const rail of previous.rails) {
+          previousSlateKeysByRail.set(
+            rail.rail_id,
+            new Set(rail.items.map((item) => titleKey(item.type, item.id))),
+          );
+        }
+      } catch {
+        // A corrupt previous deal cannot become an eligibility/exclusion input.
+      }
+    }
     try {
       const continueRail = await this.buildContinueRail(tab, utilityProfileId, {
         shuffleSeed: dealSeed,
@@ -2713,6 +2737,8 @@ export class CatalogCore {
         excludedKeys: exclusions,
         initiallyOccupiedKeys: occupied,
         affinityByKey: affinity.values,
+        previousSlateKeysByRail,
+        allocationOffset: nextEpoch,
       });
       const specialized: RailItemsResponse[] = [];
       for (const rail of rails) {
@@ -2734,6 +2760,9 @@ export class CatalogCore {
         displayLimit: 9,
         seed: `${dealSeed}:explore`,
         excludedKeys: exclusions,
+        previousSlateKeys: previousSlateKeysByRail.get(
+          tab === 'series' ? 'explore-series' : 'explore-movies',
+        ),
         occupiedKeys: occupied,
         affinityByKey: affinity.values,
       });
@@ -2759,6 +2788,7 @@ export class CatalogCore {
       const currentPlayability = await getTitlesPlayabilityBulk(discoveryItems);
       if (discoveryItems.some((item) => (
         currentPlayability.get(titleKey(item.type, item.id))?.status !== 'verified'
+        || ((currentPlayability.get(titleKey(item.type, item.id))?.expires_at ?? Infinity) <= Date.now())
       ))) {
         throw new CatalogError(503, 'VOD tab deal selected a title whose playability changed', undefined, {
           couchMessage: 'Shuffle is keeping the previous complete page',
@@ -2786,12 +2816,14 @@ export class CatalogCore {
               expected_previous_epoch: stored?.deal_epoch ?? null,
             });
           } catch (error) {
+            recordVodBrowseShuffleOutcome(Date.now() - started, 'concurrent_winner');
             throw new CatalogError(409, `VOD tab deal commit rejected: ${
               error instanceof Error ? error.message : String(error)
             }`, undefined, {
               couchMessage: 'Shuffle changed concurrently — try again',
             });
           }
+          recordVodBrowseShuffleOutcome(Date.now() - started, 'succeeded');
           if (options.publishCache !== false) {
             for (const response of specialized) {
               this.railItemsCache.set(response.rail_id, { payload: response, expiresAt });
@@ -2808,6 +2840,7 @@ export class CatalogCore {
         rollback: () => this.tabRailItemsCache.delete(cacheKey),
       };
     } catch (error) {
+      recordVodBrowseShuffleOutcome(Date.now() - started, 'last_good_retained');
       if (!reshuffle && cachedTab) {
         const utilityProfileId = vodUtilityProfileId(tab, personalization.active_profile_id);
         if (await this.vodBrowseStoredDealUsable(tab, cachedTab.payload, utilityProfileId)) {
@@ -2982,6 +3015,29 @@ export class CatalogCore {
   }
 
   async tabRailItems(
+    tab: CatalogTab,
+    options: {
+      reshuffle?: boolean;
+      expectedPersonalization?: PersonalizationSnapshot | null;
+    } = {},
+  ): Promise<TabRailItemsResponse | ProfileOwnedTabRailItemsResponse> {
+    if (options.reshuffle && (tab === 'movies' || tab === 'series')
+      && vodBrowseV3Mode() === 'serve') {
+      const existing = this.vodBrowseShuffleFlights.get(tab);
+      if (existing) return existing;
+      let running: Promise<TabRailItemsResponse | ProfileOwnedTabRailItemsResponse>;
+      running = this.tabRailItemsUncoalesced(tab, options).finally(() => {
+        if (this.vodBrowseShuffleFlights.get(tab) === running) {
+          this.vodBrowseShuffleFlights.delete(tab);
+        }
+      });
+      this.vodBrowseShuffleFlights.set(tab, running);
+      return running;
+    }
+    return this.tabRailItemsUncoalesced(tab, options);
+  }
+
+  private async tabRailItemsUncoalesced(
     tab: CatalogTab,
     options: {
       reshuffle?: boolean;

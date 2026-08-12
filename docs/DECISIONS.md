@@ -134,7 +134,7 @@ explicit product approval.
 | Content profile | `vod-content-profile-v2` is the sole executable profile: deterministic metadata/rule profiles with immutable compatible StoryDNA overlays and sparse-profile exclusion |
 | Content teacher | Stateless and selective only; canonical title evidence in, no household/companion state, and no score/rank/select/publish authority |
 | Ranker | Local deterministic uncertainty-aware story graph over the complete verified corpus |
-| Browse dealer | For You uses fit-floor relevance weighting and taste-thread quotas; Explore gives every eligible verified title positive probability; categories use trusted/theme membership; AI catalogs retain their own relevance |
+| Browse dealer | `deep-weighted-v1` samples without replacement over every eligible title at each epoch: 95% normalized relevance plus a 5% uniform floor. `pool_max` is acquisition-only. For You deals dynamically after its fit floor/threads/caps and retains current plus four rendered slates; category/Explore avoid one prior slate. Continue/Saved stay recency ordered; no exposure counter or future-page queue |
 | Serve | Atomic current/previous generations and tab deals, last-good fallback, opaque revision-bound attribution; X advances Continue, Saved, For You, Explore, every active category, and every AI catalog without inline network/ranking work |
 | Related | Detail uses compatible StoryDNA/content-profile graph edges, requires a semantic plus independent shared family, and omits rather than showing random same-rail cards |
 | Rollout | `MANGO_VOD_RECS_V2` controls the Household ranker and `MANGO_VOD_BROWSE_V3` independently controls browse presentation. Both use off/shadow/serve and preserve every historical row |

@@ -26,18 +26,20 @@ import {
 } from './config.js';
 import { AI_CATALOG_RAIL_PREFIX } from '../ai-catalogs/types.js';
 import {
+  evaluateRailCorpusRule,
   loadRailThemeProfiles,
   metaHaystack,
-  parseRuntimeMinutes,
-  scoreThematicFit,
+  railThemePolicyHash,
   type RailThemeProfile,
 } from './rail-theme.js';
 import {
   aiCatalogWeight,
   categoryWeight,
   clampUnit,
+  DEEP_WEIGHTED_ALGORITHM_VERSION,
+  DEEP_WEIGHTED_EXPLORATION_FRACTION,
+  deepWeightedDeal,
   exploreWeight,
-  weightedDeal,
 } from '../recommendations/vod-browse-v3.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
@@ -83,6 +85,10 @@ export type PlayabilityStatus = {
     failed: number;
   };
   vod_browse_v3?: {
+    algorithm: typeof DEEP_WEIGHTED_ALGORITHM_VERSION;
+    exploration_fraction: number;
+    policy_hash: string | null;
+    reservoir_generations: Record<string, number>;
     classified_memberships: number;
     trusted_memberships: number;
     ready_reservoirs: number;
@@ -90,6 +96,18 @@ export type PlayabilityStatus = {
     explore_session_rows: number;
     active_tab_deals: number;
     previous_tab_deals: number;
+    last_shuffle_latency_ms: number | null;
+    last_shuffle_stop_reason: 'succeeded' | 'last_good_retained' | 'concurrent_winner' | null;
+    rails: Array<{
+      rail_id: string;
+      total_eligible: number;
+      source_backed: number;
+      derived: number;
+      conflict_excluded: number;
+      currently_filtered: number;
+      theoretical_probability_floor: number;
+      previous_slate_exclusion: 'one_slate';
+    }>;
   };
   last_indexer_run_at: number | null;
   retry_queue: {
@@ -278,6 +296,8 @@ export type TabRailSessionAllocateOptions = {
   seed?: string;
   excludedKeys?: ReadonlySet<string>;
   initiallyOccupiedKeys?: ReadonlySet<string>;
+  previousSlateKeysByRail?: ReadonlyMap<string, ReadonlySet<string>>;
+  allocationOffset?: number;
   affinityByKey?: ReadonlyMap<string, {
     taste_adjacency: number;
     profile_confidence: number | null;
@@ -299,6 +319,7 @@ type VodBrowseReservoirItem = RailPoolRow & {
   taste_affinity: number | null;
   novelty: number | null;
   reason: string;
+  membership_kind: 'source_backed' | 'derived';
 };
 
 export type PlayabilityTriggerType =
@@ -498,6 +519,7 @@ export function resetPlayabilityDbForTests(): void {
   vodBrowseReservoirCache.clear();
   vodBrowseReservoirPreparation.clear();
   vodBrowseReservoirPreparationTail = Promise.resolve();
+  lastVodBrowseShuffleOutcome = null;
   schemaInitialized = false;
 }
 
@@ -2322,7 +2344,7 @@ ORDER BY rp.rail_id;
 SELECT MAX(started_at) AS last_indexer_run_at
 FROM verify_log;
 `).all() as IndexerRow[];
-  const browse = db.prepare(`
+  const browseCounts = db.prepare(`
 SELECT
   (SELECT COALESCE(SUM(generations.trusted_count + generations.excluded_count), 0)
    FROM vod_browse_active_reservoirs_v3 active
@@ -2343,7 +2365,67 @@ SELECT
   (SELECT COUNT(*) FROM vod_explore_sessions_v3) AS explore_session_rows,
   (SELECT COUNT(*) FROM vod_tab_deals_v3 WHERE state = 'active') AS active_tab_deals,
   (SELECT COUNT(*) FROM vod_tab_deals_v3 WHERE state = 'previous') AS previous_tab_deals
-`).get() as PlayabilityStatus['vod_browse_v3'];
+`).get() as Omit<NonNullable<PlayabilityStatus['vod_browse_v3']>,
+  'algorithm' | 'exploration_fraction' | 'policy_hash' | 'reservoir_generations' | 'rails'
+  | 'last_shuffle_latency_ms' | 'last_shuffle_stop_reason'>;
+  const activeBrowseRows = db.prepare(`
+SELECT generations.tab, generations.generation_id, generations.source_revision,
+       rails.rail_id, rails.payload_json
+FROM vod_browse_active_reservoirs_v3 active
+JOIN vod_browse_reservoir_generations_v3 generations
+  ON generations.generation_id = active.active_generation_id
+JOIN vod_browse_reservoir_rails_v3 rails
+  ON rails.generation_id = generations.generation_id
+WHERE generations.state = 'ready'
+ORDER BY generations.tab, rails.rail_id
+`).all() as Array<{
+    tab: string;
+    generation_id: number;
+    source_revision: string;
+    rail_id: string;
+    payload_json: string;
+  }>;
+  const currentVisible = new Set((db.prepare(`
+SELECT type, id FROM titles
+WHERE status = 'verified' AND (expires_at IS NULL OR expires_at > ?)
+`).all(nowMs()) as Array<{ type: string; id: string }>).map((row) => titleKey(row.type, row.id)));
+  const browseRails = activeBrowseRows.flatMap((row) => {
+    try {
+      const items = JSON.parse(row.payload_json) as VodBrowseReservoirItem[];
+      const eligible = items.filter((item) => item.trusted);
+      const currentlyEligible = eligible.filter((item) => currentVisible.has(titleKey(item.type, item.id)));
+      return [{
+        rail_id: row.rail_id,
+        total_eligible: eligible.length,
+        source_backed: eligible.filter((item) => item.membership_kind === 'source_backed').length,
+        derived: eligible.filter((item) => item.membership_kind === 'derived').length,
+        conflict_excluded: items.filter((item) => !item.trusted && item.reason === 'structured_conflict').length,
+        currently_filtered: eligible.length - currentlyEligible.length,
+        theoretical_probability_floor: currentlyEligible.length > 0
+          ? DEEP_WEIGHTED_EXPLORATION_FRACTION / currentlyEligible.length
+          : 0,
+        previous_slate_exclusion: 'one_slate' as const,
+      }];
+    } catch {
+      return [];
+    }
+  });
+  const policyHashes = new Set(activeBrowseRows.flatMap((row) => {
+    const prefix = `${DEEP_WEIGHTED_ALGORITHM_VERSION}:`;
+    return row.source_revision.startsWith(prefix)
+      ? [row.source_revision.slice(prefix.length).split(':')[0]!]
+      : [];
+  }));
+  const browse: NonNullable<PlayabilityStatus['vod_browse_v3']> = {
+    ...browseCounts,
+    algorithm: DEEP_WEIGHTED_ALGORITHM_VERSION,
+    exploration_fraction: DEEP_WEIGHTED_EXPLORATION_FRACTION,
+    policy_hash: policyHashes.size === 1 ? [...policyHashes][0]! : null,
+    reservoir_generations: Object.fromEntries(activeBrowseRows.map((row) => [row.tab, row.generation_id])),
+    last_shuffle_latency_ms: lastVodBrowseShuffleOutcome?.latency_ms ?? null,
+    last_shuffle_stop_reason: lastVodBrowseShuffleOutcome?.stop_reason ?? null,
+    rails: browseRails,
+  };
   const publication = db.prepare(`
 SELECT publication_id, run_id, git_sha, config_hash, schema_version, published_at
 FROM playability_publication
@@ -3164,8 +3246,8 @@ function currentlyVerifiedTitleKeys(
   return new Set((db.prepare(`
 SELECT type, id
 FROM titles
-WHERE type = ? AND status = 'verified'
-`).all(contentType) as Array<{ type: string; id: string }>).map(
+WHERE type = ? AND status = 'verified' AND (expires_at IS NULL OR expires_at > ?)
+`).all(contentType, nowMs()) as Array<{ type: string; id: string }>).map(
     (row) => titleKey(row.type, row.id),
   ));
 }
@@ -3243,29 +3325,26 @@ function classifyBrowseMembership(input: {
   themeProfile?: RailThemeProfile;
   tasteAffinity?: number | null;
   pinned: boolean;
+  sourceBacked: boolean;
 }): VodBrowseMembershipDecision {
   const sourcePosition = input.poolSize <= 1 ? 1 : clampUnit(1 - input.index / (input.poolSize - 1));
   const novelty = browseNovelty(input.row.first_verified_at, input.now);
   const meta = browseEvidenceMeta(input.row);
-  // A title string is identity, not enough evidence to reject a trusted source
-  // membership. Only structured evidence can safely disprove the rail theme.
-  const hasEvidence = meta !== null;
   let themeConfidence: number | null = null;
-  let trusted = true;
-  let reason = input.pinned ? 'operator_pin' : 'trusted_source';
-  if (input.themeProfile) {
-    const haystack = metaHaystack(meta, input.row.title);
-    const fit = scoreThematicFit(haystack, input.themeProfile, parseRuntimeMinutes(meta));
-    themeConfidence = clampUnit((fit - input.themeProfile.min_fit + 20) / 40);
-    const permissiveAnchor = input.themeProfile.min_fit <= 3 && fit >= 0;
-    trusted = input.pinned || !hasEvidence || fit >= input.themeProfile.min_fit || permissiveAnchor;
-    reason = input.pinned
-      ? 'operator_pin'
-      : trusted
-        ? fit >= input.themeProfile.min_fit ? 'theme_match' : 'trusted_source_sparse'
-        : 'theme_mismatch';
-  }
   const isAiCatalog = input.railId.startsWith(AI_CATALOG_RAIL_PREFIX);
+  const typed = evaluateRailCorpusRule(input.themeProfile?.corpus_rule, meta);
+  themeConfidence = typed === 'match' ? 1 : typed === 'conflict' ? 0 : null;
+  const trusted = input.pinned || isAiCatalog || (
+    input.sourceBacked ? typed !== 'conflict' : typed === 'match'
+  );
+  const reason = input.pinned
+    ? 'operator_pin'
+    : isAiCatalog
+      ? 'ai_catalog_member'
+      : input.sourceBacked
+        ? typed === 'match' ? 'source_typed_match'
+          : typed === 'conflict' ? 'structured_conflict' : 'source_sparse'
+        : 'typed_corpus_rule';
   const weight = isAiCatalog
     ? aiCatalogWeight({
       catalogRelevance: sourcePosition,
@@ -3280,13 +3359,13 @@ function classifyBrowseMembership(input: {
       pinned: input.pinned,
     });
   return {
-    trusted: isAiCatalog || trusted,
+    trusted,
     sourcePosition,
     themeConfidence,
     tasteAffinity: input.tasteAffinity ?? null,
     novelty,
     weight,
-    reason: isAiCatalog ? (input.pinned ? 'operator_pin' : 'ai_catalog_member') : reason,
+    reason,
   };
 }
 
@@ -3301,6 +3380,20 @@ type VodBrowseReservoirSnapshot = {
 const vodBrowseReservoirPreparation = new Map<'movies' | 'series', Promise<number>>();
 const vodBrowseReservoirCache = new Map<'movies' | 'series', VodBrowseReservoirSnapshot>();
 let vodBrowseReservoirPreparationTail: Promise<void> = Promise.resolve();
+let lastVodBrowseShuffleOutcome: {
+  latency_ms: number;
+  stop_reason: 'succeeded' | 'last_good_retained' | 'concurrent_winner';
+} | null = null;
+
+export function recordVodBrowseShuffleOutcome(
+  latencyMs: number,
+  stopReason: 'succeeded' | 'last_good_retained' | 'concurrent_winner',
+): void {
+  lastVodBrowseShuffleOutcome = {
+    latency_ms: Math.max(0, Math.round(latencyMs)),
+    stop_reason: stopReason,
+  };
+}
 
 function currentRecommendationCorpusGeneration(db: Database.Database): number {
   return Number((db.prepare(`
@@ -3311,13 +3404,22 @@ SELECT generation FROM recommendation_corpus_state WHERE state_id = 1
 function vodBrowseSourceRevision(
   db: Database.Database,
   tab: 'movies' | 'series',
+  policyHash: string,
 ): string {
   const type = tab === 'series' ? 'series' : 'movie';
   const row = db.prepare(`
-SELECT COUNT(*) AS count, COALESCE(MAX(ingested_at), 0) AS latest
-FROM rail_pool WHERE type = ?
-`).get(type) as { count: number; latest: number };
-  return `${row.count}:${row.latest}`;
+SELECT
+  (SELECT COUNT(*) FROM rail_pool WHERE type = ?) AS pool_count,
+  (SELECT COALESCE(MAX(ingested_at), 0) FROM rail_pool WHERE type = ?) AS pool_latest,
+  (SELECT COUNT(*) FROM title_story_evidence WHERE type = ?) AS evidence_count,
+  (SELECT COALESCE(MAX(updated_at), 0) FROM title_story_evidence WHERE type = ?) AS evidence_latest
+`).get(type, type, type, type) as {
+    pool_count: number;
+    pool_latest: number;
+    evidence_count: number;
+    evidence_latest: number;
+  };
+  return `${DEEP_WEIGHTED_ALGORITHM_VERSION}:${policyHash}:${row.pool_count}:${row.pool_latest}:${row.evidence_count}:${row.evidence_latest}`;
 }
 
 function readVodBrowseReservoirSnapshot(
@@ -3369,7 +3471,9 @@ async function buildVodBrowseReservoirV3(input: {
   const db = openDb();
   const now = nowMs();
   const corpusGeneration = currentRecommendationCorpusGeneration(db);
-  const sourceRevision = vodBrowseSourceRevision(db, input.tab);
+  const themeProfiles = await loadRailThemeProfiles();
+  const policyHash = railThemePolicyHash(themeProfiles);
+  const sourceRevision = vodBrowseSourceRevision(db, input.tab, policyHash);
   const existing = db.prepare(`
 SELECT generations.generation_id
 FROM vod_browse_active_reservoirs_v3 active
@@ -3388,21 +3492,58 @@ INSERT INTO vod_browse_reservoir_generations_v3(
 `).run(input.tab, corpusGeneration, sourceRevision, input.affinityRevision, now).lastInsertRowid);
   try {
     const overrides = await loadRailCurationOverrides();
-    const themeProfiles = await loadRailThemeProfiles();
     const railPayloads = new Map<string, { kind: 'category' | 'ai_catalog' | 'explore'; items: VodBrowseReservoirItem[] }>();
     const trustedCatalogQuality = new Map<string, number>();
     const verifiedKeys = new Set((db.prepare(`
-SELECT type, id FROM titles WHERE status = 'verified' AND type IN ('movie', 'series')
-`).all() as Array<{ type: string; id: string }>).map((row) => titleKey(row.type, row.id)));
+SELECT type, id FROM titles
+WHERE status = 'verified' AND type IN ('movie', 'series')
+  AND (expires_at IS NULL OR expires_at > ?)
+  AND (type != 'series' OR instr(id, char(58)) = 0)
+`).all(now) as Array<{ type: string; id: string }>).map((row) => titleKey(row.type, row.id)));
+    const type = input.tab === 'series' ? 'series' : 'movie';
+    const evidenceRows = db.prepare(`
+SELECT titles.type, titles.id, titles.first_verified_at, titles.best_source,
+       titles.cache_status, titles.debrid_service, titles.verified_at, titles.expires_at,
+       evidence.title, evidence.poster_url, evidence.year, evidence.evidence_json
+FROM titles
+JOIN title_story_evidence evidence ON evidence.type = titles.type AND evidence.id = titles.id
+WHERE titles.type = ? AND titles.status = 'verified'
+  AND (titles.expires_at IS NULL OR titles.expires_at > ?)
+  AND (titles.type != 'series' OR instr(titles.id, char(58)) = 0)
+  AND NULLIF(TRIM(evidence.title), '') IS NOT NULL
+  AND NULLIF(TRIM(evidence.poster_url), '') IS NOT NULL
+ORDER BY titles.id
+`).all(type, now) as RailPoolRow[];
+    const evidenceByKey = new Map(evidenceRows.map((row) => [titleKey(row.type, row.id), row]));
+    const sourceKeysForAllRails = new Set<string>();
     for (const rail of input.rails) {
-      const pool = activeRailPool(
-        curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides)
-          .filter((row) => verifiedKeys.has(titleKey(row.type, row.id))),
-        rail.playability,
-      );
+      const sourcePool = curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides)
+        .filter((row) => verifiedKeys.has(titleKey(row.type, row.id)))
+        .flatMap((row) => {
+          const evidence = evidenceByKey.get(titleKey(row.type, row.id));
+          const merged = {
+            ...row,
+            title: row.title ?? evidence?.title ?? null,
+            poster_url: row.poster_url ?? evidence?.poster_url ?? null,
+            year: row.year ?? evidence?.year ?? null,
+            evidence_json: evidence?.evidence_json ?? row.evidence_json ?? null,
+          };
+          return merged.title?.trim() && merged.poster_url?.trim() ? [merged] : [];
+        });
+      const sourceKeys = new Set(sourcePool.map((row) => titleKey(row.type, row.id)));
+      sourceKeys.forEach((key) => sourceKeysForAllRails.add(key));
+      const profile = themeProfiles.get(rail.railId);
+      const derivedPool = profile?.corpus_rule && !rail.railId.startsWith(AI_CATALOG_RAIL_PREFIX)
+        ? evidenceRows.filter((row) => (
+          !sourceKeys.has(titleKey(row.type, row.id))
+          && evaluateRailCorpusRule(profile.corpus_rule, browseEvidenceMeta(row)) === 'match'
+        )).map((row) => ({ ...row, rail_id: rail.railId, score: 0 }))
+        : [];
+      const pool = [...sourcePool, ...derivedPool];
       const pins = new Set(pinsForRail(rail.railId, overrides).map((pin) => titleKey(pin.type, pin.id)));
       const items = pool.map((row, index) => {
         const key = titleKey(row.type, row.id);
+        const sourceBacked = sourceKeys.has(key);
         const affinity = input.affinityByKey?.get(key);
         const decision = classifyBrowseMembership({
           railId: rail.railId,
@@ -3410,9 +3551,10 @@ SELECT type, id FROM titles WHERE status = 'verified' AND type IN ('movie', 'ser
           index,
           poolSize: pool.length,
           now,
-          themeProfile: themeProfiles.get(rail.railId),
+          themeProfile: profile,
           tasteAffinity: affinity?.taste_adjacency,
           pinned: pins.has(key),
+          sourceBacked,
         });
         if (decision.trusted && !rail.railId.startsWith(AI_CATALOG_RAIL_PREFIX)) {
           trustedCatalogQuality.set(key, Math.max(
@@ -3430,6 +3572,7 @@ SELECT type, id FROM titles WHERE status = 'verified' AND type IN ('movie', 'ser
           taste_affinity: decision.tasteAffinity,
           novelty: decision.novelty,
           reason: decision.reason,
+          membership_kind: sourceBacked ? 'source_backed' : 'derived',
         } satisfies VodBrowseReservoirItem;
       });
       railPayloads.set(rail.railId, {
@@ -3438,32 +3581,8 @@ SELECT type, id FROM titles WHERE status = 'verified' AND type IN ('movie', 'ser
       });
     }
 
-    const type = input.tab === 'series' ? 'series' : 'movie';
     const exploreRailId = input.tab === 'series' ? 'explore-series' : 'explore-movies';
-    const exploreRows = db.prepare(`
-SELECT titles.type, titles.id, titles.first_verified_at, titles.best_source,
-       titles.cache_status, titles.debrid_service, titles.verified_at, titles.expires_at,
-       evidence.title, evidence.poster_url, evidence.year
-FROM titles
-JOIN title_story_evidence evidence ON evidence.type = titles.type AND evidence.id = titles.id
-WHERE titles.type = ? AND titles.status = 'verified'
-  AND NULLIF(TRIM(evidence.title), '') IS NOT NULL
-  AND NULLIF(TRIM(evidence.poster_url), '') IS NOT NULL
-ORDER BY titles.id
-`).all(type) as Array<{
-      type: string;
-      id: string;
-      first_verified_at: number | null;
-      best_source: string | null;
-      cache_status: string | null;
-      debrid_service: string | null;
-      verified_at: number | null;
-      expires_at: number | null;
-      title: string;
-      poster_url: string;
-      year: string | null;
-    }>;
-    const exploreItems = exploreRows.map((row) => {
+    const exploreItems = evidenceRows.map((row) => {
       const key = titleKey(row.type, row.id);
       const affinity = input.affinityByKey?.get(key);
       const novelty = browseNovelty(row.first_verified_at, now);
@@ -3474,8 +3593,8 @@ ORDER BY titles.id
         novelty,
       });
       return {
-        rail_id: exploreRailId,
         ...row,
+        rail_id: exploreRailId,
         score: weight,
         evidence_json: null,
         weight,
@@ -3485,6 +3604,7 @@ ORDER BY titles.id
         taste_affinity: affinity?.taste_adjacency ?? null,
         novelty,
         reason: 'verified_explore',
+        membership_kind: sourceKeysForAllRails.has(key) ? 'source_backed' : 'derived',
       } satisfies VodBrowseReservoirItem;
     });
     railPayloads.set(exploreRailId, { kind: 'explore', items: exploreItems });
@@ -3493,7 +3613,7 @@ ORDER BY titles.id
       if (currentRecommendationCorpusGeneration(db) !== corpusGeneration) {
         throw new Error('verified corpus changed while Browse v3 reservoir was building');
       }
-      if (vodBrowseSourceRevision(db, input.tab) !== sourceRevision) {
+      if (vodBrowseSourceRevision(db, input.tab, policyHash) !== sourceRevision) {
         throw new Error('browse source membership changed while Browse v3 reservoir was building');
       }
       const insertRail = db.prepare(`
@@ -4207,7 +4327,9 @@ export async function allocateTabRailSessions(
       ))
       : curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides)
         .filter((item) => !options.excludedKeys?.has(titleKey(item.type, item.id)));
-    const rawPool = activeRailPool(uncappedPool, rail.playability);
+    // Browse v3 publishes and samples the complete eligibility index. pool_max
+    // remains an acquisition/growth budget for legacy paths, not a serving cap.
+    const rawPool = options.browseV3 ? uncappedPool : activeRailPool(uncappedPool, rail.playability);
     const decisions = new Map<string, VodBrowseMembershipDecision>();
     if (options.browseV3) {
       (rawPool as VodBrowseReservoirItem[]).forEach((row) => decisions.set(titleKey(row.type, row.id), {
@@ -4264,7 +4386,9 @@ WHERE rail_id = @rail_id AND session_id = @session_id;
     for (const rail of options.rails) {
       recentKeysByRail.set(
         rail.railId,
-        options.browseV3 ? new Set() : readRecentRailKeys(db, rail.railId, cooldownCutoff),
+        options.browseV3
+          ? new Set(options.previousSlateKeysByRail?.get(rail.railId) ?? [])
+          : readRecentRailKeys(db, rail.railId, cooldownCutoff),
       );
     }
 
@@ -4282,8 +4406,11 @@ WHERE rail_id = @rail_id AND session_id = @session_id;
       recentKeysByRail,
       {
         stableRatio: options.browseV3 ? 0 : options.stableRatio,
-        seed: options.seed ?? options.sessionId,
+        seed: options.browseV3
+          ? `${options.seed ?? options.sessionId}:reservoir:${browseReservoir!.generation_id}`
+          : options.seed ?? options.sessionId,
         initiallyOccupiedKeys: options.initiallyOccupiedKeys,
+        allocationOffset: options.browseV3 ? options.allocationOffset : undefined,
         weightForItem: options.browseV3
           ? (railId, item) => decisionsByRail.get(railId)?.get(titleKey(item.type, item.id))?.weight ?? 0.35
           : undefined,
@@ -4340,6 +4467,7 @@ export async function allocateVodExploreSession(options: {
   displayLimit?: number;
   seed?: string;
   excludedKeys?: ReadonlySet<string>;
+  previousSlateKeys?: ReadonlySet<string>;
   occupiedKeys?: ReadonlySet<string>;
   affinityByKey?: ReadonlyMap<string, {
     taste_adjacency: number;
@@ -4353,6 +4481,7 @@ export async function allocateVodExploreSession(options: {
   const displayLimit = Math.max(1, Math.min(12, Math.floor(options.displayLimit ?? 6)));
   const occupied = new Set(options.occupiedKeys ?? []);
   const excluded = new Set(options.excludedKeys ?? []);
+  const previous = new Set(options.previousSlateKeys ?? []);
   const existing = db.prepare(`
 SELECT sessions.type, sessions.id, sessions.title, sessions.poster_url, sessions.year,
        sessions.selection_weight, titles.best_source, titles.cache_status,
@@ -4360,8 +4489,9 @@ SELECT sessions.type, sessions.id, sessions.title, sessions.poster_url, sessions
 FROM vod_explore_sessions_v3 sessions
 JOIN titles ON titles.type = sessions.type AND titles.id = sessions.id
 WHERE sessions.tab = ? AND sessions.session_id = ? AND titles.status = 'verified'
+  AND (titles.expires_at IS NULL OR titles.expires_at > ?)
 ORDER BY sessions.slot
-`).all(options.tab, options.sessionId) as Array<{
+`).all(options.tab, options.sessionId, now) as Array<{
     type: string;
     id: string;
     title: string;
@@ -4420,7 +4550,20 @@ ORDER BY sessions.slot
       weight: row.weight,
     }];
   });
-  const selected = weightedDeal(candidates, displayLimit, options.seed ?? options.sessionId);
+  const preferred = candidates.filter((item) => !previous.has(titleKey(item.type, item.id)));
+  const dealSeed = `${options.seed ?? options.sessionId}:reservoir:${reservoir.generation_id}`;
+  const selected = deepWeightedDeal(preferred, displayLimit, dealSeed);
+  if (selected.length < displayLimit) {
+    const selectedKeys = new Set(selected.map((item) => titleKey(item.type, item.id)));
+    selected.push(...deepWeightedDeal(
+      candidates.filter((item) => (
+        previous.has(titleKey(item.type, item.id))
+        && !selectedKeys.has(titleKey(item.type, item.id))
+      )),
+      displayLimit - selected.length,
+      `${dealSeed}:relaxed-oldest`,
+    ));
+  }
   const transaction = db.transaction(() => {
     db.prepare('DELETE FROM vod_explore_sessions_v3 WHERE tab = ? AND session_id = ?')
       .run(options.tab, options.sessionId);

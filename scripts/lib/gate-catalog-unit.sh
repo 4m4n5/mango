@@ -43,7 +43,6 @@ CATALOG_DIR="${1:?catalog-service path}"
     -u MANGO_VOD_STORY_GRAPH_BOOTSTRAP_MIN \
     -u MANGO_VOD_STORY_GRAPH_COUCH_QUEUE_SCAN \
     -u MANGO_VOD_STORY_GRAPH_FIT_FLOOR \
-    -u MANGO_VOD_STORY_GRAPH_PREDEALT_SLATES \
     -u MANGO_VOD_STORY_GRAPH_PRIORITY_RESERVE \
     node --test \
     dist/play-deadline.test.js \

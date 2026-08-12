@@ -1,5 +1,7 @@
 export const VOD_BROWSE_MODEL_VERSION = 'vod-browse-v3' as const;
 export const VOD_RELATED_MODEL_VERSION = 'vod-related-v1' as const;
+export const DEEP_WEIGHTED_ALGORITHM_VERSION = 'deep-weighted-v1' as const;
+export const DEEP_WEIGHTED_EXPLORATION_FRACTION = 0.05;
 
 export type VodBrowseMode = 'off' | 'shadow' | 'serve';
 
@@ -67,6 +69,44 @@ export function weightedDeal<T extends WeightedIdentity>(
     if (winners.length > boundedLimit) winners.pop();
   }
   return winners.map(({ item }) => item);
+}
+
+/**
+ * Blend normalized relevance with an explicit uniform floor. The returned
+ * masses sum to one and every candidate is positive, even when all raw scores
+ * are absent or zero.
+ */
+export function deepSamplingMasses<T extends WeightedIdentity>(
+  items: readonly T[],
+  explorationFraction = DEEP_WEIGHTED_EXPLORATION_FRACTION,
+): number[] {
+  if (items.length === 0) return [];
+  const exploration = clampUnit(explorationFraction);
+  const raw = items.map((item) => (
+    Number.isFinite(item.weight) && item.weight > 0 ? item.weight : 0
+  ));
+  const rawSum = raw.reduce((sum, value) => sum + value, 0);
+  const uniform = 1 / items.length;
+  return raw.map((value) => (
+    (1 - exploration) * (rawSum > 0 ? value / rawSum : uniform)
+      + exploration * uniform
+  ));
+}
+
+/** Deterministic 95/5 weighted sample across the complete supplied corpus. */
+export function deepWeightedDeal<T extends WeightedIdentity>(
+  items: readonly T[],
+  limit: number,
+  seed: string,
+  explorationFraction = DEEP_WEIGHTED_EXPLORATION_FRACTION,
+): T[] {
+  const masses = deepSamplingMasses(items, explorationFraction);
+  return weightedDeal(items.map((item, index) => ({
+    item,
+    type: item.type,
+    id: item.id,
+    weight: masses[index]!,
+  })), limit, `${DEEP_WEIGHTED_ALGORITHM_VERSION}:${seed}`).map((entry) => entry.item);
 }
 
 export function percentile(values: readonly number[], value: number): number {

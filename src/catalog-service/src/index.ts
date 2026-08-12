@@ -114,6 +114,7 @@ import {
   reconcileHouseholdRecommendationIdentity,
 } from './recommendations/household-identity.js';
 import { validateOptionalRecommendationMutationAttribution } from './recommendations/mutation-attribution.js';
+import { vodBrowseV3Mode } from './recommendations/vod-browse-v3.js';
 import { assertCurrentVodRecommendationSource } from './recommendations/source-revision.js';
 import {
   setStoryDnaStructuredLookupProvider,
@@ -1589,6 +1590,13 @@ async function main(): Promise<void> {
         ['service_startup'],
       );
     }
+  }
+  // Eligibility publication is independent of ranking/provider acquisition.
+  // Reconcile algorithm or theme-policy revisions after every service start so
+  // serve mode can atomically promote a deep index without a recommendation refresh.
+  if (vodBrowseV3Mode() !== 'off') {
+    core.scheduleVodBrowseReservoirRefresh('movies');
+    core.scheduleVodBrowseReservoirRefresh('series');
   }
   core.startLiveRailsBackgroundRefresh();
   activeStreams = new ActiveStreamService();
