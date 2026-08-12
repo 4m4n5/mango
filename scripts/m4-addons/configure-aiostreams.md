@@ -108,10 +108,11 @@ See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for layer boundaries.
 
 ## Groups — conditional Easynews
 
-Use AIOStreams Groups so Easynews is queried only when primary cached supply is
-thin. Mango explicitly selects AIOStreams' `sequential` group behavior; the
-default/parallel behavior starts all groups before evaluating inclusion and is
-not a provider-call suppression mechanism.
+Use AIOStreams Groups so Easynews results are admitted only when primary cached
+supply is thin. Mango explicitly selects AIOStreams' `parallel` group behavior:
+all groups start together, while the condition controls fallback inclusion and
+early return. This avoids adding a legitimate 18–25 second Easynews season
+search after the primary wall; it is not a provider-call suppression mechanism.
 
 | Group | Addons | Condition |
 |-------|--------|-----------|

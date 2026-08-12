@@ -168,8 +168,10 @@ profile; TorBox and Real-Debrid are debrid/transport services used by those
 results. MediaFusion uses AIO's native base-URL integration so AIO supplies the
 existing services without persisting a second expiring secret manifest, and is
 limited to cached-search movie/series results. The three indexers form the
-primary AIO group; sequential Easynews fallback is admitted only when that group
-returns fewer than three cached streams. They are not six parallel Mango addons. Direct copies of the three
+primary AIO group; parallel-started Easynews results are admitted only when that
+group returns fewer than three cached streams. The condition gates result
+admission, not whether the Easynews request starts. They are not six parallel
+Mango addons. Direct copies of the three
 indexers in `stremio-export.json` duplicate work and bypass AIOStreams dedup and
 policy. Current source also retains a separate Pi-state-triggered direct
 MediaFusion supplement when the AIO pool has at most one cacheable candidate;

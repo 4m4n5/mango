@@ -56,6 +56,7 @@ class AioStreamsPolicyTest(unittest.TestCase):
         self.assertEqual(mediafusion["options"]["url"], POLICY.MEDIAFUSION_BASE_URL)
         self.assertEqual(mediafusion["options"]["resources"], ["stream"])
         self.assertEqual(mediafusion["options"]["services"], ["torbox", "realdebrid"])
+        self.assertEqual(config["groups"]["behaviour"], "parallel")
         self.assertEqual(config["groups"]["groupings"][0]["addons"], ["tor", "com", "mf"])
         self.assertEqual(config["groups"]["groupings"][1]["addons"], ["en"])
 

@@ -124,9 +124,11 @@ claims.
 
 ## AIO groups
 
-Groups condition whether Easynews is queried when cached primary supply is
-healthy. Mango uses AIOStreams' explicit `sequential` behavior; its parallel
-behavior starts all group fetches before evaluating result inclusion.
+Groups condition whether Easynews results are admitted when cached primary
+supply is healthy. Mango deliberately uses AIOStreams' `parallel` behavior so a
+legitimate 18–25 second Easynews season search does not begin only after the
+primary group finishes. All group fetches start together; the condition governs
+inclusion and early return, not provider-call suppression.
 
 | Group | Members | Condition |
 |-------|---------|-----------|

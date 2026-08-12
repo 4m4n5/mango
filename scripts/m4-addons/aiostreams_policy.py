@@ -121,7 +121,12 @@ def enable_mediafusion(document: dict[str, Any]) -> dict[str, Any]:
     fallback = [_instance_id(presets, "easynews-search")]
     config["groups"] = {
         "enabled": True,
-        "behaviour": "sequential",
+        # AIO's Easynews season searches can legitimately take 18-25 seconds.
+        # Starting that group after the primary group would exceed Mango's
+        # 14-second Streams-list wall. Parallel mode starts both groups
+        # together; the condition still controls whether fallback results are
+        # admitted, but is deliberately not claimed as provider-call suppression.
+        "behaviour": "parallel",
         "groupings": [
             {"addons": primary, "condition": "true"},
             {"addons": fallback, "condition": EASYNEWS_FALLBACK_CONDITION},
@@ -169,8 +174,8 @@ def mediafusion_policy_errors(document: dict[str, Any]) -> list[str]:
     if not isinstance(groups, dict) or groups.get("enabled") is not True:
         errors.append("AIOStreams conditional groups are not enabled")
         return errors
-    if groups.get("behaviour") != "sequential":
-        errors.append("AIOStreams groups must use sequential fallback admission")
+    if groups.get("behaviour") != "parallel":
+        errors.append("AIOStreams groups must use latency-bounded parallel evaluation")
     groupings = groups.get("groupings")
     if not isinstance(groupings, list) or len(groupings) != 2:
         errors.append("AIOStreams must have exactly two Mango provider groups")
@@ -227,7 +232,7 @@ def main() -> int:
             print(
                 "MediaFusion plan: enabled; HTTPS base integration; stream-only movie/series; "
                 "TorBox+Real-Debrid; cached-search-only; Torrentio/Comet/MediaFusion primary; "
-                "conditional Easynews fallback"
+                "parallel conditional Easynews fallback"
             )
         elif args.command == "prepare-put":
             if not args.output:
@@ -239,7 +244,7 @@ def main() -> int:
                 raise PolicyError("; ".join(errors))
             print(
                 "MediaFusion policy verified: enabled through AIOStreams; stream-only movie/series; "
-                "TorBox+Real-Debrid; cached-search-only; conditional Easynews fallback"
+                "TorBox+Real-Debrid; cached-search-only; parallel conditional Easynews fallback"
             )
         else:
             validate_manifest(document)
