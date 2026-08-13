@@ -134,4 +134,20 @@ if "before playback accepted" not in play or "expectedPersonalization" not in pl
     raise SystemExit("play-session route missing immutable profile acceptance")
 if "incrementRecommendationMetric('play_starts_for_you')" in source:
     raise SystemExit("play-session trusts client rail_id for recommendation metrics")
+
+youtube_rails = source.split("YouTube recommendation attribution context is unavailable", 1)[1].split(
+    "parts[1] === 'impressions'", 1,
+)[0]
+persist = youtube_rails.find("registerRecommendationServedSlates(servedInputs)")
+respond = youtube_rails.find("sendJson(res, 200, publicResult)")
+if persist < 0 or respond < 0 or persist > respond:
+    raise SystemExit("YouTube rails must persist served slates before the visible response")
+if "setImmediate" in youtube_rails:
+    raise SystemExit("YouTube rails must not defer served-slate persistence")
+
+play_accept = source.split("async function startPlaybackSession", 1)[1].split(
+    "const existing = await getPlaybackSession", 1,
+)[0]
+if "playbackRecommendationAttributionFromBody" not in play_accept:
+    raise SystemExit("play-session must fail-open stale recommendation slates")
 PY

@@ -228,6 +228,7 @@ import {
 import type { AiSeedTitle } from './ai-catalogs/types.js';
 import { UnifiedSearchService, parseSearchScope } from './search/service.js';
 import {
+  acceptPlaybackRecommendationAttribution,
   hasRecommendationAttributionIntent,
   isRecommendationPlaybackIdentityCompatible,
 } from './recommendations/attribution-request.js';
@@ -632,10 +633,9 @@ function recommendationAttributionFromBody<TDomain extends 'vod' | 'youtube'>(
   item_id: string;
 } | null {
   // rail_id predates recommendation attribution and is present on ordinary
-  // catalog cards for playability/rail assignment. Only the opaque proof,
-  // served revision, or explicit served-card identity opts a request into the
-  // recommendation contract; once opted in, every field (including rail_id)
-  // is mandatory and validated below.
+  // catalog and Search cards. Only an opaque token or served revision opts a
+  // request into the recommendation contract; once opted in, every field
+  // (including rail_id and card identity) is mandatory and validated below.
   const hasAnyAttribution = hasRecommendationAttributionIntent(body);
   if (!hasAnyAttribution) return null;
   if (!body.rail_id || !body.attribution_token
@@ -682,6 +682,20 @@ function recommendationAttributionFromBody<TDomain extends 'vod' | 'youtube'>(
     item_type: body.recommendation_item_type,
     item_id: body.recommendation_item_id,
   };
+}
+
+/**
+ * Explicit Play of a visible card is user intent. A missing, expired, or
+ * incomplete served slate must not block mpv. Mutations stay fail-closed via
+ * `recommendationAttributionFromBody` / `validateOptionalRecommendationMutationAttribution`.
+ */
+function playbackRecommendationAttributionFromBody<TDomain extends 'vod' | 'youtube'>(
+  body: PlayBody,
+  domain: TDomain,
+): ReturnType<typeof recommendationAttributionFromBody<TDomain>> {
+  return acceptPlaybackRecommendationAttribution(
+    () => recommendationAttributionFromBody(body, domain),
+  );
 }
 
 type VodRecommendationAttribution = NonNullable<
@@ -1387,11 +1401,11 @@ async function startPlaybackSession(
   // flight. Capture ownership at acceptance so the eventual outcome cannot be
   // credited to whichever profile happens to be active minutes later.
   const acceptedYoutubeAttribution = body.source === 'youtube'
-    ? recommendationAttributionFromBody(body, 'youtube')
+    ? playbackRecommendationAttributionFromBody(body, 'youtube')
     : null;
   const acceptedVodAttribution = body.source === 'youtube'
     ? null
-    : recommendationAttributionFromBody(body, 'vod');
+    : playbackRecommendationAttributionFromBody(body, 'vod');
   body.recommendation_profile_id = acceptedYoutubeAttribution?.profile_id
     ?? acceptedVodAttribution?.profile_id
     ?? recommendationOwnerForRollout(
@@ -2927,16 +2941,15 @@ async function main(): Promise<void> {
               attribution_token: servedInputs[index]!.attribution_token,
             })),
           }, personalization);
+          try {
+            registerRecommendationServedSlates(servedInputs);
+          } catch (error) {
+            console.warn(`YouTube recommendation attribution could not be persisted: ${
+              error instanceof Error ? error.message : String(error)
+            }`);
+            throw new CatalogError(500, 'YouTube recommendation attribution could not be persisted');
+          }
           sendJson(res, 200, publicResult);
-          setImmediate(() => {
-            try {
-              registerRecommendationServedSlates(servedInputs);
-            } catch (error) {
-              console.warn(`YouTube attribution persist lagged behind the visible shuffle: ${
-                error instanceof Error ? error.message : String(error)
-              }`);
-            }
-          });
           return;
         }
 
@@ -3080,7 +3093,7 @@ async function main(): Promise<void> {
 
         if (req.method === 'POST' && parts.length === 2 && parts[1] === 'play') {
           const body = await readBody(req);
-          const attribution = recommendationAttributionFromBody(body, 'youtube');
+          const attribution = playbackRecommendationAttributionFromBody(body, 'youtube');
           touchCouchActivity('catalog', 'youtube_play');
           sendJson(res, 200, await youtube.play({
             profile_id: attribution?.profile_id
@@ -3989,7 +4002,7 @@ async function main(): Promise<void> {
         // The compatibility /play route bypasses startPlaybackSession, so it
         // must capture attribution ownership here as well. Never trust a
         // caller-supplied profile id for recommendation outcomes.
-        const acceptedAttribution = recommendationAttributionFromBody(body, 'vod');
+        const acceptedAttribution = playbackRecommendationAttributionFromBody(body, 'vod');
         body.recommendation_profile_id = acceptedAttribution?.profile_id
           ?? recommendationOwnerForRollout('vod', activeViewerProfileId());
         touchCouchActivity('catalog', 'play');

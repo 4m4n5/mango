@@ -14,7 +14,10 @@ import {
   samePersonalizationOwner,
   type PersonalizationOwner,
 } from "./personalization";
-import { recommendationAttributionPayload } from "./recommendation-attribution";
+import {
+  playbackRecommendationFields,
+  recommendationAttributionPayload,
+} from "./recommendation-attribution";
 import { librarySourceForCard } from "./library-tab";
 
 interface RailSummaryResponse {
@@ -889,11 +892,7 @@ export async function playCard(
       id: card.id,
       title: card.title,
       poster: card.posterUrl,
-      rail_id: card.railId,
-      slate_revision: card.slateSequence,
-      attribution_token: card.attributionToken,
-      recommendation_item_type: card.type,
-      recommendation_item_id: card.id,
+      ...playbackRecommendationFields(card),
       ...personalizationExpectationBody(options.expectedOwner),
     }, requestId, options.expectedOwner, options.signal);
   }
@@ -927,20 +926,10 @@ export async function playCard(
     year: card.year,
     description: card.description,
     ...personalizationExpectationBody(options.expectedOwner),
+    ...playbackRecommendationFields(card),
   };
   if (card.type === "tv") {
     body.live = true;
-  }
-  if (card.railId) {
-    body.rail_id = card.railId;
-  }
-  if (Number.isInteger(card.slateSequence)) {
-    body.slate_revision = card.slateSequence;
-  }
-  if (card.attributionToken) {
-    body.attribution_token = card.attributionToken;
-    body.recommendation_item_type = card.type;
-    body.recommendation_item_id = card.id;
   }
   if (options.preferUrl) {
     body.prefer_url = options.preferUrl;

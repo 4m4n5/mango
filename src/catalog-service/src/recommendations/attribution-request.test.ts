@@ -1,20 +1,38 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  acceptPlaybackRecommendationAttribution,
   hasRecommendationAttributionIntent,
   isRecommendationPlaybackIdentityCompatible,
 } from './attribution-request.js';
+import { CatalogError } from '../catalog-errors.js';
 
 test('ordinary catalog rail metadata does not opt playback into recommendation attribution', () => {
   assert.equal(hasRecommendationAttributionIntent({}), false);
   assert.equal(hasRecommendationAttributionIntent({ rail_id: 'popular' } as Record<string, unknown>), false);
 });
 
-test('every recommendation-only field requires strict validation even when malformed', () => {
+test('token or served revision opts in; card identity fields do not', () => {
   assert.equal(hasRecommendationAttributionIntent({ attribution_token: '' }), true);
   assert.equal(hasRecommendationAttributionIntent({ slate_revision: 0 }), true);
-  assert.equal(hasRecommendationAttributionIntent({ recommendation_item_type: '' }), true);
-  assert.equal(hasRecommendationAttributionIntent({ recommendation_item_id: null }), true);
+  assert.equal(hasRecommendationAttributionIntent({ recommendation_item_type: 'youtube_video' }), false);
+  assert.equal(hasRecommendationAttributionIntent({ recommendation_item_id: 'abc' }), false);
+});
+
+test('playback ignores stale recommendation slates and reraises other failures', () => {
+  assert.equal(
+    acceptPlaybackRecommendationAttribution(() => {
+      throw new CatalogError(409, 'this recommendation slate is no longer current');
+    }),
+    null,
+  );
+  assert.deepEqual(acceptPlaybackRecommendationAttribution(() => ({ rail_id: 'for-you' })), { rail_id: 'for-you' });
+  assert.throws(
+    () => acceptPlaybackRecommendationAttribution(() => {
+      throw new CatalogError(500, 'YouTube recommendation attribution could not be persisted');
+    }),
+    (error: unknown) => error instanceof CatalogError && error.status === 500,
+  );
 });
 
 test('playback identity must match the served recommendation card', () => {

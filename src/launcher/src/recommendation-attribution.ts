@@ -22,3 +22,27 @@ export function recommendationAttributionPayload(
   if (card.slateSequence !== undefined) payload.slate_revision = card.slateSequence;
   return payload;
 }
+
+export type PlaybackRecommendationFields = RecommendationAttributionPayload & {
+  recommendation_item_type?: string;
+  recommendation_item_id?: string;
+};
+
+/**
+ * Play may carry a display rail id without claiming a served slate. Item
+ * identity is proof's companion, not an opt-in: Search and History without a
+ * token must play as ordinary YouTube, not as a recommendation watch.
+ */
+export function playbackRecommendationFields(
+  card: Pick<ContentCard, 'attributionToken' | 'railId' | 'slateSequence' | 'type' | 'id'>,
+): PlaybackRecommendationFields {
+  const fields: PlaybackRecommendationFields = {};
+  if (card.railId) fields.rail_id = card.railId;
+  if (Number.isInteger(card.slateSequence)) fields.slate_revision = card.slateSequence;
+  if (card.attributionToken) {
+    fields.attribution_token = card.attributionToken;
+    fields.recommendation_item_type = card.type;
+    fields.recommendation_item_id = card.id;
+  }
+  return fields;
+}
