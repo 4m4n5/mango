@@ -3,15 +3,17 @@
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
 Latest recorded Pi deployment: **2026-08-13**,
-`9c0dd4e626ef3294d6160039316e22168d6dfe8e`. Search Up-to-scopes input decoupling
-is on that SHA. YouTube still started at muxed 360p there because resolve pinned
-`player_client=tv,android,ios`, which replaced yt-dlp's default clients and left
-only itag 18. The standard pre-couch gate, Search smoke, and YouTube smoke all
-**PASS**. Reliability remains usable-yellow (`broken_verified=4/32`). The pad
-router is waiting for the 8BitDo. Human couch verdict remains **DEFERRED**. Prior 2026-08-13 line
-`bfc157d` still records Search keyboard/focus and YouTube play-session
-attribution. Use `git status`, `git rev-parse HEAD`, and the Pi commands below
-before acting.
+`333e663650c98ae2290e98e7cfedd4890942dc0a`. YouTube resolve no longer pins
+`player_client`; muxed 360p is not a candidate. Catalog-service was rebuilt and
+restarted on this SHA. The standard pre-couch gate, Search smoke, and YouTube
+smoke all **PASS**. A Pi `yt-dlp` print with the catalog selector (no extractor
+args) selected `299+251` 1080p on the Household video that previously listed
+only itag 18; smoke does not play video, so HUD start-height remains
+couch-deferred. Reliability remains usable-yellow (`broken_verified=3/32`). The
+pad router is waiting for the 8BitDo. Human couch verdict remains **DEFERRED**.
+Prior 2026-08-13 line `9c0dd4e` still records Search Up-to-scopes input
+decoupling; that SHA's client pin is what left only itag 18. Use `git status`,
+`git rev-parse HEAD`, and the Pi commands below before acting.
 
 ## How to read this page
 
