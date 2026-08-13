@@ -20,10 +20,14 @@ SESSION="src/catalog-service/src/active-stream-session.ts"
 MPV="src/catalog-service/src/mpv.ts"
 PAD="scripts/m1-foundation/pad/mango-tv-pad.py"
 
-grep -q 'HUD_X, HUD_Y, HUD_W, HUD_H = 192, 744, 1536, 272' "$HUD" \
-  || fail "cinematic safe-area HUD geometry missing"
-grep -q 'DRAWER_Y, DRAWER_H = 454, 626' "$HUD" \
-  || fail "58-percent bottom drawer geometry missing"
+grep -q 'HUD_X, HUD_Y, HUD_W, HUD_H = 160, 772, 1600, 236' "$HUD" \
+  || fail "floating-card HUD geometry missing"
+grep -q 'SHEET_X, SHEET_Y, SHEET_W, SHEET_H = 160, 228, 1600, 780' "$HUD" \
+  || fail "inset Streams sheet geometry missing"
+grep -q 'local function draw_pill' "$HUD" \
+  || fail "language pill helper missing"
+! grep -q 'Subtitles ·\|Audio ·' "$HUD" \
+  || fail "title-hijacking subtitle/audio copy remains"
 grep -q 'mp.observe_property("paused-for-cache"' "$HUD" \
   || fail "event-driven buffering observer missing"
 grep -q 'mp.add_timeout(1.0' "$HUD" \

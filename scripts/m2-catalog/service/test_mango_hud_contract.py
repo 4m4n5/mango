@@ -11,20 +11,35 @@ HUD = Path(__file__).with_name("mango-hud.lua").read_text(encoding="utf-8")
 
 
 class MangoHudContractTest(unittest.TestCase):
-    def test_cinematic_safe_area_geometry_and_type_scale(self) -> None:
-        self.assertIn("HUD_X, HUD_Y, HUD_W, HUD_H = 192, 744, 1536, 272", HUD)
-        self.assertIn("DRAWER_Y, DRAWER_H = 454, 626", HUD)
-        self.assertIn('C_AMBER = "&H0020A0E8&"', HUD)
-        self.assertIn(" 42, C_WHITE, headline", HUD)
-        self.assertIn(" 28, C_MUTED, contextual_hints()", HUD)
+    def test_floating_card_geometry_and_material(self) -> None:
+        self.assertIn("HUD_X, HUD_Y, HUD_W, HUD_H = 160, 772, 1600, 236", HUD)
+        self.assertIn("SHEET_X, SHEET_Y, SHEET_W, SHEET_H = 160, 228, 1600, 780", HUD)
+        self.assertIn("CARD_RADIUS = 20", HUD)
+        self.assertIn('C_ACCENT = "&H0020A0E8&"', HUD)
+        self.assertIn('C_PRIMARY = "&H00EAF1F4&"', HUD)
+        self.assertIn("local function rounded_rect", HUD)
+        self.assertIn("local function draw_pill", HUD)
+        self.assertNotIn("HUD_X, HUD_Y, HUD_W, HUD_H = 192, 744, 1536, 272", HUD)
+        self.assertNotIn("DRAWER_Y, DRAWER_H = 454, 626", HUD)
 
-    def test_title_unicode_action_and_adaptive_timeout_contracts(self) -> None:
-        self.assertIn("local function utf8_prefix", HUD)
-        self.assertIn('reason:match("^seek:([+-]?%d+)$")', HUD)
-        self.assertIn('return "Subtitles · " .. utf8_prefix(label, 42), LONG_SEC', HUD)
-        self.assertIn('return "Audio · " .. utf8_prefix', HUD)
+    def test_language_pills_and_stable_title(self) -> None:
+        self.assertIn('return "↑  " .. stub.subs', HUD)
+        self.assertIn('return "↑  Off"', HUD)
+        self.assertIn('return "A  " .. stub.audio', HUD)
+        self.assertIn('tostring(hud_reason) == "subs"', HUD)
+        self.assertIn('tostring(hud_reason) == "audio"', HUD)
+        self.assertIn("local function identity_title", HUD)
+        self.assertNotIn("Subtitles ·", HUD)
+        self.assertNotIn("Audio ·", HUD)
         self.assertIn("local LONG_SEC = 6.0", HUD)
         self.assertIn('or "4.0"', HUD)
+
+    def test_seek_volume_transients_without_title_hijack(self) -> None:
+        self.assertIn('reason:match("^seek:([+-]?%d+)$")', HUD)
+        self.assertIn('return "Vol " .. tostring(volume)', HUD)
+        self.assertIn("local function seek_transient", HUD)
+        self.assertIn("seeking() and C_ACCENT or C_PRIMARY", HUD)
+        self.assertIn("local function utf8_prefix", HUD)
 
     def test_pause_buffering_live_and_clean_start_contracts(self) -> None:
         self.assertIn('overlay_mode = "hidden"', HUD)
@@ -34,24 +49,39 @@ class MangoHudContractTest(unittest.TestCase):
         self.assertIn("mp.add_timeout(1.0", HUD)
         self.assertIn('PLAYBACK_KIND == "tv"', HUD)
         self.assertIn('PLAYBACK_KIND ~= "youtube_video"', HUD)
-        self.assertIn('build_badge_ass("Buffering…"', HUD)
+        self.assertIn('build_badge_ass("Buffering"', HUD)
+        self.assertIn('build_badge_ass("Paused"', HUD)
+        self.assertNotIn("Buffering…", HUD)
 
-    def test_drawer_readiness_focus_and_failure_contracts(self) -> None:
+    def test_sheet_readiness_focus_and_failure_contracts(self) -> None:
         self.assertIn('return "Ready now"', HUD)
         self.assertIn('return "May take longer"', HUD)
         self.assertIn('return "Unavailable"', HUD)
         self.assertIn('"May stutter on this device"', HUD)
         self.assertIn("local function initial_stream_focus", HUD)
         self.assertIn("selected.unavailable == true", HUD)
+        self.assertIn('text_ev(9, list_x + list_w - 20, y + 22, 20, C_ACCENT, "Now"', HUD)
+        self.assertIn("A_FOCUS", HUD)
         self.assertNotIn("Try smoother source", HUD)
         self.assertNotIn("FINAL FALLBACK", HUD)
+        self.assertNotIn("✓  Playing", HUD)
+        self.assertNotIn("4px white", HUD)
 
     def test_switch_confirmation_and_contextual_undo_are_revisioned(self) -> None:
         self.assertIn("switch_undo_candidate_id", HUD)
         self.assertIn("switch_confirmed_at", HUD)
         self.assertIn("revision = state.revision", HUD)
+        self.assertIn("revision = stream_state.revision", HUD)
         self.assertIn("undo = true", HUD)
         self.assertIn("or request_pending then return", HUD)
+        self.assertIn('hud_reason = "confirmation"', HUD)
+        self.assertNotIn("PLAYBACK_TITLE = START_CONFIRMATION", HUD)
+
+    def test_accent_is_state_only(self) -> None:
+        self.assertIn("seeking() and C_ACCENT or C_PRIMARY", HUD)
+        self.assertIn('tostring(hud_reason) == "subs"', HUD)
+        self.assertNotIn("C_AMBER", HUD)
+        self.assertNotIn("C_CHARCOAL", HUD)
 
 
 if __name__ == "__main__":

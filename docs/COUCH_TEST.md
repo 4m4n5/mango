@@ -167,16 +167,16 @@ bash scripts/m6-ship/gate-m6-stream-picker-smoke.sh
 | ID | Check | Expected | Verdict/evidence |
 |----|-------|----------|------------------|
 | H1 | Startup | No HUD until interaction; clean film image | |
-| H2 | Normal HUD | Safe-area cinematic panel; title/episode; elapsed and negative remaining; one proven technical line; contextual hints | |
-| H3 | Feedback | Exact signed seek, volume value, subtitle/audio selection, pause/resume; 4 s normal and 6 s track/error dwell | |
-| H4 | Pause | Full panel settles to a small persistent centered Paused badge; disappears immediately on resume | |
+| H2 | Normal HUD | Translucent floating card; stable title/episode; time + hairline + remaining; picture meta caption; ↑/A language pills; B/X/Y verbs | |
+| H3 | Feedback | Title stays put; signed seek on the hairline; Vol n on the identity row; active language pill goes amber for 6 s; 4 s normal dwell | |
+| H4 | Pause | Full card settles to a small persistent centered Paused capsule; disappears immediately on resume | |
 | H5 | Buffering | Appears only after 1 s anti-flicker and clears immediately on recovery | |
-| H6 | Live | LIVE badge, no false timeline, no X guidance/response | |
+| H6 | Live | LIVE pill, no false timeline, no X guidance/response | |
 | H7 | YouTube | X has no response; native playback controls remain coherent | |
-| H8 | Drawer layout | 58%-height bottom drawer/local scrim; vivid playing video; stable 60/40 list/detail layout | |
-| H9 | Five choices | Maximum five including current first; current amber Playing/check; best usable alternative initially focused | |
+| H8 | Drawer layout | Inset floating sheet (same width/material as HUD), local scrim above, vivid playing video, list/detail columns | |
+| H9 | Five choices | Maximum five including current first; current amber Now; best usable alternative initially focused | |
 | H10 | Readiness | Ready now / May take longer / Unavailable; risky copy says May stutter on this device; details explain why | |
-| H11 | Focus/disabled | 4 px white focus distinct from current; unavailable last, visibly disabled, and B cannot select it | |
+| H11 | Focus/disabled | 8% row lift + 3 px left bar distinct from Now; unavailable last, visibly disabled, and B cannot select it | |
 | H12 | Checking | Chosen row says Checking stream…; duplicate input suppressed; current play continues | |
 | H13 | Success | Drawer closes; Now playing confirmation; X temporarily Undo; position/tracks/subtitle state continue | |
 | H14 | Undo | Restores prior candidate by opaque ID/latest revision, then restores normal X-to-Streams ownership | |

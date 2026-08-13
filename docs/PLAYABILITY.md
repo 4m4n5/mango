@@ -146,10 +146,10 @@ Vidyalaya* S1E3.
 
 ### In-playback stream picker
 
-For movies and series, **X** opens a 58%-height Streams drawer inside the mpv
+For movies and series, **X** opens an inset Streams sheet inside the mpv
 Lua HUD. Its URL-free five-choice roster pins the current source first and
 focuses the best usable alternative; unavailable rows are disabled and last.
-The 60/40 layout separates balanced readiness rows from provider, size,
+The list/detail layout separates readiness rows from provider, size,
 bitrate, release, audio, codec, and compatibility detail. **Up/Down** moves,
 **B** selects an available row, and **Y** closes before normal Back can stop
 playback. Video continues visibly above the local scrim. Closing removes the

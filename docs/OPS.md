@@ -215,8 +215,10 @@ mapped. The playback OSD and pad never call
 constant physical size (1080p reference), redraws ~1 Hz only while visible,
 and starts with no chrome. Normal feedback lasts 4s; track/error feedback lasts
 6s. Pause settles to a persistent small badge, and a real mpv cache pause shows
-`Buffering…` only after a 1s anti-flicker delay. Pad **↑** is the sole subtitle
+`Buffering` only after a 1s anti-flicker delay. Pad **↑** is the sole subtitle
 control (show-first, then force-on + cycle); **A** is show-first for audio.
+Idle HUD language pills show the current subtitle and audio state and teach
+that second press.
 4K+audio smoothness requires `--blend-subtitles=no`
 (default in `mpv-play.sh`); `blend-subtitles=yes` causes sustained ~2.5 frame
 drops/s on Pi 5 even with healthy cache and audio on. Probe with
@@ -233,8 +235,8 @@ Audit the active resolver graph and URL-free contribution evidence for a title:
 bash scripts/diag/playback-ladder-health.sh movie tt3268458
 ```
 
-During movie/series playback, **X** opens the mpv-native 58%-height Streams
-drawer. It uses the localhost active-stream API and URL-free
+During movie/series playback, **X** opens the mpv-native inset Streams
+sheet. It uses the localhost active-stream API and URL-free
 `~/.cache/mango/active-streams.json`; opening it performs no provider resolve.
 The current source is first in a maximum-five roster; unavailable rows are last
 and cannot be selected. **Up/Down** moves, **B** validates/selects, and **Y**

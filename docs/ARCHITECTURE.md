@@ -76,16 +76,20 @@ reveal at browse geometry). Shared helpers live in
 home, present, deploy. HDMI mode during a play session is owned only by
 `mpv-play` start/stop — the playback OSD and pad must never call `playback-auto`
 / display-ensure. The mpv Lua HUD (`mango-hud.lua`) is a cinematic 1080p-reference
-libass surface: a safe-area floating playback panel, persistent minimal pause
-badge, delayed event-driven buffering badge, and 58%-height Streams drawer.
-It starts clean, redraws progress only while visible, and polls the sanitized
-stream snapshot only while Streams is open. A switch confirmation may perform
+libass surface: a translucent floating card (1600×236, 160px inset) with a
+stable title, time/hairline instrument, labeled ↑/A language pills, and caption
+B/X/Y verbs; a persistent minimal pause badge; a delayed event-driven buffering
+badge; and an inset Streams sheet of the same material. Amber is state only
+(active pill, seeking playhead, current stream). It starts clean, redraws
+progress only while visible, and polls the sanitized stream snapshot only while
+Streams is open. A switch confirmation may perform
 one URL-free snapshot read when X is pressed for contextual Undo. No Chromium
 overlay or second steady-state HUD process is used. The catalog passes only
 sanitized title/episode/playback-kind metadata into mpv; URLs, filenames, and
 raw IDs never become HUD fallback copy. The pad drives mpv via IPC. **↑** is
 the sole subtitle control (show-first, then force-on + cycle); **A** is
-show-first for audio.
+show-first for audio. Idle language pills (`↑` / `A`) teach that second press
+without replacing the title.
 `--blend-subtitles` defaults to **no** (ASS overlay): `yes` stalls 4K present
 when audio is decoded (~2.5 drops/s on Pi 5 / X11 EGL). Override only for A/B
 via `MANGO_MPV_BLEND_SUBTITLES`.

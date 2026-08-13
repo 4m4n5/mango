@@ -1,4 +1,4 @@
--- Mango cinematic playback HUD and in-player Streams drawer.
+-- Mango cinematic playback HUD and in-player Streams sheet.
 --
 -- Everything is drawn into mpv's libass overlay. Keeping one fullscreen window
 -- preserves the Pi's direct-scanout path; the legacy Tk overlay remains a
@@ -25,20 +25,29 @@ local START_REOPEN_STREAMS = os.getenv("MANGO_PLAYBACK_REOPEN_STREAMS") == "1"
 local FIXTURES = os.getenv("MANGO_HUD_FIXTURES") == "1"
 
 local CANVAS_W, CANVAS_H = 1920, 1080
-local SAFE_X = 96
-local HUD_X, HUD_Y, HUD_W, HUD_H = 192, 744, 1536, 272
-local DRAWER_Y, DRAWER_H = 454, 626
+local HUD_X, HUD_Y, HUD_W, HUD_H = 160, 772, 1600, 236
+local SHEET_X, SHEET_Y, SHEET_W, SHEET_H = 160, 228, 1600, 780
+local CARD_RADIUS = 20
+local PILL_RADIUS = 10
+local PAD = 36
+local HAIRLINE_H = 3
+local PLAYHEAD = 6
+local PILL_H = 36
 
--- ASS uses BBGGRR and 00..FF alpha.
-local C_WHITE = "&H00F2F5F5&"
-local C_MUTED = "&H00B1B6BA&"
-local C_DIM = "&H00858B90&"
-local C_CHARCOAL = "&H00161412&"
-local C_ROW = "&H00282320&"
-local C_ROW_CURRENT = "&H002B2720&"
-local C_AMBER = "&H0020A0E8&" -- Mango #e8a020
+-- ASS uses BBGGRR and 00..FF alpha (00 opaque).
+local C_PRIMARY = "&H00EAF1F4&" -- #F4F1EA
+local C_SECONDARY = "&H00818586&"
+local C_CAPTION = "&H00595C5D&"
+local C_CARD = "&H000E0C0B&" -- #0B0C0E
+local C_WHITE = "&H00FFFFFF&"
+local C_ACCENT = "&H0020A0E8&" -- Mango #e8a020, state only
 local C_ERROR = "&H00656AEB&"
 local C_BLACK = "&H00000000&"
+local A_CARD = "&H70&"
+local A_PILL = "&HEB&"
+local A_HAIRLINE = "&HD2&"
+local A_FOCUS = "&HEB&"
+local A_SCRIM = { "&HD8&", "&HB8&", "&H90&" }
 
 local overlay = mp.create_osd_overlay("ass-events")
 overlay.res_x = CANVAS_W
@@ -57,8 +66,19 @@ local stream_state = nil
 local stream_index = 1
 local request_pending = false
 local confirmation_until = 0
+local confirmation_copy = ""
 local fixture_name = nil
 local render
+
+local LANG_NAMES = {
+  en = "English", eng = "English", hi = "Hindi", hin = "Hindi",
+  es = "Spanish", spa = "Spanish", fr = "French", fre = "French", fra = "French",
+  de = "German", ger = "German", deu = "German", ja = "Japanese", jp = "Japanese",
+  ko = "Korean", zh = "Chinese", chi = "Chinese", zho = "Chinese",
+  ta = "Tamil", te = "Telugu", ml = "Malayalam", kn = "Kannada",
+  mr = "Marathi", bn = "Bengali", pa = "Punjabi", ur = "Urdu",
+  it = "Italian", pt = "Portuguese", ru = "Russian", ar = "Arabic",
+}
 
 local function trim(value)
   return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
@@ -66,6 +86,19 @@ end
 
 local function clean_text(value)
   return trim(tostring(value or ""):gsub("[%z\1-\31\127]", " "):gsub("%s+", " "))
+end
+
+local function utf8_len(value)
+  local text = clean_text(value)
+  local index, count = 1, 0
+  while index <= #text do
+    local byte = text:byte(index)
+    local width = byte < 0x80 and 1 or byte < 0xE0 and 2 or byte < 0xF0 and 3 or 4
+    if index + width - 1 > #text then break end
+    index = index + width
+    count = count + 1
+  end
+  return count
 end
 
 local function utf8_prefix(value, max_chars)
@@ -112,6 +145,49 @@ local function rect_ev(x, y, width, height, colour, alpha)
   )
 end
 
+local function fill_disc(cx, cy, r, colour, alpha)
+  local k = math.max(1, math.floor(r * 0.552 + 0.5))
+  local path = string.format(
+    "m %d 0 b %d %d %d %d 0 %d b %d %d %d %d %d 0 b %d %d %d %d 0 %d b %d %d %d %d %d 0",
+    -r,
+    -r, -k, -k, -r, -r,
+    k, -r, r, -k, r,
+    r, k, k, r, r,
+    -k, r, -r, k, -r
+  )
+  return string.format(
+    "{\\an7\\pos(%d,%d)\\1c%s\\1a%s\\bord0\\shad0\\p1}%s{\\p0}",
+    cx, cy, colour, alpha or "&H00&", path
+  )
+end
+
+local function rounded_rect(x, y, w, h, r, colour, alpha)
+  r = math.max(1, math.min(r, math.floor(math.min(w, h) / 2)))
+  alpha = alpha or "&H00&"
+  return table.concat({
+    rect_ev(x + r, y, w - 2 * r, h, colour, alpha),
+    rect_ev(x, y + r, r, h - 2 * r, colour, alpha),
+    rect_ev(x + w - r, y + r, r, h - 2 * r, colour, alpha),
+    fill_disc(x + r, y + r, r, colour, alpha),
+    fill_disc(x + w - r, y + r, r, colour, alpha),
+    fill_disc(x + r, y + h - r, r, colour, alpha),
+    fill_disc(x + w - r, y + h - r, r, colour, alpha),
+  }, "\n")
+end
+
+local function pill_width(text)
+  return math.max(96, utf8_len(text) * 12 + 32)
+end
+
+local function draw_pill(x, y, text, active)
+  local width = pill_width(text)
+  local colour = active and C_ACCENT or C_PRIMARY
+  return table.concat({
+    rounded_rect(x, y, width, PILL_H, PILL_RADIUS, C_WHITE, A_PILL),
+    text_ev(5, x + math.floor(width / 2), y + math.floor(PILL_H / 2), 22, colour, text, active == true),
+  }, "\n"), width
+end
+
 local function write_visible_state(is_visible, state_mode)
   local payload = string.format(
     '{"visible":%s,"mode":"%s","ts":%d,"visible_sec":%.1f}\n',
@@ -135,30 +211,49 @@ local function track_active(id)
   return number ~= nil and number > 0
 end
 
+local function tracks_of(track_type)
+  local found = {}
+  local tracks = mp.get_property_native("track-list")
+  if type(tracks) ~= "table" then return found end
+  for _, track in ipairs(tracks) do
+    if type(track) == "table" and track.type == track_type then
+      found[#found + 1] = track
+    end
+  end
+  return found
+end
+
 local function selected_track(track_type)
   local property = track_type == "audio" and "aid" or "sid"
   local selected = mp.get_property_native(property)
   if not track_active(selected) then return nil end
-  local tracks = mp.get_property_native("track-list")
-  if type(tracks) ~= "table" then return nil end
+  local tracks = tracks_of(track_type)
   for _, track in ipairs(tracks) do
-    if type(track) == "table" and track.type == track_type and tonumber(track.id) == tonumber(selected) then
-      return track
-    end
+    if tonumber(track.id) == tonumber(selected) then return track end
   end
   return nil
 end
 
-local function track_label(track, fallback)
-  if type(track) ~= "table" then return fallback end
-  local language = clean_text(track.lang):upper()
+local function language_name(track)
+  if type(track) ~= "table" then return nil end
+  local code = clean_text(track.lang):lower()
+  if code ~= "" and LANG_NAMES[code] then return LANG_NAMES[code] end
   local title = clean_text(track.title)
-  if title ~= "" and language ~= "" and not title:upper():find(language, 1, true) then
-    return title .. " (" .. language .. ")"
-  end
   if title ~= "" then return title end
-  if language ~= "" then return language end
-  return fallback
+  if code ~= "" then return code:upper() end
+  return nil
+end
+
+local function channel_label()
+  local channels = clean_text(mp.get_property_native("audio-params/hr-channels"))
+  if channels == "" then
+    local count = tonumber(mp.get_property_native("audio-params/channel-count"))
+    if count == 2 then return "Stereo" end
+    if count then return string.format("%g ch", count) end
+    return nil
+  end
+  if channels == "stereo" then return "Stereo" end
+  return channels:upper()
 end
 
 local function resolution_label()
@@ -174,7 +269,6 @@ end
 local function hdr_label()
   local gamma = clean_text(mp.get_property_native("video-params/gamma")):lower()
   if gamma:find("pq", 1, true) or gamma:find("hlg", 1, true) then return "HDR" end
-  if gamma ~= "" and gamma ~= "unknown" then return "SDR" end
   return nil
 end
 
@@ -188,28 +282,9 @@ local function codec_label()
   return codec:upper()
 end
 
-local function audio_essential()
-  local track = selected_track("audio")
-  local language = type(track) == "table" and clean_text(track.lang):upper() or ""
-  local channels = clean_text(mp.get_property_native("audio-params/hr-channels"))
-  if channels == "" then
-    local count = tonumber(mp.get_property_native("audio-params/channel-count"))
-    if count then channels = count == 2 and "Stereo" or string.format("%g ch", count) end
-  elseif channels == "stereo" then
-    channels = "Stereo"
-  else
-    channels = channels:upper()
-  end
+local function picture_meta()
   local pieces = {}
-  if language ~= "" then pieces[#pieces + 1] = language end
-  if channels ~= "" then pieces[#pieces + 1] = channels end
-  if #pieces == 0 then return nil end
-  return table.concat(pieces, " ")
-end
-
-local function technical_line()
-  local pieces = {}
-  for _, value in ipairs({ resolution_label(), hdr_label(), codec_label(), audio_essential() }) do
+  for _, value in ipairs({ resolution_label(), hdr_label(), codec_label() }) do
     if value and value ~= "" then pieces[#pieces + 1] = value end
   end
   return table.concat(pieces, "  ·  ")
@@ -220,33 +295,21 @@ local function display_title()
   local context = clean_text(PLAYBACK_CONTEXT)
   if title == "" then title = "Playing" end
   if context ~= "" then title = title .. " · " .. context end
-  return utf8_prefix(title, 68)
+  return utf8_prefix(title, 52)
 end
 
-local function current_action(reason)
+local function identity_title()
+  if tostring(hud_reason) == "error" then return "Playback needs attention" end
+  return display_title()
+end
+
+local function dwell_seconds(reason)
   reason = tostring(reason or "show")
-  local seek = reason:match("^seek:([+-]?%d+)$")
-  if seek then
-    local amount = tonumber(seek) or 0
-    return string.format("%s%d seconds", amount < 0 and "−" or "+", math.abs(amount)), NORMAL_SEC
+  if reason == "subs" or reason == "audio" or reason == "error"
+    or reason == "confirmation" then
+    return LONG_SEC
   end
-  if reason == "left" then return "−10 seconds", NORMAL_SEC end
-  if reason == "right" then return "+10 seconds", NORMAL_SEC end
-  if reason == "volume" then
-    return "Volume " .. math.floor((mp.get_property_number("volume") or 0) + 0.5), NORMAL_SEC
-  end
-  if reason == "subs" then
-    local visible_subs = mp.get_property_native("sub-visibility") == true
-    local label = visible_subs and track_label(selected_track("sub"), "On") or "Off"
-    return "Subtitles · " .. utf8_prefix(label, 42), LONG_SEC
-  end
-  if reason == "audio" then
-    return "Audio · " .. utf8_prefix(track_label(selected_track("audio"), "Default"), 42), LONG_SEC
-  end
-  if reason == "pause" then return "Paused", NORMAL_SEC end
-  if reason == "resume" then return "Playing", NORMAL_SEC end
-  if reason == "error" then return "Playback needs attention", LONG_SEC end
-  return display_title(), NORMAL_SEC
+  return NORMAL_SEC
 end
 
 local function x_supported()
@@ -258,7 +321,7 @@ local function contextual_hints()
   local hints = { paused and "B  Resume" or "B  Pause" }
   if x_supported() then hints[#hints + 1] = "X  Streams" end
   hints[#hints + 1] = "Y  Back"
-  return table.concat(hints, "     ")
+  return table.concat(hints, "            ")
 end
 
 local function is_live()
@@ -266,39 +329,134 @@ local function is_live()
   return PLAYBACK_KIND == "tv"
 end
 
+local function fixture_pills()
+  if not FIXTURES then return nil end
+  if fixture_name == "live" then return { subs = nil, audio = "English" } end
+  if fixture_name == "subs-off" then return { subs = "Off", audio = "Hindi 5.1" } end
+  return { subs = "English", audio = "Hindi 5.1" }
+end
+
+local function subtitle_chip()
+  local stub = fixture_pills()
+  if stub then
+    if stub.subs == nil then return nil end
+    return "↑  " .. stub.subs
+  end
+  if #tracks_of("sub") == 0 then return nil end
+  if mp.get_property_native("sub-visibility") ~= true then return "↑  Off" end
+  return "↑  " .. utf8_prefix(language_name(selected_track("sub")) or "On", 18)
+end
+
+local function audio_chip()
+  local stub = fixture_pills()
+  if stub then
+    if stub.audio == nil then return nil end
+    return "A  " .. stub.audio
+  end
+  local track = selected_track("audio")
+  if #tracks_of("audio") == 0 and not track then return nil end
+  local pieces = {}
+  local language = language_name(track)
+  if language then pieces[#pieces + 1] = language end
+  local channels = channel_label()
+  if channels then pieces[#pieces + 1] = channels end
+  if #pieces == 0 then pieces[1] = "Default" end
+  return "A  " .. utf8_prefix(table.concat(pieces, " "), 22)
+end
+
+local function volume_transient()
+  if tostring(hud_reason) ~= "volume" then return nil end
+  local volume = math.floor((mp.get_property_number("volume") or 0) + 0.5)
+  if fixture_name == "volume" then volume = 45 end
+  return "Vol " .. tostring(volume)
+end
+
+local function seek_transient()
+  local reason = tostring(hud_reason or "")
+  local seek = reason:match("^seek:([+-]?%d+)$")
+  if seek then
+    local amount = tonumber(seek) or 0
+    return string.format("%s%ds", amount < 0 and "−" or "+", math.abs(amount))
+  end
+  if reason == "left" then return "−10s" end
+  if reason == "right" then return "+10s" end
+  return nil
+end
+
+local function seeking()
+  return seek_transient() ~= nil
+end
+
 local function build_hud_ass()
   local position = mp.get_property_number("time-pos") or 0
   local duration = mp.get_property_number("duration") or 0
   local live = is_live()
-  local headline = current_action(hud_reason)
-  local tech = technical_line()
   local ev = {}
-  ev[#ev + 1] = rect_ev(HUD_X, HUD_Y, HUD_W, HUD_H, C_CHARCOAL, "&H10&")
-  ev[#ev + 1] = text_ev(7, HUD_X + 44, HUD_Y + 38, 42, C_WHITE, headline, true)
+  ev[#ev + 1] = rounded_rect(HUD_X, HUD_Y, HUD_W, HUD_H, CARD_RADIUS, C_CARD, A_CARD)
+
+  local left = HUD_X + PAD
+  local right = HUD_X + HUD_W - PAD
+  local title_y = HUD_Y + 40
+  ev[#ev + 1] = text_ev(7, left, title_y, 32, C_PRIMARY, identity_title(), false)
+
+  local meta_bits = {}
+  local picture = picture_meta()
+  local volume = volume_transient()
   if live then
-    ev[#ev + 1] = rect_ev(HUD_X + HUD_W - 166, HUD_Y + 36, 104, 44, C_AMBER, "&H00&")
-    ev[#ev + 1] = text_ev(5, HUD_X + HUD_W - 114, HUD_Y + 58, 28, C_CHARCOAL, "LIVE", true)
-    if tech ~= "" then
-      ev[#ev + 1] = text_ev(7, HUD_X + 44, HUD_Y + 112, 28, C_MUTED, tech, false)
-    end
-    ev[#ev + 1] = text_ev(7, HUD_X + 44, HUD_Y + 212, 28, C_MUTED, contextual_hints(), false)
-    return table.concat(ev, "\n")
+    local live_w = pill_width("LIVE")
+    local live_x = right - live_w
+    local pill, _ = draw_pill(live_x, HUD_Y + 24, "LIVE", false)
+    ev[#ev + 1] = pill
+    right = live_x - 16
+  end
+  if volume then meta_bits[#meta_bits + 1] = volume end
+  if picture ~= "" then meta_bits[#meta_bits + 1] = picture end
+  if overlay_mode == "confirmation" or confirmation_copy ~= "" then
+    table.insert(meta_bits, 1, utf8_prefix(confirmation_copy ~= "" and confirmation_copy or "Now playing", 28))
+  end
+  if #meta_bits > 0 then
+    ev[#ev + 1] = text_ev(9, live and right or (HUD_X + HUD_W - PAD), title_y, 18, C_CAPTION,
+      table.concat(meta_bits, "    "), false)
   end
 
-  ev[#ev + 1] = text_ev(7, HUD_X + 44, HUD_Y + 105, 30, C_WHITE, fmt_time(position), true)
-  ev[#ev + 1] = text_ev(9, HUD_X + HUD_W - 44, HUD_Y + 105, 30, C_MUTED,
-    duration > 0 and ("−" .. fmt_time(duration - position)) or "", false)
-  if tech ~= "" then
-    ev[#ev + 1] = text_ev(7, HUD_X + 44, HUD_Y + 146, 28, C_MUTED, tech, false)
+  local pill_y = HUD_Y + 124
+  local hair_left = left + 108
+  if not live then
+    local transport_y = HUD_Y + 92
+    ev[#ev + 1] = text_ev(7, left, transport_y, 26, C_PRIMARY, fmt_time(position), false)
+    local remaining = duration > 0 and ("−" .. fmt_time(duration - position)) or ""
+    local delta = seek_transient()
+    if delta then remaining = remaining ~= "" and (delta .. "  " .. remaining) or delta end
+    ev[#ev + 1] = text_ev(9, HUD_X + HUD_W - PAD, transport_y, 22, C_SECONDARY, remaining, false)
+    local hair_right = HUD_X + HUD_W - PAD - 108
+    local hair_w = math.max(80, hair_right - hair_left)
+    local hair_y = transport_y - 1
+    ev[#ev + 1] = rect_ev(hair_left, hair_y, hair_w, HAIRLINE_H, C_WHITE, A_HAIRLINE)
+    if duration > 0 then
+      local progress = math.max(0, math.min(1, position / duration))
+      local head_x = hair_left + math.floor((hair_w - PLAYHEAD) * progress)
+      ev[#ev + 1] = rect_ev(head_x, hair_y - 1, PLAYHEAD, PLAYHEAD, seeking() and C_ACCENT or C_PRIMARY, "&H00&")
+    end
+    pill_y = HUD_Y + 124
+  else
+    pill_y = HUD_Y + 100
   end
-  local track_x, track_y, track_w, track_h = HUD_X + 44, HUD_Y + 190, HUD_W - 88, 8
-  ev[#ev + 1] = rect_ev(track_x, track_y, track_w, track_h, C_DIM, "&H34&")
-  if duration > 0 then
-    local progress = math.max(0, math.min(1, position / duration))
-    local width = math.floor(track_w * progress)
-    if width > 0 then ev[#ev + 1] = rect_ev(track_x, track_y, width, track_h, C_AMBER, "&H00&") end
+
+  local chip_x = live and left or hair_left
+  local subs = subtitle_chip()
+  if subs then
+    local pill, width = draw_pill(chip_x, pill_y, subs, tostring(hud_reason) == "subs")
+    ev[#ev + 1] = pill
+    chip_x = chip_x + width + 16
   end
-  ev[#ev + 1] = text_ev(7, HUD_X + 44, HUD_Y + 220, 28, C_MUTED, contextual_hints(), false)
+  local audio = audio_chip()
+  if audio then
+    local pill, _ = draw_pill(chip_x, pill_y, audio, tostring(hud_reason) == "audio")
+    ev[#ev + 1] = pill
+  end
+
+  ev[#ev + 1] = text_ev(5, HUD_X + math.floor(HUD_W / 2), HUD_Y + HUD_H - 28, 20, C_CAPTION,
+    contextual_hints(), false)
   return table.concat(ev, "\n")
 end
 
@@ -377,100 +535,101 @@ local function build_streams_ass()
   local candidates = stream_state and stream_state.candidates or {}
   local status = stream_state and stream_state.status or "idle"
   local ev = {}
-  -- Local stepped scrim: video above the drawer stays visible and undimmed.
-  ev[#ev + 1] = rect_ev(0, DRAWER_Y - 56, CANVAS_W, 56, C_BLACK, "&HD8&")
-  ev[#ev + 1] = rect_ev(0, DRAWER_Y - 34, CANVAS_W, 34, C_BLACK, "&HB8&")
-  ev[#ev + 1] = rect_ev(0, DRAWER_Y - 16, CANVAS_W, 16, C_BLACK, "&H80&")
-  ev[#ev + 1] = rect_ev(0, DRAWER_Y, CANVAS_W, DRAWER_H, C_CHARCOAL, "&H08&")
-  ev[#ev + 1] = text_ev(7, SAFE_X + 24, DRAWER_Y + 34, 40, C_WHITE, "Streams", true)
+  ev[#ev + 1] = rect_ev(0, SHEET_Y - 48, CANVAS_W, 20, C_BLACK, A_SCRIM[1])
+  ev[#ev + 1] = rect_ev(0, SHEET_Y - 28, CANVAS_W, 16, C_BLACK, A_SCRIM[2])
+  ev[#ev + 1] = rect_ev(0, SHEET_Y - 12, CANVAS_W, 12, C_BLACK, A_SCRIM[3])
+  ev[#ev + 1] = rounded_rect(SHEET_X, SHEET_Y, SHEET_W, SHEET_H, CARD_RADIUS, C_CARD, A_CARD)
+  ev[#ev + 1] = text_ev(7, SHEET_X + PAD, SHEET_Y + 40, 32, C_PRIMARY, "Streams", false)
   local status_copy = status == "checking" and "Checking stream…"
     or status == "switching" and "Starting stream…"
     or status == "failed" and "Playback stopped"
     or "Choose a stream"
-  ev[#ev + 1] = text_ev(9, CANVAS_W - SAFE_X - 24, DRAWER_Y + 42, 28, C_MUTED, status_copy, false)
+  ev[#ev + 1] = text_ev(9, SHEET_X + SHEET_W - PAD, SHEET_Y + 42, 20, C_CAPTION, status_copy, false)
 
-  local list_x, list_y, list_w, row_h = 120, DRAWER_Y + 104, 1000, 76
-  local detail_x, detail_y = 1180, DRAWER_Y + 112
+  local list_x, list_y, list_w, row_h = SHEET_X + PAD, SHEET_Y + 96, 920, 72
+  local detail_x, detail_y = SHEET_X + 1000, SHEET_Y + 104
   if #candidates <= 1 then
-    ev[#ev + 1] = text_ev(7, list_x, list_y + 30, 34, C_WHITE, "No alternate streams", true)
-    ev[#ev + 1] = text_ev(7, list_x, list_y + 84, 28, C_MUTED,
+    ev[#ev + 1] = text_ev(7, list_x, list_y + 24, 28, C_PRIMARY, "No alternate streams", false)
+    ev[#ev + 1] = text_ev(7, list_x, list_y + 68, 20, C_CAPTION,
       "The current title has no other playable sources right now.", false)
     if #candidates == 1 then
-      ev[#ev + 1] = text_ev(7, list_x, list_y + 148, 28, C_AMBER,
-        "✓  Playing  ·  " .. utf8_prefix(candidate_summary(candidates[1]), 62), true)
+      ev[#ev + 1] = text_ev(7, list_x, list_y + 120, 20, C_ACCENT,
+        "Now  ·  " .. utf8_prefix(candidate_summary(candidates[1]), 62), true)
     end
   else
     for index, candidate in ipairs(candidates) do
       local y = list_y + (index - 1) * row_h
       local focused = index == stream_index
+      local unavailable = candidate.unavailable == true
       if focused then
-        ev[#ev + 1] = rect_ev(list_x - 4, y - 4, list_w + 8, row_h - 4, C_WHITE, "&H00&")
+        ev[#ev + 1] = rounded_rect(list_x, y, list_w, row_h - 8, 8, C_WHITE, A_FOCUS)
+        ev[#ev + 1] = rect_ev(list_x, y + 8, 3, row_h - 24, C_PRIMARY, "&H00&")
       end
-      ev[#ev + 1] = rect_ev(list_x, y, list_w, row_h - 12,
-        candidate.current == true and C_ROW_CURRENT or C_ROW, candidate.unavailable == true and "&H48&" or "&H12&")
-      local colour = candidate.unavailable == true and C_DIM or C_WHITE
-      local marker = candidate.current == true and "✓  " or candidate.unavailable == true and "×  " or "   "
-      ev[#ev + 1] = text_ev(7, list_x + 22, y + 18, 28,
-        candidate.current == true and C_AMBER or colour,
-        marker .. utf8_prefix(candidate_summary(candidate), 70), candidate.current == true)
+      local colour = unavailable and C_CAPTION or C_PRIMARY
+      ev[#ev + 1] = text_ev(7, list_x + 22, y + 22, 22, colour,
+        utf8_prefix(candidate_summary(candidate), 58), false)
       if candidate.current == true then
-        ev[#ev + 1] = text_ev(9, list_x + list_w - 20, y + 20, 26, C_AMBER, "Playing", true)
+        ev[#ev + 1] = text_ev(9, list_x + list_w - 20, y + 22, 20, C_ACCENT, "Now", true)
       end
     end
   end
 
   local focused = candidates[stream_index]
   if focused and #candidates > 1 then
-    ev[#ev + 1] = text_ev(7, detail_x, detail_y, 34, C_WHITE,
-      focused.source or "Stream details", true)
-    ev[#ev + 1] = text_ev(7, detail_x, detail_y + 48, 28,
-      focused.unavailable == true and C_ERROR or C_MUTED, readiness(focused), true)
+    ev[#ev + 1] = text_ev(7, detail_x, detail_y, 28, C_PRIMARY,
+      focused.source or "Stream details", false)
+    ev[#ev + 1] = text_ev(7, detail_x, detail_y + 40, 20,
+      focused.unavailable == true and C_ERROR or C_CAPTION, readiness(focused), false)
     if focused.capability_class == "known_risky" and focused.unavailable ~= true then
-      ev[#ev + 1] = text_ev(7, detail_x, detail_y + 90, 28, C_ERROR,
+      ev[#ev + 1] = text_ev(7, detail_x, detail_y + 72, 20, C_ERROR,
         "May stutter on this device", true)
     end
     local facts, explanation = candidate_detail_lines(focused)
-    local fact_y = detail_y + (focused.capability_class == "known_risky" and 142 or 100)
+    local fact_y = detail_y + (focused.capability_class == "known_risky" and 112 or 80)
     for _, line in ipairs(facts) do
-      ev[#ev + 1] = text_ev(7, detail_x, fact_y, 26, C_MUTED, utf8_prefix(line, 38), false)
-      fact_y = fact_y + 38
+      ev[#ev + 1] = text_ev(7, detail_x, fact_y, 20, C_CAPTION, utf8_prefix(line, 38), false)
+      fact_y = fact_y + 32
     end
-    ev[#ev + 1] = text_ev(7, detail_x, math.min(fact_y + 16, DRAWER_Y + 456), 26,
-      focused.unavailable == true and C_ERROR or C_WHITE, utf8_prefix(explanation, 42), false)
+    ev[#ev + 1] = text_ev(7, detail_x, math.min(fact_y + 12, SHEET_Y + SHEET_H - 120), 20,
+      focused.unavailable == true and C_ERROR or C_SECONDARY, utf8_prefix(explanation, 42), false)
   elseif #candidates == 1 then
-    ev[#ev + 1] = text_ev(7, detail_x, detail_y, 34, C_WHITE, "No alternatives", true)
-    ev[#ev + 1] = text_ev(7, detail_x, detail_y + 58, 28, C_MUTED,
+    ev[#ev + 1] = text_ev(7, detail_x, detail_y, 28, C_PRIMARY, "No alternatives", false)
+    ev[#ev + 1] = text_ev(7, detail_x, detail_y + 44, 20, C_CAPTION,
       "The current stream is the only source available.", false)
   end
 
   if stream_state and type(stream_state.error) == "string" and stream_state.error ~= "" then
-    ev[#ev + 1] = rect_ev(SAFE_X, CANVAS_H - 106, CANVAS_W - SAFE_X * 2, 52, C_ERROR, "&H14&")
-    ev[#ev + 1] = text_ev(5, CANVAS_W / 2, CANVAS_H - 80, 28, C_WHITE,
-      utf8_prefix(stream_state.error, 96), true)
+    ev[#ev + 1] = rounded_rect(SHEET_X + PAD, SHEET_Y + SHEET_H - 92, SHEET_W - PAD * 2, 44, 10, C_ERROR, "&H14&")
+    ev[#ev + 1] = text_ev(5, SHEET_X + math.floor(SHEET_W / 2), SHEET_Y + SHEET_H - 70, 20, C_PRIMARY,
+      utf8_prefix(stream_state.error, 88), false)
   else
-    ev[#ev + 1] = text_ev(9, CANVAS_W - SAFE_X, CANVAS_H - 70, 26, C_MUTED,
+    ev[#ev + 1] = text_ev(5, SHEET_X + math.floor(SHEET_W / 2), SHEET_Y + SHEET_H - 32, 20, C_CAPTION,
       "↑/↓  Choose     B  Select     Y  Close", false)
   end
   return table.concat(ev, "\n")
 end
 
 local function build_badge_ass(label, colour)
-  local width = math.max(220, #label * 20 + 72)
+  local width = math.max(160, utf8_len(label) * 16 + 48)
+  local height = 52
   local x = math.floor((CANVAS_W - width) / 2)
-  local y = math.floor(CANVAS_H / 2) - 42
+  local y = math.floor(CANVAS_H / 2) - math.floor(height / 2)
   local function fade_in(event)
     return event:gsub("^%{", "{\\fad(180,0)", 1)
   end
-  return table.concat({
-    fade_in(rect_ev(x, y, width, 84, C_CHARCOAL, "&H10&")),
-    fade_in(text_ev(5, CANVAS_W / 2, y + 42, 38, colour or C_WHITE, label, true)),
-  }, "\n")
+  local events = { rounded_rect(x, y, width, height, 12, C_WHITE, A_PILL) }
+  local faded = {}
+  for index, event in ipairs(events) do
+    faded[index] = fade_in(event)
+  end
+  faded[#faded + 1] = fade_in(text_ev(5, CANVAS_W / 2, y + math.floor(height / 2), 28, colour or C_PRIMARY, label, false))
+  return table.concat(faded, "\n")
 end
 
 local function build_ass()
   if overlay_mode == "streams" then return build_streams_ass() end
-  if overlay_mode == "buffering" then return build_badge_ass("Buffering…", C_WHITE) end
-  if overlay_mode == "pause_badge" then return build_badge_ass("Paused", C_WHITE) end
+  if overlay_mode == "buffering" then return build_badge_ass("Buffering", C_PRIMARY) end
+  if overlay_mode == "pause_badge" then return build_badge_ass("Paused", C_PRIMARY) end
   if overlay_mode == "hud" or overlay_mode == "confirmation" then return build_hud_ass() end
   return ""
 end
@@ -489,6 +648,7 @@ end
 local function settle_after_hud()
   stop_hud_timers()
   visible = false
+  confirmation_copy = ""
   if buffering then
     overlay_mode = "buffering"
   elseif mp.get_property_native("pause") == true then
@@ -503,8 +663,7 @@ end
 local function show_hud(reason, forced_seconds)
   if overlay_mode == "streams" then return end
   hud_reason = reason or "show"
-  local _, adaptive = current_action(hud_reason)
-  local seconds = forced_seconds or adaptive
+  local seconds = forced_seconds or dwell_seconds(hud_reason)
   overlay_mode = hud_reason == "confirmation" and "confirmation" or "hud"
   visible = true
   write_visible_state(true, overlay_mode)
@@ -558,7 +717,7 @@ end
 local function show_request_error(message)
   PLAYBACK_TITLE = message
   PLAYBACK_CONTEXT = ""
-  show_hud("show", LONG_SEC)
+  show_hud("error", LONG_SEC)
 end
 
 local function post_stream_action(body, callback)
@@ -703,15 +862,18 @@ end
 if FIXTURES then
   mp.register_script_message("mango-hud-fixture", function(name)
     fixture_name = name
+    confirmation_copy = ""
     if name == "paused" then overlay_mode = "pause_badge"
     elseif name == "buffering" then overlay_mode = "buffering"
     elseif name == "seek" then hud_reason = "seek:-10"; overlay_mode = "hud"
     elseif name == "volume" then hud_reason = "volume"; overlay_mode = "hud"
+    elseif name == "subs" then hud_reason = "subs"; overlay_mode = "hud"
+    elseif name == "subs-off" then hud_reason = "show"; overlay_mode = "hud"
+    elseif name == "audio" then hud_reason = "audio"; overlay_mode = "hud"
     elseif name == "live" then hud_reason = "show"; overlay_mode = "hud"
     elseif name == "confirmation" then
-      hud_reason = "show"
-      PLAYBACK_TITLE = "Now playing · 1080p · Ready now"
-      PLAYBACK_CONTEXT = ""
+      hud_reason = "confirmation"
+      confirmation_copy = "Now playing"
       overlay_mode = "confirmation"
     elseif name:find("streams", 1, true) then
       stream_state = fixture_streams(name == "streams-checking" and "checking" or name == "streams-failed" and "failed" or "ready")
@@ -723,9 +885,8 @@ if FIXTURES then
 end
 
 if START_CONFIRMATION ~= "" then
-  PLAYBACK_TITLE = START_CONFIRMATION
-  PLAYBACK_CONTEXT = ""
-  hud_reason = "show"
+  confirmation_copy = START_CONFIRMATION
+  hud_reason = "confirmation"
   overlay_mode = "confirmation"
   visible = true
   confirmation_until = mp.get_time() + LONG_SEC

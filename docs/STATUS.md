@@ -369,8 +369,8 @@ or let a failed external phase erase usable local results. Detail:
 | Foreground | Resolve and probe are display-neutral; launcher hides only after advancing media is proven |
 | Failure | Original launcher/Detail remains authoritative; stale cleanup cannot stop a newer generation |
 | Progress | One logical watch/progress session through retry, switch, Undo, and return |
-| HUD | Clean startup; safe-area cinematic panel; elapsed/negative remaining; proven technical line; 4/6 s contextual feedback; minimal paused badge; delayed buffering; no false Live timeline |
-| Streams | Five-choice 58%-height bottom drawer; current pinned first; best usable alternative focused; unavailable disabled; validation before explicit switch; revisioned X Undo |
+| HUD | Clean startup; translucent floating card; stable title; time/hairline; ↑/A language pills; 4/6 s feedback; minimal paused badge; delayed buffering; no false Live timeline |
+| Streams | Five-choice inset floating sheet; current pinned first; best usable alternative focused; unavailable disabled; validation before explicit switch; revisioned X Undo |
 
 **Runtime profile source of truth:** on the Pi, run
 `bash scripts/m6-ship/set-playback-engine.sh status`; the supported daily profile

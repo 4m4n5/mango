@@ -79,6 +79,7 @@ PY
 
 states=(
   playing paused seek volume buffering live
+  subs subs-off audio
   streams-normal streams-dense streams-risky streams-unavailable
   streams-checking streams-failed confirmation
 )

@@ -168,6 +168,8 @@ HUD; holding **←/→** accelerates seek (10s → 30s → 120s). **↑** is the
 subtitle control: first press shows the playback HUD only; while the HUD is
 visible, further ↑ presses force subtitles on and cycle languages. **A** is
 show-first for audio (first press shows HUD; while visible, cycles audio).
+Idle HUD language pills (`↑  English` / `↑  Off`, `A  Hindi 5.1`) are the
+instruction for that second press; the title does not change when cycling.
 Playback-only **L/R** jumps by the large seek step (120s default). In the
 Streams panel, **Up/Down** moves, **B** validates/selects, and **Y** closes the
 panel before normal playback Back handling.
