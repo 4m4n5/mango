@@ -3,6 +3,8 @@
 import importlib.util
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -46,6 +48,48 @@ def fixture() -> dict:
 
 
 class AioStreamsPolicyTest(unittest.TestCase):
+    def test_tvdb_key_update_is_exact_and_preserves_existing_user_state(self) -> None:
+        original = fixture()
+        updated = POLICY.set_tvdb_key(original, "test-tvdb-key")
+        self.assertNotIn("tvdbApiKey", original["data"]["userData"])
+        self.assertEqual(updated["data"]["userData"]["tvdbApiKey"], "test-tvdb-key")
+        self.assertEqual(
+            updated["data"]["userData"]["services"],
+            original["data"]["userData"]["services"],
+        )
+        self.assertTrue(POLICY.tvdb_key_matches(updated, "test-tvdb-key"))
+        self.assertFalse(POLICY.tvdb_key_matches(updated, "different-key"))
+
+    def test_tvdb_key_file_rejects_empty_whitespace_and_unbounded_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            key_path = Path(directory) / "tvdb.key"
+            for value in ("", " leading", "trailing\n", "two words", "x" * 513):
+                key_path.write_text(value, encoding="utf-8")
+                with self.assertRaises(POLICY.PolicyError):
+                    POLICY._load_api_key(str(key_path))
+            key_path.write_text("valid-key_123", encoding="utf-8")
+            self.assertEqual(POLICY._load_api_key(str(key_path)), "valid-key_123")
+
+    def test_tvdb_cli_prepares_private_payload_without_printing_key(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            current = Path(directory) / "current.json"
+            key_path = Path(directory) / "tvdb.key"
+            payload_path = Path(directory) / "payload.json"
+            current.write_text(json.dumps(fixture()), encoding="utf-8")
+            key_path.write_text("secret-tvdb-key", encoding="utf-8")
+            env = {**os.environ, "AIOSTREAMS_UUID": "uuid", "AIOSTREAMS_PASSWORD": "password"}
+            result = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "prepare-tvdb", str(current), str(key_path), str(payload_path)],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertNotIn("secret-tvdb-key", result.stdout + result.stderr)
+            payload = json.loads(payload_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["config"]["tvdbApiKey"], "secret-tvdb-key")
+            self.assertEqual(payload_path.stat().st_mode & 0o777, 0o600)
+
     def test_enable_mediafusion_replaces_secret_override_and_wires_groups(self) -> None:
         original = fixture()
         updated = POLICY.enable_mediafusion(original)

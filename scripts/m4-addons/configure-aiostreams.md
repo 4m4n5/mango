@@ -13,9 +13,10 @@ is intentionally still a full secret-bearing export and must never be logged.
 graph or the catalog-service direct MediaFusion trigger.
 
 ```bash
-bash scripts/m4-addons/aiostreams-config.sh verify  # fixed-field AIO policy summary
-bash scripts/m4-addons/aiostreams-config.sh diff    # changed top-level keys only
+bash scripts/m4-addons/aiostreams-config.sh set-tvdb-key
 bash scripts/m4-addons/aiostreams-config.sh enable-mediafusion
+bash scripts/m4-addons/aiostreams-config.sh diff    # changed top-level keys only
+bash scripts/m4-addons/aiostreams-config.sh verify  # fixed-field AIO policy summary
 ```
 
 ## Open Configure UI
@@ -44,6 +45,7 @@ Add the existing paid accounts in the AIOStreams UI. Do not paste keys into git.
 | Torrentio | enable as a stream-only indexer through configured services |
 | Comet | enable as the second required stream-only indexer |
 | MediaFusion | enable through AIO's native base-URL integration; stream-only movie/series, cached-search-only, TorBox + Real-Debrid |
+| TVDB metadata | configure with `set-tvdb-key`; the key is Pi-owned, read from a hidden prompt/stdin, never printed or committed |
 
 Keep the addon name shown to mango as `AIOStreams`.
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hmac
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,7 @@ MEDIAFUSION_BASE_URL = "https://mediafusion.elfhosted.com"
 MEDIAFUSION_TIMEOUT_MS = 12_000
 MEDIAFUSION_SERVICES = ["torbox", "realdebrid"]
 EASYNEWS_FALLBACK_CONDITION = "count(cached(previousStreams)) < 3"
+TVDB_API_KEY_MAX_CHARS = 512
 
 
 class PolicyError(RuntimeError):
@@ -33,6 +35,19 @@ def _write_private(path: str, value: object) -> None:
     target = Path(path)
     target.write_text(json.dumps(value, separators=(",", ":")), encoding="utf-8")
     target.chmod(0o600)
+
+
+def _load_api_key(path: str) -> str:
+    key = Path(path).read_text(encoding="utf-8")
+    if not key:
+        raise PolicyError("TVDB API key is empty")
+    if len(key) > TVDB_API_KEY_MAX_CHARS:
+        raise PolicyError("TVDB API key is unreasonably long")
+    if key != key.strip() or any(character.isspace() for character in key):
+        raise PolicyError("TVDB API key contains whitespace")
+    if any(ord(character) < 33 or ord(character) > 126 for character in key):
+        raise PolicyError("TVDB API key contains unsupported characters")
+    return key
 
 
 def _config(document: dict[str, Any]) -> dict[str, Any]:
@@ -75,6 +90,17 @@ def _instance_id(presets: dict[str, dict[str, Any]], preset_type: str) -> str:
     if not instance_id:
         raise PolicyError(f"AIOStreams preset has no instanceId: {preset_type}")
     return instance_id
+
+
+def set_tvdb_key(document: dict[str, Any], api_key: str) -> dict[str, Any]:
+    updated = copy.deepcopy(document)
+    _config(updated)["tvdbApiKey"] = api_key
+    return updated
+
+
+def tvdb_key_matches(document: dict[str, Any], api_key: str) -> bool:
+    configured = _config(document).get("tvdbApiKey")
+    return isinstance(configured, str) and hmac.compare_digest(configured, api_key)
 
 
 def enable_mediafusion(document: dict[str, Any]) -> dict[str, Any]:
@@ -217,27 +243,47 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "command",
-        choices=("prepare-mediafusion", "prepare-put", "verify-mediafusion", "verify-manifest"),
+        choices=(
+            "prepare-mediafusion",
+            "prepare-put",
+            "prepare-tvdb",
+            "verify-mediafusion",
+            "verify-manifest",
+            "verify-tvdb",
+        ),
     )
     parser.add_argument("input")
-    parser.add_argument("output", nargs="?")
+    parser.add_argument("argument1", nargs="?")
+    parser.add_argument("argument2", nargs="?")
     args = parser.parse_args()
     try:
         document = _load(args.input)
         if args.command == "prepare-mediafusion":
-            if not args.output:
+            if not args.argument1:
                 raise PolicyError("prepare-mediafusion requires an output path")
             updated = enable_mediafusion(document)
-            write_put_payload(updated, args.output)
+            write_put_payload(updated, args.argument1)
             print(
                 "MediaFusion plan: enabled; HTTPS base integration; stream-only movie/series; "
                 "TorBox+Real-Debrid; cached-search-only; Torrentio/Comet/MediaFusion primary; "
                 "parallel conditional Easynews fallback"
             )
         elif args.command == "prepare-put":
-            if not args.output:
+            if not args.argument1:
                 raise PolicyError("prepare-put requires an output path")
-            write_put_payload(document, args.output)
+            write_put_payload(document, args.argument1)
+        elif args.command == "prepare-tvdb":
+            if not args.argument1 or not args.argument2:
+                raise PolicyError("prepare-tvdb requires key-file and output paths")
+            updated = set_tvdb_key(document, _load_api_key(args.argument1))
+            write_put_payload(updated, args.argument2)
+            print("TVDB credential plan prepared (value hidden)")
+        elif args.command == "verify-tvdb":
+            if not args.argument1:
+                raise PolicyError("verify-tvdb requires a key-file path")
+            if not tvdb_key_matches(document, _load_api_key(args.argument1)):
+                raise PolicyError("TVDB credential readback does not match")
+            print("TVDB credential readback verified (value hidden)")
         elif args.command == "verify-mediafusion":
             errors = mediafusion_policy_errors(document)
             if errors:

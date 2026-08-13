@@ -112,6 +112,7 @@ post-write readback, and automatic rollback. `get` remains secret-bearing and
 must not be logged. AIOMetadata mutation remains independently blocked.
 
 ```bash
+bash scripts/m4-addons/aiostreams-config.sh set-tvdb-key
 bash scripts/m4-addons/aiostreams-config.sh verify
 ```
 

@@ -194,11 +194,12 @@ failure. `get` remains a deliberate full secret-bearing export and must not be
 logged.
 
 ```bash
-bash scripts/m4-addons/aiostreams-config.sh verify
+bash scripts/m4-addons/aiostreams-config.sh set-tvdb-key
 bash scripts/m4-addons/aiostreams-config.sh enable-mediafusion
+bash scripts/m4-addons/aiostreams-config.sh verify
 ```
 
-`verify` fails when required TorBox/RD/Easynews service policy,
+`verify` fails when the TVDB metadata credential, required TorBox/RD/Easynews service policy,
 Torrentio/Comet stream presets, Service Wrap, uncached rules, or error visibility
 drift. It inspects AIOStreams `/api/v1/user` only: it does **not** validate
 `/etc/mango/stremio-export.json` or the catalog-service direct MediaFusion

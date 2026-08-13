@@ -88,6 +88,8 @@ required_services = {"torbox", "realdebrid", "easynews"}
 missing_services = sorted(required_services - enabled_services)
 if missing_services:
     errors.append("required services disabled or missing: " + ", ".join(missing_services))
+if not str(config.get("tvdbApiKey") or "").strip():
+    errors.append("TVDB API key is not configured")
 
 all_presets = {
     str(preset.get("type") or "").lower(): preset
@@ -333,6 +335,53 @@ enable_mediafusion() (
   verify_policy
 )
 
+set_tvdb_key() (
+  set -euo pipefail
+  local tmpdir current key_file payload rollback response readback code rollback_code tvdb_key
+  tmpdir="$(secure_tmpdir)"
+  trap 'rm -rf "$tmpdir"' EXIT
+  current="$tmpdir/current.json"
+  key_file="$tmpdir/tvdb.key"
+  payload="$tmpdir/tvdb-payload.json"
+  rollback="$tmpdir/rollback-payload.json"
+  response="$tmpdir/response.json"
+  readback="$tmpdir/readback.json"
+
+  if [[ -t 0 ]]; then
+    read -r -s -p "TVDB API key: " tvdb_key
+    echo >&2
+  else
+    IFS= read -r tvdb_key || die "TVDB API key must be supplied on stdin"
+  fi
+  [[ -n "$tvdb_key" ]] || die "TVDB API key must not be empty"
+  printf '%s' "$tvdb_key" >"$key_file"
+  chmod 600 "$key_file"
+  unset tvdb_key
+
+  api_get >"$current"
+  python3 "$POLICY_TOOL" prepare-tvdb "$current" "$key_file" "$payload"
+  python3 "$POLICY_TOOL" prepare-put "$current" "$rollback"
+  code="$(api_put_payload "$payload" "$response" || true)"
+  if [[ "$code" != "200" ]]; then
+    rollback_code="$(api_put_payload "$rollback" "$response" || true)"
+    if [[ "$rollback_code" == "200" ]]; then
+      die "TVDB credential update failed validation (HTTP ${code:-unavailable}); original user state restored"
+    fi
+    die "TVDB credential update failed (HTTP ${code:-unavailable}) and automatic rollback failed (HTTP ${rollback_code:-unavailable})"
+  fi
+
+  if ! api_get >"$readback" \
+    || ! python3 "$POLICY_TOOL" verify-tvdb "$readback" "$key_file" \
+    || ! verify_policy; then
+    rollback_code="$(api_put_payload "$rollback" "$response" || true)"
+    if [[ "$rollback_code" == "200" ]]; then
+      die "TVDB credential readback failed; original user state restored"
+    fi
+    die "TVDB credential readback failed and automatic rollback failed (HTTP $rollback_code)"
+  fi
+  echo "TVDB metadata integration configured and verified (value hidden)"
+)
+
 cmd="${1:-}"
 case "$cmd" in
   get)
@@ -354,13 +403,18 @@ case "$cmd" in
     [[ -f "$POLICY_TOOL" ]] || die "missing policy tool $POLICY_TOOL"
     enable_mediafusion
     ;;
+  set-tvdb-key)
+    load_creds
+    [[ -f "$POLICY_TOOL" ]] || die "missing policy tool $POLICY_TOOL"
+    set_tvdb_key
+    ;;
   verify)
     load_creds
     verify_policy
     ;;
   *)
     cat <<EOF
-Usage: $(basename "$0") <get|diff|apply|enable-mediafusion|verify>
+Usage: $(basename "$0") <get|diff|apply|enable-mediafusion|set-tvdb-key|verify>
 
   get    Download full user config (contains secrets — do not commit)
   diff   Show only changed keys vs target patch (credential values hidden)
@@ -368,6 +422,9 @@ Usage: $(basename "$0") <get|diff|apply|enable-mediafusion|verify>
   enable-mediafusion
          Validate the public base manifest, enable the AIO-native cached-only
          MediaFusion integration, wire provider groups, read back, or roll back
+  set-tvdb-key
+         Read one TVDB API key from stdin/hidden prompt, validate it through
+         AIOStreams, read back the exact value without printing it, or roll back
   verify Assert the live stream topology/policy without printing credentials
 
 Env: MANGO_AIOSTREAMS_URL, MANGO_AIOSTREAMS_CREDS, MANGO_AIOSTREAMS_PATCH
