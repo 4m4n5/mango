@@ -3,9 +3,9 @@
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
 Latest recorded Pi deployment: **2026-08-12**,
-`aac293dbc266946f90c0b29e751d17ffbb990be1`. The release line is `275ceb2`
-(minimal playback-trust hardening) plus `aac293d` (linear-time status
-diagnostics). Playability migration 19 applied with `quick_check` OK: 77 bare
+`244812b6bcad3eeebfbc6c222f9435c658c759c8`. The runtime line includes
+`0c030d8` playback/shuffle hardening plus `244812b`'s secret-safe transactional
+AIOStreams TVDB setup. Playability migration 19 applied with `quick_check` OK: 77 bare
 IMDb identities that were verified as both movie and series became 154 targeted
 stale typed rows, with zero verified dual-type conflicts afterward. The Mac and
 Pi catalog suites passed 1,022/1,022; Pi playback-SSOT and launcher/UX gates
@@ -13,8 +13,10 @@ passed. Reliability is usable-yellow and its served-card resolver sample found
 16/32 legacy proof-v1 cards without a current stream response. Full N3c reached
 33/36: all 18 movie samples and 15/18 series samples played; the three series
 misses had zero candidate attempts. A bounded launcher-path check played My Next
-Guest S1E1 and Dead Silent, while Alliance E35/E36 each produced an exact-episode
-retry obligation after a resolver-stage no-stream result. The monitor was off,
+Guest S1E1 and Dead Silent. The later Alliance audit proved E37 and E44 exact-main
+playable, while E36, E38-E43, and E45-E48 remained current source misses. Adding
+and validating TVDB corrected AIO's E41-E43 air dates but did not add an accepted
+stream. The monitor was off,
 so the whole-product pre-couch gate and human couch verdict remain **DEFERRED**.
 Use `git status`, `git rev-parse HEAD`, and the Pi commands below before acting.
 
@@ -38,7 +40,7 @@ prove only their exact revision and contract.
 | Area | Source | Latest recorded runtime/proof | Remaining |
 |------|--------|-------------------------------|-----------|
 | Native launcher, Detail, Search, D-pad | Complete | Final SHA deployed; standard pre-couch passed at `2a93582`, with final targeted smoke after the cache/Reliability-only follow-ups | Final exact-revision whole-product couch pass |
-| Native mpv playback | Complete; proof-v2 identity and exact-episode failure tracking at `aac293d` | Final-SHA My Next Guest and Dead Silent played; Alliance E35/E36 were classified as resolver-stage source absence with exact retry obligations | Target-TV/audio proof; proof-v2 Home admission policy after natural legacy renewal |
+| Native mpv playback | Complete; proof-v2 identity and exact-episode failure tracking at `aac293d` | My Next Guest and Dead Silent played; Alliance E37/E44 reached exact-main proof-v2, while the other E36+ episodes had no accepted current source result after TVDB correction | Target-TV/audio proof; proof-v2 Home admission policy after natural legacy renewal |
 | HUD and Streams drawer | Complete | Local fixture/source gates; home-agent deployment work recorded | Current exact-SHA screenshots and 4K dropped-frame/no-regression couch pass |
 | Mango library and Fire/Water input | Canonical Saved placement and tab-only library migration 18; ratings remain complete | Final Pi migration/readback passed: 12 misclassified tabs repaired to 0, user-state keys/counts preserved, Movies Saved 6 / Series Saved 8 / wrong-tab 0 | Human Dune-from-TV-Search placement and physical UI check |
 | VOD recommendations | `fb20baa` progressive profiles + Household Story Frontier + Browse v3 + StoryDNA Related; all historical data preserved | Pi serves complete 5,930/3,974 accounting with 720/675 rank reserves. Two active atomic browse reservoirs contain 19,950 candidate rows. Forty X presses per tab yielded 2,121/1,897 unique cards at p95 121.9/119.5 ms with global dedupe and zero provider/rank work | Human For You/category/Related verdict and physical focus/picture/audio checks |
@@ -397,7 +399,7 @@ aggregate; hardening must either remove the bypass or explicitly feature-gate,
 diagnose, and accept its latency/security behavior.
 
 Repository deployment deliberately does not overwrite AIOStreams `userData`.
-`aiostreams-config.sh diff/apply/enable-mediafusion` now keeps state in private
+`aiostreams-config.sh diff/apply/enable-mediafusion/set-tvdb-key` now keeps state in private
 temporary files, hides values/responses, performs fixed-field readback, and
 rolls back the original user object on policy failure. `get` remains an explicit
 secret-bearing export and must not be logged. AIOMetadata's headless import has the same
@@ -413,6 +415,15 @@ Before the current MediaFusion repair, the home snapshot had Torrentio and
 Comet contributing, RD/TorBox/Easynews configured, and an expired secret
 MediaFusion override returning 404. Current runtime enablement must be recorded
 only after the transactional base-integration write and causal Pi readback.
+
+At `244812b`, AIOStreams 2.32.1 validated the operator-provided TVDB key during
+its full-object PUT, persisted it in Pi-owned `userData`, and matched the exact
+hidden value on readback; subsequent Alliance requests emitted zero missing-key
+warnings. The TVDB-backed context corrected E41-E43 to July 31/August 1/August 2
+and changed the matched title to `Alliance (2026)`. A fresh E36-E48 search and
+Mango-facing matrix still accepted only E37 and E44. The rerun M4 stream gate
+passed with the expected soft E36 warning; one initial Breaking Bad transport
+failure recovered immediately and must not be counted as a clean first-pass gate.
 
 That same home report observed the separately exported Bharat Binge regional
 catalog manifest returning HTTP 403. The deploy helper ensures the repository
