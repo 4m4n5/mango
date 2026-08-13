@@ -19,6 +19,7 @@ import {
   catalogShuffleFingerprint,
   catalogStateAfterFailure,
   catalogStateAfterSuccess,
+  catalogTabCacheIsWarm,
   hasCatalogItems,
   nonEmptyCatalogRails,
   sameCatalogPresentation,
@@ -603,22 +604,20 @@ function handleBrowseTabChange(tab: BrowseTab): void {
   if (tab === activeBrowseTab) {
     return;
   }
-  activeBrowseTab = tab;
-  // Live has no personalized discovery payload. Movies, Shows, and YouTube
-  // must revalidate the server owner before painting an in-memory cache: the
-  // immediate companion notification may have been missed during a restart.
-  if (tab === "live" && showCachedCatalog(tab)) {
+  // Warm per-tab cache is the instant switch path. First visit still loads.
+  // Owner drift is confirmed in the background so a missed companion
+  // notification cannot flash a loading skeleton on every L/R press.
+  if (showCachedCatalog(tab)) {
+    if (tab !== "live") {
+      void confirmPersonalizedOwnerQuietly();
+    }
     return;
   }
-  if (tab !== "live") {
-    // Do not leave the previous tab (or a target-tab cache from a missed
-    // companion notification) on screen while the fresh server owner is read.
-    // loadCatalog paints the cache only after that owner matches exactly.
-    catalogState = { status: "loading" };
-    catalogStateTab = tab;
-    catalogStateOwner = null;
-    renderHome();
-  }
+  activeBrowseTab = tab;
+  catalogState = { status: "loading" };
+  catalogStateTab = tab;
+  catalogStateOwner = null;
+  renderHome();
   void loadCatalog();
 }
 
@@ -1161,6 +1160,14 @@ async function validatePersonalizedCatalogOwner(): Promise<boolean> {
   await synchronizeExternalPersonalization(payload);
   if (catalogRequestSeq === beforeSyncRequestSeq) scheduleCatalogRetry(5000);
   return false;
+}
+
+async function confirmPersonalizedOwnerQuietly(): Promise<void> {
+  try {
+    await validatePersonalizedCatalogOwner();
+  } catch {
+    // Keep the already-painted tab. loadCatalog still owns recovery.
+  }
 }
 
 function currentPersonalizationOwner(): PersonalizationOwner {
@@ -1792,8 +1799,7 @@ function replaceContinueRail(rails: ContentRail[], continueRail: ContentRail): C
 function showCachedCatalog(tab: BrowseTab): boolean {
   const cachedRails = tabCacheValue(tabCatalogCache, tab);
   const cachedSaved = tabCacheValue(tabSavedCache, tab);
-  if (!cachedRails || !hasCatalogItems(cachedRails)
-    || (tab !== "live" && !cachedSaved)) {
+  if (!catalogTabCacheIsWarm(tab, cachedRails, cachedSaved) || !cachedRails) {
     return false;
   }
   clearCatalogRetryTimer();

@@ -170,6 +170,8 @@ visible, further ↑ presses force subtitles on and cycle languages. **A** is
 show-first for audio (first press shows HUD; while visible, cycles audio).
 Idle HUD language pills (`↑  English` / `↑  Off`, `A  Hindi 5.1`) are the
 instruction for that second press; the title does not change when cycling.
+Volume is always shown as a meter on the identity row (no −/+ footer legend).
+After the HUD auto-hides, the next A/↑/seek/volume press must show it again.
 Playback-only **L/R** jumps by the large seek step (120s default). In the
 Streams panel, **Up/Down** moves, **B** validates/selects, and **Y** closes the
 panel before normal playback Back handling.

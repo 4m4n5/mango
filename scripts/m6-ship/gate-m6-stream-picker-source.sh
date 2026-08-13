@@ -20,12 +20,18 @@ SESSION="src/catalog-service/src/active-stream-session.ts"
 MPV="src/catalog-service/src/mpv.ts"
 PAD="scripts/m1-foundation/pad/mango-tv-pad.py"
 
-grep -q 'HUD_X, HUD_Y, HUD_W, HUD_H = 160, 772, 1600, 236' "$HUD" \
+grep -q 'HUD_X, HUD_Y, HUD_W, HUD_H = 160, 752, 1600, 252' "$HUD" \
   || fail "floating-card HUD geometry missing"
 grep -q 'SHEET_X, SHEET_Y, SHEET_W, SHEET_H = 160, 228, 1600, 780' "$HUD" \
   || fail "inset Streams sheet geometry missing"
 grep -q 'local function draw_pill' "$HUD" \
   || fail "language pill helper missing"
+grep -q 'overlay.hidden = false' "$HUD" \
+  || fail "HUD must unhide the overlay to reappear after A/↑"
+! grep -q 'overlay:remove()' "$HUD" \
+  || fail "overlay remove() prevents the HUD from returning after hide"
+grep -q 'local function draw_volume' "$HUD" \
+  || fail "persistent volume meter missing"
 ! grep -q 'Subtitles ·\|Audio ·' "$HUD" \
   || fail "title-hijacking subtitle/audio copy remains"
 grep -q 'mp.observe_property("paused-for-cache"' "$HUD" \

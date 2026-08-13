@@ -8,17 +8,23 @@ import unittest
 
 
 HUD = Path(__file__).with_name("mango-hud.lua").read_text(encoding="utf-8")
+PAD = Path(__file__).resolve().parents[2] / "m1-foundation" / "pad" / "mango-tv-pad.py"
+PAD_SRC = PAD.read_text(encoding="utf-8")
 
 
 class MangoHudContractTest(unittest.TestCase):
     def test_floating_card_geometry_and_material(self) -> None:
-        self.assertIn("HUD_X, HUD_Y, HUD_W, HUD_H = 160, 772, 1600, 236", HUD)
+        self.assertIn("HUD_X, HUD_Y, HUD_W, HUD_H = 160, 752, 1600, 252", HUD)
         self.assertIn("SHEET_X, SHEET_Y, SHEET_W, SHEET_H = 160, 228, 1600, 780", HUD)
-        self.assertIn("CARD_RADIUS = 20", HUD)
+        self.assertIn("CARD_RADIUS = 16", HUD)
         self.assertIn('C_ACCENT = "&H0020A0E8&"', HUD)
         self.assertIn('C_PRIMARY = "&H00EAF1F4&"', HUD)
+        self.assertIn('A_CARD = "&H5C&"', HUD)
         self.assertIn("local function rounded_rect", HUD)
         self.assertIn("local function draw_pill", HUD)
+        self.assertIn("One closed cubic path", HUD)
+        self.assertNotIn("fill_disc", HUD)
+        self.assertNotIn("HUD_X, HUD_Y, HUD_W, HUD_H = 160, 772, 1600, 236", HUD)
         self.assertNotIn("HUD_X, HUD_Y, HUD_W, HUD_H = 192, 744, 1536, 272", HUD)
         self.assertNotIn("DRAWER_Y, DRAWER_H = 454, 626", HUD)
 
@@ -34,12 +40,24 @@ class MangoHudContractTest(unittest.TestCase):
         self.assertIn("local LONG_SEC = 6.0", HUD)
         self.assertIn('or "4.0"', HUD)
 
-    def test_seek_volume_transients_without_title_hijack(self) -> None:
+    def test_progress_volume_and_seek_without_title_hijack(self) -> None:
         self.assertIn('reason:match("^seek:([+-]?%d+)$")', HUD)
-        self.assertIn('return "Vol " .. tostring(volume)', HUD)
+        self.assertIn("local function volume_percent", HUD)
+        self.assertIn("local function draw_volume", HUD)
+        self.assertIn("VOL_TICKS = 10", HUD)
         self.assertIn("local function seek_transient", HUD)
         self.assertIn("seeking() and C_ACCENT or C_PRIMARY", HUD)
         self.assertIn("local function utf8_prefix", HUD)
+        self.assertNotIn('return "Vol " .. tostring(volume)', HUD)
+        self.assertNotIn("volume_transient", HUD)
+
+    def test_overlay_can_reshow_after_hide(self) -> None:
+        self.assertIn("overlay.hidden = true", HUD)
+        self.assertIn("overlay.hidden = false", HUD)
+        self.assertIn("Keep the overlay id alive", HUD)
+        self.assertNotIn("overlay:remove()", HUD)
+        self.assertIn("write_visible_state(true, overlay_mode, seconds)", HUD)
+        self.assertIn("is_visible and \"true\" or \"false\"", HUD)
 
     def test_pause_buffering_live_and_clean_start_contracts(self) -> None:
         self.assertIn('overlay_mode = "hidden"', HUD)
@@ -73,7 +91,7 @@ class MangoHudContractTest(unittest.TestCase):
         self.assertIn("revision = state.revision", HUD)
         self.assertIn("revision = stream_state.revision", HUD)
         self.assertIn("undo = true", HUD)
-        self.assertIn("or request_pending then return", HUD)
+        self.assertIn('or request_pending then return', HUD)
         self.assertIn('hud_reason = "confirmation"', HUD)
         self.assertNotIn("PLAYBACK_TITLE = START_CONFIRMATION", HUD)
 
@@ -82,6 +100,15 @@ class MangoHudContractTest(unittest.TestCase):
         self.assertIn('tostring(hud_reason) == "subs"', HUD)
         self.assertNotIn("C_AMBER", HUD)
         self.assertNotIn("C_CHARCOAL", HUD)
+
+    def test_pad_trusts_lua_visible_false(self) -> None:
+        self.assertIn('if payload.get("visible") is not True:', PAD_SRC)
+        self.assertIn('PLAYBACK_OSD_BACKEND == "lua"', PAD_SRC)
+        self.assertIn('if payload.get("mode") == "streams":', PAD_SRC)
+        self.assertNotIn(
+            "max(visible_sec, PLAYBACK_OSD_VISIBLE_SEC)",
+            PAD_SRC,
+        )
 
 
 if __name__ == "__main__":

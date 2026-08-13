@@ -76,13 +76,14 @@ reveal at browse geometry). Shared helpers live in
 home, present, deploy. HDMI mode during a play session is owned only by
 `mpv-play` start/stop — the playback OSD and pad must never call `playback-auto`
 / display-ensure. The mpv Lua HUD (`mango-hud.lua`) is a cinematic 1080p-reference
-libass surface: a translucent floating card (1600×236, 160px inset) with a
-stable title, time/hairline instrument, labeled ↑/A language pills, and caption
-B/X/Y verbs; a persistent minimal pause badge; a delayed event-driven buffering
-badge; and an inset Streams sheet of the same material. Amber is state only
-(active pill, seeking playhead, current stream). It starts clean, redraws
-progress only while visible, and polls the sanitized stream snapshot only while
-Streams is open. A switch confirmation may perform
+libass surface: a translucent floating card (1600×252, 160px inset) with a
+stable title, always-on volume meter, filled progress track, labeled ↑/A
+language pills, and caption B/X/Y verbs; a persistent minimal pause badge; a
+delayed event-driven buffering badge; and an inset Streams sheet of the same
+material. Amber is state only (active pill, seeking playhead/fill, current
+stream). The overlay is hidden, never removed, so A/↑ can summon it again after
+it auto-settles. It starts clean, redraws progress only while visible, and polls
+the sanitized stream snapshot only while Streams is open. A switch confirmation may perform
 one URL-free snapshot read when X is pressed for contextual Undo. No Chromium
 overlay or second steady-state HUD process is used. The catalog passes only
 sanitized title/episode/playback-kind metadata into mpv; URLs, filenames, and
@@ -496,7 +497,9 @@ do not rerender Home or lose the originating tab.
 
 The pad router reports `secondary:tap|hold`; it does not reshuffle catalogs.
 The launcher maps secondary contextually: current-tab shuffle on Home, delete
-or clear in Search. X ownership follows the visibly focused surface, so a
+or clear in Search. L/R browse-tab switches paint a warm per-tab catalog cache
+immediately; loading is only for a tab's first visit or a real owner change.
+X ownership follows the visibly focused surface, so a
 lingering playback marker or background mpv cannot steal Home shuffle. See
 [SEARCH.md](SEARCH.md).
 

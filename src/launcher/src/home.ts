@@ -279,6 +279,27 @@ export function sameCatalogPresentation(left: CatalogState, right: CatalogState)
   return true;
 }
 
+export function catalogTabCacheIsWarm(
+  tab: BrowseTab,
+  rails: ContentRail[] | undefined,
+  saved: Set<string> | undefined,
+): boolean {
+  if (!rails || !hasCatalogItems(rails)) return false;
+  return tab === "live" || saved !== undefined;
+}
+
+export type BrowseTabSwitchPlan = "noop" | "paint-cache" | "load";
+
+export function browseTabSwitchPlan(
+  currentTab: BrowseTab,
+  nextTab: BrowseTab,
+  hasWarmCache: boolean,
+): BrowseTabSwitchPlan {
+  if (nextTab === currentTab) return "noop";
+  if (hasWarmCache) return "paint-cache";
+  return "load";
+}
+
 export function catalogStateAfterSuccess(
   incoming: ContentRail[],
   fallback: ContentRail[] | undefined,

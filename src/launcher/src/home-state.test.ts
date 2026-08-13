@@ -6,6 +6,8 @@ import {
   catalogStateAfterFailure,
   catalogStateAfterSuccess,
   catalogShuffleFingerprint,
+  catalogTabCacheIsWarm,
+  browseTabSwitchPlan,
   hasCatalogItems,
   nonEmptyCatalogRails,
   sameCatalogPresentation,
@@ -151,4 +153,22 @@ test("offline copy is couch-safe and never names implementation details", () => 
     const text = `${copy.heading} ${copy.title} ${copy.body}`;
     assert.doesNotMatch(text, /HTTP|fetch|catalog-service|N2|Pi|socket|endpoint/i);
   }
+});
+
+test("a visited browse tab is warm enough to paint without loading", () => {
+  const rails = [populatedRail("for-you-movies")];
+  const saved = new Set(["movie:for-you-movies"]);
+  assert.equal(catalogTabCacheIsWarm("movies", rails, saved), true);
+  assert.equal(catalogTabCacheIsWarm("series", rails, saved), true);
+  assert.equal(catalogTabCacheIsWarm("live", rails, undefined), true);
+  assert.equal(catalogTabCacheIsWarm("movies", rails, undefined), false);
+  assert.equal(catalogTabCacheIsWarm("movies", [emptyRail("for-you-movies")], saved), false);
+  assert.equal(catalogTabCacheIsWarm("movies", undefined, saved), false);
+});
+
+test("tab switches paint a warm cache and only load on first visit", () => {
+  assert.equal(browseTabSwitchPlan("movies", "movies", true), "noop");
+  assert.equal(browseTabSwitchPlan("movies", "series", true), "paint-cache");
+  assert.equal(browseTabSwitchPlan("movies", "series", false), "load");
+  assert.equal(browseTabSwitchPlan("series", "movies", true), "paint-cache");
 });

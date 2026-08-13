@@ -25,14 +25,19 @@ local START_REOPEN_STREAMS = os.getenv("MANGO_PLAYBACK_REOPEN_STREAMS") == "1"
 local FIXTURES = os.getenv("MANGO_HUD_FIXTURES") == "1"
 
 local CANVAS_W, CANVAS_H = 1920, 1080
-local HUD_X, HUD_Y, HUD_W, HUD_H = 160, 772, 1600, 236
+local HUD_X, HUD_Y, HUD_W, HUD_H = 160, 752, 1600, 252
 local SHEET_X, SHEET_Y, SHEET_W, SHEET_H = 160, 228, 1600, 780
-local CARD_RADIUS = 20
-local PILL_RADIUS = 10
-local PAD = 36
-local HAIRLINE_H = 3
-local PLAYHEAD = 6
+local CARD_RADIUS = 16
+local PILL_RADIUS = 18
+local PAD = 40
+local TRACK_H = 4
+local PLAYHEAD_W = 8
+local PLAYHEAD_H = 12
 local PILL_H = 36
+local VOL_TICKS = 10
+local VOL_TICK_W = 5
+local VOL_TICK_G = 3
+local VOL_TICK_H = 14
 
 -- ASS uses BBGGRR and 00..FF alpha (00 opaque).
 local C_PRIMARY = "&H00EAF1F4&" -- #F4F1EA
@@ -42,10 +47,13 @@ local C_CARD = "&H000E0C0B&" -- #0B0C0E
 local C_WHITE = "&H00FFFFFF&"
 local C_ACCENT = "&H0020A0E8&" -- Mango #e8a020, state only
 local C_ERROR = "&H00656AEB&"
+local C_INK = "&H000E0C0B&"
 local C_BLACK = "&H00000000&"
-local A_CARD = "&H70&"
-local A_PILL = "&HEB&"
-local A_HAIRLINE = "&HD2&"
+local A_CARD = "&H5C&"
+local A_PILL = "&HE8&"
+local A_PILL_ON = "&H22&"
+local A_TRACK = "&HC0&"
+local A_TICK_OFF = "&HC8&"
 local A_FOCUS = "&HEB&"
 local A_SCRIM = { "&HD8&", "&HB8&", "&H90&" }
 
@@ -53,6 +61,7 @@ local overlay = mp.create_osd_overlay("ass-events")
 overlay.res_x = CANVAS_W
 overlay.res_y = CANVAS_H
 overlay.z = 10
+overlay.hidden = true
 
 local overlay_mode = "hidden"
 local hud_reason = "show"
@@ -133,8 +142,8 @@ end
 
 local function text_ev(an, x, y, size, colour, text, bold)
   return string.format(
-    "{\\an%d\\pos(%d,%d)\\fnDejaVu Sans\\fs%d\\1c%s\\3c%s\\bord1\\shad0%s\\q2}%s",
-    an, x, y, size, colour, C_BLACK, bold and "\\b1" or "", ass_escape(text)
+    "{\\an%d\\pos(%d,%d)\\fnDejaVu Sans\\fs%d\\1c%s\\bord0\\shad0%s\\q2}%s",
+    an, x, y, size, colour, bold and "\\b1" or "", ass_escape(text)
   )
 end
 
@@ -145,53 +154,55 @@ local function rect_ev(x, y, width, height, colour, alpha)
   )
 end
 
-local function fill_disc(cx, cy, r, colour, alpha)
-  local k = math.max(1, math.floor(r * 0.552 + 0.5))
-  local path = string.format(
-    "m %d 0 b %d %d %d %d 0 %d b %d %d %d %d %d 0 b %d %d %d %d 0 %d b %d %d %d %d %d 0",
-    -r,
-    -r, -k, -k, -r, -r,
-    k, -r, r, -k, r,
-    r, k, k, r, r,
-    -k, r, -r, k, -r
-  )
-  return string.format(
-    "{\\an7\\pos(%d,%d)\\1c%s\\1a%s\\bord0\\shad0\\p1}%s{\\p0}",
-    cx, cy, colour, alpha or "&H00&", path
-  )
-end
-
+-- One closed cubic path. Compositing discs onto a translucent rect reads as
+-- random circles at the corners because overlapping alpha darkens twice.
 local function rounded_rect(x, y, w, h, r, colour, alpha)
   r = math.max(1, math.min(r, math.floor(math.min(w, h) / 2)))
-  alpha = alpha or "&H00&"
-  return table.concat({
-    rect_ev(x + r, y, w - 2 * r, h, colour, alpha),
-    rect_ev(x, y + r, r, h - 2 * r, colour, alpha),
-    rect_ev(x + w - r, y + r, r, h - 2 * r, colour, alpha),
-    fill_disc(x + r, y + r, r, colour, alpha),
-    fill_disc(x + w - r, y + r, r, colour, alpha),
-    fill_disc(x + r, y + h - r, r, colour, alpha),
-    fill_disc(x + w - r, y + h - r, r, colour, alpha),
-  }, "\n")
+  local k = math.max(1, math.floor(r * 0.552 + 0.5))
+  local wr, hr = w - r, h - r
+  local path = table.concat({
+    string.format("m %d 0", r),
+    string.format("l %d 0", wr),
+    string.format("b %d 0 %d %d %d %d", wr + k, w, r - k, w, r),
+    string.format("l %d %d", w, hr),
+    string.format("b %d %d %d %d %d %d", w, hr + k, wr + k, h, wr, h),
+    string.format("l %d %d", r, h),
+    string.format("b %d %d 0 %d 0 %d", r - k, h, hr + k, hr),
+    string.format("l 0 %d", r),
+    string.format("b 0 %d %d 0 %d 0", r - k, r - k, r),
+  }, " ")
+  return string.format(
+    "{\\an7\\pos(%d,%d)\\1c%s\\1a%s\\bord0\\shad0\\p1}%s{\\p0}",
+    x, y, colour, alpha or "&H00&", path
+  )
 end
 
 local function pill_width(text)
-  return math.max(96, utf8_len(text) * 12 + 32)
+  return math.max(108, utf8_len(text) * 11 + 36)
 end
 
 local function draw_pill(x, y, text, active)
   local width = pill_width(text)
-  local colour = active and C_ACCENT or C_PRIMARY
+  local fill = active and rounded_rect(x, y, width, PILL_H, PILL_RADIUS, C_ACCENT, A_PILL_ON)
+    or rounded_rect(x, y, width, PILL_H, PILL_RADIUS, C_WHITE, A_PILL)
+  local colour = active and C_INK or C_PRIMARY
   return table.concat({
-    rounded_rect(x, y, width, PILL_H, PILL_RADIUS, C_WHITE, A_PILL),
-    text_ev(5, x + math.floor(width / 2), y + math.floor(PILL_H / 2), 22, colour, text, active == true),
+    fill,
+    text_ev(5, x + math.floor(width / 2), y + math.floor(PILL_H / 2), 20, colour, text, active == true),
   }, "\n"), width
 end
 
-local function write_visible_state(is_visible, state_mode)
+local function write_visible_state(is_visible, state_mode, seconds)
+  local dwell = seconds
+  if dwell == nil then
+    dwell = is_visible and NORMAL_SEC or 0
+  end
   local payload = string.format(
     '{"visible":%s,"mode":"%s","ts":%d,"visible_sec":%.1f}\n',
-    tostring(is_visible), state_mode or overlay_mode, os.time(), NORMAL_SEC
+    is_visible and "true" or "false",
+    state_mode or overlay_mode,
+    os.time(),
+    dwell
   )
   local temporary = VISIBLE_FILE .. ".hud.tmp"
   local file = io.open(temporary, "w")
@@ -364,11 +375,37 @@ local function audio_chip()
   return "A  " .. utf8_prefix(table.concat(pieces, " "), 22)
 end
 
-local function volume_transient()
-  if tostring(hud_reason) ~= "volume" then return nil end
-  local volume = math.floor((mp.get_property_number("volume") or 0) + 0.5)
-  if fixture_name == "volume" then volume = 45 end
-  return "Vol " .. tostring(volume)
+local function volume_percent()
+  if FIXTURES then
+    if fixture_name == "volume" then return 45 end
+    return 32
+  end
+  local volume = mp.get_property_number("volume")
+  if volume == nil then return 0 end
+  return math.max(0, math.min(100, math.floor(volume + 0.5)))
+end
+
+local function draw_volume(right, cy, active)
+  local level = volume_percent()
+  local label = tostring(level)
+  local meter_w = VOL_TICKS * VOL_TICK_W + (VOL_TICKS - 1) * VOL_TICK_G
+  local label_w = math.max(24, utf8_len(label) * 13)
+  local ev = {
+    text_ev(6, right, cy, 22, active and C_PRIMARY or C_SECONDARY, label, active == true),
+  }
+  local meter_right = right - label_w - 12
+  local meter_left = meter_right - meter_w
+  local filled = math.floor((level / 100) * VOL_TICKS + 0.499)
+  local tick_y = cy - math.floor(VOL_TICK_H / 2)
+  for index = 1, VOL_TICKS do
+    local x = meter_left + (index - 1) * (VOL_TICK_W + VOL_TICK_G)
+    if index <= filled then
+      ev[#ev + 1] = rect_ev(x, tick_y, VOL_TICK_W, VOL_TICK_H, active and C_ACCENT or C_PRIMARY, "&H00&")
+    else
+      ev[#ev + 1] = rect_ev(x, tick_y, VOL_TICK_W, VOL_TICK_H, C_WHITE, A_TICK_OFF)
+    end
+  end
+  return table.concat(ev, "\n"), meter_left
 end
 
 local function seek_transient()
@@ -396,58 +433,61 @@ local function build_hud_ass()
 
   local left = HUD_X + PAD
   local right = HUD_X + HUD_W - PAD
-  local title_y = HUD_Y + 40
-  ev[#ev + 1] = text_ev(7, left, title_y, 32, C_PRIMARY, identity_title(), false)
+  local title_y = HUD_Y + 28
+  local volume_active = tostring(hud_reason) == "volume"
+  local volume_ass, volume_left = draw_volume(right, title_y + 16, volume_active)
+  ev[#ev + 1] = text_ev(7, left, title_y, 28, C_PRIMARY, identity_title(), false)
+  ev[#ev + 1] = volume_ass
+  if live then
+    ev[#ev + 1] = text_ev(9, volume_left - 20, title_y + 4, 16, C_PRIMARY, "LIVE", true)
+  end
 
   local meta_bits = {}
   local picture = picture_meta()
-  local volume = volume_transient()
-  if live then
-    local live_w = pill_width("LIVE")
-    local live_x = right - live_w
-    local pill, _ = draw_pill(live_x, HUD_Y + 24, "LIVE", false)
-    ev[#ev + 1] = pill
-    right = live_x - 16
-  end
-  if volume then meta_bits[#meta_bits + 1] = volume end
-  if picture ~= "" then meta_bits[#meta_bits + 1] = picture end
   if overlay_mode == "confirmation" or confirmation_copy ~= "" then
-    table.insert(meta_bits, 1, utf8_prefix(confirmation_copy ~= "" and confirmation_copy or "Now playing", 28))
+    meta_bits[#meta_bits + 1] = utf8_prefix(
+      confirmation_copy ~= "" and confirmation_copy or "Now playing", 28)
   end
+  if picture ~= "" then meta_bits[#meta_bits + 1] = picture end
   if #meta_bits > 0 then
-    ev[#ev + 1] = text_ev(9, live and right or (HUD_X + HUD_W - PAD), title_y, 18, C_CAPTION,
-      table.concat(meta_bits, "    "), false)
+    ev[#ev + 1] = text_ev(7, left, title_y + 34, 16, C_CAPTION,
+      table.concat(meta_bits, "   ·   "), false)
   end
 
-  local pill_y = HUD_Y + 124
-  local hair_left = left + 108
+  local track_left = left + 96
+  local track_right = right - 96
+  local pill_y = HUD_Y + 148
   if not live then
-    local transport_y = HUD_Y + 92
-    ev[#ev + 1] = text_ev(7, left, transport_y, 26, C_PRIMARY, fmt_time(position), false)
+    local transport_y = HUD_Y + 100
+    ev[#ev + 1] = text_ev(7, left, transport_y, 24, C_PRIMARY, fmt_time(position), false)
     local remaining = duration > 0 and ("−" .. fmt_time(duration - position)) or ""
     local delta = seek_transient()
     if delta then remaining = remaining ~= "" and (delta .. "  " .. remaining) or delta end
-    ev[#ev + 1] = text_ev(9, HUD_X + HUD_W - PAD, transport_y, 22, C_SECONDARY, remaining, false)
-    local hair_right = HUD_X + HUD_W - PAD - 108
-    local hair_w = math.max(80, hair_right - hair_left)
-    local hair_y = transport_y - 1
-    ev[#ev + 1] = rect_ev(hair_left, hair_y, hair_w, HAIRLINE_H, C_WHITE, A_HAIRLINE)
+    ev[#ev + 1] = text_ev(9, right, transport_y, 22, seeking() and C_ACCENT or C_SECONDARY,
+      remaining, seeking())
+    local track_w = math.max(80, track_right - track_left)
+    local track_y = transport_y - math.floor(TRACK_H / 2)
+    ev[#ev + 1] = rect_ev(track_left, track_y, track_w, TRACK_H, C_WHITE, A_TRACK)
     if duration > 0 then
       local progress = math.max(0, math.min(1, position / duration))
-      local head_x = hair_left + math.floor((hair_w - PLAYHEAD) * progress)
-      ev[#ev + 1] = rect_ev(head_x, hair_y - 1, PLAYHEAD, PLAYHEAD, seeking() and C_ACCENT or C_PRIMARY, "&H00&")
+      local fill_w = math.max(progress > 0 and PLAYHEAD_W or 0, math.floor(track_w * progress))
+      ev[#ev + 1] = rect_ev(track_left, track_y, fill_w, TRACK_H,
+        seeking() and C_ACCENT or C_PRIMARY, "&H00&")
+      local head_x = track_left + math.max(0, fill_w - PLAYHEAD_W)
+      local head_y = track_y - math.floor((PLAYHEAD_H - TRACK_H) / 2)
+      ev[#ev + 1] = rect_ev(head_x, head_y, PLAYHEAD_W, PLAYHEAD_H,
+        seeking() and C_ACCENT or C_PRIMARY, "&H00&")
     end
-    pill_y = HUD_Y + 124
   else
-    pill_y = HUD_Y + 100
+    pill_y = HUD_Y + 118
   end
 
-  local chip_x = live and left or hair_left
+  local chip_x = live and left or track_left
   local subs = subtitle_chip()
   if subs then
     local pill, width = draw_pill(chip_x, pill_y, subs, tostring(hud_reason) == "subs")
     ev[#ev + 1] = pill
-    chip_x = chip_x + width + 16
+    chip_x = chip_x + width + 12
   end
   local audio = audio_chip()
   if audio then
@@ -455,7 +495,7 @@ local function build_hud_ass()
     ev[#ev + 1] = pill
   end
 
-  ev[#ev + 1] = text_ev(5, HUD_X + math.floor(HUD_W / 2), HUD_Y + HUD_H - 28, 20, C_CAPTION,
+  ev[#ev + 1] = text_ev(5, HUD_X + math.floor(HUD_W / 2), HUD_Y + HUD_H - 26, 18, C_CAPTION,
     contextual_hints(), false)
   return table.concat(ev, "\n")
 end
@@ -539,7 +579,7 @@ local function build_streams_ass()
   ev[#ev + 1] = rect_ev(0, SHEET_Y - 28, CANVAS_W, 16, C_BLACK, A_SCRIM[2])
   ev[#ev + 1] = rect_ev(0, SHEET_Y - 12, CANVAS_W, 12, C_BLACK, A_SCRIM[3])
   ev[#ev + 1] = rounded_rect(SHEET_X, SHEET_Y, SHEET_W, SHEET_H, CARD_RADIUS, C_CARD, A_CARD)
-  ev[#ev + 1] = text_ev(7, SHEET_X + PAD, SHEET_Y + 40, 32, C_PRIMARY, "Streams", false)
+  ev[#ev + 1] = text_ev(7, SHEET_X + PAD, SHEET_Y + 36, 28, C_PRIMARY, "Streams", false)
   local status_copy = status == "checking" and "Checking stream…"
     or status == "switching" and "Starting stream…"
     or status == "failed" and "Playback stopped"
@@ -635,8 +675,16 @@ local function build_ass()
 end
 
 render = function()
-  if overlay_mode == "hidden" then overlay:remove() return end
+  -- Keep the overlay id alive. Calling remove() can leave later update()
+  -- unable to put chrome back, so A/↑ keep working while the HUD stays gone.
+  if overlay_mode == "hidden" then
+    overlay.data = ""
+    overlay.hidden = true
+    overlay:update()
+    return
+  end
   overlay.data = build_ass()
+  overlay.hidden = false
   overlay:update()
 end
 
@@ -656,7 +704,7 @@ local function settle_after_hud()
   else
     overlay_mode = "hidden"
   end
-  write_visible_state(false, overlay_mode)
+  write_visible_state(false, overlay_mode, 0)
   render()
 end
 
@@ -666,7 +714,8 @@ local function show_hud(reason, forced_seconds)
   local seconds = forced_seconds or dwell_seconds(hud_reason)
   overlay_mode = hud_reason == "confirmation" and "confirmation" or "hud"
   visible = true
-  write_visible_state(true, overlay_mode)
+  overlay.hidden = false
+  write_visible_state(true, overlay_mode, seconds)
   render()
   stop_hud_timers()
   tick_timer = mp.add_periodic_timer(1.0, render)
@@ -710,7 +759,7 @@ local function open_streams()
   stream_index = initial_stream_focus()
   stream_poll_timer = stop_timer(stream_poll_timer)
   stream_poll_timer = mp.add_periodic_timer(1.0, refresh_stream_state)
-  write_visible_state(true, "streams")
+  write_visible_state(true, "streams", 86400)
   render()
 end
 
@@ -820,7 +869,7 @@ mp.observe_property("paused-for-cache", "bool", function(_, paused_for_cache)
         buffering = true
         overlay_mode = "buffering"
         visible = false
-        write_visible_state(false, "buffering")
+        write_visible_state(false, "buffering", 0)
         render()
       end
     end)
@@ -890,7 +939,7 @@ if START_CONFIRMATION ~= "" then
   overlay_mode = "confirmation"
   visible = true
   confirmation_until = mp.get_time() + LONG_SEC
-  write_visible_state(true, "confirmation")
+  write_visible_state(true, "confirmation", LONG_SEC)
   render()
   hide_timer = mp.add_timeout(LONG_SEC, settle_after_hud)
 elseif START_REOPEN_STREAMS then

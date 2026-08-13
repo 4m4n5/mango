@@ -103,7 +103,7 @@ Test from the physical controller at normal couch distance.
 | L2 | Typography/safe area | Essential copy is readable; focused cards/rings are not clipped at TV edges | |
 | L3 | D-pad path | Every visible interactive element is reachable and escapable; one focus target at a time | |
 | L4 | Focus vs selection | White focus/current state/amber semantic state remain visually distinct | |
-| L5 | L/R | Shoulders move exactly one browse tab and preserve per-tab focus/scroll | |
+| L5 | L/R | Shoulders move exactly one browse tab, preserve per-tab focus/scroll, and paint an already-visited tab instantly from cache (loading only on first visit) | |
 | L6 | B/Y | B selects; Y backs one logical level without resetting unrelated state | |
 | L7 | Home | Home returns from playback to the preserved origin; on launcher it does not reset Home | |
 | L8 | X ownership | Home X advances only current eligible cached discovery; Search X edits; playback X follows content kind; stale/background player state cannot steal it | |
@@ -167,8 +167,8 @@ bash scripts/m6-ship/gate-m6-stream-picker-smoke.sh
 | ID | Check | Expected | Verdict/evidence |
 |----|-------|----------|------------------|
 | H1 | Startup | No HUD until interaction; clean film image | |
-| H2 | Normal HUD | Translucent floating card; stable title/episode; time + hairline + remaining; picture meta caption; ↑/A language pills; B/X/Y verbs | |
-| H3 | Feedback | Title stays put; signed seek on the hairline; Vol n on the identity row; active language pill goes amber for 6 s; 4 s normal dwell | |
+| H2 | Normal HUD | Translucent floating card; stable title/episode; always-on volume meter; time + filled progress + remaining; picture meta caption; ↑/A language pills; B/X/Y verbs | |
+| H3 | Feedback | Title stays put; signed seek on the progress track; volume meter always visible and accented while adjusting; active language pill goes amber for 6 s; 4 s normal dwell; HUD reappears after auto-hide on A/↑/seek/volume | |
 | H4 | Pause | Full card settles to a small persistent centered Paused capsule; disappears immediately on resume | |
 | H5 | Buffering | Appears only after 1 s anti-flicker and clears immediately on recovery | |
 | H6 | Live | LIVE pill, no false timeline, no X guidance/response | |

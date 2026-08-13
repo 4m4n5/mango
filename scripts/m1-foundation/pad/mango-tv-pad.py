@@ -888,16 +888,24 @@ def playback_osd_is_visible() -> bool:
     if PLAYBACK_OSD_VISIBLE_FILE.is_file():
         try:
             payload = json.loads(PLAYBACK_OSD_VISIBLE_FILE.read_text(encoding="utf-8"))
-            if isinstance(payload, dict) and payload.get("visible") is True:
+            if isinstance(payload, dict):
+                # Lua hide writes visible:false. That is authoritative — do not
+                # fall through to the Tk trigger file, or A/↑ will cycle without
+                # summoning chrome.
+                if payload.get("visible") is not True:
+                    return False
+                if payload.get("mode") == "streams":
+                    return True
                 ts = float(payload.get("ts") or 0)
                 visible_sec = float(payload.get("visible_sec") or PLAYBACK_OSD_VISIBLE_SEC)
-                if ts > 0 and (time.time() - ts) <= max(visible_sec, PLAYBACK_OSD_VISIBLE_SEC) + 0.5:
-                    return True
                 if ts <= 0:
                     return True
+                return (time.time() - ts) <= visible_sec + 0.75
         except (OSError, ValueError, json.JSONDecodeError, TypeError):
             pass
-    # Fallback: recent show trigger within visible window.
+    if PLAYBACK_OSD_BACKEND == "lua":
+        return False
+    # Tk rollback only: recent show trigger within the default window.
     try:
         age = time.time() - PLAYBACK_OSD_TRIGGER.stat().st_mtime
         return 0 <= age <= PLAYBACK_OSD_VISIBLE_SEC

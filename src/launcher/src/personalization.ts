@@ -116,7 +116,7 @@ export function personalizationOwnerFromState(
   };
 }
 
-/** A cached personalized tab is paintable only after a fresh server read. */
+/** True when a cached personalized tab's owner still matches a fresh server read. */
 export function canActivatePersonalizedCatalogCache(
   cachedOwner: PersonalizationOwner,
   currentServerState: Pick<PersonalizationState, "active_profile_id" | "updated_at">,
