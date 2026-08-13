@@ -78,16 +78,17 @@ intact and recoverable. `off` disables recommendation work rather than
 activating a personal-profile ranker.
 
 Playback resolves with `yt-dlp -g` and starts mpv on those direct URLs. The
-selector is adaptive DASH only (`bv*+ba`, highest up to 4K). Muxed progressive
-(`best` / itag 18) is typically 360p and is never in the same `-f` string as
-DASH: if split formats are missing from the default client, a combined
-selector would succeed at 360p and never try another client. Resolve therefore
-asks TV/Android/iOS player clients, sorts by resolution, and only then falls
-back to H.264 DASH and last to muxed. If mpv rejects the first transport
-before the first frame, Mango performs one fresh resolve with that exact
-selector excluded. It never loops formats at couch time and this path uses no
-YouTube Data API quota. Legacy `/etc/mango` selectors that slash-or to `best`
-are upgraded to the same adaptive policy.
+selector is adaptive DASH only (`bv*+ba`, highest up to 4K), ranked by
+`--format-sort` (resolution, fps, HDR, then codec). Mango does not pin
+`player_client`: yt-dlp's default clients are what still expose DASH
+googlevideo URLs, and a forced `tv,android,ios` set replaced them and left
+only muxed itag 18 (360p). Muxed progressive is never a candidate. If mpv
+rejects the first split stream before the first frame, Mango performs one
+fresh resolve with that exact selector excluded and retries H.264+AAC DASH.
+It never loops formats at couch time and this path uses no YouTube Data API
+quota. Legacy `/etc/mango` selectors that slash-or to `best` are upgraded to
+the same adaptive policy. Operators may set `MANGO_YTDLP_EXTRACTOR_ARGS` only
+as an explicit override.
 
 ---
 

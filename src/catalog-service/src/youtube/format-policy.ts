@@ -1,14 +1,10 @@
-/** Highest adaptive DASH up to 4K. Muxed progressive is not in this selector. */
+/** Highest adaptive DASH up to 4K. Muxed progressive is never in this selector. */
 export const YOUTUBE_ADAPTIVE_FORMAT = 'bv*[height<=2160]+ba';
-/** H.264+AAC DASH when mpv rejects VP9/AV1 split streams. */
+/** H.264+AAC DASH after mpv rejects the first split stream. Still not muxed. */
 export const YOUTUBE_COMPAT_ADAPTIVE_FORMAT =
   'bv*[height<=1080][vcodec^=avc1]+ba[acodec^=mp4a]';
-/** Last resort. YouTube muxed progressive is typically 360p (itag 18). */
-export const YOUTUBE_MUXED_FORMAT = 'b';
 export const YOUTUBE_FORMAT_SORT =
   'res:2160,fps,hdr:12,vcodec:vp9.2:vp9:av01:h264,acodec:opus:mp4a';
-/** Clients that still expose googlevideo DASH URLs to `yt-dlp -g`. `tv` first. */
-export const YOUTUBE_EXTRACTOR_ARGS = 'youtube:player_client=tv,android,ios';
 
 const LEGACY_YOUTUBE_FORMATS = new Set([
   'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
@@ -26,8 +22,7 @@ export function isMuxedOnlyYoutubeFormat(format: string): boolean {
 
 /**
  * Drop slash-ored muxed fallbacks. `bestvideo+bestaudio/best` succeeds at 360p
- * as soon as DASH is missing from the default client, so muxed must never live
- * in the same `-f` string as adaptive.
+ * as soon as DASH is missing, so muxed must never share a `-f` string with DASH.
  */
 export function preferAdaptiveYoutubeFormat(format: string): string {
   return format
@@ -50,19 +45,20 @@ function allowCompatAdaptive(preferred: string): boolean {
     || /height\s*<=\s*(1080|1440|2160)/i.test(preferred);
 }
 
+/**
+ * Adaptive DASH first. H.264 DASH only as the decoder-compat retry. Muxed
+ * progressive (itag 18 / 360p) is never a candidate: it made 360p look like
+ * a successful play when DASH was missing.
+ */
 export function ytDlpFormatCandidates(configured: string, excludedFormats: string[] = []): string[] {
   const excluded = new Set(excludedFormats.map((format) => format.trim()).filter(Boolean));
-  const trimmed = configured.trim();
-  const legacy = !trimmed || LEGACY_YOUTUBE_FORMATS.has(trimmed);
-  const preferred = effectiveYoutubeFormat(trimmed);
-  const formats = legacy
-    ? [YOUTUBE_ADAPTIVE_FORMAT, YOUTUBE_COMPAT_ADAPTIVE_FORMAT, YOUTUBE_MUXED_FORMAT]
-    : allowCompatAdaptive(preferred)
-      ? [preferred, YOUTUBE_COMPAT_ADAPTIVE_FORMAT, YOUTUBE_MUXED_FORMAT]
-      : [preferred, YOUTUBE_MUXED_FORMAT];
+  const preferred = effectiveYoutubeFormat(configured);
+  const formats = allowCompatAdaptive(preferred)
+    ? [preferred, YOUTUBE_COMPAT_ADAPTIVE_FORMAT]
+    : [preferred];
   return formats
     .map((format) => format.trim())
     .filter(Boolean)
     .filter((format, index, list) => list.indexOf(format) === index)
-    .filter((format) => !excluded.has(format));
+    .filter((format) => !excluded.has(format) && !isMuxedOnlyYoutubeFormat(format));
 }

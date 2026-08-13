@@ -2,7 +2,6 @@ import { execFile } from 'node:child_process';
 import { CatalogError } from '../catalog-errors.js';
 import type { YoutubeConfig } from './config.js';
 import {
-  YOUTUBE_EXTRACTOR_ARGS,
   YOUTUBE_FORMAT_SORT,
   ytDlpFormatCandidates,
 } from './format-policy.js';
@@ -13,9 +12,7 @@ export {
   preferAdaptiveYoutubeFormat,
   YOUTUBE_ADAPTIVE_FORMAT,
   YOUTUBE_COMPAT_ADAPTIVE_FORMAT,
-  YOUTUBE_EXTRACTOR_ARGS,
   YOUTUBE_FORMAT_SORT,
-  YOUTUBE_MUXED_FORMAT,
   ytDlpFormatCandidates,
 } from './format-policy.js';
 
@@ -49,10 +46,14 @@ export function youtubeYtDlpResolveArgs(
     format,
     '--format-sort',
     process.env.MANGO_YTDLP_FORMAT_SORT?.trim() || YOUTUBE_FORMAT_SORT,
-    '--extractor-args',
-    process.env.MANGO_YTDLP_EXTRACTOR_ARGS?.trim() || YOUTUBE_EXTRACTOR_ARGS,
-    '-g',
   ];
+  // Do not pin player_client. yt-dlp's default clients are what still expose
+  // DASH; a forced tv/android/ios set replaced them and left only 360p muxed.
+  const extractorArgs = process.env.MANGO_YTDLP_EXTRACTOR_ARGS?.trim();
+  if (extractorArgs) {
+    args.push('--extractor-args', extractorArgs);
+  }
+  args.push('-g');
   if (config.yt_dlp_cookies) {
     args.push('--cookies', config.yt_dlp_cookies);
   }

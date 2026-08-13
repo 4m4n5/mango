@@ -4,10 +4,11 @@
 
 Latest recorded Pi deployment: **2026-08-13**,
 `9c0dd4e626ef3294d6160039316e22168d6dfe8e`. Search Up-to-scopes input decoupling
-and YouTube adaptive-DASH start quality are on that SHA. The standard pre-couch
-gate, Search smoke, and YouTube smoke all **PASS**. Reliability remains
-usable-yellow (`broken_verified=4/32`). The pad router is waiting for the
-8BitDo. Human couch verdict remains **DEFERRED**. Prior 2026-08-13 line
+is on that SHA. YouTube still started at muxed 360p there because resolve pinned
+`player_client=tv,android,ios`, which replaced yt-dlp's default clients and left
+only itag 18. The standard pre-couch gate, Search smoke, and YouTube smoke all
+**PASS**. Reliability remains usable-yellow (`broken_verified=4/32`). The pad
+router is waiting for the 8BitDo. Human couch verdict remains **DEFERRED**. Prior 2026-08-13 line
 `bfc157d` still records Search keyboard/focus and YouTube play-session
 attribution. Use `git status`, `git rev-parse HEAD`, and the Pi commands below
 before acting.

@@ -9,9 +9,7 @@ import {
   shouldRefreshYoutubeTransport,
   YOUTUBE_ADAPTIVE_FORMAT,
   YOUTUBE_COMPAT_ADAPTIVE_FORMAT,
-  YOUTUBE_EXTRACTOR_ARGS,
   YOUTUBE_FORMAT_SORT,
-  YOUTUBE_MUXED_FORMAT,
   youtubeYtDlpResolveArgs,
   ytDlpFormatCandidates,
 } from './playback.js';
@@ -55,24 +53,24 @@ test('legacy muxed-first config upgrades to highest adaptive DASH', () => {
   assert.equal(effectiveYoutubeFormat('bv*[height<=720]+ba/b'), 'bv*[height<=720]+ba');
 });
 
-test('ytDlpFormatCandidates never prefers muxed progressive over adaptive', () => {
+test('ytDlpFormatCandidates never admits muxed progressive', () => {
   for (const configured of [
     'best',
     'best[height<=1080]/best',
     'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
     'bv*[height<=720]+ba/b',
+    'b',
   ]) {
     const formats = ytDlpFormatCandidates(configured);
-    assert.equal(formats.includes(YOUTUBE_MUXED_FORMAT), true);
-    assert.ok(!isMuxedOnlyYoutubeFormat(formats[0] || ''));
+    assert.ok(formats.length > 0);
+    assert.ok(formats.every((format) => !isMuxedOnlyYoutubeFormat(format)));
     assert.ok((formats[0] || '').includes('+'));
-    assert.ok(formats.indexOf(YOUTUBE_MUXED_FORMAT) > 0);
   }
 });
 
 test('a tighter operator cap does not fall through to 1080p H.264', () => {
   const formats = ytDlpFormatCandidates('bv*[height<=720]+ba/b');
-  assert.deepEqual(formats, ['bv*[height<=720]+ba', YOUTUBE_MUXED_FORMAT]);
+  assert.deepEqual(formats, ['bv*[height<=720]+ba']);
 });
 
 test('ytDlpFormatCandidates keeps configured format first and de-dupes fallbacks', () => {
@@ -82,23 +80,35 @@ test('ytDlpFormatCandidates keeps configured format first and de-dupes fallbacks
   assert.deepEqual(formats, [
     YOUTUBE_ADAPTIVE_FORMAT,
     YOUTUBE_COMPAT_ADAPTIVE_FORMAT,
-    YOUTUBE_MUXED_FORMAT,
   ]);
 });
 
 test('ytDlpFormatCandidates advances past an already failed transport format', () => {
   const formats = ytDlpFormatCandidates(YOUTUBE_ADAPTIVE_FORMAT, [YOUTUBE_ADAPTIVE_FORMAT]);
-  assert.equal(formats.includes(YOUTUBE_ADAPTIVE_FORMAT), false);
-  assert.equal(formats[0], YOUTUBE_COMPAT_ADAPTIVE_FORMAT);
-  assert.equal(formats.at(-1), YOUTUBE_MUXED_FORMAT);
+  assert.deepEqual(formats, [YOUTUBE_COMPAT_ADAPTIVE_FORMAT]);
 });
 
-test('yt-dlp resolve sorts by resolution and uses non-SABR player clients', () => {
+test('yt-dlp resolve sorts by resolution and leaves player clients to yt-dlp', () => {
   const args = youtubeYtDlpResolveArgs({}, YOUTUBE_ADAPTIVE_FORMAT, 'dQw4w9wgGcQ');
   assert.equal(args[args.indexOf('-f') + 1], YOUTUBE_ADAPTIVE_FORMAT);
   assert.equal(args[args.indexOf('--format-sort') + 1], YOUTUBE_FORMAT_SORT);
-  assert.equal(args[args.indexOf('--extractor-args') + 1], YOUTUBE_EXTRACTOR_ARGS);
+  assert.equal(args.includes('--extractor-args'), false);
   assert.ok(args.includes('-g'));
+});
+
+test('yt-dlp resolve passes operator extractor-args only when set', () => {
+  const previous = process.env.MANGO_YTDLP_EXTRACTOR_ARGS;
+  process.env.MANGO_YTDLP_EXTRACTOR_ARGS = 'youtube:player_client=android_vr';
+  try {
+    const args = youtubeYtDlpResolveArgs({}, YOUTUBE_ADAPTIVE_FORMAT, 'dQw4w9wgGcQ');
+    assert.equal(args[args.indexOf('--extractor-args') + 1], 'youtube:player_client=android_vr');
+  } finally {
+    if (previous === undefined) {
+      delete process.env.MANGO_YTDLP_EXTRACTOR_ARGS;
+    } else {
+      process.env.MANGO_YTDLP_EXTRACTOR_ARGS = previous;
+    }
+  }
 });
 
 test('classifyYtDlpError does not call requested format failure a removed video', () => {
