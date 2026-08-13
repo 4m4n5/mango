@@ -17,10 +17,37 @@ export function resolveFocusPosition(
   return { row, col: clamp(desired.col, 0, rows[row]!.length - 1) };
 }
 
+/**
+ * Column-stable D-pad step. Down/Up keep the intended column when a row is
+ * shorter (Search recents beside a 10-key keyboard, a short last Home rail).
+ */
+export function stepGridPosition(
+  rowLengths: number[],
+  current: { row: number; col: number; desiredCol: number },
+  axis: "row" | "col",
+  delta: number,
+): { row: number; col: number; desiredCol: number } {
+  if (rowLengths.length === 0) {
+    return { row: 0, col: 0, desiredCol: 0 };
+  }
+  if (axis === "col") {
+    const length = rowLengths[current.row] ?? 0;
+    if (length === 0) return current;
+    const col = clamp(current.col + delta, 0, length - 1);
+    return { row: current.row, col, desiredCol: col };
+  }
+  const row = clamp(current.row + delta, 0, rowLengths.length - 1);
+  if (row === current.row) return current;
+  const length = rowLengths[row] ?? 0;
+  const col = length === 0 ? 0 : clamp(current.desiredCol, 0, length - 1);
+  return { row, col, desiredCol: current.desiredCol };
+}
+
 export class FocusGrid {
   private rows: HTMLElement[][] = [];
   private rowIndex = 0;
   private colIndex = 0;
+  private desiredCol = 0;
   private onFocus?: (element: HTMLElement) => void;
   private pendingScroll = 0;
 
@@ -39,40 +66,52 @@ export class FocusGrid {
     if (this.rows.length === 0) {
       this.rowIndex = 0;
       this.colIndex = 0;
+      this.desiredCol = 0;
       return;
     }
+    const previous = this.focused;
     const position = resolveFocusPosition(this.rows, options, {
       row: this.rowIndex,
       col: this.colIndex,
     });
     this.rowIndex = position.row;
     this.colIndex = position.col;
+    this.desiredCol = position.col;
+    const next = this.focused;
+    if (next !== null && next === previous && document.activeElement === next) {
+      return;
+    }
     this.applyFocus();
   }
 
   moveRow(delta: number): void {
-    if (this.rows.length === 0) {
+    const next = stepGridPosition(
+      this.rows.map((row) => row.length),
+      { row: this.rowIndex, col: this.colIndex, desiredCol: this.desiredCol },
+      "row",
+      delta,
+    );
+    if (next.row === this.rowIndex && next.col === this.colIndex) {
       return;
     }
-    const nextRow = clamp(this.rowIndex + delta, 0, this.rows.length - 1);
-    if (nextRow === this.rowIndex) {
-      return;
-    }
-    this.rowIndex = nextRow;
-    this.colIndex = clamp(this.colIndex, 0, this.currentRow().length - 1);
+    this.rowIndex = next.row;
+    this.colIndex = next.col;
+    this.desiredCol = next.desiredCol;
     this.applyFocus();
   }
 
   moveCol(delta: number): void {
-    const row = this.currentRow();
-    if (row.length === 0) {
+    const next = stepGridPosition(
+      this.rows.map((row) => row.length),
+      { row: this.rowIndex, col: this.colIndex, desiredCol: this.desiredCol },
+      "col",
+      delta,
+    );
+    if (next.col === this.colIndex) {
       return;
     }
-    const nextCol = clamp(this.colIndex + delta, 0, row.length - 1);
-    if (nextCol === this.colIndex) {
-      return;
-    }
-    this.colIndex = nextCol;
+    this.colIndex = next.col;
+    this.desiredCol = next.desiredCol;
     this.applyFocus();
   }
 
@@ -91,6 +130,7 @@ export class FocusGrid {
     }
     this.rowIndex = clamp(row, 0, this.rows.length - 1);
     this.colIndex = clamp(col, 0, this.currentRow().length - 1);
+    this.desiredCol = this.colIndex;
     this.applyFocus();
   }
 
@@ -116,8 +156,8 @@ export class FocusGrid {
         target.scrollIntoView({ behavior: "instant", block: "nearest", inline: "nearest" });
         this.pendingScroll = 0;
       });
+      this.onFocus?.(target);
     }
-    this.onFocus?.(target);
   }
 }
 

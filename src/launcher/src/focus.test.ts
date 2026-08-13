@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveFocusPosition } from './focus.js';
+import { resolveFocusPosition, stepGridPosition } from './focus.js';
 
 function item(focusKey: string): HTMLElement {
   return { dataset: { focusKey } } as unknown as HTMLElement;
@@ -23,4 +23,30 @@ test('focus fallback clamps to the replacement row instead of jumping to chrome'
     preferredKey: 'removed',
     fallbackPosition: { row: 1, col: 5 },
   }, { row: 0, col: 0 }), { row: 1, col: 1 });
+});
+
+test('vertical moves remember the intended column across a shorter row', () => {
+  const down = stepGridPosition(
+    [11, 1],
+    { row: 0, col: 10, desiredCol: 10 },
+    'row',
+    1,
+  );
+  assert.deepEqual(down, { row: 1, col: 0, desiredCol: 10 });
+  assert.deepEqual(
+    stepGridPosition([11, 1], down, 'row', -1),
+    { row: 0, col: 10, desiredCol: 10 },
+  );
+});
+
+test('Down from a QWERTY column stays in that column on a 10-wide rectangle', () => {
+  assert.deepEqual(
+    stepGridPosition(
+      [10, 10, 10, 10],
+      { row: 1, col: 9, desiredCol: 9 },
+      'row',
+      1,
+    ),
+    { row: 2, col: 9, desiredCol: 9 },
+  );
 });

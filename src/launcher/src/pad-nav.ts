@@ -174,7 +174,9 @@ export function commandsAfterSeq(
   );
 }
 
-const MOVE_MAX_AGE_MS = 300;
+/** Drop stale Home movement after a UI stall. Search keeps the latest move so
+ *  progressive result paints cannot eat 5–6 D-pad clicks. */
+const MOVE_MAX_AGE_MS = 900;
 const ACTION_MAX_AGE_MS = 1500;
 const FRAME_FALLBACK_MS = 50;
 
@@ -226,8 +228,17 @@ export async function applyPadNavBatch(
 ): Promise<number> {
   let applied = lastSeq;
   const pending = commandsAfterSeq(batch, lastSeq);
-  for (const command of pending) {
-    if (isPadNavCommandFresh(command)) {
+  const lastMoveIndex = pending.reduce(
+    (found, command, index) => (command.action === "move" ? index : found),
+    -1,
+  );
+  for (const [index, command] of pending.entries()) {
+    const fresh = isPadNavCommandFresh(command);
+    const replaySearchMove = !fresh
+      && command.action === "move"
+      && index === lastMoveIndex
+      && handlers.isInSearch();
+    if (fresh || replaySearchMove) {
       await waitInputTurn();
       handlePadNav(command, handlers);
     }

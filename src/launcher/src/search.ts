@@ -116,11 +116,36 @@ const SCOPES: Array<{ id: SearchScope; label: string }> = [
   { id: "live", label: "live" },
   { id: "youtube", label: "youtube" },
 ];
-const KEYBOARD = [
-  [..."1234567890"],
-  [..."qwertyuiop"],
-  [..."asdfghjkl"],
-  [..."zxcvbnm"],
+export type SearchKeyAction = "char" | "space" | "delete" | "clear" | "submit";
+
+export type SearchKeySpec = {
+  id: string;
+  label: string;
+  action: SearchKeyAction;
+};
+
+/** Every compose row is this wide so Down/Up stay in the same visual column. */
+export const SEARCH_KEYBOARD_COLUMNS = 10;
+
+function letterKey(id: string): SearchKeySpec {
+  return { id, label: id.toUpperCase(), action: "char" };
+}
+
+/**
+ * Rectangular QWERTY: A/Z rows keep 10 cells by placing delete/space/clear/search
+ * in the leftover slots instead of centering a short row (which made Down land
+ * on the key to the right).
+ */
+export const SEARCH_KEYBOARD: SearchKeySpec[][] = [
+  [..."1234567890"].map((id) => ({ id, label: id, action: "char" as const })),
+  [..."qwertyuiop"].map(letterKey),
+  [..."asdfghjkl"].map(letterKey).concat({ id: "delete", label: "del", action: "delete" }),
+  [
+    ...[..."zxcvbnm"].map(letterKey),
+    { id: "space", label: "space", action: "space" },
+    { id: "clear", label: "clear", action: "clear" },
+    { id: "submit", label: "search", action: "submit" },
+  ],
 ];
 
 export function mergeComposeFocusRows<T>(keyboardRows: T[][], starterRows: T[][]): T[][] {
@@ -315,6 +340,7 @@ export class SearchController {
   private preview: HTMLElement | null = null;
   private previewChoice: SearchChoice | undefined;
   private previewTimer: number | undefined;
+  private resultsPaint = 0;
   private atmosphere: HTMLElement | null = null;
   private atmosphereImage: HTMLImageElement | null = null;
   private atmosphereTimer: number | undefined;
@@ -411,6 +437,10 @@ export class SearchController {
     const state = this.playbackState();
     void this.cancelActive();
     this.pollToken += 1;
+    if (this.resultsPaint !== 0) {
+      window.cancelAnimationFrame(this.resultsPaint);
+      this.resultsPaint = 0;
+    }
     this.view.classList.add("hidden");
     this.clearPersisted();
     this.callbacks.onClose(state);
@@ -592,7 +622,7 @@ export class SearchController {
       if (snapshot.revision > after) {
         after = snapshot.revision;
         this.snapshot = snapshot;
-        this.refreshResults();
+        this.scheduleResultsRefresh();
       }
       if (snapshot.complete) {
         this.activeSearchId = null;
@@ -605,6 +635,10 @@ export class SearchController {
     const id = this.activeSearchId;
     this.activeSearchId = null;
     this.pollToken += 1;
+    if (this.resultsPaint !== 0) {
+      window.cancelAnimationFrame(this.resultsPaint);
+      this.resultsPaint = 0;
+    }
     if (!id) return;
     await fetch(`/api/catalog/search/query/${encodeURIComponent(id)}/cancel`, {
       method: "POST",
@@ -728,48 +762,56 @@ export class SearchController {
     const keyboard = document.createElement("section");
     keyboard.className = "search-keyboard";
     keyboard.setAttribute("aria-label", "On-screen keyboard");
-    const keyboardHead = document.createElement("div");
-    keyboardHead.className = "search-panel-head search-panel-head--hint-only";
-    // No "Keyboard" heading: a keyboard is self-evident, and the row is only
-    // needed to carry the delete hint.
-    const hint = document.createElement("p");
-    hint.textContent = "x delete · hold to clear";
-    keyboardHead.append(hint);
-    keyboard.appendChild(keyboardHead);
+    const grid = document.createElement("div");
+    grid.className = "search-keyboard-grid";
     const rows: HTMLElement[][] = [];
-    for (const keyRow of KEYBOARD) {
+    for (const keyRow of SEARCH_KEYBOARD) {
       const row = document.createElement("div");
       row.className = "search-key-row";
-      row.dataset.keyCount = String(keyRow.length);
-      const buttons = keyRow.map((key) => {
+      row.dataset.keyCount = String(SEARCH_KEYBOARD_COLUMNS);
+      const buttons = keyRow.map((spec) => {
         const button = this.controlButton(
-          key.toUpperCase(),
-          `search:key:${key}`,
-          () => this.setQuery(`${this.query}${key}`),
+          spec.label,
+          `search:key:${spec.id}`,
+          () => this.activateKey(spec),
         );
         button.classList.add("search-key");
+        if (spec.action !== "char") {
+          button.classList.add("search-key-action", `search-key-${spec.action}`);
+        }
+        if (spec.action === "submit") {
+          button.classList.add("search-submit");
+          button.prepend(searchIcon("search"));
+        }
         row.appendChild(button);
         return button;
       });
-      keyboard.appendChild(row);
+      grid.appendChild(row);
       rows.push(buttons);
     }
-    const actions = document.createElement("div");
-    actions.className = "search-key-row search-key-row--actions";
-    const space = this.controlButton("space", "search:key:space", () => this.setQuery(`${this.query} `));
-    const erase = this.controlButton("delete", "search:key:delete", () => this.secondary("tap"));
-    const clear = this.controlButton("clear", "search:key:clear", () => this.secondary("hold"));
-    const submit = this.controlButton("search", "search:key:submit", () => void this.submit());
-    space.classList.add("search-key-action", "search-key-space");
-    erase.classList.add("search-key-action");
-    clear.classList.add("search-key-action");
-    submit.classList.add("search-submit", "search-key-action");
-    submit.prepend(searchIcon("search"));
-    actions.append(space, erase, clear, submit);
-    keyboard.appendChild(actions);
-    rows.push([space, erase, clear, submit]);
+    keyboard.appendChild(grid);
     parent.appendChild(keyboard);
     return rows;
+  }
+
+  private activateKey(spec: SearchKeySpec): void {
+    if (spec.action === "space") {
+      this.setQuery(`${this.query} `);
+      return;
+    }
+    if (spec.action === "delete") {
+      this.secondary("tap");
+      return;
+    }
+    if (spec.action === "clear") {
+      this.secondary("hold");
+      return;
+    }
+    if (spec.action === "submit") {
+      void this.submit();
+      return;
+    }
+    this.setQuery(`${this.query}${spec.id}`);
   }
 
   private renderStarters(parent: HTMLElement, replace?: HTMLElement): HTMLElement[][] {
@@ -819,6 +861,7 @@ export class SearchController {
     // Derived from the same condition that builds `choices`, so the heading cannot
     // say "recent" above a column that is actually showing suggestions or the
     // typed-but-nothing-yet message.
+    heading.className = "rail-title";
     heading.textContent = this.query.length === 0 && this.suggestions.length === 0
       ? "recent"
       : "suggestions";
@@ -1062,22 +1105,7 @@ export class SearchController {
         group.label,
         group.layout,
         window.hasMore,
-        window.items.map((item) => [
-          item.key,
-          item.source,
-          item.type,
-          item.id,
-          item.title,
-          item.subtitle,
-          item.poster,
-          item.year,
-          item.description,
-          item.tab,
-          item.kind,
-          item.live_status,
-          item.in_library,
-          item.queued_for_verify,
-        ]),
+        window.items.map((item) => item.key),
       ]);
       let section = existingRails.get(group.id);
       if (!section || section.dataset.searchSignature !== signature) {
@@ -1194,6 +1222,15 @@ export class SearchController {
     this.applyFocusRows();
   }
 
+  private scheduleResultsRefresh(): void {
+    if (!this.submitted) return;
+    if (this.resultsPaint !== 0) return;
+    this.resultsPaint = window.requestAnimationFrame(() => {
+      this.resultsPaint = 0;
+      this.refreshResults();
+    });
+  }
+
   private refreshResults(): void {
     if (!this.submitted) return;
     const current = this.view.querySelector<HTMLElement>(".search-results");
@@ -1213,7 +1250,6 @@ export class SearchController {
     if (this.submitted && this.focusedElement) {
       this.scheduleResultsAtmosphere(this.focusedElement);
     }
-    this.persistSoon();
   }
 
   private scheduleResultsAtmosphere(element: HTMLElement): void {

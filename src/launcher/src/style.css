@@ -489,9 +489,9 @@ button {
   margin: 1.5rem 0 var(--focus-gutter);
   gap: 0;
   overflow: visible;
-  --search-line: rgba(255, 255, 255, 0.08);
-  --search-key: #16181c;
-  --search-key-gap: 0.45rem;
+  --search-line: var(--border-subtle);
+  --search-key: var(--bg-elevated);
+  --search-key-gap: 0.4rem;
   --search-key-width: 4.35rem;
 }
 
@@ -609,14 +609,14 @@ button {
 .search-query-shell {
   grid-area: query;
   min-width: 0;
-  min-height: 4.55rem;
+  min-height: 3.35rem;
   display: flex;
   align-items: center;
   gap: 0.9rem;
-  padding: 0.7rem 0.85rem 0.7rem 1.15rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 18px;
-  background: rgba(18, 20, 23, 0.92);
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
 .search-icon {
@@ -683,7 +683,6 @@ button {
 }
 
 .search-scopes,
-.search-key-row,
 .search-starter-track {
   display: flex;
   align-items: stretch;
@@ -696,20 +695,24 @@ button {
 }
 
 .search-scopes .search-control {
-  min-height: 2.85rem;
+  min-height: 3.45rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.45rem 1.05rem;
-  border-radius: 999px;
-  font-size: var(--text-caption);
-  font-weight: 650;
+  padding: 0.65rem 1.4rem;
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: transparent;
+  font-size: var(--text-control);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
 }
 
 .search-control {
   appearance: none;
-  border: 1px solid var(--search-line);
-  border-radius: 12px;
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-poster);
   background: var(--search-key);
   color: var(--text-secondary);
   min-height: 3rem;
@@ -724,12 +727,9 @@ button {
 .search-control:focus-visible {
   outline: none;
   border-color: var(--accent);
-  background: rgb(var(--accent-rgb) / 0.18);
+  background: var(--accent-soft);
   color: var(--text-primary);
-  box-shadow:
-    0 0 0 var(--focus-ring) var(--focus-ring-color),
-    0 8px 24px rgba(0, 0, 0, 0.38),
-    0 0 18px rgb(var(--accent-rgb) / 0.2);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
   transform: scale(var(--focus-scale-control));
 }
 
@@ -739,18 +739,24 @@ button {
   color: var(--text-primary);
 }
 
+.search-chip--active.focused,
+.search-chip--active:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .search-chip--active::before {
   content: none;
 }
 
 .search-compose-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(17rem, 0.78fr);
+  grid-template-columns: minmax(0, 1.7fr) minmax(18rem, 0.72fr);
   align-items: start;
-  gap: clamp(1.6rem, 2.2vw, 2.5rem);
+  column-gap: clamp(1.4rem, 2vw, 2.2rem);
   min-height: 0;
   flex: 1 1 auto;
-  padding-top: 1.15rem;
+  padding-top: 1rem;
 }
 
 /* Keyboard above, preview band below, sharing the grid's left column. */
@@ -759,25 +765,31 @@ button {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 1rem;
 }
 
 .search-keyboard {
   min-width: 0;
   flex: 0 0 auto;
-  padding: 0.2rem 0 var(--focus-gutter);
+  padding: 0.1rem 0 var(--focus-gutter);
+}
+
+.search-keyboard-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--search-key-gap);
 }
 
 /* Editorial stage under the keys. Height stays stable; recents without art
    keep a typographic fallback so the band never collapses into dead space. */
 .search-preview {
   min-width: 0;
-  min-height: 17.5rem;
+  min-height: 12.5rem;
   flex: 0 0 auto;
   display: flex;
   align-items: flex-start;
-  gap: clamp(1.25rem, 1.75vw, 2rem);
-  padding: 0.35rem var(--focus-gutter) 0.25rem 0.1rem;
+  gap: clamp(1.1rem, 1.5vw, 1.75rem);
+  padding: 0.15rem var(--focus-gutter) 0 0.1rem;
   overflow: clip;
 }
 
@@ -788,15 +800,12 @@ button {
 .search-preview-frame {
   position: relative;
   flex: 0 0 auto;
-  height: 16.5rem;
+  height: 11.5rem;
   aspect-ratio: 2 / 3;
   overflow: hidden;
   border: none;
   border-radius: var(--radius-poster);
-  background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.05), transparent 55%),
-    var(--bg-elevated);
-  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.42);
+  background: var(--bg-elevated);
 }
 
 .search-preview--landscape .search-preview-frame {
@@ -807,9 +816,7 @@ button {
   aspect-ratio: 2 / 3;
   display: grid;
   place-items: center;
-  background:
-    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.06), transparent 48%),
-    var(--bg-elevated);
+  background: var(--bg-elevated);
 }
 
 .search-preview-image {
@@ -879,11 +886,15 @@ button {
   align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
-  min-height: 2rem;
-  margin-bottom: 0.7rem;
+  min-height: 0;
+  margin-bottom: 0.35rem;
 }
 
-.search-panel-head h2 {
+.search-panel-head .rail-title {
+  margin: 0;
+}
+
+.search-panel-head h2:not(.rail-title) {
   margin: 0;
   color: var(--text-secondary);
   font-size: var(--text-caption);
@@ -899,86 +910,74 @@ button {
   font-weight: 560;
 }
 
-/* The keyboard head carries only the delete hint, so keep the hint on the right
-   where it sat when a heading held the left. */
-.search-panel-head--hint-only {
-  justify-content: flex-end;
-}
-
 .search-key-row {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
   gap: var(--search-key-gap);
-  justify-content: center;
-  margin-bottom: var(--search-key-gap);
-}
-
-.search-key-row[data-key-count="9"],
-.search-key-row[data-key-count="7"] {
-  justify-content: center;
+  justify-content: stretch;
+  margin-bottom: 0;
 }
 
 .search-key {
-  width: var(--search-key-width);
-  min-width: var(--search-key-width);
-  max-width: var(--search-key-width);
-  min-height: 3.75rem;
-  flex: 0 0 var(--search-key-width);
-  padding-inline: 0;
-  border-color: rgba(255, 255, 255, 0.1);
-  border-radius: 11px;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  min-height: 3.85rem;
+  flex: none;
+  padding-inline: 0.15rem;
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-poster);
   background: var(--search-key);
-  color: rgba(244, 241, 234, 0.88);
+  color: var(--text-primary);
   font-size: var(--text-control);
-  font-weight: 760;
+  font-weight: 700;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .search-key.focused,
 .search-key:focus-visible {
-  background: var(--accent);
-  color: var(--on-accent);
-  box-shadow:
-    0 0 0 var(--focus-ring) var(--focus-ring-color),
-    0 8px 24px rgba(0, 0, 0, 0.42),
-    0 0 20px rgb(var(--accent-rgb) / 0.3);
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
   transform: scale(var(--focus-scale-control));
 }
 
-.search-key-row--actions {
-  margin: 0.25rem 0 0;
-  gap: 0.55rem;
-}
-
-.search-key-row--actions .search-control {
-  min-width: 7.2rem;
-  font-size: var(--text-caption);
-}
-
 .search-key-action {
-  min-height: 3.4rem;
-  background: rgba(255, 255, 255, 0.06);
+  min-height: 3.85rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  text-transform: lowercase;
 }
 
-.search-key-space {
-  flex: 1.7 1 0;
-  min-width: 10rem;
+.search-key-space,
+.search-key-clear,
+.search-key-delete,
+.search-key-submit {
+  min-width: 0;
 }
 
-.search-key-row--actions .search-submit {
+.search-submit {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.55rem;
-  flex: 1 1 0;
-  min-width: 8.5rem;
-  background: rgba(255, 255, 255, 0.07);
-  border-color: var(--search-line);
+  gap: 0.35rem;
   color: var(--text-primary);
 }
 
-.search-key-row--actions .search-submit.focused,
-.search-key-row--actions .search-submit:focus-visible {
-  background: var(--accent);
+.search-submit > .search-icon {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.search-submit.focused,
+.search-submit:focus-visible {
+  background: var(--accent-soft);
   border-color: var(--accent);
-  color: var(--on-accent);
+  color: var(--text-primary);
 }
 
 .search-starters {
@@ -987,8 +986,8 @@ button {
 }
 
 .search-discovery {
-  padding: 0.2rem 0 0.5rem 1.35rem;
-  border-left: 1px solid var(--search-line);
+  padding: 0.15rem 0 0.5rem 0.2rem;
+  border-left: none;
 }
 
 .search-starter-track {
@@ -1246,9 +1245,19 @@ button {
 
 @media (prefers-reduced-motion: reduce) {
   .search-control,
+  .search-key,
   .search-preview-image,
   .search-atmosphere-image {
     transition: none;
+  }
+
+  .search-control.focused,
+  .search-control:focus-visible,
+  .search-key.focused,
+  .search-key:focus-visible,
+  .search-starter.focused,
+  .search-starter:focus-visible {
+    transform: none;
   }
 }
 
@@ -1391,7 +1400,9 @@ button {
   .card--landscape:focus-visible,
   .browse-tab.focused,
   .browse-shuffle.focused,
-  .detail-button.focused {
+  .detail-button.focused,
+  .search-key.focused,
+  .search-control.focused {
     transform: none;
   }
 

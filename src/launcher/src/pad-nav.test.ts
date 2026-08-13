@@ -103,7 +103,7 @@ test("applyPadNavBatch applies every command in order without coalescing", async
 test("stale movement is dropped while recent Select and Back remain actionable", () => {
   const now = Date.now();
   assert.equal(
-    isPadNavCommandFresh({ action: "move", issued_at: (now - 301) / 1000 }, now),
+    isPadNavCommandFresh({ action: "move", issued_at: (now - 901) / 1000 }, now),
     false,
   );
   assert.equal(
@@ -116,7 +116,7 @@ test("stale movement is dropped while recent Select and Back remain actionable",
   );
 });
 
-test("expired commands advance the ack cursor without changing focus", async () => {
+test("expired Home movement advances the ack cursor without changing focus", async () => {
   const log: string[] = [];
   const next = await applyPadNavBatch(
     [{
@@ -125,9 +125,34 @@ test("expired commands advance the ack cursor without changing focus", async () 
       direction: "down",
       issued_at: (Date.now() - 1000) / 1000,
     }],
-    handlers(log, "search"),
+    handlers(log, "home"),
     8,
   );
   assert.equal(next, 9);
   assert.deepEqual(log, []);
+});
+
+test("a stalled Search still applies the latest queued move so results are not frozen", async () => {
+  const log: string[] = [];
+  const now = Date.now();
+  const next = await applyPadNavBatch(
+    [
+      {
+        seq: 9,
+        action: "move",
+        direction: "down",
+        issued_at: (now - 1200) / 1000,
+      },
+      {
+        seq: 10,
+        action: "move",
+        direction: "right",
+        issued_at: (now - 1000) / 1000,
+      },
+    ],
+    handlers(log, "search"),
+    8,
+  );
+  assert.equal(next, 10);
+  assert.deepEqual(log, ["search-col"]);
 });

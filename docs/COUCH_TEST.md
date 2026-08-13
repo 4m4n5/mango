@@ -263,7 +263,7 @@ absence of that feed is not a defect in Mango's supported model.
 | ID | Check | Expected | Verdict/evidence |
 |----|-------|----------|------------------|
 | S1 | Open/close | Magnifier opens a temporary surface; Y restores exact originating tab/focus | |
-| S2 | Keyboard | D-pad QWERTY is spatially predictable; text caret/query readable; B types/selects correctly | |
+| S2 | Keyboard | 10-column QWERTY; Down/Up stay in the same column; B types/selects correctly | |
 | S3 | X | Tap deletes one character; hold ≥600 ms clears; returning Home restores current-tab X | |
 | S4 | Local | Verified Movies/TV plus cached proven Live/YouTube appear quickly without submit | |
 | S5 | Submit | External VOD, unknown Live, YouTube, optional AI phases progress independently | |

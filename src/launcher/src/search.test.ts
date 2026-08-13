@@ -7,6 +7,8 @@ import {
   ARTWORK_DWELL_MS,
   mergeComposeFocusRows,
   readPersistedSearchState,
+  SEARCH_KEYBOARD,
+  SEARCH_KEYBOARD_COLUMNS,
   searchGroupPageWindow,
   searchQueryCaretLeading,
   searchQueryDisplayText,
@@ -27,6 +29,17 @@ test("Search compose focus rows connect keyboard and right-side suggestions", ()
       ["recent-4"],
     ],
   );
+});
+
+test("Search keyboard is a 10-column rectangle so Down stays in column", () => {
+  assert.equal(SEARCH_KEYBOARD.length, 4);
+  for (const row of SEARCH_KEYBOARD) {
+    assert.equal(row.length, SEARCH_KEYBOARD_COLUMNS);
+  }
+  assert.equal(SEARCH_KEYBOARD[1]?.[9]?.id, "p");
+  assert.equal(SEARCH_KEYBOARD[2]?.[9]?.id, "delete");
+  assert.equal(SEARCH_KEYBOARD[3]?.[7]?.id, "space");
+  assert.equal(SEARCH_KEYBOARD[3]?.[9]?.id, "submit");
 });
 
 test("Search keeps prior suggestions visible while a new query is debounced", () => {

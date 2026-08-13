@@ -11,7 +11,7 @@ while the user types.
 
 ## Couch contract
 
-- Open Search from the magnifier. It starts blank with the compact QWERTY
+- Open Search from the magnifier. It starts blank with a 10-column QWERTY
   keyboard focused, scope chips, up to 12 recent explicit queries, and local
   Saved/history starters.
 - Scopes are All, Movies, TV Shows, Live, and YouTube. All includes YouTube
@@ -41,26 +41,27 @@ while the user types.
 ## Visual and focus contract
 
 Search uses Mango's cinema-dark visual language, not a form or settings layout.
-The blank state is one open workspace: a dominant query field and scope row
-above a broad D-pad keyboard, with Recent or Suggestions separated by one quiet
-vertical rule. It has no redundant Search title, nested panel cards, or
-decorative copy. The submitted state gives the screen back to content.
+The blank state is one open workspace: a dominant query and Home-matching
+scope chips above a 10-column D-pad keyboard, with Recent or Suggestions in
+the right column. It has no redundant Search title, nested panel cards, boxed
+search field, or decorative copy. The submitted state gives the screen back to
+content.
 
 - Empty compose shows a leading caret before the placeholder (`| search mango`).
   After the first character the caret trails the typed text. The caret stays
-  visually subordinate so the amber focused key remains the strongest signal.
-- Letter keys share equal geometry; shorter A/Z rows center instead of stretching.
-  Scope and hint copy sit on the 24–26px TV scale; active scopes stay quiet and
-  neutral so amber remains focus-only.
+  visually subordinate so the focused key remains the strongest signal.
+- Letter keys share equal geometry in a 10-column rectangle. Delete, space,
+  clear, and search fill the leftover A/Z cells so every row is the same width
+  and Down/Up stay in the same column. Scope chips match Home browse tabs.
 - The band under the keyboard is an editorial stage for the highlighted
   suggestion: stable height, borderless composition, poster or landscape art at
   its native ratio, title plus useful metadata. Recents without art keep a
   typographic fallback so the stage never collapses. Preview swaps only after
   ~180ms dwell, with artwork preload and a short opacity crossfade. No entrance
   animation, parallax, autoplay, shimmer, blur, or layout movement.
-- The focused keyboard key is the brightest object on the blank surface.
-  The submit key stays neutral until focused. Amber scale, border, and glow
-  communicate focus without animated clutter.
+- The focused keyboard key uses the same amber ring and soft fill as Home tabs.
+  The submit key stays neutral until focused. Amber marks focus, not a filled
+  keycap.
 - Query, scope, keyboard, starter rows, and their transformed focus rings
   remain inside the outer 5% TV safe area and readable at 1080p couch distance.
   Focus never depends on color alone.
