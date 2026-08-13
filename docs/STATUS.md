@@ -3,16 +3,14 @@
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
 Latest recorded Pi deployment: **2026-08-13**,
-`bfc157dd75224b00aa29856244f475331e2707b2`. Search keyboard/focus and YouTube
-play-session attribution are on that SHA. The standard pre-couch gate and Search
-smoke both **PASS**. Targeted API check: `GET /youtube/rails` 200 with persisted
-and reused served-slate tokens; Search-shaped and rail-attributed
-`POST /play-session` both 202 (not a TV play). Reliability remains usable-yellow
-(`broken_verified=3/32`). The pad router is waiting for the 8BitDo. Human couch
-verdict remains **DEFERRED**. Prior 2026-08-12 line `244812b` still records
-playability migration 19, 1,022/1,022 catalog suites, Alliance E37/E44
-exact-main, and the earlier N3c 33/36 sample. Use `git status`,
-`git rev-parse HEAD`, and the Pi commands below before acting.
+`9c0dd4e626ef3294d6160039316e22168d6dfe8e`. Search Up-to-scopes input decoupling
+and YouTube adaptive-DASH start quality are on that SHA. The standard pre-couch
+gate, Search smoke, and YouTube smoke all **PASS**. Reliability remains
+usable-yellow (`broken_verified=4/32`). The pad router is waiting for the
+8BitDo. Human couch verdict remains **DEFERRED**. Prior 2026-08-13 line
+`bfc157d` still records Search keyboard/focus and YouTube play-session
+attribution. Use `git status`, `git rev-parse HEAD`, and the Pi commands below
+before acting.
 
 ## How to read this page
 
