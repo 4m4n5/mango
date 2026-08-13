@@ -77,11 +77,17 @@ and mood have zero acquisition/ranking effect, while their existing rows remain
 intact and recoverable. `off` disables recommendation work rather than
 activating a personal-profile ranker.
 
-Playback tries the configured high-quality split video/audio selector first.
-If mpv rejects that direct transport before the first frame, Mango performs one
-fresh `yt-dlp` resolve with that exact selector excluded, allowing a combined
-format fallback. It never loops formats at couch time and this fallback uses no
-YouTube Data API quota.
+Playback resolves with `yt-dlp -g` and starts mpv on those direct URLs. The
+selector is adaptive DASH only (`bv*+ba`, highest up to 4K). Muxed progressive
+(`best` / itag 18) is typically 360p and is never in the same `-f` string as
+DASH: if split formats are missing from the default client, a combined
+selector would succeed at 360p and never try another client. Resolve therefore
+asks TV/Android/iOS player clients, sorts by resolution, and only then falls
+back to H.264 DASH and last to muxed. If mpv rejects the first transport
+before the first frame, Mango performs one fresh resolve with that exact
+selector excluded. It never loops formats at couch time and this path uses no
+YouTube Data API quota. Legacy `/etc/mango` selectors that slash-or to `best`
+are upgraded to the same adaptive policy.
 
 ---
 

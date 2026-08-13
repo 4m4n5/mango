@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import { YOUTUBE_ADAPTIVE_FORMAT } from './format-policy.js';
 
 export type YoutubeConfig = {
   enabled: boolean;
@@ -111,7 +112,7 @@ export function loadYoutubeConfig(): YoutubeConfig {
       || defaultYtDlpCommand),
     yt_dlp_format: process.env.MANGO_YTDLP_FORMAT
       || optionalString(playback.yt_dlp_format)
-      || 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
+      || YOUTUBE_ADAPTIVE_FORMAT,
     yt_dlp_cookies: process.env.MANGO_YTDLP_COOKIES
       || optionalString(playback.cookies_file),
     yt_dlp_cookies_from_browser: process.env.MANGO_YTDLP_COOKIES_FROM_BROWSER

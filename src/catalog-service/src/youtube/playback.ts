@@ -1,6 +1,23 @@
 import { execFile } from 'node:child_process';
 import { CatalogError } from '../catalog-errors.js';
 import type { YoutubeConfig } from './config.js';
+import {
+  YOUTUBE_EXTRACTOR_ARGS,
+  YOUTUBE_FORMAT_SORT,
+  ytDlpFormatCandidates,
+} from './format-policy.js';
+
+export {
+  effectiveYoutubeFormat,
+  isMuxedOnlyYoutubeFormat,
+  preferAdaptiveYoutubeFormat,
+  YOUTUBE_ADAPTIVE_FORMAT,
+  YOUTUBE_COMPAT_ADAPTIVE_FORMAT,
+  YOUTUBE_EXTRACTOR_ARGS,
+  YOUTUBE_FORMAT_SORT,
+  YOUTUBE_MUXED_FORMAT,
+  ytDlpFormatCandidates,
+} from './format-policy.js';
 
 export type YoutubeResolvedPlayback = {
   url: string;
@@ -17,21 +34,33 @@ function youtubeWatchUrl(videoId: string): string {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
 }
 
-export function ytDlpFormatCandidates(configured: string, excludedFormats: string[] = []): string[] {
-  const excluded = new Set(excludedFormats.map((format) => format.trim()).filter(Boolean));
-  return [
-    configured,
-    'best[height<=1080]/best',
-    'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
-    'bv*[height<=1080]+ba/b[height<=1080]/b',
-    'best*[height<=1080]/best*',
-    'best[height<=1080]/best',
-    'best',
-  ]
-    .map((format) => format.trim())
-    .filter(Boolean)
-    .filter((format, index, formats) => formats.indexOf(format) === index)
-    .filter((format) => !excluded.has(format));
+export function youtubeYtDlpResolveArgs(
+  config: {
+    yt_dlp_cookies?: string | null;
+    yt_dlp_cookies_from_browser?: string | null;
+  },
+  format: string,
+  videoId: string,
+): string[] {
+  const args = [
+    '--no-playlist',
+    '--no-warnings',
+    '-f',
+    format,
+    '--format-sort',
+    process.env.MANGO_YTDLP_FORMAT_SORT?.trim() || YOUTUBE_FORMAT_SORT,
+    '--extractor-args',
+    process.env.MANGO_YTDLP_EXTRACTOR_ARGS?.trim() || YOUTUBE_EXTRACTOR_ARGS,
+    '-g',
+  ];
+  if (config.yt_dlp_cookies) {
+    args.push('--cookies', config.yt_dlp_cookies);
+  }
+  if (config.yt_dlp_cookies_from_browser) {
+    args.push('--cookies-from-browser', config.yt_dlp_cookies_from_browser);
+  }
+  args.push(youtubeWatchUrl(videoId));
+  return args;
 }
 
 function requestedFormatUnavailable(text: string): boolean {
@@ -128,20 +157,7 @@ async function resolveYoutubePlaybackFresh(
   const started = Date.now();
   let lastFormatError = '';
   for (const format of ytDlpFormatCandidates(config.yt_dlp_format, excludedFormats)) {
-    const args = [
-      '--no-playlist',
-      '--no-warnings',
-      '-f',
-      format,
-      '-g',
-    ];
-    if (config.yt_dlp_cookies) {
-      args.push('--cookies', config.yt_dlp_cookies);
-    }
-    if (config.yt_dlp_cookies_from_browser) {
-      args.push('--cookies-from-browser', config.yt_dlp_cookies_from_browser);
-    }
-    args.push(youtubeWatchUrl(normalizedVideoId));
+    const args = youtubeYtDlpResolveArgs(config, format, normalizedVideoId);
     const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
       execFile(config.yt_dlp_command, args, {
         timeout: timeoutMs,

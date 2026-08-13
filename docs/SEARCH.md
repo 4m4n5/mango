@@ -91,9 +91,13 @@ content.
   the debounce and are replaced once as a subtree when the next set is ready;
   the header and keyboard are never rebuilt or refocused.
 - Progressive revisions reconcile groups by rail ID. Unchanged rails, decoded
-  artwork, focused nodes, and scroll state remain mounted. Search state writes
-  are coalesced after navigation settles; Detail entry and surface exit still
-  flush immediately for restart-safe restoration.
+  artwork, focused nodes, and scroll state remain mounted. Later paints wait a
+  short trailing window so D-pad can drain; they are timeouts, not animation
+  frames, because pad input also used rAF and Up from the first rail to the
+  pinned scopes was waiting on the paint. Header focus does not scroll or
+  rebuild atmosphere. Search state writes are coalesced after navigation
+  settles; Detail entry and surface exit still flush immediately for
+  restart-safe restoration.
 - On an ordinary Chromium self-heal, a valid persisted Search session reopens
   automatically at its query, scope, page, and focus. A playback-return snapshot
   takes precedence and restores Detail first.

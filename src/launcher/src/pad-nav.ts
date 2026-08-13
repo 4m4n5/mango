@@ -175,7 +175,10 @@ export function commandsAfterSeq(
 }
 
 /** Drop stale Home movement after a UI stall. Search keeps the latest move so
- *  progressive result paints cannot eat 5–6 D-pad clicks. */
+ *  progressive result paints cannot eat 5–6 D-pad clicks. The first Search
+ *  move in a batch skips waitInputTurn so Up to pinned scopes is not queued
+ *  behind a result-paint rAF; later Search moves in the same batch still
+ *  yield so a held D-pad cannot dump a whole rail in one frame. */
 const MOVE_MAX_AGE_MS = 900;
 const ACTION_MAX_AGE_MS = 1500;
 const FRAME_FALLBACK_MS = 50;
@@ -216,10 +219,12 @@ function waitInputTurn(): Promise<void> {
 }
 
 /**
- * Apply fresh commands in order, at most one per visual/input turn.
- * A timeout prevents a hidden or wedged rAF queue from permanently stopping
- * pad consumption. Expired commands still advance the ack cursor so they can
- * never replay after recovery.
+ * Apply fresh commands in order. Home yields at most one command per visual
+ * turn so a stall cannot dump a burst onto a new rail. The first Search move
+ * in a batch is applied immediately so it is not queued behind a result-paint
+ * rAF; later Search moves still wait, matching D-pad hold pacing. A timeout
+ * still protects Home if rAF is wedged. Expired commands still advance the
+ * ack cursor so they can never replay after recovery.
  */
 export async function applyPadNavBatch(
   batch: PadNavCommand[],
@@ -232,15 +237,21 @@ export async function applyPadNavBatch(
     (found, command, index) => (command.action === "move" ? index : found),
     -1,
   );
+  let searchMoveApplied = false;
   for (const [index, command] of pending.entries()) {
     const fresh = isPadNavCommandFresh(command);
+    const searchMove = command.action === "move" && handlers.isInSearch();
     const replaySearchMove = !fresh
-      && command.action === "move"
-      && index === lastMoveIndex
-      && handlers.isInSearch();
+      && searchMove
+      && index === lastMoveIndex;
     if (fresh || replaySearchMove) {
-      await waitInputTurn();
+      if (!searchMove || searchMoveApplied) {
+        await waitInputTurn();
+      }
       handlePadNav(command, handlers);
+      if (searchMove) {
+        searchMoveApplied = true;
+      }
     }
     if (typeof command.seq === "number" && command.seq > applied) {
       applied = command.seq;

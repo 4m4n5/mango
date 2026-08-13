@@ -151,14 +151,69 @@ export class FocusGrid {
       target.focus({ preventScroll: true });
       if (this.pendingScroll !== 0) {
         window.cancelAnimationFrame(this.pendingScroll);
-      }
-      this.pendingScroll = window.requestAnimationFrame(() => {
-        target.scrollIntoView({ behavior: "instant", block: "nearest", inline: "nearest" });
         this.pendingScroll = 0;
-      });
+      }
+      // Pinned Search scopes / Home tabs are already on screen. scrollIntoView
+      // still walks ancestor scrollports (and Search's named scroll timeline),
+      // which is what made Up from the first result rail hitch before the
+      // D-pad move registered.
+      if (focusedTargetNeedsScroll(target.getBoundingClientRect(), nearestScrollportRect(target))) {
+        this.pendingScroll = window.requestAnimationFrame(() => {
+          target.scrollIntoView({ behavior: "instant", block: "nearest", inline: "nearest" });
+          this.pendingScroll = 0;
+        });
+      }
       this.onFocus?.(target);
     }
   }
+}
+
+/** Focus glow can extend a few pixels past the control box. */
+const FOCUS_SCROLL_SLACK_PX = 8;
+
+export function focusedTargetNeedsScroll(
+  target: { top: number; right: number; bottom: number; left: number },
+  port: { top: number; right: number; bottom: number; left: number },
+  slack = FOCUS_SCROLL_SLACK_PX,
+): boolean {
+  return target.top < port.top - slack
+    || target.bottom > port.bottom + slack
+    || target.left < port.left - slack
+    || target.right > port.right + slack;
+}
+
+function parseCssPx(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function nearestScrollportRect(
+  element: HTMLElement,
+): { top: number; right: number; bottom: number; left: number } {
+  let current = element.parentElement;
+  while (current) {
+    const style = window.getComputedStyle(current);
+    const canY = style.overflowY === "auto" || style.overflowY === "scroll";
+    const canX = style.overflowX === "auto" || style.overflowX === "scroll";
+    const scrollsY = canY && current.scrollHeight > current.clientHeight + 1;
+    const scrollsX = canX && current.scrollWidth > current.clientWidth + 1;
+    if (scrollsY || scrollsX) {
+      const rect = current.getBoundingClientRect();
+      return {
+        top: rect.top + parseCssPx(style.scrollPaddingTop),
+        right: rect.right - parseCssPx(style.scrollPaddingRight),
+        bottom: rect.bottom - parseCssPx(style.scrollPaddingBottom),
+        left: rect.left + parseCssPx(style.scrollPaddingLeft),
+      };
+    }
+    current = current.parentElement;
+  }
+  return {
+    top: 0,
+    left: 0,
+    right: window.innerWidth,
+    bottom: window.innerHeight,
+  };
 }
 
 function clamp(value: number, min: number, max: number): number {

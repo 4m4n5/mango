@@ -121,7 +121,9 @@ youtube:
   stale_after_hours: 24
   playback:
     yt_dlp_command: scripts/m6-ship/youtube-yt-dlp.sh
-    yt_dlp_format: bestvideo[height<=1080]+bestaudio/best[height<=1080]/best
+    # Adaptive DASH only, highest up to 4K. Muxed progressive (often 360p)
+    # is a last-resort catalog-service fallback, not part of this selector.
+    yt_dlp_format: bv*[height<=2160]+ba
     # Optional when the operator wants Premium/account cookies available to yt-dlp.
     # cookies_file: /etc/mango/youtube-cookies.txt
     # cookies_from_browser: chromium

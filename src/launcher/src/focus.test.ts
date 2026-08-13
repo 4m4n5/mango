@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveFocusPosition, stepGridPosition } from './focus.js';
+import { focusedTargetNeedsScroll, resolveFocusPosition, stepGridPosition } from './focus.js';
 
 function item(focusKey: string): HTMLElement {
   return { dataset: { focusKey } } as unknown as HTMLElement;
@@ -49,4 +49,22 @@ test('Down from a QWERTY column stays in that column on a 10-wide rectangle', ()
     ),
     { row: 2, col: 9, desiredCol: 9 },
   );
+});
+
+test('already-visible pinned chrome does not need scrollIntoView', () => {
+  const chip = { top: 80, right: 400, bottom: 120, left: 40 };
+  const viewport = { top: 0, right: 1920, bottom: 1080, left: 0 };
+  assert.equal(focusedTargetNeedsScroll(chip, viewport), false);
+});
+
+test('a card clipped by its rail scrollport still needs scrollIntoView', () => {
+  const card = { top: 900, right: 400, bottom: 1100, left: 40 };
+  const port = { top: 200, right: 1920, bottom: 1080, left: 0 };
+  assert.equal(focusedTargetNeedsScroll(card, port), true);
+});
+
+test('a card in the rail scroll-padding zone still needs scrollIntoView', () => {
+  const card = { top: 210, right: 400, bottom: 430, left: 40 };
+  const paddedPort = { top: 232, right: 1920, bottom: 1080, left: 0 };
+  assert.equal(focusedTargetNeedsScroll(card, paddedPort), true);
 });

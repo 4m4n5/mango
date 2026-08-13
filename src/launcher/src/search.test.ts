@@ -5,10 +5,12 @@ import { splitFocusRows } from "./home";
 import { railColumns } from "./layout";
 import {
   ARTWORK_DWELL_MS,
+  isSearchPinnedChromeKey,
   mergeComposeFocusRows,
   readPersistedSearchState,
   SEARCH_KEYBOARD,
   SEARCH_KEYBOARD_COLUMNS,
+  SEARCH_RESULTS_PAINT_MS,
   searchGroupPageWindow,
   searchQueryCaretLeading,
   searchQueryDisplayText,
@@ -152,6 +154,18 @@ test("A Search result page fills whole rows of the live grid, More in the final 
     assert.equal(second.items.length, first.capacity * 2 - 1);
     assert.equal(second.items[first.items.length]?.id, `video-${first.capacity - 1}`);
   }
+});
+
+test("Search result paints wait out a trailing window so D-pad can drain", () => {
+  assert.ok(SEARCH_RESULTS_PAINT_MS >= 80);
+  assert.ok(SEARCH_RESULTS_PAINT_MS <= 120);
+});
+
+test("Search scope chips and Edit are pinned chrome, not result cards", () => {
+  assert.equal(isSearchPinnedChromeKey("search:scope:youtube"), true);
+  assert.equal(isSearchPinnedChromeKey("search:edit"), true);
+  assert.equal(isSearchPinnedChromeKey("rail:youtube:youtube_video:abc"), false);
+  assert.equal(isSearchPinnedChromeKey("search:key:q"), false);
 });
 
 test("Search pagination keeps each rail action in that rail's final focus row", () => {

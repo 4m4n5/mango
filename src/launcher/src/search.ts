@@ -102,6 +102,14 @@ const STORAGE_KEY = "mango.search-session.v1";
 const MAX_AGE_MS = 6 * 60 * 60 * 1000;
 /** Delay before swapping suggestion preview or results atmosphere artwork. */
 export const ARTWORK_DWELL_MS = 180;
+/** Trailing window so D-pad can drain before a progressive result paint. */
+export const SEARCH_RESULTS_PAINT_MS = 100;
+
+export function isSearchPinnedChromeKey(key: string | undefined): boolean {
+  if (!key) return false;
+  return key === "search:edit" || key.startsWith("search:scope:");
+}
+
 const QUERY_PLACEHOLDER = "search mango";
 // A page is whole rows of the result grid, so revealing one never leaves a
 // half-filled row behind. Derived from the column count rather than written out,
@@ -340,7 +348,7 @@ export class SearchController {
   private preview: HTMLElement | null = null;
   private previewChoice: SearchChoice | undefined;
   private previewTimer: number | undefined;
-  private resultsPaint = 0;
+  private resultsPaint: number | undefined;
   private atmosphere: HTMLElement | null = null;
   private atmosphereImage: HTMLImageElement | null = null;
   private atmosphereTimer: number | undefined;
@@ -437,10 +445,7 @@ export class SearchController {
     const state = this.playbackState();
     void this.cancelActive();
     this.pollToken += 1;
-    if (this.resultsPaint !== 0) {
-      window.cancelAnimationFrame(this.resultsPaint);
-      this.resultsPaint = 0;
-    }
+    this.cancelResultsPaint();
     this.view.classList.add("hidden");
     this.clearPersisted();
     this.callbacks.onClose(state);
@@ -635,10 +640,7 @@ export class SearchController {
     const id = this.activeSearchId;
     this.activeSearchId = null;
     this.pollToken += 1;
-    if (this.resultsPaint !== 0) {
-      window.cancelAnimationFrame(this.resultsPaint);
-      this.resultsPaint = 0;
-    }
+    this.cancelResultsPaint();
     if (!id) return;
     await fetch(`/api/catalog/search/query/${encodeURIComponent(id)}/cancel`, {
       method: "POST",
@@ -1222,13 +1224,25 @@ export class SearchController {
     this.applyFocusRows();
   }
 
+  private cancelResultsPaint(): void {
+    if (this.resultsPaint === undefined) return;
+    window.clearTimeout(this.resultsPaint);
+    this.resultsPaint = undefined;
+  }
+
   private scheduleResultsRefresh(): void {
     if (!this.submitted) return;
-    if (this.resultsPaint !== 0) return;
-    this.resultsPaint = window.requestAnimationFrame(() => {
-      this.resultsPaint = 0;
+    this.cancelResultsPaint();
+    // Trailing timeout, not rAF: pad input also waits on animation frames, so
+    // a leading-edge paint stole the turn that should have moved focus to the
+    // pinned scopes. First cards still appear on a 0-delay macrotask; later
+    // revisions wait out SEARCH_RESULTS_PAINT_MS so D-pad can drain.
+    const hasRails = Boolean(this.view.querySelector(".search-results .rail"));
+    const delay = hasRails ? SEARCH_RESULTS_PAINT_MS : 0;
+    this.resultsPaint = window.setTimeout(() => {
+      this.resultsPaint = undefined;
       this.refreshResults();
-    });
+    }, delay);
   }
 
   private refreshResults(): void {
@@ -1247,7 +1261,7 @@ export class SearchController {
       preferredKey: this.focusedKey,
       fallbackPosition: this.preferredPosition,
     });
-    if (this.submitted && this.focusedElement) {
+    if (this.submitted && this.focusedElement && !isSearchPinnedChromeKey(this.focusedKey)) {
       this.scheduleResultsAtmosphere(this.focusedElement);
     }
   }

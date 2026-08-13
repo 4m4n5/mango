@@ -132,6 +132,19 @@ test("expired Home movement advances the ack cursor without changing focus", asy
   assert.deepEqual(log, []);
 });
 
+test("the first Search D-pad move does not wait a visual turn", async () => {
+  const log: string[] = [];
+  const started = Date.now();
+  const next = await applyPadNavBatch(
+    [{ seq: 1, action: "move", direction: "up" }],
+    handlers(log, "search"),
+    0,
+  );
+  assert.equal(next, 1);
+  assert.deepEqual(log, ["search-row"]);
+  assert.ok(Date.now() - started < 40);
+});
+
 test("a stalled Search still applies the latest queued move so results are not frozen", async () => {
   const log: string[] = [];
   const now = Date.now();
