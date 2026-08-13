@@ -369,7 +369,7 @@ or let a failed external phase erase usable local results. Detail:
 | Foreground | Resolve and probe are display-neutral; launcher hides only after advancing media is proven |
 | Failure | Original launcher/Detail remains authoritative; stale cleanup cannot stop a newer generation |
 | Progress | One logical watch/progress session through retry, switch, Undo, and return |
-| HUD | Clean startup; translucent floating card; stable title; always-on volume; time/progress track; ↑/A language pills; 4/6 s feedback; minimal paused badge; delayed buffering; no false Live timeline |
+| HUD | Clean startup; translucent floating card; stable title; always-on volume with −/+; time/progress track; equal Subtitles/Audio/Quality chips; complete pad legend; 4/6 s feedback; minimal paused badge; delayed buffering; no false Live timeline |
 | Streams | Five-choice inset floating sheet; current pinned first; best usable alternative focused; unavailable disabled; validation before explicit switch; revisioned X Undo |
 
 **Runtime profile source of truth:** on the Pi, run

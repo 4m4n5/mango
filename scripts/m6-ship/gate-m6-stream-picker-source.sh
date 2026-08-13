@@ -20,18 +20,32 @@ SESSION="src/catalog-service/src/active-stream-session.ts"
 MPV="src/catalog-service/src/mpv.ts"
 PAD="scripts/m1-foundation/pad/mango-tv-pad.py"
 
-grep -q 'HUD_X, HUD_Y, HUD_W, HUD_H = 160, 752, 1600, 252' "$HUD" \
+grep -q 'HUD_X, HUD_Y, HUD_W, HUD_H = 160, 728, 1600, 292' "$HUD" \
   || fail "floating-card HUD geometry missing"
 grep -q 'SHEET_X, SHEET_Y, SHEET_W, SHEET_H = 160, 228, 1600, 780' "$HUD" \
   || fail "inset Streams sheet geometry missing"
-grep -q 'local function draw_pill' "$HUD" \
-  || fail "language pill helper missing"
+grep -q 'local function draw_control' "$HUD" \
+  || fail "named subtitle/audio control chips missing"
+grep -q 'noun = "Quality"' "$HUD" \
+  && grep -q 'local function quality_control' "$HUD" \
+  || fail "Quality chip missing from the A/V row"
+grep -q 'local function matching_chip_width' "$HUD" \
+  || fail "equal-width A/V chip strip missing"
+grep -q 'local function draw_legend' "$HUD" \
+  || fail "complete pad legend helper missing"
+grep -q 'label = "Skip"' "$HUD" \
+  && grep -q 'label = "Subtitles"' "$HUD" \
+  && grep -q 'label = "Audio"' "$HUD" \
+  && grep -q 'label = "Volume"' "$HUD" \
+  || fail "footer legend is missing primary playback controls"
 grep -q 'overlay.hidden = false' "$HUD" \
   || fail "HUD must unhide the overlay to reappear after A/↑"
 ! grep -q 'overlay:remove()' "$HUD" \
   || fail "overlay remove() prevents the HUD from returning after hide"
 grep -q 'local function draw_volume' "$HUD" \
   || fail "persistent volume meter missing"
+! grep -q 'local function draw_pill' "$HUD" \
+  || fail "glyph-only language pills must not return"
 ! grep -q 'Subtitles ·\|Audio ·' "$HUD" \
   || fail "title-hijacking subtitle/audio copy remains"
 grep -q 'mp.observe_property("paused-for-cache"' "$HUD" \

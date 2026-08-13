@@ -5,6 +5,12 @@
 -- rollback-only backend. The script is idle until controller interaction, a
 -- real buffering event, a pause badge, or a post-switch confirmation requires
 -- chrome.
+--
+-- The card has three jobs: identity (title, volume), transport (time and
+-- progress), and A/V literacy. Equal Subtitles / Audio / Quality chips name
+-- the control and its current state. The footer legend lists every primary
+-- pad mapping. Button glyphs never replace those nouns. The title never
+-- changes to describe a track, volume, or quality event.
 
 local mp = require("mp")
 local utils = require("mp.utils")
@@ -25,15 +31,18 @@ local START_REOPEN_STREAMS = os.getenv("MANGO_PLAYBACK_REOPEN_STREAMS") == "1"
 local FIXTURES = os.getenv("MANGO_HUD_FIXTURES") == "1"
 
 local CANVAS_W, CANVAS_H = 1920, 1080
-local HUD_X, HUD_Y, HUD_W, HUD_H = 160, 752, 1600, 252
+local HUD_X, HUD_Y, HUD_W, HUD_H = 160, 728, 1600, 292
 local SHEET_X, SHEET_Y, SHEET_W, SHEET_H = 160, 228, 1600, 780
 local CARD_RADIUS = 16
-local PILL_RADIUS = 18
+local CHIP_RADIUS = 14
 local PAD = 40
 local TRACK_H = 4
 local PLAYHEAD_W = 8
 local PLAYHEAD_H = 12
-local PILL_H = 36
+local CHIP_H = 64
+local CHIP_GAP = 16
+local CHIP_MIN_W = 276
+local CHIP_PAD_X = 22
 local VOL_TICKS = 10
 local VOL_TICK_W = 5
 local VOL_TICK_G = 3
@@ -140,10 +149,10 @@ local function fmt_time(value)
   return string.format("%d:%02d", minutes, seconds)
 end
 
-local function text_ev(an, x, y, size, colour, text, bold)
+local function text_ev(an, x, y, size, colour, text, bold, extra)
   return string.format(
-    "{\\an%d\\pos(%d,%d)\\fnDejaVu Sans\\fs%d\\1c%s\\bord0\\shad0%s\\q2}%s",
-    an, x, y, size, colour, bold and "\\b1" or "", ass_escape(text)
+    "{\\an%d\\pos(%d,%d)\\fnDejaVu Sans\\fs%d\\1c%s\\bord0\\shad0%s%s\\q2}%s",
+    an, x, y, size, colour, bold and "\\b1" or "", extra or "", ass_escape(text)
   )
 end
 
@@ -177,19 +186,72 @@ local function rounded_rect(x, y, w, h, r, colour, alpha)
   )
 end
 
-local function pill_width(text)
-  return math.max(108, utf8_len(text) * 11 + 36)
+local function control_width(noun, value)
+  return math.max(
+    CHIP_MIN_W,
+    utf8_len(noun) * 10 + CHIP_PAD_X * 2,
+    utf8_len(value) * 14 + CHIP_PAD_X * 2
+  )
 end
 
-local function draw_pill(x, y, text, active)
-  local width = pill_width(text)
-  local fill = active and rounded_rect(x, y, width, PILL_H, PILL_RADIUS, C_ACCENT, A_PILL_ON)
-    or rounded_rect(x, y, width, PILL_H, PILL_RADIUS, C_WHITE, A_PILL)
-  local colour = active and C_INK or C_PRIMARY
+-- Two-line status chip: the noun names the control, the value names the state.
+-- Button glyphs belong in the footer legend, not here. Sibling chips share
+-- one width so the A/V row reads as a single instrument, not mixed pills.
+local function draw_control(x, y, noun, value, active, width)
+  width = width or control_width(noun, value)
+  local fill = active and rounded_rect(x, y, width, CHIP_H, CHIP_RADIUS, C_ACCENT, A_PILL_ON)
+    or rounded_rect(x, y, width, CHIP_H, CHIP_RADIUS, C_WHITE, A_PILL)
+  local noun_colour = active and C_INK or C_CAPTION
+  local value_colour = active and C_INK or C_PRIMARY
   return table.concat({
     fill,
-    text_ev(5, x + math.floor(width / 2), y + math.floor(PILL_H / 2), 20, colour, text, active == true),
+    text_ev(7, x + CHIP_PAD_X, y + 10, 16, noun_colour, noun, false, "\\fsp1"),
+    text_ev(7, x + CHIP_PAD_X, y + 32, 24, value_colour, value, true),
   }, "\n"), width
+end
+
+local function draw_live_mark(right, cy)
+  local width, height = 68, 28
+  local x = right - width
+  local y = cy - math.floor(height / 2)
+  return table.concat({
+    rounded_rect(x, y, width, height, 8, C_WHITE, A_PILL),
+    text_ev(5, x + math.floor(width / 2), cy, 15, C_PRIMARY, "LIVE", true, "\\fsp1.5"),
+  }, "\n"), x
+end
+
+local function draw_legend(cx, y, items, active_label)
+  if #items == 0 then return "" end
+  local key_gap, cluster_gap = 8, 48
+  local key_advance = 16
+  local widths = {}
+  local total = 0
+  for index, item in ipairs(items) do
+    local width = utf8_len(item.key) * key_advance + key_gap + utf8_len(item.label) * 12
+    widths[index] = width
+    total = total + width
+    if index > 1 then total = total + cluster_gap end
+  end
+  local max_w = HUD_W - PAD * 2
+  if total > max_w and #items > 1 then
+    cluster_gap = math.max(16, cluster_gap - math.ceil((total - max_w) / (#items - 1)))
+    total = 0
+    for index, width in ipairs(widths) do
+      total = total + width
+      if index > 1 then total = total + cluster_gap end
+    end
+  end
+  local x = cx - math.floor(total / 2)
+  local ev = {}
+  for index, item in ipairs(items) do
+    local focused = active_label ~= nil and item.label == active_label
+    ev[#ev + 1] = text_ev(7, x, y, 22, focused and C_PRIMARY or C_SECONDARY, item.key, true)
+    ev[#ev + 1] = text_ev(
+      7, x + utf8_len(item.key) * key_advance + key_gap, y, 22,
+      focused and C_PRIMARY or C_CAPTION, item.label, focused == true)
+    x = x + widths[index] + cluster_gap
+  end
+  return table.concat(ev, "\n")
 end
 
 local function write_visible_state(is_visible, state_mode, seconds)
@@ -283,24 +345,6 @@ local function hdr_label()
   return nil
 end
 
-local function codec_label()
-  local codec = clean_text(mp.get_property_native("video-codec")):lower()
-  if codec == "" then return nil end
-  if codec:find("hevc", 1, true) or codec:find("h265", 1, true) then return "HEVC" end
-  if codec:find("h264", 1, true) or codec:find("avc", 1, true) then return "AVC" end
-  if codec:find("av1", 1, true) then return "AV1" end
-  if codec:find("vp9", 1, true) then return "VP9" end
-  return codec:upper()
-end
-
-local function picture_meta()
-  local pieces = {}
-  for _, value in ipairs({ resolution_label(), hdr_label(), codec_label() }) do
-    if value and value ~= "" then pieces[#pieces + 1] = value end
-  end
-  return table.concat(pieces, "  ·  ")
-end
-
 local function display_title()
   local title = clean_text(PLAYBACK_TITLE)
   local context = clean_text(PLAYBACK_CONTEXT)
@@ -327,52 +371,167 @@ local function x_supported()
   return PLAYBACK_KIND ~= "tv" and PLAYBACK_KIND ~= "youtube_video"
 end
 
-local function contextual_hints()
-  local paused = mp.get_property_native("pause") == true
-  local hints = { paused and "B  Resume" or "B  Pause" }
-  if x_supported() then hints[#hints + 1] = "X  Streams" end
-  hints[#hints + 1] = "Y  Back"
-  return table.concat(hints, "            ")
-end
-
 local function is_live()
   if fixture_name == "live" then return true end
   return PLAYBACK_KIND == "tv"
 end
 
-local function fixture_pills()
-  if not FIXTURES then return nil end
-  if fixture_name == "live" then return { subs = nil, audio = "English" } end
-  if fixture_name == "subs-off" then return { subs = "Off", audio = "Hindi 5.1" } end
-  return { subs = "English", audio = "Hindi 5.1" }
+local function track_ordinal(track_type, track)
+  local tracks = tracks_of(track_type)
+  if #tracks < 2 or type(track) ~= "table" then return nil end
+  for index, candidate in ipairs(tracks) do
+    if tonumber(candidate.id) == tonumber(track.id) then
+      return string.format("%d of %d", index, #tracks)
+    end
+  end
+  return nil
 end
 
-local function subtitle_chip()
-  local stub = fixture_pills()
+local function named_track_value(track_type, track)
+  local language = language_name(track)
+  if language then return language end
+  local tracks = tracks_of(track_type)
+  if type(track) == "table" then
+    for index, candidate in ipairs(tracks) do
+      if tonumber(candidate.id) == tonumber(track.id) then
+        return string.format("Track %d", index)
+      end
+    end
+  end
+  if #tracks > 0 then return "Track 1" end
+  return nil
+end
+
+local function fixture_tracks()
+  if not FIXTURES then return nil end
+  if fixture_name == "live" then
+    return { subs = nil, audio = "English", quality = "1080p" }
+  end
+  if fixture_name == "subs-off" then
+    return { subs = "Off", audio = "Hindi · 5.1", quality = "1080p" }
+  end
+  return { subs = "English", audio = "Hindi · 5.1", quality = "4K HDR" }
+end
+
+local function subtitle_control()
+  local stub = fixture_tracks()
   if stub then
     if stub.subs == nil then return nil end
-    return "↑  " .. stub.subs
+    return stub.subs
   end
   if #tracks_of("sub") == 0 then return nil end
-  if mp.get_property_native("sub-visibility") ~= true then return "↑  Off" end
-  return "↑  " .. utf8_prefix(language_name(selected_track("sub")) or "On", 18)
+  if mp.get_property_native("sub-visibility") ~= true then return "Off" end
+  local track = selected_track("sub")
+  if not track then return "Off" end
+  local value = named_track_value("sub", track) or "Off"
+  if tostring(hud_reason) == "subs" then
+    local ordinal = track_ordinal("sub", track)
+    if ordinal then value = value .. "  ·  " .. ordinal end
+  end
+  return utf8_prefix(value, 18)
 end
 
-local function audio_chip()
-  local stub = fixture_pills()
+local function audio_control()
+  local stub = fixture_tracks()
   if stub then
     if stub.audio == nil then return nil end
-    return "A  " .. stub.audio
+    return stub.audio
   end
   local track = selected_track("audio")
   if #tracks_of("audio") == 0 and not track then return nil end
   local pieces = {}
-  local language = language_name(track)
+  local language = named_track_value("audio", track)
   if language then pieces[#pieces + 1] = language end
   local channels = channel_label()
   if channels then pieces[#pieces + 1] = channels end
   if #pieces == 0 then pieces[1] = "Default" end
-  return "A  " .. utf8_prefix(table.concat(pieces, " "), 22)
+  local value = table.concat(pieces, "  ·  ")
+  if tostring(hud_reason) == "audio" then
+    local ordinal = track_ordinal("audio", track)
+    if ordinal then value = value .. "  ·  " .. ordinal end
+  end
+  return utf8_prefix(value, 22)
+end
+
+local function quality_control()
+  local stub = fixture_tracks()
+  if stub then return stub.quality end
+  local resolution = resolution_label()
+  if not resolution then return nil end
+  if hdr_label() then return resolution .. " HDR" end
+  return resolution
+end
+
+local function quality_is_active()
+  return overlay_mode == "confirmation" or confirmation_copy ~= ""
+end
+
+local function hud_chips()
+  local chips = {}
+  local subs = subtitle_control()
+  if subs then
+    chips[#chips + 1] = {
+      noun = "Subtitles",
+      value = subs,
+      active = tostring(hud_reason) == "subs",
+    }
+  end
+  local audio = audio_control()
+  if audio then
+    chips[#chips + 1] = {
+      noun = "Audio",
+      value = audio,
+      active = tostring(hud_reason) == "audio",
+    }
+  end
+  local quality = quality_control()
+  if quality then
+    chips[#chips + 1] = {
+      noun = "Quality",
+      value = quality,
+      active = quality_is_active(),
+    }
+  end
+  return chips
+end
+
+local function matching_chip_width(chips)
+  local width = CHIP_MIN_W
+  for _, chip in ipairs(chips) do
+    width = math.max(width, control_width(chip.noun, chip.value))
+  end
+  return width
+end
+
+local function legend_items()
+  local paused = mp.get_property_native("pause") == true
+  local items = {}
+  if not is_live() then items[#items + 1] = { key = "←→", label = "Skip" } end
+  if subtitle_control() then items[#items + 1] = { key = "↑", label = "Subtitles" } end
+  if audio_control() then items[#items + 1] = { key = "A", label = "Audio" } end
+  items[#items + 1] = { key = "−+", label = "Volume" }
+  items[#items + 1] = { key = "B", label = paused and "Resume" or "Pause" }
+  if confirmation_copy ~= "" then
+    items[#items + 1] = { key = "X", label = "Undo" }
+  elseif x_supported() then
+    items[#items + 1] = { key = "X", label = "Streams" }
+  end
+  items[#items + 1] = { key = "Y", label = "Back" }
+  return items
+end
+
+local function legend_active_label()
+  local reason = tostring(hud_reason or "")
+  if reason == "subs" then return "Subtitles" end
+  if reason == "audio" then return "Audio" end
+  if reason == "volume" then return "Volume" end
+  if reason == "pause" then return "Resume" end
+  if reason == "resume" then return "Pause" end
+  if reason == "confirmation" then return "Undo" end
+  if reason:find("seek", 1, true) or reason == "left" or reason == "right" then
+    return "Skip"
+  end
+  return nil
 end
 
 local function volume_percent()
@@ -390,11 +549,17 @@ local function draw_volume(right, cy, active)
   local label = tostring(level)
   local meter_w = VOL_TICKS * VOL_TICK_W + (VOL_TICKS - 1) * VOL_TICK_G
   local label_w = math.max(24, utf8_len(label) * 13)
+  local glyph_w = 16
   local ev = {
     text_ev(6, right, cy, 22, active and C_PRIMARY or C_SECONDARY, label, active == true),
   }
-  local meter_right = right - label_w - 12
+  local plus_x = right - label_w - 14
+  local meter_right = plus_x - glyph_w - 6
   local meter_left = meter_right - meter_w
+  local minus_x = meter_left - 10
+  local glyph_colour = active and C_PRIMARY or C_CAPTION
+  ev[#ev + 1] = text_ev(6, plus_x, cy, 18, glyph_colour, "+", false)
+  ev[#ev + 1] = text_ev(6, minus_x, cy, 18, glyph_colour, "−", false)
   local filled = math.floor((level / 100) * VOL_TICKS + 0.499)
   local tick_y = cy - math.floor(VOL_TICK_H / 2)
   for index = 1, VOL_TICKS do
@@ -405,7 +570,7 @@ local function draw_volume(right, cy, active)
       ev[#ev + 1] = rect_ev(x, tick_y, VOL_TICK_W, VOL_TICK_H, C_WHITE, A_TICK_OFF)
     end
   end
-  return table.concat(ev, "\n"), meter_left
+  return table.concat(ev, "\n"), minus_x - 18
 end
 
 local function seek_transient()
@@ -433,32 +598,26 @@ local function build_hud_ass()
 
   local left = HUD_X + PAD
   local right = HUD_X + HUD_W - PAD
-  local title_y = HUD_Y + 28
+  local title_y = HUD_Y + 26
   local volume_active = tostring(hud_reason) == "volume"
   local volume_ass, volume_left = draw_volume(right, title_y + 16, volume_active)
   ev[#ev + 1] = text_ev(7, left, title_y, 28, C_PRIMARY, identity_title(), false)
   ev[#ev + 1] = volume_ass
   if live then
-    ev[#ev + 1] = text_ev(9, volume_left - 20, title_y + 4, 16, C_PRIMARY, "LIVE", true)
+    local live_ass, _ = draw_live_mark(volume_left - 18, title_y + 16)
+    ev[#ev + 1] = live_ass
   end
 
-  local meta_bits = {}
-  local picture = picture_meta()
   if overlay_mode == "confirmation" or confirmation_copy ~= "" then
-    meta_bits[#meta_bits + 1] = utf8_prefix(
-      confirmation_copy ~= "" and confirmation_copy or "Now playing", 28)
-  end
-  if picture ~= "" then meta_bits[#meta_bits + 1] = picture end
-  if #meta_bits > 0 then
-    ev[#ev + 1] = text_ev(7, left, title_y + 34, 16, C_CAPTION,
-      table.concat(meta_bits, "   ·   "), false)
+    ev[#ev + 1] = text_ev(7, left, title_y + 38, 18, C_CAPTION,
+      utf8_prefix(confirmation_copy ~= "" and confirmation_copy or "Now playing", 42), false)
   end
 
   local track_left = left + 96
   local track_right = right - 96
-  local pill_y = HUD_Y + 148
+  local chip_y = HUD_Y + 146
   if not live then
-    local transport_y = HUD_Y + 100
+    local transport_y = HUD_Y + 98
     ev[#ev + 1] = text_ev(7, left, transport_y, 24, C_PRIMARY, fmt_time(position), false)
     local remaining = duration > 0 and ("−" .. fmt_time(duration - position)) or ""
     local delta = seek_transient()
@@ -479,24 +638,25 @@ local function build_hud_ass()
         seeking() and C_ACCENT or C_PRIMARY, "&H00&")
     end
   else
-    pill_y = HUD_Y + 118
+    chip_y = HUD_Y + 104
   end
 
-  local chip_x = live and left or track_left
-  local subs = subtitle_chip()
-  if subs then
-    local pill, width = draw_pill(chip_x, pill_y, subs, tostring(hud_reason) == "subs")
-    ev[#ev + 1] = pill
-    chip_x = chip_x + width + 12
-  end
-  local audio = audio_chip()
-  if audio then
-    local pill, _ = draw_pill(chip_x, pill_y, audio, tostring(hud_reason) == "audio")
-    ev[#ev + 1] = pill
+  local chips = hud_chips()
+  local chip_width = matching_chip_width(chips)
+  local chip_x = left
+  for _, chip in ipairs(chips) do
+    local drawn, width = draw_control(
+      chip_x, chip_y, chip.noun, chip.value, chip.active, chip_width)
+    ev[#ev + 1] = drawn
+    chip_x = chip_x + width + CHIP_GAP
   end
 
-  ev[#ev + 1] = text_ev(5, HUD_X + math.floor(HUD_W / 2), HUD_Y + HUD_H - 26, 18, C_CAPTION,
-    contextual_hints(), false)
+  ev[#ev + 1] = draw_legend(
+    HUD_X + math.floor(HUD_W / 2),
+    HUD_Y + HUD_H - 40,
+    legend_items(),
+    legend_active_label()
+  )
   return table.concat(ev, "\n")
 end
 
@@ -643,8 +803,15 @@ local function build_streams_ass()
     ev[#ev + 1] = text_ev(5, SHEET_X + math.floor(SHEET_W / 2), SHEET_Y + SHEET_H - 70, 20, C_PRIMARY,
       utf8_prefix(stream_state.error, 88), false)
   else
-    ev[#ev + 1] = text_ev(5, SHEET_X + math.floor(SHEET_W / 2), SHEET_Y + SHEET_H - 32, 20, C_CAPTION,
-      "↑/↓  Choose     B  Select     Y  Close", false)
+    ev[#ev + 1] = draw_legend(
+      SHEET_X + math.floor(SHEET_W / 2),
+      SHEET_Y + SHEET_H - 42,
+      {
+        { key = "↑↓", label = "Choose" },
+        { key = "B", label = "Select" },
+        { key = "Y", label = "Close" },
+      }
+    )
   end
   return table.concat(ev, "\n")
 end

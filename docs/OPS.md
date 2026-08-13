@@ -217,8 +217,11 @@ and starts with no chrome. Normal feedback lasts 4s; track/error feedback lasts
 6s. Pause settles to a persistent small badge, and a real mpv cache pause shows
 `Buffering` only after a 1s anti-flicker delay. Pad **↑** is the sole subtitle
 control (show-first, then force-on + cycle); **A** is show-first for audio.
-Idle HUD language pills show the current subtitle and audio state and teach
-that second press.
+Idle HUD chips label Subtitles, Audio, and Quality. Subtitles and Audio show
+the current language or Off; Quality shows resolution and HDR only. The
+footer legend lists Skip, Subtitles, Audio, Volume, Pause, Streams, and
+Back. A second ↑ or A press while the HUD is visible cycles that track;
+Quality is changed through Streams.
 4K+audio smoothness requires `--blend-subtitles=no`
 (default in `mpv-play.sh`); `blend-subtitles=yes` causes sustained ~2.5 frame
 drops/s on Pi 5 even with healthy cache and audio on. Probe with

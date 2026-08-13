@@ -168,10 +168,16 @@ HUD; holding **←/→** accelerates seek (10s → 30s → 120s). **↑** is the
 subtitle control: first press shows the playback HUD only; while the HUD is
 visible, further ↑ presses force subtitles on and cycle languages. **A** is
 show-first for audio (first press shows HUD; while visible, cycles audio).
-Idle HUD language pills (`↑  English` / `↑  Off`, `A  Hindi 5.1`) are the
-instruction for that second press; the title does not change when cycling.
-Volume is always shown as a meter on the identity row (no −/+ footer legend).
-After the HUD auto-hides, the next A/↑/seek/volume press must show it again.
+Idle HUD chips name the control and its state (`Subtitles` / `English` or
+`Off`, `Audio` / `Hindi · 5.1`, `Quality` / `4K HDR`). Quality is a readout
+in that same strip — resolution plus HDR when present, never codec — and
+turns amber after a stream switch. It does not cycle in place; **X** still
+opens Streams. The footer legend lists every primary mapping
+(`←→ Skip`, `↑ Subtitles`, `A Audio`, `−+ Volume`, `B Pause`, `X Streams`,
+`Y Back`). The title does not change when cycling tracks. Volume also shows
+`−` / `+` beside the meter. After the HUD auto-hides, the next A/↑/seek/volume
+press must show it again.
+
 Playback-only **L/R** jumps by the large seek step (120s default). In the
 Streams panel, **Up/Down** moves, **B** validates/selects, and **Y** closes the
 panel before normal playback Back handling.

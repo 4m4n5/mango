@@ -81,7 +81,7 @@ explicit product approval.
 | Ranking | Identity and capability tiers are lexicographic/path-scoped; cache/scalar bonuses cannot lift known-risky above safe candidates |
 | Episode identity | Numeric contradictions reject; full season/episode markers outrank bare episode markers; localized title mismatch is soft if numeric identity agrees |
 | Cleanup | PID + play-epoch scoped; stale monitors cannot stop a newer session |
-| HUD | Clean startup; translucent floating card; stable title; always-on volume meter; time/progress instrument; ↑/A language pills; 4/6 s feedback; persistent minimal pause badge; delayed buffering; no timeline on Live; amber is state only |
+| HUD | Clean startup; translucent floating card; stable title; always-on volume meter with −/+; time/progress instrument; equal Subtitles/Audio/Quality chips; complete pad legend; 4/6 s feedback; persistent minimal pause badge; delayed buffering; no timeline on Live; amber is state only |
 | Streams drawer | Five total choices, current pinned, best usable alternative focused, unavailable disabled, isolated validation, revisioned contextual X Undo; inset floating sheet matching HUD material |
 | Switching | Preserve position/tracks/subtitle visibility/generation ownership and one logical watch session; never auto-switch or use stutter detection |
 
