@@ -1390,6 +1390,27 @@ test('recommendation attribution is profile-scoped, idempotent, and keeps max sa
   assert.deepEqual(listRecommendationAttribution(bob.profile_id), []);
 }));
 
+test('served slates can reuse a caller-nominated token and revision', () => withTempLibrary(() => {
+  const served = registerRecommendationServedSlate({
+    profile_id: 'household',
+    domain: 'vod',
+    rail_id: 'for-you-movies',
+    source_revision: 7,
+    attribution_token: 'deferred-token',
+    slate_revision: 12,
+    items: [{ type: 'movie', id: 'tt-deferred', rank: 0 }],
+  });
+  assert.equal(served.attribution_token, 'deferred-token');
+  assert.equal(served.slate_revision, 12);
+  assert.equal(resolveRecommendationServedSlate({
+    attribution_token: 'deferred-token',
+    domain: 'vod',
+    rail_id: 'for-you-movies',
+    slate_revision: 12,
+    items: served.items,
+  }).attribution_token, 'deferred-token');
+}));
+
 test('served-slate tokens bind exact membership to an immutable owner and never reuse revisions', () => withTempLibrary(() => {
   const alice = createViewerProfile('Served Alice');
   const bob = createViewerProfile('Served Bob');

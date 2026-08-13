@@ -153,6 +153,10 @@ VALUES ('movies-global-popular', 'movie', ?, ?, ?, ?, ?, '2026')
     const session = sessions.get('movies-global-popular');
     assert.equal(session?.items.length, 9);
     assert.equal(session?.verified_pool, 20);
+    const sessionRows = db.prepare(
+      "SELECT COUNT(*) AS count FROM rail_session WHERE session_id = ?",
+    ).get('reservoir-session') as { count: number };
+    assert.equal(sessionRows.count, 0, 'Browse v3 deals must not write rail_session on the couch path');
   });
 });
 

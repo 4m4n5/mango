@@ -101,3 +101,28 @@ VALUES (@started_at, NULL, 'movie', @id, 'verify', 0, 'verified');
     );
   });
 });
+
+test('prunePlayabilityMaintenance drops leftover Explore sessions and rail_session rows', async () => {
+  await withTempDb(async () => {
+    await initPlayabilityDb();
+    const db = getPlayabilityDb();
+    db.prepare(`
+INSERT INTO vod_explore_sessions_v3(
+  tab, session_id, slot, type, id, title, poster_url, selection_weight, created_at
+) VALUES ('movies', 's1', 0, 'movie', 'tt1', 'One', 'http://poster', 1, 1)
+`).run();
+    db.prepare(`
+INSERT INTO rail_session (rail_id, type, id, slot, mix_bucket, session_id, created_at)
+VALUES ('movies-global-popular', 'movie', 'tt1', 0, 'fresh', 's1', 1)
+`).run();
+    prunePlayabilityMaintenance();
+    assert.equal(
+      (db.prepare('SELECT COUNT(*) AS count FROM vod_explore_sessions_v3').get() as { count: number }).count,
+      0,
+    );
+    assert.equal(
+      (db.prepare('SELECT COUNT(*) AS count FROM rail_session').get() as { count: number }).count,
+      0,
+    );
+  });
+});

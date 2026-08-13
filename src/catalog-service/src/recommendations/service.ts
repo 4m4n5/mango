@@ -125,6 +125,7 @@ export async function loadForYouRail(
     profileId?: string;
     personalizationUpdatedAt?: number;
     excludeKeys?: ReadonlySet<string>;
+    persist?: boolean;
   } = {},
 ): Promise<ForYouRail | null> {
   void options.personalizationUpdatedAt;
@@ -135,6 +136,7 @@ export async function loadForYouRail(
   return loadStoryGraphForYouRail(tab, {
     reshuffle: options.reshuffle,
     exclude_keys: options.excludeKeys,
+    persist: options.persist,
   });
 }
 

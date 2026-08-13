@@ -479,7 +479,8 @@ shuffle history, exposure queue, or deal state. Playability migration 14 adds
 semantic revisions. Progress migration 2
 remains profile-exact.
 None rewrites historical snapshots or deletes ratings, Saved, history, profiles,
-progress, StoryDNA, provenance, or last-good state.
+progress, StoryDNA teacher overlays, provenance, or last-good state. Older
+Story Graph generation copies beyond active + previous are operator-pruned.
 
 The routine `scripts/m6-ship/backup-library-state.sh` creates one atomic backup
 set using SQLite's online backup API for `progress.db`, `library.db`,

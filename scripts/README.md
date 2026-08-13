@@ -120,6 +120,8 @@ diag/            manual diagnostics
 | `m6-ship/render-mpv-hud-fixtures.sh` | Render production Lua/libass HUD/drawer states through real mpv |
 | `m6-ship/gate-m6-4k-hdr-profile.sh` | mpv-hifi policy, display modes/EDID and resources; target-TV playback remains separate |
 | `m6-ship/backup-library-state.sh` | Creates one atomic, `quick_check`-verified online-backup set for progress/library/playability/YouTube and retains the newest three complete sets |
+| `m6-ship/prune-mango-state.sh` | Stops catalog-service only, prunes generation history/unused reservoirs, optional VACUUM; never calls `mango-stack.sh` |
+| `m6-ship/prune-mango-sqlite.py` | SQLite keep-set prune used by `prune-mango-state.sh` (`--apply` / `--vacuum`) |
 | `m6-ship/prune-legacy-backups.py` | Dry-run-first migration helper that verifies the three retained routine/deploy sets before deleting older backup-only artifacts |
 | `m3-play/playability/playability-grow-monitor.sh` | Wrapper for grow_monitor.py |
 | `m3-play/playability/monitor-grow-poll.sh` | Mac-side Pi polling log for long grow runs |

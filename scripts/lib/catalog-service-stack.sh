@@ -90,6 +90,23 @@ start_catalog_service_only() {
     return 1
   fi
 
+  if command -v systemctl >/dev/null 2>&1 \
+    && systemctl --user is-enabled mango-catalog.service >/dev/null 2>&1; then
+    systemctl --user start mango-catalog.service || return 1
+    local i
+    for i in $(seq 1 "$(catalog_service_ready_attempts)"); do
+      if catalog_service_healthy; then
+        catalog_service_recover_pid_file "$pid_file" >/dev/null 2>&1 || true
+        echo "catalog-service ready (:$(catalog_service_port), systemd)"
+        return 0
+      fi
+      sleep 0.5
+    done
+    echo "catalog-service systemd unit did not become healthy" >&2
+    systemctl --user status mango-catalog.service --no-pager -l >&2 || true
+    return 1
+  fi
+
   # shellcheck source=lib/catalog-yaml.sh
   source "$repo_dir/scripts/lib/catalog-yaml.sh"
   local catalog_yaml catalog_filters
@@ -143,12 +160,18 @@ stop_catalog_service_only() {
   local cache_dir pid_file
   cache_dir="$(catalog_service_cache_dir)"
   pid_file="${cache_dir}/catalog-service.pid"
+  if command -v systemctl >/dev/null 2>&1 \
+    && systemctl --user is-enabled mango-catalog.service >/dev/null 2>&1; then
+    systemctl --user stop mango-catalog.service 2>/dev/null || true
+  fi
   if [[ -f "$pid_file" ]]; then
     kill "$(cat "$pid_file")" 2>/dev/null || true
     sleep 0.3
     kill -9 "$(cat "$pid_file")" 2>/dev/null || true
     rm -f "$pid_file"
   fi
+  pkill -f '[r]un-catalog-service.sh' 2>/dev/null || true
+  pkill -f '[s]rc/catalog-service/dist/index.js' 2>/dev/null || true
   pkill -f '[c]atalog-service/dist/index.js' 2>/dev/null || true
   catalog_service_kill_port_listener
   sleep 0.5

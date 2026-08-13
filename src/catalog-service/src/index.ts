@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { CatalogCore, CatalogError, normalizeResourceId } from './core.js';
 import { couchPlayFailureMessage, publicPlayFailureDetails } from './catalog-errors.js';
 import { isMpvActive, playUrl } from './mpv.js';
@@ -2897,7 +2898,7 @@ async function main(): Promise<void> {
             throw new CatalogError(409, 'profile changed while YouTube recommendations were loading');
           }
           const { attribution_contexts: attributionContexts, ...publicYoutubeResult } = result;
-          const servedSlates = registerRecommendationServedSlates(result.rails.map((rail) => {
+          const servedInputs = result.rails.map((rail) => {
             const attributionContext = attributionContexts[rail.rail_id];
             if (!attributionContext
               || attributionContext.source_revision !== result.slate_sequence) {
@@ -2909,25 +2910,33 @@ async function main(): Promise<void> {
               rail_id: rail.rail_id,
               source_revision: attributionContext.source_revision,
               context_id: attributionContext.context_id,
+              attribution_token: randomUUID(),
+              slate_revision: result.slate_sequence,
               items: rail.items.map((item, rank) => ({
                 type: `youtube_${item.kind}`,
                 id: item.id,
                 rank,
               })),
             };
-          }));
+          });
           const publicResult = youtubePublicPersonalizationPayload({
             ...publicYoutubeResult,
-            rails: result.rails.map((rail, index) => {
-              const served = servedSlates[index]!;
-              return {
-                ...rail,
-                slate_sequence: served.slate_revision,
-                attribution_token: served.attribution_token,
-              };
-            }),
+            rails: result.rails.map((rail, index) => ({
+              ...rail,
+              slate_sequence: result.slate_sequence,
+              attribution_token: servedInputs[index]!.attribution_token,
+            })),
           }, personalization);
           sendJson(res, 200, publicResult);
+          setImmediate(() => {
+            try {
+              registerRecommendationServedSlates(servedInputs);
+            } catch (error) {
+              console.warn(`YouTube attribution persist lagged behind the visible shuffle: ${
+                error instanceof Error ? error.message : String(error)
+              }`);
+            }
+          });
           return;
         }
 

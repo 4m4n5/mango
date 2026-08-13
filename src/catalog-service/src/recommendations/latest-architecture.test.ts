@@ -48,11 +48,21 @@ test('YouTube exposes only provenance-gated v2 recommendation acquisition', () =
   assert.match(service, /upsertYoutubeV2CandidateProvenance/);
 });
 
-test('cleanup preserves historical schemas but exposes no destructive reset', () => {
+test('cleanup preserves historical schemas but prunes unused v1 reservoirs', () => {
   const db = source('youtube/db.ts');
   assert.match(db, /CREATE TABLE IF NOT EXISTS youtube_for_you_candidates/);
   assert.match(db, /CREATE TABLE IF NOT EXISTS youtube_popular_candidates/);
+  assert.match(db, /pruneYoutubeMaintenance/);
   assert.equal(db.includes('clearYoutubePersonalizationReservoirs'), false);
-  assert.equal(db.includes('DELETE FROM youtube_for_you_candidates'), false);
-  assert.equal(db.includes('DELETE FROM youtube_popular_candidates'), false);
+  assert.equal(db.includes('DROP TABLE youtube_for_you_candidates'), false);
+});
+
+test('library startup never rewrites Story Graph generation history', () => {
+  const db = source('library/db.ts');
+  const ensure = db.split('function ensureDb()')[1]?.split('export function initLibraryDb')[0] ?? '';
+  assert.match(ensure, /pruneLibraryBookkeeping\(\)/);
+  assert.equal(ensure.includes('pruneLibraryMaintenance'), false);
+  assert.equal(ensure.includes('pruneStoryGraphGenerationHistory'), false);
+  const graph = source('recommendations/story-graph-service.ts');
+  assert.match(graph, /pruneStoryGraphGenerationHistory\(\{ maxDeletes: STORY_GRAPH_INLINE_PRUNE_LIMIT \}\)/);
 });

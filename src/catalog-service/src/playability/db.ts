@@ -534,6 +534,7 @@ export function resetPlayabilityDbForTests(): void {
   vodBrowseReservoirPreparation.clear();
   vodBrowseReservoirPreparationTail = Promise.resolve();
   lastVodBrowseShuffleOutcome = null;
+  verifiedTitleKeysCache.clear();
   schemaInitialized = false;
 }
 
@@ -1122,6 +1123,9 @@ export function prunePlayabilityMaintenance(now: number = nowMs()): number {
       'DELETE FROM playability_triggers WHERE handled_at IS NOT NULL AND created_at < ?',
     ).run(sevenDaysAgo).changes;
     deleted += db.prepare('DELETE FROM rail_candidate_rejections WHERE expires_at < ?').run(now).changes;
+    deleted += db.prepare('DELETE FROM vod_explore_sessions_v3').run().changes;
+    deleted += db.prepare('DELETE FROM rail_session').run().changes;
+    deleted += db.prepare('DELETE FROM recently_shown WHERE shown_at < ?').run(fourteenDaysAgo).changes;
     db.prepare(`
 UPDATE stream_path_evidence
 SET capability_class = CASE
@@ -1139,6 +1143,11 @@ WHERE issue_expires_at IS NOT NULL
   });
   transaction();
   return deleted;
+}
+
+/** Exclusive lock; never call on the couch path. */
+export function vacuumPlayabilityDatabase(): void {
+  openDb().exec('VACUUM');
 }
 
 function applySchemaMigrations(db: Database.Database): void {
@@ -3356,6 +3365,11 @@ function activeRailPool<T extends RailPoolRow>(
   return pool.slice(0, maximum);
 }
 
+const verifiedTitleKeysCache = new Map<'movie' | 'series', {
+  dataVersion: number;
+  keys: Set<string>;
+}>();
+
 /**
  * Browse reservoirs are immutable publication snapshots, but title
  * verification can expire independently after publication. Re-check the
@@ -3366,13 +3380,25 @@ function currentlyVerifiedTitleKeys(
   db: Database.Database,
   contentType: 'movie' | 'series',
 ): Set<string> {
-  return new Set((db.prepare(`
+  const dataVersion = Number(db.pragma('data_version', { simple: true }));
+  const cached = verifiedTitleKeysCache.get(contentType);
+  if (cached && cached.dataVersion === dataVersion) return cached.keys;
+  const keys = new Set((db.prepare(`
 SELECT type, id
 FROM titles
 WHERE type = ? AND status = 'verified' AND (expires_at IS NULL OR expires_at > ?)
 `).all(contentType, nowMs()) as Array<{ type: string; id: string }>).map(
     (row) => titleKey(row.type, row.id),
   ));
+  verifiedTitleKeysCache.set(contentType, { dataVersion, keys });
+  return keys;
+}
+
+/** Couch For You filters with this set instead of chunked title lookups. */
+export function listCurrentlyVerifiedTitleKeys(
+  contentType: 'movie' | 'series',
+): Set<string> {
+  return currentlyVerifiedTitleKeys(openDb(), contentType);
 }
 
 function toRailSessionPoolItem(
@@ -4416,7 +4442,9 @@ export async function allocateTabRailSessions(
   options: TabRailSessionAllocateOptions,
 ): Promise<Map<string, RailSessionSnapshot>> {
   await initPlayabilityDb();
-  const overrides = await loadRailCurationOverrides();
+  const overrides = options.browseV3
+    ? { version: 1, pins: [], blocks: [] }
+    : await loadRailCurationOverrides();
   const db = openDb();
   const now = nowMs();
   const cooldownCutoff = now - 7 * 24 * 60 * 60 * 1000;
@@ -4470,6 +4498,11 @@ export async function allocateTabRailSessions(
     curatedPools.set(rail.railId, pool);
     poolSizes.set(rail.railId, pool.length);
     const displayLimit = resolveRailDisplayLimit(rail, pool.length);
+    if (options.browseV3) {
+      existingByRail.set(rail.railId, []);
+      canReuseExisting = false;
+      continue;
+    }
     const existing = readExistingRailSession(db, rail.railId, options.sessionId, now);
     existingByRail.set(rail.railId, existing);
     const targetSessionSize = Math.min(displayLimit, pool.length);
@@ -4493,17 +4526,7 @@ export async function allocateTabRailSessions(
     return snapshots;
   }
 
-  const transaction = db.transaction(() => {
-    for (const rail of options.rails) {
-      db.prepare(`
-DELETE FROM rail_session
-WHERE rail_id = @rail_id AND session_id = @session_id;
-`).run({
-        rail_id: rail.railId,
-        session_id: options.sessionId,
-      });
-    }
-
+  const dealBrowseSessions = (): void => {
     const pools = curatedPools;
     const recentKeysByRail = new Map<string, Set<string>>();
     for (const rail of options.rails) {
@@ -4560,7 +4583,9 @@ WHERE rail_id = @rail_id AND session_id = @session_id;
         poolByKey.get(titleKey(item.type, item.id)),
         slot,
       ));
-      writeRailSessionRows(db, rail.railId, options.sessionId, rows, now, !options.browseV3);
+      if (!options.browseV3) {
+        writeRailSessionRows(db, rail.railId, options.sessionId, rows, now, true);
+      }
       snapshots.set(rail.railId, {
         rail_id: rail.railId,
         session_id: options.sessionId,
@@ -4568,7 +4593,24 @@ WHERE rail_id = @rail_id AND session_id = @session_id;
         verified_pool: pool.length,
       });
     }
+  };
 
+  if (options.browseV3) {
+    dealBrowseSessions();
+    return snapshots;
+  }
+
+  const transaction = db.transaction(() => {
+    for (const rail of options.rails) {
+      db.prepare(`
+DELETE FROM rail_session
+WHERE rail_id = @rail_id AND session_id = @session_id;
+`).run({
+        rail_id: rail.railId,
+        session_id: options.sessionId,
+      });
+    }
+    dealBrowseSessions();
     db.prepare(`
 DELETE FROM recently_shown
 WHERE shown_at < @prune_before;
@@ -4599,62 +4641,11 @@ export async function allocateVodExploreSession(options: {
 }): Promise<RailSessionSnapshot> {
   await initPlayabilityDb();
   const db = openDb();
-  const now = nowMs();
   const railId = options.tab === 'series' ? 'explore-series' : 'explore-movies';
   const displayLimit = Math.max(1, Math.min(12, Math.floor(options.displayLimit ?? 6)));
   const occupied = new Set(options.occupiedKeys ?? []);
   const excluded = new Set(options.excludedKeys ?? []);
   const previous = new Set(options.previousSlateKeys ?? []);
-  const existing = db.prepare(`
-SELECT sessions.type, sessions.id, sessions.title, sessions.poster_url, sessions.year,
-       sessions.selection_weight, titles.best_source, titles.cache_status,
-       titles.debrid_service, titles.verified_at, titles.expires_at
-FROM vod_explore_sessions_v3 sessions
-JOIN titles ON titles.type = sessions.type AND titles.id = sessions.id
-WHERE sessions.tab = ? AND sessions.session_id = ? AND titles.status = 'verified'
-  AND (titles.expires_at IS NULL OR titles.expires_at > ?)
-ORDER BY sessions.slot
-`).all(options.tab, options.sessionId, now) as Array<{
-    type: string;
-    id: string;
-    title: string;
-    poster_url: string;
-    year: string | null;
-    selection_weight: number;
-    best_source: string | null;
-    cache_status: string | null;
-    debrid_service: string | null;
-    verified_at: number | null;
-    expires_at: number | null;
-  }>;
-  const existingValid = existing.length >= displayLimit && existing.every((item) => {
-    const key = titleKey(item.type, item.id);
-    return !occupied.has(key) && !excluded.has(key);
-  });
-  if (existingValid) {
-    return {
-      rail_id: railId,
-      session_id: options.sessionId,
-      verified_pool: existing.length,
-      items: existing.slice(0, displayLimit).map((item, slot) => ({
-        rail_id: railId,
-        type: item.type,
-        id: item.id,
-        score: item.selection_weight,
-        mix_bucket: 'fresh',
-        slot,
-        session_id: options.sessionId,
-        best_source: item.best_source,
-        cache_status: item.cache_status,
-        debrid_service: item.debrid_service,
-        verified_at: item.verified_at,
-        expires_at: item.expires_at,
-        title: item.title,
-        poster_url: item.poster_url,
-        year: item.year,
-      })),
-    };
-  }
 
   const reservoir = readVodBrowseReservoirSnapshot(db, options.tab);
   const rows = reservoir?.rails.get(railId) ?? [];
@@ -4687,30 +4678,6 @@ ORDER BY sessions.slot
       `${dealSeed}:relaxed-oldest`,
     ));
   }
-  const transaction = db.transaction(() => {
-    db.prepare('DELETE FROM vod_explore_sessions_v3 WHERE tab = ? AND session_id = ?')
-      .run(options.tab, options.sessionId);
-    const insert = db.prepare(`
-INSERT INTO vod_explore_sessions_v3(
-  tab, session_id, slot, type, id, title, poster_url, year, selection_weight, created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`);
-    selected.forEach((item, slot) => insert.run(
-      options.tab,
-      options.sessionId,
-      slot,
-      item.type,
-      item.id,
-      item.title,
-      item.poster_url,
-      item.year,
-      item.weight,
-      now,
-    ));
-    db.prepare('DELETE FROM vod_explore_sessions_v3 WHERE created_at < ?')
-      .run(now - 2 * 24 * 60 * 60 * 1_000);
-  });
-  transaction();
   return {
     rail_id: railId,
     session_id: options.sessionId,

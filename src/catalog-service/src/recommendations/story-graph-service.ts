@@ -1,13 +1,17 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { AI_CATALOG_RAIL_PREFIX } from '../ai-catalogs/types.js';
 import {
   libraryDatabase,
+  pruneStoryGraphGenerationHistory,
   registerRecommendationServedSlate,
+  STORY_GRAPH_INLINE_PRUNE_LIMIT,
   SYNTHETIC_LIBRARY_SOURCE,
 } from '../library/db.js';
 import { listRatings, type FireWaterRating, type RatingContentType } from '../library/ratings.js';
 import {
   getTitlesPlayabilityBulk,
+  initPlayabilityDb,
+  listCurrentlyVerifiedTitleKeys,
   listVerifiedRecommendationCatalogPage,
   playabilityRecommendationCorpusGeneration,
   playabilityRecommendationSemanticGeneration,
@@ -457,6 +461,29 @@ const franchiseKeysCache = new Map<RatingContentType, {
   story_generation_id: number;
   keys: Map<StoryGraphContentId, string[]>;
 }>();
+const householdExclusionCache = new Map<RatingContentType, {
+  at: number;
+  keys: Set<StoryGraphContentId>;
+}>();
+const HOUSEHOLD_EXCLUSION_TTL_MS = 2_000;
+type ForYouServingMemory = {
+  rankGenerationId: number;
+  epoch: number;
+  recent: Array<{ epoch: number; ids: StoryGraphContentId[] }>;
+};
+const forYouServingMemory = new Map<RatingContentType, ForYouServingMemory>();
+type PendingForYouPersist = {
+  type: RatingContentType;
+  tab: StoryGraphTab;
+  rankGenerationId: number;
+  expectedEpoch: number;
+  nextEpoch: number;
+  selectedK: number;
+  items: StoryGraphScoredRecommendation[];
+  rows: PersistedRankRow[];
+  attributionToken: string;
+};
+const pendingForYouPersist = new Map<RatingContentType, PendingForYouPersist>();
 
 export function storyGraphServingWorkSnapshot(): StoryGraphServingWorkCounters {
   return { ...storyGraphServingWorkCounters };
@@ -470,6 +497,9 @@ export function resetStoryGraphServingWorkCounters(): void {
   storyGraphServingWorkCounters.slate_items_revalidated = 0;
   eligibleRankRowsCache.clear();
   franchiseKeysCache.clear();
+  householdExclusionCache.clear();
+  forYouServingMemory.clear();
+  pendingForYouPersist.clear();
 }
 
 function contentTypeForTab(tab: StoryGraphTab): RatingContentType {
@@ -1724,11 +1754,16 @@ function selectCachedSlateIds(input: {
 }
 
 function currentExactExclusions(type: RatingContentType): Set<StoryGraphContentId> {
+  const cached = householdExclusionCache.get(type);
+  const now = Date.now();
+  if (cached && now - cached.at < HOUSEHOLD_EXCLUSION_TTL_MS) return cached.keys;
   const signals = readHouseholdSignals(type);
-  return new Set([
+  const keys = new Set([
     ...signals.rated, ...signals.saved, ...signals.watched,
     ...signals.hidden, ...signals.blocked, ...signals.not_for_me,
   ]);
+  householdExclusionCache.set(type, { at: now, keys });
+  return keys;
 }
 
 async function currentlyEligibleRankRows(
@@ -1754,18 +1789,12 @@ ORDER BY rank ASC
     eligibleRankRowsCache.set(type, { db, rank_generation_id: rankGenerationId, rows });
   }
   storyGraphServingWorkCounters.full_reserve_rows_loaded += rows.length;
-  const playability = await getTitlesPlayabilityBulk(rows.map((row) => ({
-    type: row.content_type,
-    id: row.content_id,
-  })));
+  await initPlayabilityDb();
+  const verified = listCurrentlyVerifiedTitleKeys(type);
   const excluded = currentExactExclusions(type);
-  const now = Date.now();
   return rows.filter((row) => {
     const key = contentKey(row.content_type, row.content_id);
-    const state = playability.get(key);
-    return state?.status === 'verified'
-      && (state.expires_at === null || state.expires_at > now)
-      && !excluded.has(key);
+    return verified.has(key) && !excluded.has(key);
   });
 }
 
@@ -1955,6 +1984,7 @@ ON CONFLICT(content_type) DO UPDATE SET
       previousComplete,
     );
   })();
+  pruneStoryGraphGenerationHistory({ maxDeletes: STORY_GRAPH_INLINE_PRUNE_LIMIT });
 }
 
 function ndcgAt6(rows: Array<{ relevance: number; score: number }>): number | null {
@@ -3253,73 +3283,18 @@ ORDER BY csi.slot
 `).all(rankGenerationId, type, epoch) as PersistedRankRow[];
 }
 
-function currentExactExclusionsForIds(
-  type: RatingContentType,
-  ids: readonly string[],
-): Set<StoryGraphContentId> {
-  if (ids.length === 0) return new Set();
-  const requestedValues = ids.map(() => '(?)').join(', ');
-  const rows = libraryDatabase().prepare(`
-WITH requested(content_id) AS (VALUES ${requestedValues})
-SELECT requested.content_id
-FROM requested
-WHERE EXISTS (
-  SELECT 1 FROM profile_content_ratings ratings
-  WHERE ratings.profile_id = 'household' AND ratings.content_type = ?
-    AND ratings.content_id = requested.content_id
-) OR EXISTS (
-  SELECT 1 FROM profile_saved_items saved
-  JOIN library_items item ON item.item_key = saved.item_key
-  WHERE saved.profile_id = 'household' AND item.type = ? AND item.id = requested.content_id
-    AND item.source != ?
-) OR EXISTS (
-  SELECT 1 FROM profile_watch_state watched
-  JOIN library_items item ON item.item_key = watched.item_key
-  WHERE watched.profile_id = 'household' AND item.type = ? AND item.id = requested.content_id
-    AND item.source != ?
-    AND (
-      watched.finished_at IS NOT NULL OR watched.progress_pct >= 0.9 OR
-      (watched.duration_sec > 0 AND watched.position_sec >= MIN(watched.duration_sec * 0.25, 300)) OR
-      (watched.duration_sec <= 0 AND watched.position_sec >= 120)
-    )
-) OR EXISTS (
-  SELECT 1 FROM library_items item
-  WHERE item.type = ? AND item.id = requested.content_id
-    AND item.source != ?
-    AND (item.hidden = 1 OR item.blocked = 1)
-) OR EXISTS (
-  SELECT 1 FROM profile_library_feedback feedback
-  JOIN library_items item ON item.item_key = feedback.item_key
-  WHERE feedback.profile_id = 'household' AND feedback.feedback = 'not_interested'
-    AND item.type = ? AND item.id = requested.content_id
-    AND item.source != ?
-)
-`).all(
-    ...ids,
-    type,
-    type, SYNTHETIC_LIBRARY_SOURCE,
-    type, SYNTHETIC_LIBRARY_SOURCE,
-    type, SYNTHETIC_LIBRARY_SOURCE,
-    type, SYNTHETIC_LIBRARY_SOURCE,
-  ) as Array<{ content_id: string }>;
-  return new Set(rows.map((row) => contentKey(type, row.content_id)));
-}
-
 async function validateSlateRows(rows: PersistedRankRow[], type: RatingContentType): Promise<boolean> {
   if (rows.length !== VISIBLE_LIMIT || new Set(rows.map((row) => row.content_id)).size !== VISIBLE_LIMIT) {
     return false;
   }
   if (rows.some((row) => !row.poster)) return false;
   storyGraphServingWorkCounters.slate_items_revalidated += rows.length;
-  const current = await getTitlesPlayabilityBulk(rows.map((row) => ({ type, id: row.content_id })));
-  const exclusions = currentExactExclusionsForIds(type, rows.map((row) => row.content_id));
-  const now = Date.now();
+  await initPlayabilityDb();
+  const verified = listCurrentlyVerifiedTitleKeys(type);
+  const exclusions = currentExactExclusions(type);
   return rows.every((row) => {
     const key = contentKey(type, row.content_id);
-    const state = current.get(key);
-    return state?.status === 'verified'
-      && (state.expires_at === null || state.expires_at > now)
-      && !exclusions.has(key);
+    return verified.has(key) && !exclusions.has(key);
   });
 }
 
@@ -3733,11 +3708,89 @@ ORDER BY content_id, family, node_key
   }));
 }
 
+function rankRowsForSelection(
+  eligible: PersistedRankRow[],
+  selected: StoryGraphScoredRecommendation[],
+): PersistedRankRow[] {
+  const byId = new Map(eligible.map((row) => [row.content_id, row]));
+  return selected.map((item) => {
+    const row = byId.get(item.id);
+    if (!row) throw new Error('dealt Story Graph item missing from eligible reserve');
+    return row;
+  });
+}
+
+function rememberForYouServing(
+  type: RatingContentType,
+  rankGenerationId: number,
+  epoch: number,
+  ids: StoryGraphContentId[],
+): void {
+  const previous = forYouServingMemory.get(type);
+  const recent = previous?.rankGenerationId === rankGenerationId
+    ? previous.recent
+    : recentCachedSlates(rankGenerationId, type, DYNAMIC_SLATE_HISTORY_DEPTH, true);
+  forYouServingMemory.set(type, {
+    rankGenerationId,
+    epoch,
+    recent: [{ epoch, ids }, ...recent.filter((slate) => slate.epoch !== epoch)]
+      .slice(0, DYNAMIC_SLATE_HISTORY_DEPTH),
+  });
+}
+
+function forYouRecentSlates(
+  rankGenerationId: number,
+  type: RatingContentType,
+): Array<{ epoch: number; ids: StoryGraphContentId[] }> {
+  const memory = forYouServingMemory.get(type);
+  if (memory?.rankGenerationId === rankGenerationId && memory.recent.length > 0) {
+    return memory.recent.slice(0, DYNAMIC_SLATE_HISTORY_DEPTH);
+  }
+  return recentCachedSlates(rankGenerationId, type, DYNAMIC_SLATE_HISTORY_DEPTH, true);
+}
+
+function persistPendingForYou(pending: PendingForYouPersist): void {
+  const advanced = persistAndAdvanceDynamicSlate({
+    type: pending.type,
+    rankGenerationId: pending.rankGenerationId,
+    expectedEpoch: pending.expectedEpoch,
+    nextEpoch: pending.nextEpoch,
+    selectedK: pending.selectedK,
+    items: pending.items,
+    now: Date.now(),
+  });
+  if (!advanced) return;
+  markCachedSlateRendered(pending.rankGenerationId, pending.type, pending.nextEpoch, Date.now());
+  registerRecommendationServedSlate({
+    profile_id: 'household',
+    domain: 'vod',
+    rail_id: pending.tab === 'movies' ? 'for-you-movies' : 'for-you-series',
+    source_revision: pending.rankGenerationId,
+    attribution_token: pending.attributionToken,
+    slate_revision: pending.nextEpoch,
+    items: pending.rows.map((row, rank) => ({ type: pending.type, id: row.content_id, rank })),
+  });
+}
+
+/** Capture a deferred For You persist so a later X cannot overwrite it. */
+export function captureDeferredStoryGraphForYou(tab: StoryGraphTab): () => void {
+  const pending = pendingForYouPersist.get(contentTypeForTab(tab));
+  if (pending) pendingForYouPersist.delete(pending.type);
+  return () => {
+    if (pending) persistPendingForYou(pending);
+  };
+}
+
 export async function loadStoryGraphForYouRail(
   tab: StoryGraphTab,
-  options: { reshuffle?: boolean; exclude_keys?: ReadonlySet<string> } = {},
+  options: {
+    reshuffle?: boolean;
+    exclude_keys?: ReadonlySet<string>;
+    persist?: boolean;
+  } = {},
 ): Promise<StoryGraphForYouRail | null> {
   const startedAt = Date.now();
+  const persist = options.persist !== false;
   const type = contentTypeForTab(tab);
   const db = libraryDatabase();
   const active = db.prepare(`
@@ -3760,17 +3813,26 @@ WHERE active.content_type = ? AND ranks.status IN ('bootstrap', 'complete')
   const reserveDepth = (db.prepare(`
 SELECT eligible_count FROM vod_rank_generations WHERE rank_generation_id = ?
 `).get(active.rank_generation_id) as { eligible_count: number } | undefined)?.eligible_count ?? 0;
-  let epoch = active.shuffle_epoch;
-  let rows = cachedSlateRows(type, epoch, active.rank_generation_id);
+  const memory = forYouServingMemory.get(type);
+  let epoch = memory?.rankGenerationId === active.rank_generation_id
+    ? memory.epoch
+    : active.shuffle_epoch;
   const externalExclusions = options.exclude_keys ?? new Set<string>();
   const hasExternalExclusion = (candidateRows: PersistedRankRow[]): boolean => candidateRows.some(
     (row) => externalExclusions.has(contentKey(type, row.content_id)),
   );
-  let currentValid = !hasExternalExclusion(rows) && await validateSlateRows(rows, type);
+  let rows: PersistedRankRow[] = [];
+  let currentValid = false;
+  if (!options.reshuffle) {
+    rows = cachedSlateRows(type, epoch, active.rank_generation_id);
+    currentValid = !hasExternalExclusion(rows) && await validateSlateRows(rows, type);
+  }
   let lowWater = false;
   if (options.reshuffle || !currentValid) {
     const eligibleRows = await currentlyEligibleRankRows(active.rank_generation_id, type);
-    const nextEpoch = Number((db.prepare(`
+    const nextEpoch = memory?.rankGenerationId === active.rank_generation_id
+      ? memory.epoch + 1
+      : Number((db.prepare(`
 SELECT COALESCE(MAX(shuffle_epoch), -1) + 1 AS next_epoch
 FROM vod_cached_slates WHERE rank_generation_id = ? AND content_type = ?
 `).get(active.rank_generation_id, type) as { next_epoch: number }).next_epoch);
@@ -3778,40 +3840,83 @@ FROM vod_cached_slates WHERE rank_generation_id = ? AND content_type = ?
       rows: eligibleRows,
       selectedK: active.selected_k,
       seed: `deep-weighted-v1:${type}:${active.rank_generation_id}:${nextEpoch}:for-you`,
-      recentSlates: recentCachedSlates(
-        active.rank_generation_id,
-        type,
-        DYNAMIC_SLATE_HISTORY_DEPTH,
-        true,
-      ),
+      recentSlates: forYouRecentSlates(active.rank_generation_id, type),
       fixedExcludeIds: [...externalExclusions] as StoryGraphContentId[],
       franchiseKeysById: franchiseKeysForGeneration(active.story_generation_id, type),
     });
-    const advanced = selected.length === VISIBLE_LIMIT && persistAndAdvanceDynamicSlate({
-      type,
-      rankGenerationId: active.rank_generation_id,
-      expectedEpoch: epoch,
-      nextEpoch,
-      selectedK: active.selected_k,
-      items: selected,
-      now: Date.now(),
-    });
-    if (advanced) {
-      epoch = nextEpoch;
-      rows = cachedSlateRows(type, epoch, active.rank_generation_id);
-      currentValid = !hasExternalExclusion(rows) && await validateSlateRows(rows, type);
-    } else if (selected.length === VISIBLE_LIMIT) {
-      // A concurrent Shuffle won the CAS. Serve that winner, never a second epoch.
-      const current = db.prepare(`
+    if (selected.length === VISIBLE_LIMIT) {
+      const selectedRows = rankRowsForSelection(eligibleRows, selected);
+      if (!hasExternalExclusion(selectedRows)) {
+        const attributionToken = randomUUID();
+        const pending: PendingForYouPersist = {
+          type,
+          tab,
+          rankGenerationId: active.rank_generation_id,
+          expectedEpoch: epoch,
+          nextEpoch,
+          selectedK: active.selected_k,
+          items: selected,
+          rows: selectedRows,
+          attributionToken,
+        };
+        if (persist) {
+          const advanced = persistAndAdvanceDynamicSlate({
+            type,
+            rankGenerationId: active.rank_generation_id,
+            expectedEpoch: epoch,
+            nextEpoch,
+            selectedK: active.selected_k,
+            items: selected,
+            now: Date.now(),
+          });
+          if (advanced) {
+            epoch = nextEpoch;
+            rows = selectedRows;
+            currentValid = await validateSlateRows(rows, type);
+            if (currentValid) {
+              rememberForYouServing(
+                type,
+                active.rank_generation_id,
+                epoch,
+                rows.map((row) => contentKey(type, row.content_id)),
+              );
+            }
+          } else {
+            const current = db.prepare(`
 SELECT active_rank_generation_id AS rank_generation_id, shuffle_epoch
 FROM vod_active_generations WHERE content_type = ?
 `).get(type) as { rank_generation_id: number; shuffle_epoch: number } | undefined;
-      if (!current || current.rank_generation_id !== active.rank_generation_id) return null;
-      epoch = current.shuffle_epoch;
-      rows = cachedSlateRows(type, epoch, active.rank_generation_id);
-      currentValid = !hasExternalExclusion(rows) && await validateSlateRows(rows, type);
+            if (!current || current.rank_generation_id !== active.rank_generation_id) return null;
+            epoch = current.shuffle_epoch;
+            rows = cachedSlateRows(type, epoch, active.rank_generation_id);
+            currentValid = !hasExternalExclusion(rows) && await validateSlateRows(rows, type);
+          }
+        } else {
+          pendingForYouPersist.set(type, pending);
+          rememberForYouServing(
+            type,
+            active.rank_generation_id,
+            nextEpoch,
+            selectedRows.map((row) => contentKey(type, row.content_id)),
+          );
+          epoch = nextEpoch;
+          rows = selectedRows;
+          currentValid = true;
+          return buildStoryGraphForYouRail({
+            tab,
+            type,
+            rankGenerationId: active.rank_generation_id,
+            epoch,
+            reserveDepth,
+            rows,
+            served: { slate_revision: nextEpoch, attribution_token: attributionToken },
+            resolveMs: Date.now() - startedAt,
+            lowWater: false,
+          });
+        }
+      }
     }
-    if ((!advanced && selected.length !== VISIBLE_LIMIT) || !currentValid) {
+    if ((!currentValid) || selected.length !== VISIBLE_LIMIT) {
       lowWater = true;
       enqueueStoryGraphLowWater({
         tab,
@@ -3824,6 +3929,12 @@ FROM vod_active_generations WHERE content_type = ?
     }
   }
   if (!currentValid) return null;
+  rememberForYouServing(
+    type,
+    active.rank_generation_id,
+    epoch,
+    rows.map((row) => contentKey(type, row.content_id)),
+  );
   markCachedSlateRendered(active.rank_generation_id, type, epoch, Date.now());
   const served = registerRecommendationServedSlate({
     profile_id: 'household',

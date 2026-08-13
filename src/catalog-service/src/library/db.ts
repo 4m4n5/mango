@@ -28,7 +28,12 @@ export const VOD_PROGRESSIVE_PROFILE_SCHEMA_VERSION = 15;
 export const VOD_IMMUTABLE_OVERLAY_SCHEMA_VERSION = 16;
 export const VOD_RECOMMENDATION_RUNTIME_SCHEMA_VERSION = 17;
 export const LIBRARY_CANONICAL_TAB_SCHEMA_VERSION = 18;
-const RECOMMENDATION_SERVED_SLATE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/** Fire/Water attribution binds to a recent served slate, not a month of X history. */
+export const RECOMMENDATION_SERVED_SLATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** Keep a short diagnostics tail; queued/running jobs are never deleted. */
+export const RECOMMENDATION_JOB_TERMINAL_RETENTION = 20;
+/** Publish-path cap so a stale 100+ generation backlog cannot lock the couch. */
+export const STORY_GRAPH_INLINE_PRUNE_LIMIT = 8;
 
 export type LibrarySource = string;
 
@@ -1731,6 +1736,7 @@ function ensureDb(): Database.Database {
     initSchema(db);
     importLegacyPinsOnce(db);
     initialized = true;
+    pruneLibraryBookkeeping();
   }
   return db;
 }
@@ -1742,6 +1748,234 @@ export function initLibraryDb(): void {
 /** Internal transactional handle for modules that extend the canonical library schema. */
 export function libraryDatabase(): Database.Database {
   return ensureDb();
+}
+
+export type LibraryPruneStats = {
+  rank_generations: number;
+  taste_generations: number;
+  story_generations: number;
+  dna_edges: number;
+  refresh_jobs: number;
+  runtime_state: number;
+  served_slates: number;
+  frontier_queue: number;
+  skipped_story_graph: boolean;
+};
+
+function collectKeepIds(db: Database.Database, sql: string): Set<number> {
+  const rows = db.prepare(sql).all() as Array<{ id: number | null }>;
+  return new Set(rows.map((row) => Number(row.id)).filter((id) => Number.isInteger(id) && id > 0));
+}
+
+function deleteRowsById(
+  db: Database.Database,
+  table: string,
+  column: string,
+  ids: number[],
+  batchSize = 8,
+): number {
+  if (ids.length === 0) return 0;
+  const statement = db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`);
+  let deleted = 0;
+  for (let offset = 0; offset < ids.length; offset += batchSize) {
+    const batch = ids.slice(offset, offset + batchSize);
+    const run = db.transaction(() => {
+      for (const id of batch) deleted += statement.run(id).changes;
+    });
+    run();
+  }
+  return deleted;
+}
+
+function extraIds(allIds: number[], keep: Set<number>, maxDeletes?: number): number[] {
+  const extra = allIds.filter((id) => !keep.has(id)).sort((left, right) => left - right);
+  if (maxDeletes == null || extra.length <= maxDeletes) return extra;
+  return extra.slice(0, maxDeletes);
+}
+
+function tableExists(db: Database.Database, name: string): boolean {
+  return Boolean(
+    db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name),
+  );
+}
+
+/**
+ * Last-good is active + previous complete, matching Browse v3 reservoirs.
+ * In-flight `building` ranks/stories/tastes and queued/running jobs are kept.
+ * `maxDeletes` bounds publish-path work; omit it for the operator CLI.
+ */
+export function pruneStoryGraphGenerationHistory(
+  options: { maxDeletes?: number } = {},
+): Pick<
+  LibraryPruneStats,
+  'rank_generations' | 'taste_generations' | 'story_generations' | 'skipped_story_graph'
+> {
+  const db = openDb();
+  db.pragma('foreign_keys = ON');
+  const storyCount = Number(
+    (db.prepare('SELECT COUNT(*) AS count FROM vod_story_dna_generations').get() as { count: number }).count,
+  );
+  const activeCount = Number(
+    (db.prepare(`
+SELECT COUNT(*) AS count FROM vod_active_generations WHERE active_rank_generation_id IS NOT NULL
+`).get() as { count: number }).count,
+  );
+  if (storyCount > 0 && activeCount === 0) {
+    return {
+      rank_generations: 0,
+      taste_generations: 0,
+      story_generations: 0,
+      skipped_story_graph: true,
+    };
+  }
+
+  const keepRanks = collectKeepIds(db, `
+SELECT active_rank_generation_id AS id FROM vod_active_generations
+WHERE active_rank_generation_id IS NOT NULL
+UNION
+SELECT previous_complete_rank_generation_id FROM vod_active_generations
+WHERE previous_complete_rank_generation_id IS NOT NULL
+UNION
+SELECT rank_generation_id FROM recommendation_refresh_jobs
+WHERE status IN ('queued', 'running') AND rank_generation_id IS NOT NULL
+UNION
+SELECT rank_generation_id FROM vod_rank_generations WHERE status = 'building'
+`);
+  const allRanks = (db.prepare('SELECT rank_generation_id AS id FROM vod_rank_generations')
+    .all() as Array<{ id: number }>).map((row) => row.id);
+  const rankDeleted = deleteRowsById(
+    db,
+    'vod_rank_generations',
+    'rank_generation_id',
+    extraIds(allRanks, keepRanks, options.maxDeletes),
+  );
+  if (tableExists(db, 'vod_story_graph_low_water_requests')) {
+    db.prepare(`
+DELETE FROM vod_story_graph_low_water_requests
+WHERE rank_generation_id NOT IN (SELECT rank_generation_id FROM vod_rank_generations)
+`).run();
+  }
+
+  const keepTastes = collectKeepIds(db, `
+SELECT active_taste_generation_id AS id FROM vod_active_generations
+WHERE active_taste_generation_id IS NOT NULL
+UNION
+SELECT taste_generation_id FROM vod_rank_generations
+UNION
+SELECT taste_generation_id FROM recommendation_refresh_jobs
+WHERE status IN ('queued', 'running') AND taste_generation_id IS NOT NULL
+UNION
+SELECT taste_generation_id FROM vod_taste_generations WHERE status = 'building'
+`);
+  const allTastes = (db.prepare('SELECT taste_generation_id AS id FROM vod_taste_generations')
+    .all() as Array<{ id: number }>).map((row) => row.id);
+  const tasteDeleted = deleteRowsById(
+    db,
+    'vod_taste_generations',
+    'taste_generation_id',
+    extraIds(allTastes, keepTastes, options.maxDeletes),
+  );
+
+  const keepStories = collectKeepIds(db, `
+SELECT active_story_generation_id AS id FROM vod_active_generations
+WHERE active_story_generation_id IS NOT NULL
+UNION
+SELECT story_generation_id FROM vod_rank_generations
+UNION
+SELECT story_generation_id FROM vod_taste_generations
+UNION
+SELECT story_generation_id FROM recommendation_refresh_jobs
+WHERE status IN ('queued', 'running') AND story_generation_id IS NOT NULL
+UNION
+SELECT generation_id FROM vod_story_dna_generations WHERE status = 'building'
+`);
+  const allStories = (db.prepare('SELECT generation_id AS id FROM vod_story_dna_generations')
+    .all() as Array<{ id: number }>).map((row) => row.id);
+  const storyDeleted = deleteRowsById(
+    db,
+    'vod_story_dna_generations',
+    'generation_id',
+    extraIds(allStories, keepStories, options.maxDeletes),
+  );
+
+  return {
+    rank_generations: rankDeleted,
+    taste_generations: tasteDeleted,
+    story_generations: storyDeleted,
+    skipped_story_graph: false,
+  };
+}
+
+/** Cheap tails only. Safe on catalog startup; does not rewrite generation history. */
+export function pruneLibraryBookkeeping(now: number = nowMs()): Pick<
+  LibraryPruneStats,
+  'refresh_jobs' | 'runtime_state' | 'served_slates'
+> {
+  const db = openDb();
+  const refreshJobs = db.prepare(`
+WITH kept AS (
+  SELECT job_id FROM recommendation_refresh_jobs
+  WHERE status IN ('coalesced', 'complete', 'failed')
+  ORDER BY queued_at DESC
+  LIMIT ${RECOMMENDATION_JOB_TERMINAL_RETENTION}
+)
+DELETE FROM recommendation_refresh_jobs
+WHERE status IN ('coalesced', 'complete', 'failed')
+  AND job_id NOT IN (SELECT job_id FROM kept)
+`).run().changes;
+  const lookupState = db.prepare(`
+DELETE FROM recommendation_runtime_state
+WHERE state_key LIKE 'vod_story_dna_lookup%'
+`).run().changes;
+  const evaluationState = db.prepare(`
+DELETE FROM recommendation_runtime_state
+WHERE state_key LIKE 'vod_story_graph_evaluation:%:%'
+  AND state_key NOT IN (
+    SELECT 'vod_story_graph_evaluation:' || content_type || ':' || active_rank_generation_id
+    FROM vod_active_generations
+    WHERE active_rank_generation_id IS NOT NULL
+    UNION
+    SELECT 'vod_story_graph_evaluation:' || content_type || ':' || previous_complete_rank_generation_id
+    FROM vod_active_generations
+    WHERE previous_complete_rank_generation_id IS NOT NULL
+  )
+`).run().changes;
+  const servedSlates = db.prepare(`
+DELETE FROM profile_recommendation_served_slates
+WHERE expires_at < ? AND created_at > 1000000000000
+`).run(now).changes;
+  return {
+    refresh_jobs: refreshJobs,
+    runtime_state: lookupState + evaluationState,
+    served_slates: servedSlates,
+  };
+}
+
+/** Operator/full cleanup: unused DNA edges, generation history, bookkeeping, frontier tails. */
+export function pruneLibraryMaintenance(now: number = nowMs()): LibraryPruneStats {
+  const db = openDb();
+  db.pragma('foreign_keys = ON');
+  const dnaEdges = db.prepare('DELETE FROM vod_story_dna_edges').run().changes;
+  const story = pruneStoryGraphGenerationHistory();
+  const bookkeeping = pruneLibraryBookkeeping(now);
+  const frontierQueue = tableExists(db, 'vod_semantic_frontier_queue')
+    ? db.prepare(`
+DELETE FROM vod_semantic_frontier_queue
+WHERE status IN ('complete', 'superseded', 'failed')
+  AND updated_at < ?
+`).run(now - 14 * 24 * 60 * 60 * 1000).changes
+    : 0;
+  return {
+    ...story,
+    dna_edges: dnaEdges,
+    ...bookkeeping,
+    frontier_queue: frontierQueue,
+  };
+}
+
+/** Rebuild the library file after a prune. Exclusive lock; never call on the couch path. */
+export function vacuumLibraryDatabase(): void {
+  openDb().exec('VACUUM');
 }
 
 export function listViewerProfiles(): ViewerProfile[] {
@@ -2182,6 +2416,8 @@ export type RecommendationServedSlateInput = {
   context_id?: string;
   items: Array<{ type: string; id: string; rank: number }>;
   now?: number;
+  attribution_token?: string;
+  slate_revision?: number;
 };
 
 /**
@@ -2205,6 +2441,7 @@ export function registerRecommendationServedSlates(
       throw new Error('Because You Watched served slate requires an attribution context');
     }
     const createdAt = input.now ?? nowMs();
+    const nominatedToken = input.attribution_token?.trim().slice(0, 160) ?? '';
     return {
       input,
       profileId,
@@ -2214,7 +2451,7 @@ export function registerRecommendationServedSlates(
       items: normalizeServedItems(input.items),
       createdAt,
       expiresAt: createdAt + RECOMMENDATION_SERVED_SLATE_TTL_MS,
-      attributionToken: randomUUID(),
+      attributionToken: nominatedToken || randomUUID(),
     };
   });
   const identities = new Set(prepared.map((row) => (
@@ -2254,12 +2491,15 @@ INSERT INTO profile_recommendation_served_items(
         revisionMetric,
         row.createdAt,
       ) as { revision: number };
+      const slateRevision = Number.isInteger(row.input.slate_revision)
+        ? Math.max(0, Math.floor(row.input.slate_revision!))
+        : revisionRow.revision;
       insertSlate.run(
         row.attributionToken,
         row.profileId,
         row.input.domain,
         row.railId,
-        revisionRow.revision,
+        slateRevision,
         row.sourceRevision,
         row.contextId,
         row.createdAt,
@@ -2273,7 +2513,7 @@ INSERT INTO profile_recommendation_served_items(
         profile_id: row.profileId,
         domain: row.input.domain,
         rail_id: row.railId,
-        slate_revision: revisionRow.revision,
+        slate_revision: slateRevision,
         source_revision: row.sourceRevision,
         context_id: row.contextId,
         items: row.items,
@@ -4035,6 +4275,8 @@ ON CONFLICT(preferences_id) DO UPDATE SET
 
 export function listSearchStarterItems(limit = 12): SearchStarterItem[] {
   const db = ensureDb();
+  const profileId = activeViewerProfileId();
+  const householdBlend = profileId === 'household' ? 1 : 0;
   return db.prepare(`
 WITH candidates AS (
   SELECT
@@ -4045,8 +4287,9 @@ WITH candidates AS (
     li.poster,
     ${canonicalLibraryTabSql('li')} AS tab,
     si.saved_at AS activity_at
-  FROM saved_items si
+  FROM profile_saved_items si
   JOIN library_items li ON li.item_key = si.item_key
+  WHERE (@household_blend = 1 OR si.profile_id = @profile_id)
   UNION ALL
   SELECT
     li.source,
@@ -4056,8 +4299,9 @@ WITH candidates AS (
     li.poster,
     ${canonicalLibraryTabSql('li')} AS tab,
     ws.last_watched_at AS activity_at
-  FROM watch_state ws
+  FROM profile_watch_state ws
   JOIN library_items li ON li.item_key = ws.item_key
+  WHERE (@household_blend = 1 OR ws.profile_id = @profile_id)
 ),
 ranked AS (
   SELECT *,
@@ -4072,7 +4316,11 @@ FROM ranked
 WHERE item_rank = 1
 ORDER BY activity_at DESC
 LIMIT @limit;
-`).all({ limit: Math.max(1, Math.min(24, Math.floor(limit))) }) as SearchStarterItem[];
+`).all({
+    profile_id: profileId,
+    household_blend: householdBlend,
+    limit: Math.max(1, Math.min(24, Math.floor(limit))),
+  }) as SearchStarterItem[];
 }
 
 function profileLibraryContextId(profileIdInput: string): string {

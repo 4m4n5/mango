@@ -23,6 +23,8 @@ import type {
 
 let dbSingleton: Database.Database | null = null;
 let initialized = false;
+/** Last-good is the previous published generation; keep current + previous. */
+export const YOUTUBE_V2_GENERATION_RETENTION = 2;
 let legacyTakeoutMigrationComplete = false;
 let legacyTakeoutMigrationResult = { history_inserted: 0, audits_copied: 0 };
 let latestGenerationSnapshot: {
@@ -84,6 +86,7 @@ function todayPacific(): string {
 
 function initSchema(db: Database.Database): void {
   db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
   db.exec(`
 CREATE TABLE IF NOT EXISTS youtube_migrations (
   version INTEGER PRIMARY KEY,
@@ -637,12 +640,51 @@ function ensureDb(): Database.Database {
   if (!initialized) {
     initSchema(db);
     initialized = true;
+    pruneYoutubeMaintenance();
   }
   return db;
 }
 
 export function initYoutubeDb(): void {
   ensureDb();
+}
+
+export type YoutubePruneStats = {
+  generations: number;
+  v1_candidates: number;
+  orphan_items: number;
+};
+
+/** Drop unused v1 reservoirs and generations beyond current + previous last-good. */
+export function pruneYoutubeMaintenance(): YoutubePruneStats {
+  const db = openDb();
+  db.pragma('foreign_keys = ON');
+  const generationCutoff = db.prepare(`
+SELECT generation FROM youtube_v2_generations
+ORDER BY generation DESC LIMIT 1 OFFSET ?
+`).get(YOUTUBE_V2_GENERATION_RETENTION) as { generation: number } | undefined;
+  let generations = 0;
+  if (generationCutoff?.generation != null) {
+    db.prepare('DELETE FROM youtube_v2_generation_items WHERE generation <= ?')
+      .run(generationCutoff.generation);
+    generations = db.prepare('DELETE FROM youtube_v2_generations WHERE generation <= ?')
+      .run(generationCutoff.generation).changes;
+  }
+  const v1Candidates = [
+    'youtube_for_you_candidates',
+    'youtube_fresh_find_candidates',
+    'youtube_because_you_watched_candidates',
+    'youtube_live_now_candidates',
+    'youtube_popular_candidates',
+    'youtube_rail_items',
+    'youtube_impressions',
+  ].reduce((sum, table) => sum + db.prepare(`DELETE FROM ${table}`).run().changes, 0);
+  return { generations, v1_candidates: v1Candidates, orphan_items: 0 };
+}
+
+/** Exclusive lock; never call on the couch path. */
+export function vacuumYoutubeDatabase(): void {
+  openDb().exec('VACUUM');
 }
 
 function normalizeKind(kind: string): YoutubeItemKind {
@@ -800,8 +842,8 @@ LIMIT @limit;
     .slice(0, boundedLimit);
 }
 
-// Legacy rail tables remain in the schema for data preservation, but no runtime
-// writer or reader is exposed by the latest-only recommendation architecture.
+// Legacy rail tables remain in the schema. Unused v1 reservoir rows are pruned
+// on startup; only the v2 generation and provenance APIs are executable.
 
 export function listYoutubeRailIds(): string[] {
   const rows = ensureDb().prepare(`
@@ -812,8 +854,8 @@ ORDER BY rail_id;
   return rows.map((row) => row.rail_id);
 }
 
-// Historical candidate-reservoir rows are intentionally preserved in SQLite.
-// Only the v2 generation and provenance APIs below are executable.
+// Historical v1 candidate-reservoir tables remain for schema compatibility.
+// Runtime serving reads v2 generations only; unused v1 rows are pruned.
 
 export type YoutubeProfileCandidateState = {
   profile_id: string;
@@ -1814,7 +1856,8 @@ INSERT INTO youtube_v2_generation_items(
     db.prepare(`
 DELETE FROM youtube_v2_generations
 WHERE generation NOT IN (
-  SELECT generation FROM youtube_v2_generations ORDER BY generation DESC LIMIT 8
+  SELECT generation FROM youtube_v2_generations
+  ORDER BY generation DESC LIMIT ${YOUTUBE_V2_GENERATION_RETENTION}
 )
 `).run();
     return generation;

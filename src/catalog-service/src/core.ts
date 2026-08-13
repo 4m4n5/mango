@@ -102,6 +102,7 @@ import {
 } from './library/db.js';
 import { loadForYouRail } from './recommendations/service.js';
 import {
+  captureDeferredStoryGraphForYou,
   householdVodDiscoveryExclusions,
   loadStoryGraphRelatedTitles,
   loadVodBrowseAffinitySnapshot,
@@ -1259,6 +1260,8 @@ export class CatalogCore {
     VodRecommendationTab,
     Promise<TabRailItemsResponse | ProfileOwnedTabRailItemsResponse>
   >();
+  private readonly vodBrowseDealEpoch = new Map<VodRecommendationTab, number>();
+  private vodBrowsePersistTail: Promise<void> = Promise.resolve();
   private liveTabRailItemsCache: {
     payload: TabRailItemsResponse;
     expiresAt: number;
@@ -1708,6 +1711,7 @@ export class CatalogCore {
   invalidateRecommendationTab(tab: VodRecommendationTab): void {
     this.recommendationRevisionFence.bump(tab);
     this.vodBrowseAffinityCache.delete(tab);
+    this.vodBrowseDealEpoch.delete(tab);
     this.clearTabRailItemsCacheForTab(tab);
   }
 
@@ -2580,6 +2584,25 @@ export class CatalogCore {
     ).catch(() => undefined);
   }
 
+  private cloneStoredUtilityRail(
+    stored: { payload_json: string } | null,
+    railId: string,
+  ): RailItemsResponse | null {
+    if (!stored) return null;
+    try {
+      const previous = JSON.parse(stored.payload_json) as TabRailItemsResponse;
+      const rail = previous.rails.find((entry) => entry.rail_id === railId);
+      if (!rail) return null;
+      return { ...rail, items: rail.items.map((item) => ({ ...item })) };
+    } catch {
+      return null;
+    }
+  }
+
+  private enqueueVodBrowsePersist(work: () => Promise<void>): void {
+    this.vodBrowsePersistTail = this.vodBrowsePersistTail.then(work, work);
+  }
+
   private async vodBrowseStoredDealUsable(
     tab: VodRecommendationTab,
     payload: TabRailItemsResponse,
@@ -2685,7 +2708,7 @@ export class CatalogCore {
       }
     }
 
-    const nextEpoch = (stored?.deal_epoch ?? -1) + 1;
+    const nextEpoch = Math.max(stored?.deal_epoch ?? -1, this.vodBrowseDealEpoch.get(tab) ?? -1) + 1;
     const dealSeed = `${tab}:deal:${nextEpoch}`;
     const sessionId = `${this.playabilitySessionId}:v3:${tab}:${nextEpoch}`;
     const utilityProfileId = vodUtilityProfileId(tab, personalization.active_profile_id);
@@ -2704,15 +2727,24 @@ export class CatalogCore {
       }
     }
     try {
-      const continueRail = await this.buildContinueRail(tab, utilityProfileId, {
-        shuffleSeed: dealSeed,
-      });
+      const continueRail = reshuffle
+        ? this.cloneStoredUtilityRail(stored, CONTINUE_RAIL_ID)
+          ?? await this.buildContinueRail(tab, utilityProfileId)
+        : await this.buildContinueRail(tab, utilityProfileId, {
+          shuffleSeed: dealSeed,
+        });
       const continueKeys = new Set(continueRail.items.map((item) => titleKey(item.type, item.id)));
-      const savedRail = await this.buildSavedRail(tab, utilityProfileId, {
-        cachedOnly: true,
-        shuffleSeed: dealSeed,
-        excludeKeys: continueKeys,
-      });
+      const savedRail = reshuffle
+        ? this.cloneStoredUtilityRail(stored, SAVED_RAIL_ID)
+          ?? await this.buildSavedRail(tab, utilityProfileId, {
+            cachedOnly: true,
+            excludeKeys: continueKeys,
+          })
+        : await this.buildSavedRail(tab, utilityProfileId, {
+          cachedOnly: true,
+          shuffleSeed: dealSeed,
+          excludeKeys: continueKeys,
+        });
       const utilityKeys = new Set([
         ...continueKeys,
         ...savedRail.items.map((item) => titleKey(item.type, item.id)),
@@ -2721,6 +2753,7 @@ export class CatalogCore {
         ? options.forYouOverride
         : await loadForYouRail(tab, {
           reshuffle: reshuffle || stored !== null,
+          persist: reshuffle ? false : undefined,
           profileId: personalization.active_profile_id,
           personalizationUpdatedAt: personalization.updated_at,
           excludeKeys: utilityKeys,
@@ -2791,48 +2824,22 @@ export class CatalogCore {
           couchMessage: 'Shuffle is keeping the previous complete page',
         });
       }
-      const discoveryItems = visibleRails
-        .filter((rail) => rail.rail_id !== CONTINUE_RAIL_ID && rail.rail_id !== SAVED_RAIL_ID)
-        .flatMap((rail) => rail.items.map((item) => ({ type: item.type, id: item.id })));
-      const currentPlayability = await getTitlesPlayabilityBulk(discoveryItems);
-      if (discoveryItems.some((item) => (
-        currentPlayability.get(titleKey(item.type, item.id))?.status !== 'verified'
-        || ((currentPlayability.get(titleKey(item.type, item.id))?.expires_at ?? Infinity) <= Date.now())
-      ))) {
-        throw new CatalogError(503, 'VOD tab deal selected a title whose playability changed', undefined, {
-          couchMessage: 'Shuffle is keeping the previous complete page',
-        });
-      }
       const payload: TabRailItemsResponse = {
         tab,
         rails: visibleRails,
         resolve_ms: Date.now() - started,
       };
       const expiresAt = Date.now() + RAIL_ITEMS_CACHE_TTL_MS;
+      const expectedPreviousEpoch = nextEpoch - 1 >= 0 ? nextEpoch - 1 : null;
       return {
         value: payload,
-        commit: async () => {
+        commit: () => {
           if (recommendationRevision !== null
             && !this.recommendationRevisionFence.isCurrent(tab, recommendationRevision)) {
             throw new Error('recommendation inputs changed before VOD tab deal commit');
           }
-          try {
-            await persistVodTabDealV3({
-              tab,
-              session_id: sessionId,
-              recommendation_revision: recommendationRevision,
-              payload_json: JSON.stringify(payload),
-              expected_previous_epoch: stored?.deal_epoch ?? null,
-            });
-          } catch (error) {
-            recordVodBrowseShuffleOutcome(Date.now() - started, 'concurrent_winner');
-            throw new CatalogError(409, `VOD tab deal commit rejected: ${
-              error instanceof Error ? error.message : String(error)
-            }`, undefined, {
-              couchMessage: 'Shuffle changed concurrently — try again',
-            });
-          }
-          recordVodBrowseShuffleOutcome(Date.now() - started, 'succeeded');
+          this.vodBrowseDealEpoch.set(tab, nextEpoch);
+          const persistForYou = reshuffle ? captureDeferredStoryGraphForYou(tab) : () => undefined;
           if (options.publishCache !== false) {
             for (const response of specialized) {
               this.railItemsCache.set(response.rail_id, { payload: response, expiresAt });
@@ -2845,8 +2852,47 @@ export class CatalogCore {
               expiresAt,
             });
           }
+          const persistDeal = async (): Promise<void> => {
+            try {
+              persistForYou();
+              await persistVodTabDealV3({
+                tab,
+                session_id: sessionId,
+                recommendation_revision: recommendationRevision,
+                payload_json: JSON.stringify(payload),
+                expected_previous_epoch: expectedPreviousEpoch,
+              });
+              if (!reshuffle) {
+                recordVodBrowseShuffleOutcome(Date.now() - started, 'succeeded');
+              }
+            } catch (error) {
+              if (reshuffle) {
+                console.warn(`VOD tab deal persist lagged behind the visible ${tab} shuffle: ${
+                  error instanceof Error ? error.message : String(error)
+                }`);
+                return;
+              }
+              recordVodBrowseShuffleOutcome(Date.now() - started, 'concurrent_winner');
+              throw new CatalogError(409, `VOD tab deal commit rejected: ${
+                error instanceof Error ? error.message : String(error)
+              }`, undefined, {
+                couchMessage: 'Shuffle changed concurrently — try again',
+              });
+            }
+          };
+          if (reshuffle) {
+            this.enqueueVodBrowsePersist(persistDeal);
+            recordVodBrowseShuffleOutcome(Date.now() - started, 'succeeded');
+            return;
+          }
+          return persistDeal();
         },
-        rollback: () => this.tabRailItemsCache.delete(cacheKey),
+        rollback: () => {
+          this.tabRailItemsCache.delete(cacheKey);
+          if (this.vodBrowseDealEpoch.get(tab) === nextEpoch) {
+            this.vodBrowseDealEpoch.delete(tab);
+          }
+        },
       };
     } catch (error) {
       recordVodBrowseShuffleOutcome(Date.now() - started, 'last_good_retained');

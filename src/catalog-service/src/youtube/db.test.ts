@@ -12,9 +12,10 @@ import {
   latestYoutubeV2Generation,
   listYoutubeProfileCandidateStates,
   listYoutubeV2CandidateProvenance,
+  publishYoutubeV2Generation,
+  YOUTUBE_V2_GENERATION_RETENTION,
   recordYoutubeImpressions,
   putYoutubeSearchCache,
-  publishYoutubeV2Generation,
   resetYoutubeDbForTests,
   setYoutubeProfileCandidateState,
   setYoutubeState,
@@ -180,7 +181,7 @@ WHERE kind = 'video' AND id = ?
   assert.equal(latestYoutubeV2Generation(), refreshed);
 }));
 
-test('latest-only startup preserves historical recommendation rows', () => withTempYoutube((dir) => {
+test('startup prunes unused v1 candidate rows and keeps the schema', () => withTempYoutube((dir) => {
   initYoutubeDb();
   const path = join(dir, 'youtube.db');
   resetYoutubeDbForTests();
@@ -206,12 +207,49 @@ INSERT INTO youtube_for_you_candidates(
   const after = new Database(path, { readonly: true });
   try {
     assert.equal(
+      (after.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='youtube_for_you_candidates'")
+        .get() as { name: string } | undefined)?.name,
+      'youtube_for_you_candidates',
+    );
+    assert.equal(
       (after.prepare("SELECT COUNT(*) AS count FROM youtube_for_you_candidates WHERE id = 'HistoricalCandidate'")
         .get() as { count: number }).count,
-      1,
+      0,
     );
   } finally {
     after.close();
+  }
+}));
+
+test('YouTube v2 publication retains only current and previous generations', () => withTempYoutube(() => {
+  for (let index = 0; index < YOUTUBE_V2_GENERATION_RETENTION + 3; index += 1) {
+    const item = sampleItem(`gen-${index}`);
+    publishYoutubeV2Generation({
+      model_version: 'retention-test',
+      source_hash: `source-${index}`,
+      watch_count: 1,
+      subscription_count: 0,
+      generated_at: 1_000 + index,
+      items: [{
+        rail_id: 'for_you',
+        item,
+        score: 0.8,
+        reason: 'retention-test',
+        provenance: 'history_topic',
+        provenance_ref: 'history-seed',
+        source_expires_at: 10_000 + index,
+      }],
+    });
+  }
+  const db = new Database(process.env.MANGO_YOUTUBE_DB_PATH!, { readonly: true });
+  try {
+    assert.equal(
+      (db.prepare('SELECT COUNT(*) AS count FROM youtube_v2_generations').get() as { count: number }).count,
+      YOUTUBE_V2_GENERATION_RETENTION,
+    );
+    assert.equal(latestYoutubeV2Generation()?.items[0]?.id, 'gen-4');
+  } finally {
+    db.close();
   }
 }));
 

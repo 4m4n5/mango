@@ -61,6 +61,19 @@ export function catalogShuffleFingerprint(tab: BrowseTab, rails: ContentRail[]):
   )).join("|");
 }
 
+export type ShufflePressDecision = "start" | "queue" | "ignore";
+
+export function shufflePressDecision(input: {
+  inFlight: boolean;
+  tab: BrowseTab;
+  detailOpen: boolean;
+  inSettings: boolean;
+}): ShufflePressDecision {
+  if (input.detailOpen || input.inSettings || input.tab === "live") return "ignore";
+  if (input.inFlight) return "queue";
+  return "start";
+}
+
 export type YoutubeHistoryImportRefreshPolicy = {
   cancelActiveCatalogRequest: boolean;
   reloadYoutubeNow: boolean;

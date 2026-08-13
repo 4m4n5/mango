@@ -16,7 +16,8 @@
     "dev": "npm run build && node --watch dist/index.js",
     "spike:core": "node scripts/spike-core-boot.mjs",
     "ratings:seed": "npm run build && node dist/library/seed-cli.js",
-    "youtube:takeout": "npm run build && node dist/youtube/takeout-cli.js"
+    "youtube:takeout": "npm run build && node dist/youtube/takeout-cli.js",
+    "state:prune": "npm run build && node dist/library/prune-cli.js"
   },
   "dependencies": {
     "@stremio/stremio-core-web": "0.59.0",

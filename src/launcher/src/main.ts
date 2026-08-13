@@ -23,6 +23,7 @@ import {
   hasCatalogItems,
   nonEmptyCatalogRails,
   sameCatalogPresentation,
+  shufflePressDecision,
   usableCatalogRails,
   youtubeHistoryImportRefreshPolicy,
   type CatalogState,
@@ -144,6 +145,7 @@ let catalogStateTab: BrowseTab = activeBrowseTab;
 let catalogStateOwner: PersonalizationOwner | null = null;
 let catalogRetryTimer: number | undefined;
 let libraryRefreshInFlight = false;
+let libraryRefreshPending = false;
 let savedKeys = new Set<string>();
 const tabCatalogCache = new PersonalizationOwnedCache<BrowseTab, ContentRail[]>();
 const tabSavedCache = new PersonalizationOwnedCache<BrowseTab, Set<string>>();
@@ -1312,13 +1314,21 @@ async function reloadSavedAndCatalog(tab = activeBrowseTab): Promise<void> {
 }
 
 async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> {
-  if (libraryRefreshInFlight || detail.isOpen || inSettings) {
-    return;
-  }
-  if (activeBrowseTab === "live") {
-    if (!options.quiet) {
+  const decision = shufflePressDecision({
+    inFlight: libraryRefreshInFlight,
+    tab: activeBrowseTab,
+    detailOpen: detail.isOpen,
+    inSettings,
+  });
+  if (decision === "ignore") {
+    if (activeBrowseTab === "live" && !options.quiet && !detail.isOpen && !inSettings) {
       setStatus("this tab refreshes from its own source.", "warning");
     }
+    return;
+  }
+  if (decision === "queue") {
+    libraryRefreshPending = true;
+    libraryRefreshBtn.classList.add("browse-shuffle--active");
     return;
   }
   const beforeFingerprint = catalogState.status === "ready"
@@ -1344,7 +1354,18 @@ async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> 
     }
   } finally {
     libraryRefreshInFlight = false;
-    libraryRefreshBtn.classList.remove("browse-shuffle--active");
+    if (libraryRefreshPending && shufflePressDecision({
+      inFlight: false,
+      tab: activeBrowseTab,
+      detailOpen: detail.isOpen,
+      inSettings,
+    }) === "start") {
+      libraryRefreshPending = false;
+      void libraryRefresh(options);
+    } else {
+      libraryRefreshPending = false;
+      libraryRefreshBtn.classList.remove("browse-shuffle--active");
+    }
   }
 }
 

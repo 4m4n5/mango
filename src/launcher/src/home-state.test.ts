@@ -12,6 +12,7 @@ import {
   nonEmptyCatalogRails,
   sameCatalogPresentation,
   shuffleableCatalogRails,
+  shufflePressDecision,
   youtubeHistoryImportRefreshPolicy,
 } from "./home.js";
 import type { ContentRail } from "./types.js";
@@ -93,6 +94,21 @@ test("VOD Shuffle covers every visible VOD rail while YouTube keeps utilities st
   assert.deepEqual(shuffleableCatalogRails("youtube", [saved, youtubeForYou]).map((rail) => rail.id), [
     "for_you",
   ]);
+});
+
+test("a second Shuffle press queues instead of dropping while one deal is in flight", () => {
+  assert.equal(shufflePressDecision({
+    inFlight: false, tab: "movies", detailOpen: false, inSettings: false,
+  }), "start");
+  assert.equal(shufflePressDecision({
+    inFlight: true, tab: "movies", detailOpen: false, inSettings: false,
+  }), "queue");
+  assert.equal(shufflePressDecision({
+    inFlight: false, tab: "live", detailOpen: false, inSettings: false,
+  }), "ignore");
+  assert.equal(shufflePressDecision({
+    inFlight: false, tab: "movies", detailOpen: true, inSettings: false,
+  }), "ignore");
 });
 
 test("Shuffle success requires recommendation membership or order to change", () => {

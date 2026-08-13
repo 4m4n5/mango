@@ -275,7 +275,19 @@ button {
 }
 
 .browse-shuffle--active {
-  opacity: 0.62;
+  color: var(--text-primary);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.browse-shuffle--active .browse-shuffle-key {
+  animation: shuffle-deal 0.55s var(--ease-out);
+}
+
+@keyframes shuffle-deal {
+  0% { transform: rotate(0deg) scale(1); }
+  35% { transform: rotate(-140deg) scale(1.12); }
+  100% { transform: rotate(-360deg) scale(1); }
 }
 
 /* A bare "X" would read as "close". The circular keycap says "the round X button
