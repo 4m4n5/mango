@@ -142,6 +142,8 @@ persist = youtube_rails.find("registerRecommendationServedSlates(servedInputs)")
 respond = youtube_rails.find("sendJson(res, 200, publicResult)")
 if persist < 0 or respond < 0 or persist > respond:
     raise SystemExit("YouTube rails must persist served slates before the visible response")
+if "served[index]!.attribution_token" not in youtube_rails:
+    raise SystemExit("YouTube rails must advertise the persisted served-slate token")
 if "setImmediate" in youtube_rails:
     raise SystemExit("YouTube rails must not defer served-slate persistence")
 

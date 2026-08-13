@@ -1,5 +1,4 @@
 import http from 'node:http';
-import { randomUUID } from 'node:crypto';
 import { CatalogCore, CatalogError, normalizeResourceId } from './core.js';
 import { couchPlayFailureMessage, publicPlayFailureDetails } from './catalog-errors.js';
 import { isMpvActive, playUrl } from './mpv.js';
@@ -2924,7 +2923,6 @@ async function main(): Promise<void> {
               rail_id: rail.rail_id,
               source_revision: attributionContext.source_revision,
               context_id: attributionContext.context_id,
-              attribution_token: randomUUID(),
               slate_revision: result.slate_sequence,
               items: rail.items.map((item, rank) => ({
                 type: `youtube_${item.kind}`,
@@ -2933,22 +2931,23 @@ async function main(): Promise<void> {
               })),
             };
           });
-          const publicResult = youtubePublicPersonalizationPayload({
-            ...publicYoutubeResult,
-            rails: result.rails.map((rail, index) => ({
-              ...rail,
-              slate_sequence: result.slate_sequence,
-              attribution_token: servedInputs[index]!.attribution_token,
-            })),
-          }, personalization);
+          let served;
           try {
-            registerRecommendationServedSlates(servedInputs);
+            served = registerRecommendationServedSlates(servedInputs);
           } catch (error) {
             console.warn(`YouTube recommendation attribution could not be persisted: ${
               error instanceof Error ? error.message : String(error)
             }`);
             throw new CatalogError(500, 'YouTube recommendation attribution could not be persisted');
           }
+          const publicResult = youtubePublicPersonalizationPayload({
+            ...publicYoutubeResult,
+            rails: result.rails.map((rail, index) => ({
+              ...rail,
+              slate_sequence: result.slate_sequence,
+              attribution_token: served[index]!.attribution_token,
+            })),
+          }, personalization);
           sendJson(res, 200, publicResult);
           return;
         }

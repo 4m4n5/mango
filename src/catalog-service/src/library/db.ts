@@ -2484,18 +2484,40 @@ INSERT INTO profile_recommendation_served_items(
   attribution_token, item_type, item_id, rank
 ) VALUES (?, ?, ?, ?)
 `);
-    return prepared.map((row) => {
-      const revisionMetric = `served_slate_revision:${row.input.domain}:${row.railId}`;
-      const revisionRow = bumpRevision.get(
-        row.profileId,
-        revisionMetric,
-        row.createdAt,
-      ) as { revision: number };
-      const slateRevision = Number.isInteger(row.input.slate_revision)
-        ? Math.max(0, Math.floor(row.input.slate_revision!))
-        : revisionRow.revision;
+    const existingForRevision = db.prepare(`
+SELECT attribution_token, profile_id, domain, rail_id, slate_revision,
+       source_revision, context_id, created_at, expires_at
+FROM profile_recommendation_served_slates
+WHERE profile_id = ? AND domain = ? AND rail_id = ? AND slate_revision = ?
+`);
+    const existingItems = db.prepare(`
+SELECT item_type AS type, item_id AS id, rank
+FROM profile_recommendation_served_items
+WHERE attribution_token = ?
+ORDER BY rank
+`);
+    const deleteSlate = db.prepare(`
+DELETE FROM profile_recommendation_served_slates WHERE attribution_token = ?
+`);
+    const touchExpiry = db.prepare(`
+UPDATE profile_recommendation_served_slates SET expires_at = ? WHERE attribution_token = ?
+`);
+    const itemsMatch = (
+      left: Array<{ type: string; id: string; rank: number }>,
+      right: Array<{ type: string; id: string; rank: number }>,
+    ): boolean => left.length === right.length
+      && left.every((item, index) => (
+        item.type === right[index]!.type
+        && item.id === right[index]!.id
+        && item.rank === right[index]!.rank
+      ));
+    const insertRow = (
+      row: (typeof prepared)[number],
+      slateRevision: number,
+      attributionToken: string,
+    ): RecommendationServedSlate => {
       insertSlate.run(
-        row.attributionToken,
+        attributionToken,
         row.profileId,
         row.input.domain,
         row.railId,
@@ -2506,10 +2528,10 @@ INSERT INTO profile_recommendation_served_items(
         row.expiresAt,
       );
       for (const item of row.items) {
-        insertItem.run(row.attributionToken, item.type, item.id, item.rank);
+        insertItem.run(attributionToken, item.type, item.id, item.rank);
       }
       return {
-        attribution_token: row.attributionToken,
+        attribution_token: attributionToken,
         profile_id: row.profileId,
         domain: row.input.domain,
         rail_id: row.railId,
@@ -2520,6 +2542,43 @@ INSERT INTO profile_recommendation_served_items(
         created_at: row.createdAt,
         expires_at: row.expiresAt,
       };
+    };
+    return prepared.map((row) => {
+      const nominatedRevision = Number.isInteger(row.input.slate_revision)
+        ? Math.max(0, Math.floor(row.input.slate_revision!))
+        : null;
+      if (nominatedRevision !== null) {
+        const existing = existingForRevision.get(
+          row.profileId,
+          row.input.domain,
+          row.railId,
+          nominatedRevision,
+        ) as Omit<RecommendationServedSlate, 'items'> | undefined;
+        if (existing) {
+          const storedItems = existingItems.all(existing.attribution_token) as Array<{
+            type: string;
+            id: string;
+            rank: number;
+          }>;
+          if (itemsMatch(storedItems, row.items)) {
+            touchExpiry.run(row.expiresAt, existing.attribution_token);
+            return {
+              ...existing,
+              items: row.items,
+              expires_at: row.expiresAt,
+            };
+          }
+          deleteSlate.run(existing.attribution_token);
+        }
+        return insertRow(row, nominatedRevision, row.attributionToken);
+      }
+      const revisionMetric = `served_slate_revision:${row.input.domain}:${row.railId}`;
+      const revisionRow = bumpRevision.get(
+        row.profileId,
+        revisionMetric,
+        row.createdAt,
+      ) as { revision: number };
+      return insertRow(row, revisionRow.revision, row.attributionToken);
     });
   })();
 }

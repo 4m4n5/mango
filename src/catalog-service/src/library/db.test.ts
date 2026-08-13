@@ -1564,6 +1564,50 @@ test('served-slate batches preserve per-rail attribution and reject duplicate ra
   assert.equal(after.count, before.count);
 }));
 
+test('nominated YouTube serving epochs reuse the durable token instead of colliding', () => withTempLibrary(() => {
+  const household = getPersonalizationState().active_profile_id;
+  const input = {
+    profile_id: household,
+    domain: 'youtube' as const,
+    rail_id: 'for_you',
+    source_revision: 22,
+    slate_revision: 785,
+    items: [
+      { type: 'youtube_video', id: 'video-one', rank: 0 },
+      { type: 'youtube_video', id: 'video-two', rank: 1 },
+    ],
+  };
+  const first = registerRecommendationServedSlate(input);
+  const second = registerRecommendationServedSlate({
+    ...input,
+    attribution_token: 'should-not-replace-identical-membership',
+  });
+  assert.equal(second.attribution_token, first.attribution_token);
+  assert.equal(second.slate_revision, 785);
+  const replaced = registerRecommendationServedSlate({
+    ...input,
+    items: [
+      { type: 'youtube_video', id: 'video-three', rank: 0 },
+      { type: 'youtube_video', id: 'video-four', rank: 1 },
+    ],
+  });
+  assert.notEqual(replaced.attribution_token, first.attribution_token);
+  assert.equal(replaced.slate_revision, 785);
+  assert.throws(() => resolveRecommendationServedSlate({
+    attribution_token: first.attribution_token,
+    domain: 'youtube',
+    rail_id: 'for_you',
+    slate_revision: 785,
+  }), /unknown or expired/);
+  assert.equal(resolveRecommendationServedSlate({
+    attribution_token: replaced.attribution_token,
+    domain: 'youtube',
+    rail_id: 'for_you',
+    slate_revision: 785,
+    items: replaced.items,
+  }).attribution_token, replaced.attribution_token);
+}));
+
 test('captured playback ownership survives an active-profile switch before progress writes', () => withTempLibrary(() => {
   const alice = createViewerProfile('Playback Alice');
   const bob = createViewerProfile('Playback Bob');
