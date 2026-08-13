@@ -2,23 +2,17 @@
 
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
-Latest recorded Pi deployment: **2026-08-12**,
-`244812b6bcad3eeebfbc6c222f9435c658c759c8`. The runtime line includes
-`0c030d8` playback/shuffle hardening plus `244812b`'s secret-safe transactional
-AIOStreams TVDB setup. Playability migration 19 applied with `quick_check` OK: 77 bare
-IMDb identities that were verified as both movie and series became 154 targeted
-stale typed rows, with zero verified dual-type conflicts afterward. The Mac and
-Pi catalog suites passed 1,022/1,022; Pi playback-SSOT and launcher/UX gates
-passed. Reliability is usable-yellow and its served-card resolver sample found
-16/32 legacy proof-v1 cards without a current stream response. Full N3c reached
-33/36: all 18 movie samples and 15/18 series samples played; the three series
-misses had zero candidate attempts. A bounded launcher-path check played My Next
-Guest S1E1 and Dead Silent. The later Alliance audit proved E37 and E44 exact-main
-playable, while E36, E38-E43, and E45-E48 remained current source misses. Adding
-and validating TVDB corrected AIO's E41-E43 air dates but did not add an accepted
-stream. The monitor was off,
-so the whole-product pre-couch gate and human couch verdict remain **DEFERRED**.
-Use `git status`, `git rev-parse HEAD`, and the Pi commands below before acting.
+Latest recorded Pi deployment: **2026-08-13**,
+`bfc157dd75224b00aa29856244f475331e2707b2`. Search keyboard/focus and YouTube
+play-session attribution are on that SHA. The standard pre-couch gate and Search
+smoke both **PASS**. Targeted API check: `GET /youtube/rails` 200 with persisted
+and reused served-slate tokens; Search-shaped and rail-attributed
+`POST /play-session` both 202 (not a TV play). Reliability remains usable-yellow
+(`broken_verified=3/32`). The pad router is waiting for the 8BitDo. Human couch
+verdict remains **DEFERRED**. Prior 2026-08-12 line `244812b` still records
+playability migration 19, 1,022/1,022 catalog suites, Alliance E37/E44
+exact-main, and the earlier N3c 33/36 sample. Use `git status`,
+`git rev-parse HEAD`, and the Pi commands below before acting.
 
 ## How to read this page
 
