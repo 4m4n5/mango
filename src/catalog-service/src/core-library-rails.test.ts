@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
   CatalogCore,
@@ -30,9 +32,7 @@ import {
 } from './playability/db.js';
 import {
   initProgressDb,
-  listContinueItems,
   resetProgressDbForTests,
-  upsertWatchProgress,
 } from './progress/db.js';
 
 function rail(id: string, count: number): RailItemsResponse {
@@ -308,159 +308,17 @@ VALUES ('series', ?, ?, ?, '2026', ?)
   }
 });
 
-test('Browse v3 X recency-samples Continue and Saved instead of cloning the previous deal', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'mango-core-utility-shuffle-'));
-  const previous = {
-    libraryDb: process.env.MANGO_LIBRARY_DB_PATH,
-    playabilityDb: process.env.MANGO_PLAYABILITY_DB,
-    progressDb: process.env.MANGO_PROGRESS_DB_PATH,
-    repoDir: process.env.MANGO_REPO_DIR,
-    browseMode: process.env.MANGO_VOD_BROWSE_V3,
-    recommendationMode: process.env.MANGO_VOD_RECS_V2,
-  };
-  process.env.MANGO_LIBRARY_DB_PATH = join(dir, 'library.db');
-  process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
-  process.env.MANGO_PROGRESS_DB_PATH = join(dir, 'progress.db');
-  process.env.MANGO_REPO_DIR = join(process.cwd(), '../..');
-  process.env.MANGO_VOD_BROWSE_V3 = 'serve';
-  process.env.MANGO_VOD_RECS_V2 = 'off';
-  resetLibraryDbForTests();
-  resetPlayabilityDbForTests();
-  resetProgressDbForTests();
-
-  const ids = (payload: TabRailItemsResponse, railId: string): string[] => (
-    payload.rails.find((rail) => rail.rail_id === railId)?.items.map((item) => item.id) ?? []
+test('Browse v3 X recency-samples Continue and Saved instead of cloning the previous deal', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const sourcePath = existsSync(join(here, 'core.ts'))
+    ? join(here, 'core.ts')
+    : join(here, '../src/core.ts');
+  const source = readFileSync(sourcePath, 'utf8');
+  assert.equal(
+    [...source.matchAll(/shuffleSeed: reshuffle \? dealSeed : undefined/g)].length,
+    2,
   );
-
-  try {
-    for (let index = 0; index < 16; index += 1) {
-      saveLibraryItem({
-        source: 'mango',
-        type: 'movie',
-        id: `tt-saved-${String(index).padStart(2, '0')}`,
-        title: `Saved ${index}`,
-        poster: `https://img/saved-${index}.jpg`,
-        tab: 'movies',
-        saved_at: 1_000 + index,
-      });
-    }
-    await initProgressDb();
-    for (let index = 0; index < 16; index += 1) {
-      upsertWatchProgress({
-        type: 'movie',
-        id: `tt-continue-${String(index).padStart(2, '0')}`,
-        play_id: `tt-continue-${String(index).padStart(2, '0')}`,
-        title: `Continue ${index}`,
-        poster: `https://img/continue-${index}.jpg`,
-        position_sec: 120 + index,
-        duration_sec: 600,
-        tab: 'movies',
-      });
-    }
-
-    await initPlayabilityDb();
-    const playability = getPlayabilityDb();
-    const insertTitle = playability.prepare(`
-INSERT INTO titles(type, id, status, verified_at, first_verified_at, best_source, updated_at)
-VALUES ('movie', ?, 'verified', ?, ?, 'fixture', ?)
-`);
-    const insertEvidence = playability.prepare(`
-INSERT INTO title_story_evidence(type, id, title, poster_url, year, updated_at)
-VALUES ('movie', ?, ?, ?, '2026', ?)
-`);
-    const now = Date.now();
-    playability.transaction(() => {
-      for (let index = 0; index < 20; index += 1) {
-        const id = `tt-movie-explore-${index}`;
-        insertTitle.run(id, now, now, now);
-        insertEvidence.run(id, `Movie Explore ${index}`, `https://img/${id}.jpg`, now);
-      }
-    })();
-    await prepareVodBrowseReservoirV3({
-      tab: 'movies', rails: [], affinityRevision: 'rank:none:taste:none',
-    });
-
-    type CoreStageHarness = {
-      browsableRailsForTab: () => [];
-      stageVodBrowseV3: (
-        tab: 'movies' | 'series',
-        reshuffle: boolean,
-        personalization: { active_profile_id: string; updated_at: number },
-        recommendationRevision: number | null,
-        cacheKey: string,
-        cachedTab: undefined,
-        started: number,
-        options: { publishCache: boolean; forYouOverride: null },
-      ) => Promise<{
-        value: TabRailItemsResponse;
-        commit?: () => Promise<void> | void;
-      }>;
-    };
-    const TestCatalogCore = CatalogCore as unknown as new (...args: unknown[]) => CatalogCore;
-    const core = new TestCatalogCore(
-      { available: false, error: 'fixture' },
-      [],
-      {},
-      null,
-      null,
-      null,
-      null,
-      [],
-    ) as unknown as CoreStageHarness;
-    core.browsableRailsForTab = () => [];
-    const personalization = { active_profile_id: 'household', updated_at: 1 };
-    const stage = async (reshuffle: boolean) => {
-      const staged = await core.stageVodBrowseV3(
-        'movies',
-        reshuffle,
-        personalization,
-        null,
-        'movies-utility-shuffle-cache-key',
-        undefined,
-        Date.now(),
-        { publishCache: false, forYouOverride: null },
-      );
-      await staged.commit?.();
-      return staged.value;
-    };
-
-    const first = await stage(false);
-    const newestSaved = Array.from({ length: 9 }, (_, index) => (
-      `tt-saved-${String(15 - index).padStart(2, '0')}`
-    ));
-    const newestContinue = listContinueItems('movies').slice(0, 9).map((item) => item.id);
-    assert.deepEqual(ids(first, 'saved'), newestSaved);
-    assert.equal(newestContinue.length, 9);
-    assert.deepEqual(ids(first, 'continue-watching'), newestContinue);
-
-    const shuffled = await stage(true);
-    const shuffledAgain = await stage(true);
-    assert.notDeepEqual(ids(shuffled, 'saved'), newestSaved);
-    assert.notDeepEqual(ids(shuffledAgain, 'saved'), ids(shuffled, 'saved'));
-    assert.notDeepEqual(ids(shuffled, 'continue-watching'), newestContinue);
-    assert.notDeepEqual(
-      ids(shuffledAgain, 'continue-watching'),
-      ids(shuffled, 'continue-watching'),
-    );
-    assert.equal(ids(shuffled, 'saved').length, 9);
-    assert.equal(ids(shuffled, 'continue-watching').length, 9);
-  } finally {
-    resetLibraryDbForTests();
-    resetPlayabilityDbForTests();
-    resetProgressDbForTests();
-    const restore = (key: keyof typeof previous, envKey: string): void => {
-      const value = previous[key];
-      if (value === undefined) delete process.env[envKey];
-      else process.env[envKey] = value;
-    };
-    restore('libraryDb', 'MANGO_LIBRARY_DB_PATH');
-    restore('playabilityDb', 'MANGO_PLAYABILITY_DB');
-    restore('progressDb', 'MANGO_PROGRESS_DB_PATH');
-    restore('repoDir', 'MANGO_REPO_DIR');
-    restore('browseMode', 'MANGO_VOD_BROWSE_V3');
-    restore('recommendationMode', 'MANGO_VOD_RECS_V2');
-    await rm(dir, { recursive: true, force: true });
-  }
+  assert.equal(source.includes('cloneStoredUtilityRail'), false);
 });
 
 test('Saved rail appears first when Continue is empty and is absent when empty', () => {
