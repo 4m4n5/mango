@@ -2,15 +2,15 @@
 
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
-Latest recorded Pi deployment: **2026-08-13**,
-`f8da9bcab2d570619a4c4a0a8fbe2a9a8074acc6`. YouTube 30 fps now matches 1080p60
-HDMI instead of 30 Hz (the hitch on this TV); film 24 Hz is unchanged. Catalog
-runtime is still the `333e663` DASH-default build. The standard pre-couch gate
-and YouTube smoke **PASS**. Reliability remains usable-yellow
-(`broken_verified=4/32`). The pad router is waiting for the 8BitDo. Human couch
-verdict remains **DEFERRED**. Prior 2026-08-13 line `333e663` still records
-dropping the `player_client` pin that left only itag 18. Use `git status`,
-`git rev-parse HEAD`, and the Pi commands below before acting.
+Latest recorded Pi deployment: **2026-08-14**,
+`72bc1e0ccbb0cca66ecd7c317a3ce9584d9a421b`. Catalog/launcher were rebuilt from
+`f2f949d` (Search D-pad stays live while results paint, Movies/TV X recency-samples
+Continue/Saved, YouTube History shuffles, playback retries 4K SDR before 1080p).
+Follow-up `e49dd4d` / `72bc1e0` are test/gate-only. gate-lite **PASS** at
+`e49dd4d`; UX, YouTube, Search, reliability, and playback smokes **PASS** at
+`72bc1e0`. Reliability remains usable-yellow (`broken_verified=1/32`). The pad
+router is waiting for the 8BitDo. Human couch verdict remains **DEFERRED**.
+Prior 2026-08-13 line `f8da9bc` still records 30 fps YouTube on 1080p60 HDMI.
 
 ## How to read this page
 
