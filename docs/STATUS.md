@@ -3,14 +3,14 @@
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
 Latest recorded Pi deployment: **2026-08-14**,
-`72bc1e0ccbb0cca66ecd7c317a3ce9584d9a421b`. Catalog/launcher were rebuilt from
-`f2f949d` (Search D-pad stays live while results paint, Movies/TV X recency-samples
-Continue/Saved, YouTube History shuffles, playback retries 4K SDR before 1080p).
-Follow-up `e49dd4d` / `72bc1e0` are test/gate-only. gate-lite **PASS** at
-`e49dd4d`; UX, YouTube, Search, reliability, and playback smokes **PASS** at
-`72bc1e0`. Reliability remains usable-yellow (`broken_verified=1/32`). The pad
+`77cadbe414384cd152525c2befbf6a7b8bef171e`. Catalog/launcher were rebuilt from
+that SHA (Search D-pad stays live while results paint, Phase A gets the full 90s
+play wall with a capped Phase B extension, idle Python/SQLite/payload work cut).
+gate-lite, UX, YouTube, Search, reliability, playback, 4K-profile, stream-picker,
+and voice-ready **PASS** at `77cadbe`. Reliability remains usable-yellow
+(`broken_verified=3/32`; rail growth and last nightly proof still yellow). The pad
 router is waiting for the 8BitDo. Human couch verdict remains **DEFERRED**.
-Prior 2026-08-13 line `f8da9bc` still records 30 fps YouTube on 1080p60 HDMI.
+Prior 2026-08-14 line `72bc1e0` still records the previous pre-couch PASS.
 Use `git status`, `git rev-parse HEAD`, and the Pi commands below before acting.
 
 ## How to read this page
