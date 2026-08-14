@@ -168,6 +168,27 @@ class ControllerLinkStateTest(unittest.TestCase):
         self.assertTrue(STATE.is_pageable_timeout_error("Connection timed out (110)"))
         self.assertTrue(STATE.is_connect_busy_error("Operation already in progress (114)"))
 
+    def test_asleep_probe_backoff_caps_reconnect_delay_at_three_seconds(self) -> None:
+        state = STATE.LinkRetryState(
+            asleep_probe_sec=1.0,
+            asleep_probe_max_sec=3.0,
+            disconnect_grace_sec=0.0,
+        )
+        state.mark_disconnected(10.0)
+        delays = []
+        now = 10.0
+        for _ in range(5):
+            state.begin_attempt(now)
+            state.complete_attempt(now, "Host is down (112)")
+            delays.append(round(state.next_attempt_at - now, 3))
+            now = state.next_attempt_at
+        self.assertEqual(delays[0], 1.0)
+        self.assertEqual(delays[1], 2.0)
+        self.assertEqual(delays[2], 3.0)
+        self.assertTrue(all(delay <= 3.0 for delay in delays))
+        state.mark_wake_detected(now)
+        self.assertEqual(state.asleep_probe_streak, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

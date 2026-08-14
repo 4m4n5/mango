@@ -193,8 +193,9 @@ the table and API on the Pi.
 ### Mango library state
 
 Mango is the user-library source of truth. `progress.db` v2 owns profile-exact
-Continue/resume, while `/etc/mango/library.db` is deployed through v18. At final
-Pi SHA `04171bb`, migration 18 repaired 12 noncanonical tabs to zero, all live
+Continue/resume, while `/etc/mango/library.db` is deployed through v18. The latest
+recorded Pi deployment is in [STATUS.md](STATUS.md). At historical SHA `04171bb`,
+migration 18 repaired 12 noncanonical tabs to zero, all live
 databases passed `quick_check`, audited user-state keys/counts were preserved,
 and Saved runtime purity was Movies 6 / Series 8 / wrong-tab 0. The physical
 Dune-from-TV-Search placement check remains deferred. V12 was the original Story Graph milestone; later additive
@@ -472,7 +473,8 @@ rail and recency-rotates Continue and Saved. YouTube's exact
 meaningful-watch veto lasts 30 days after the most recent watch; older events
 remain durable History/taste evidence and can re-enter ranked reserves.
 
-Final Pi SHA `04171bb` deploys the v2.7 quality/depth/independent-shuffle model,
+The latest recorded Pi deployment is in [STATUS.md](STATUS.md). Historical SHA
+`04171bb` deployed the v2.7 quality/depth/independent-shuffle model,
 YouTube migration 17, and library migration 18. Generation 22 has 1,441
 candidates with reserves 512 For You / 405 Subscriptions / 274 Beyond / 250
 More Like / 0 Live. Fifty cache-only X requests kept quota and generation flat,
@@ -602,7 +604,7 @@ The status model is Green/Yellow/Red:
 Mutating Reliability APIs are localhost-only. Safe repair is intentionally
 narrow and delegates to `scripts/mango-health-repair.sh`; it never rebuilds DBs
 or clears caches. Active-rail accounting uses the rails actually served for the
-loaded mode rather than penalizing inactive historical surfaces. At final Pi
+loaded mode rather than penalizing inactive historical surfaces. At historical
 SHA `04171bb`, this removed the false Library warning: all core components were
 green, while proof freshness and rail growth kept the overall state honestly
 yellow. Detail: [RELIABILITY.md](RELIABILITY.md).

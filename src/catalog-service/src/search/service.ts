@@ -70,6 +70,9 @@ function validatedQuery(value: string): { display: string; normalized: string } 
 
 type SearchJob = {
   snapshot: SearchSnapshot;
+  publishedSnapshot?: SearchSnapshot;
+  publishedRevision?: number;
+  selectionBoosts?: Map<string, number>;
   cancelled: boolean;
   waiters: Set<() => void>;
   results: {
@@ -443,18 +446,18 @@ export class UnifiedSearchService {
     if (!input.diagnostic) recordSearchQuery(normalized, display);
     this.rebuildSnapshot(job);
     void this.runPhases(job, input);
-    return structuredClone(job.snapshot);
+    return this.publishedSnapshot(job);
   }
 
   snapshot(searchId: string): SearchSnapshot | null {
     const job = this.jobs.get(searchId);
-    return job ? structuredClone(job.snapshot) : null;
+    return job ? this.publishedSnapshot(job) : null;
   }
 
   async waitForSnapshot(searchId: string, afterRevision: number, waitMs: number): Promise<SearchSnapshot | null> {
     const job = this.jobs.get(searchId);
     if (!job) return null;
-    if (job.snapshot.revision > afterRevision || waitMs <= 0) return structuredClone(job.snapshot);
+    if (job.snapshot.revision > afterRevision || waitMs <= 0) return this.publishedSnapshot(job);
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
         job.waiters.delete(done);
@@ -467,7 +470,7 @@ export class UnifiedSearchService {
       };
       job.waiters.add(done);
     });
-    return structuredClone(job.snapshot);
+    return this.publishedSnapshot(job);
   }
 
   cancel(searchId: string): boolean {
@@ -485,11 +488,11 @@ export class UnifiedSearchService {
     const existing = this.youtubeRetryFlights.get(searchId);
     if (existing) {
       await existing;
-      return structuredClone(job.snapshot);
+      return this.publishedSnapshot(job);
     }
     const status = job.snapshot.phases.youtube?.status;
     if (!job.snapshot.complete || (status !== 'degraded' && status !== 'failed')) {
-      return structuredClone(job.snapshot);
+      return this.publishedSnapshot(job);
     }
     const flight = (async () => {
       job.snapshot.complete = false;
@@ -509,7 +512,7 @@ export class UnifiedSearchService {
         this.youtubeRetryFlights.delete(searchId);
       }
     }
-    return structuredClone(job.snapshot);
+    return this.publishedSnapshot(job);
   }
 
   recordSelection(input: {
@@ -775,6 +778,7 @@ export class UnifiedSearchService {
   }
 
   private selectionBoosts(job: SearchJob): Map<string, number> {
+    if (job.selectionBoosts) return job.selectionBoosts;
     const now = Date.now();
     const boosts = new Map<string, number>();
     for (const row of listSearchSelections(job.snapshot.normalized_query, 100)) {
@@ -782,7 +786,17 @@ export class UnifiedSearchService {
       const decay = Math.pow(0.5, ageDays / 30);
       boosts.set(row.entity_key, Math.min(5, Math.log2(row.selection_count + 1) * decay));
     }
+    job.selectionBoosts = boosts;
     return boosts;
+  }
+
+  private publishedSnapshot(job: SearchJob): SearchSnapshot {
+    if (job.publishedRevision === job.snapshot.revision && job.publishedSnapshot) {
+      return job.publishedSnapshot;
+    }
+    job.publishedSnapshot = structuredClone(job.snapshot);
+    job.publishedRevision = job.snapshot.revision;
+    return job.publishedSnapshot;
   }
 
   private rebuildSnapshot(job: SearchJob): void {

@@ -92,6 +92,22 @@ for durable_contract in ("localStorage.setItem", "localStorage.getItem", "localS
 for false_claim in ("trying alternate release", "caching stream on TorBox"):
     if false_claim in detail:
         raise SystemExit(f"detail.ts contains unverified slow-resolve claim: {false_claim}")
+if "PlayWaitCopy" not in detail or "PLAY_WAIT_ROTATE_MS" not in detail:
+    raise SystemExit("detail.ts missing play-wait copy rotator")
+play_fn = detail.split("async play(", 1)[1].split("private primaryEpisodeId", 1)[0]
+if "setInterval" not in play_fn:
+    raise SystemExit("detail.ts play() does not rotate wait copy while resolving")
+for stale_copy in (
+    "finding stream",
+    "starting stream",
+    "starting YouTube",
+    "resolving YouTube",
+    "connecting to channel",
+    "still finding a playable stream",
+    "this is taking longer than usual",
+):
+    if stale_copy in detail:
+        raise SystemExit(f"detail.ts still uses technical play-wait copy: {stale_copy}")
 for contract in ("savePlaybackReturnSnapshot", "AbortController", "signal: abort.signal"):
     if contract not in next_prompt:
         raise SystemExit(f"next-prompt.ts missing direct-play return/cancel contract: {contract}")
@@ -180,6 +196,10 @@ for search_contract in (
     "restorePersisted",
     "fillResultsView",
     "yieldToPadInput",
+    "SEARCH_YIELD_FALLBACK_MS",
+    "searchEmptyResultsFocusKey",
+    "mergeSearchResultRows",
+    "resultsPaintDirty",
     "slimSearchSnapshot",
     "emptySearchSnapshot",
     "searchQueryCaretLeading",
@@ -216,6 +236,20 @@ if "search-degraded" in search or "search:retry-youtube" in search:
 refresh_results = search.split("private refreshResults", 1)[1].split("private applyFocusRows", 1)[0]
 if "replaceWith" in refresh_results or "this.render()" in refresh_results:
     raise SystemExit("Search progressive refresh replaces the mounted result surface")
+yield_fn = search.split("function yieldToPadInput", 1)[1].split(
+    "export function searchEmptyResultsFocusKey", 1,
+)[0]
+if "requestAnimationFrame" not in yield_fn or "SEARCH_YIELD_FALLBACK_MS" not in yield_fn:
+    raise SystemExit("Search pad yield is not a real input turn")
+schedule_refresh = search.split("private scheduleResultsRefresh", 1)[1].split(
+    "private refreshResults", 1,
+)[0]
+if "this.resultsPaintDirty = true" not in schedule_refresh:
+    raise SystemExit("Search poll refresh does not dirty-flag an in-flight fill")
+if "this.abortResultsPaint()" in schedule_refresh:
+    raise SystemExit("Search poll refresh hard-aborts an in-flight fill")
+if "searchEmptyResultsFocusKey(this.scope)" not in search:
+    raise SystemExit("Empty Search results do not land on the active scope chip")
 if "searchQueryCaretLeading(this.query)" not in search:
     raise SystemExit("Search compose caret order helper is unused")
 preview = search.split("private schedulePreview", 1)[1].split("private applyPreview", 1)[0]
@@ -262,6 +296,7 @@ PY
   "$SRC/stream-list-recovery.test.ts" \
   "$SRC/detail-search-queue.test.ts" \
   "$SRC/detail-related.test.ts" \
+  "$SRC/play-wait-copy.test.ts" \
   "$SRC/search.test.ts" \
   "$SRC/pad-nav.test.ts" \
   "$SRC/ratings.test.ts" \

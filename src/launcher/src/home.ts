@@ -23,6 +23,8 @@ export interface HomeOptions {
    * hide results the viewer requested.
    */
   railRowLimit?: number | null;
+  /** Shuffle rebuild only: yield a frame between rails so D-pad stays live. */
+  yieldBetweenRails?: boolean;
 }
 
 export type CatalogState =
@@ -60,6 +62,22 @@ export function catalogShuffleFingerprint(tab: BrowseTab, rails: ContentRail[]):
   return shuffleable.map((rail) => (
     `${rail.id}:${rail.cards.map((card) => `${card.type}:${card.id}`).join(",")}`
   )).join("|");
+}
+
+/** Slate + rail + card identity for impression POST gating. */
+export function catalogImpressionFingerprint(tab: BrowseTab, rails: ContentRail[]): string | null {
+  if (tab !== "youtube" && tab !== "movies" && tab !== "series") return null;
+  const parts: string[] = [tab];
+  for (const rail of rails) {
+    const sequence = tab === "youtube" ? rail.sourceSlateSequence : rail.slateSequence;
+    parts.push(
+      rail.id,
+      String(sequence ?? ""),
+      rail.attributionToken ?? "",
+      rail.cards.map((card) => `${card.type}:${card.id}`).join(","),
+    );
+  }
+  return parts.join("|");
 }
 
 export type ShufflePressDecision = "start" | "queue" | "ignore";
@@ -103,6 +121,13 @@ export function buildBrowseTabs(
   activeTab: BrowseTab,
   onTabChange: (tab: BrowseTab) => void,
 ): HTMLElement[] {
+  const existing = Array.from(container.querySelectorAll<HTMLElement>(":scope > .browse-tab"));
+  if (browseTabsCanReuse(existing.map((button) => button.dataset.tab))) {
+    for (const button of existing) {
+      button.classList.toggle("browse-tab--active", button.dataset.tab === activeTab);
+    }
+    return existing;
+  }
   container.replaceChildren();
   const buttons: HTMLElement[] = [];
   for (const tab of BROWSE_TAB_ORDER.map((id) => ({
@@ -116,14 +141,20 @@ export function buildBrowseTabs(
     button.dataset.focusKey = `browse:${tab.id}`;
     button.textContent = tab.label;
     button.addEventListener("click", () => {
-      if (tab.id !== activeTab) {
-        onTabChange(tab.id);
-      }
+      onTabChange(tab.id);
     });
     container.appendChild(button);
     buttons.push(button);
   }
   return buttons;
+}
+
+export function browseTabsCanReuse(
+  existingTabs: Array<string | undefined>,
+  order: readonly BrowseTab[] = BROWSE_TAB_ORDER,
+): boolean {
+  return existingTabs.length === order.length
+    && existingTabs.every((tab, index) => tab === order[index]);
 }
 
 export function buildHomeRails(
@@ -158,7 +189,26 @@ export function buildCatalogRails(
   options: HomeOptions,
   catalogState: CatalogState,
 ): HTMLElement[][] {
-  const rows = appendCatalogSections(container, callbacks, catalogState, options);
+  const rows = appendCatalogSections(container, callbacks, catalogState, {
+    ...options,
+    yieldBetweenRails: false,
+  }) as HTMLElement[][];
+  if (catalogState.status === "ready") {
+    window.requestAnimationFrame(() => options.onLayoutApplied?.());
+  }
+  return rows;
+}
+
+export async function buildCatalogRailsProgressive(
+  container: HTMLElement,
+  callbacks: HomeCallbacks,
+  options: HomeOptions,
+  catalogState: CatalogState,
+): Promise<HTMLElement[][]> {
+  const rows = await appendCatalogSections(container, callbacks, catalogState, {
+    ...options,
+    yieldBetweenRails: true,
+  });
   if (catalogState.status === "ready") {
     window.requestAnimationFrame(() => options.onLayoutApplied?.());
   }
@@ -202,7 +252,28 @@ function appendCatalogSections(
   callbacks: HomeCallbacks,
   catalogState: CatalogState,
   options: HomeOptions,
-): HTMLElement[][] {
+): HTMLElement[][] | Promise<HTMLElement[][]> {
+  const preamble = appendCatalogPreamble(container, catalogState, options);
+  if (preamble !== null) return preamble;
+  if (catalogState.status !== "ready") return [];
+
+  const rails = nonEmptyCatalogRails(catalogState.rails);
+  if (!options.yieldBetweenRails || rails.length <= 1) {
+    const rows: HTMLElement[][] = [];
+    for (const rail of rails) {
+      rows.push(...appendOneCatalogRail(container, rail, callbacks, options));
+    }
+    return rows;
+  }
+
+  return appendCatalogRailsYielding(container, rails, callbacks, options);
+}
+
+function appendCatalogPreamble(
+  container: HTMLElement,
+  catalogState: CatalogState,
+  options: HomeOptions,
+): HTMLElement[][] | null {
   if (catalogState.status === "loading") {
     container.appendChild(createCatalogSkeleton(options.browseTab ?? "movies"));
     return [];
@@ -223,51 +294,84 @@ function appendCatalogSections(
   if (catalogState.freshness === "stale") {
     container.appendChild(createCatalogStaleBanner());
   }
+  return null;
+}
 
+async function appendCatalogRailsYielding(
+  container: HTMLElement,
+  rails: ContentRail[],
+  callbacks: HomeCallbacks,
+  options: HomeOptions,
+): Promise<HTMLElement[][]> {
   const rows: HTMLElement[][] = [];
-  for (const rail of nonEmptyCatalogRails(catalogState.rails)) {
-    const section = document.createElement("section");
-    section.className = "rail rail--catalog";
-    section.dataset.railId = rail.id;
-
-    const heading = document.createElement("h2");
-    heading.className = "rail-title";
-    heading.textContent = formatRailLabel(rail.label);
-    section.appendChild(heading);
-
-    const track = document.createElement("div");
-    track.className = "rail-track rail-track--posters";
-    track.setAttribute("role", "list");
-
-    const landscape = rail.layout === "landscape"
-      || (rail.layout !== "poster" && isLandscapeCard(rail.cards[0], options.browseTab));
-    const cols = railColumns(landscape);
-    const trailingAction = options.railTrailingAction?.(rail, landscape);
-    // The track is a wrapping grid, so the row budget is what bounds a rail's
-    // height; a trailing action occupies one of the slots. A null limit leaves
-    // the grid to wrap for as many rows as the cards need. For You follows the
-    // same one-row poster budget as other rails (6 cards = 4 close / 1 adjacent /
-    // 1 surprise from the catalog slate).
-    const rowLimit = options.railRowLimit === undefined ? 1 : options.railRowLimit;
-    const rowBudget = rowLimit === null
-      ? rail.cards.length
-      : cols * rowLimit - (trailingAction ? 1 : 0);
-    const items: HTMLElement[] = [];
-    for (const card of rail.cards.slice(0, rowBudget)) {
-      const button = createPosterCard(card, rail, callbacks, options, landscape);
-      track.appendChild(button);
-      items.push(button);
-    }
-    if (trailingAction) {
-      track.appendChild(trailingAction);
-      items.push(trailingAction);
-    }
-    applyRailLayout(track, landscape);
-    section.appendChild(track);
-    container.appendChild(section);
-    rows.push(...splitFocusRows(items, cols));
+  for (const [index, rail] of rails.entries()) {
+    if (index > 0) await yieldHomePaintTurn();
+    rows.push(...appendOneCatalogRail(container, rail, callbacks, options));
   }
   return rows;
+}
+
+function yieldHomePaintTurn(): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let frame = 0;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timer);
+      if (frame && typeof globalThis.cancelAnimationFrame === "function") {
+        globalThis.cancelAnimationFrame(frame);
+      }
+      resolve();
+    };
+    const timer = globalThis.setTimeout(finish, 50);
+    if (typeof globalThis.requestAnimationFrame === "function") {
+      frame = globalThis.requestAnimationFrame(() => finish());
+    }
+  });
+}
+
+function appendOneCatalogRail(
+  container: HTMLElement,
+  rail: ContentRail,
+  callbacks: HomeCallbacks,
+  options: HomeOptions,
+): HTMLElement[][] {
+  const section = document.createElement("section");
+  section.className = "rail rail--catalog";
+  section.dataset.railId = rail.id;
+
+  const heading = document.createElement("h2");
+  heading.className = "rail-title";
+  heading.textContent = formatRailLabel(rail.label);
+  section.appendChild(heading);
+
+  const track = document.createElement("div");
+  track.className = "rail-track rail-track--posters";
+  track.setAttribute("role", "list");
+
+  const landscape = rail.layout === "landscape"
+    || (rail.layout !== "poster" && isLandscapeCard(rail.cards[0], options.browseTab));
+  const cols = railColumns(landscape);
+  const trailingAction = options.railTrailingAction?.(rail, landscape);
+  const rowLimit = options.railRowLimit === undefined ? 1 : options.railRowLimit;
+  const rowBudget = rowLimit === null
+    ? rail.cards.length
+    : cols * rowLimit - (trailingAction ? 1 : 0);
+  const items: HTMLElement[] = [];
+  for (const card of rail.cards.slice(0, rowBudget)) {
+    const button = createPosterCard(card, rail, callbacks, options, landscape);
+    track.appendChild(button);
+    items.push(button);
+  }
+  if (trailingAction) {
+    track.appendChild(trailingAction);
+    items.push(trailingAction);
+  }
+  applyRailLayout(track, landscape);
+  section.appendChild(track);
+  container.appendChild(section);
+  return splitFocusRows(items, cols);
 }
 
 export function nonEmptyCatalogRails(rails: ContentRail[]): ContentRail[] {

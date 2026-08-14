@@ -7,10 +7,13 @@ import {
   ARTWORK_DWELL_MS,
   isSearchPinnedChromeKey,
   mergeComposeFocusRows,
+  mergeSearchResultRows,
   readPersistedSearchState,
   SEARCH_KEYBOARD,
   SEARCH_KEYBOARD_COLUMNS,
     SEARCH_RESULTS_PAINT_MS,
+    SEARCH_YIELD_FALLBACK_MS,
+    searchEmptyResultsFocusKey,
     searchGroupPageWindow,
     searchQueryCaretLeading,
     searchQueryDisplayText,
@@ -212,4 +215,31 @@ test("Search restore snapshots drop synopsis text", () => {
   });
   assert.equal(slim?.groups[0]?.items[0]?.title, "Dune");
   assert.equal(slim?.groups[0]?.items[0]?.description, undefined);
+});
+
+test("Search pad yield is a real input turn, not a 0-delay macrotask", () => {
+  assert.equal(SEARCH_YIELD_FALLBACK_MS, 50);
+});
+
+test("Empty Search results land on the active scope chip", () => {
+  assert.equal(searchEmptyResultsFocusKey("all"), "search:scope:all");
+  assert.equal(searchEmptyResultsFocusKey("youtube"), "search:scope:youtube");
+  assert.equal(isSearchPinnedChromeKey(searchEmptyResultsFocusKey("movies")), true);
+});
+
+test("Search result focus rows merge per rail in visible-group order", () => {
+  const rowsByRailId = new Map<string, string[][]>([
+    ["youtube", [["yt-1", "yt-2"], ["yt-3"]]],
+    ["movies", [["m-1"]]],
+    ["stale", [["gone"]]],
+  ]);
+  assert.deepEqual(
+    mergeSearchResultRows(["movies", "youtube"], rowsByRailId),
+    [["m-1"], ["yt-1", "yt-2"], ["yt-3"]],
+  );
+  rowsByRailId.set("movies", [["m-1", "m-2"]]);
+  assert.deepEqual(
+    mergeSearchResultRows(["movies", "youtube"], rowsByRailId),
+    [["m-1", "m-2"], ["yt-1", "yt-2"], ["yt-3"]],
+  );
 });

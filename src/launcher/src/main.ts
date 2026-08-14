@@ -15,7 +15,9 @@ import {
   buildAppsRail,
   buildBrowseTabs,
   buildCatalogRails,
+  buildCatalogRailsProgressive,
   BROWSE_TAB_ORDER,
+  catalogImpressionFingerprint,
   catalogShuffleFingerprint,
   catalogStateAfterFailure,
   catalogStateAfterSuccess,
@@ -177,6 +179,9 @@ interface TabRenderEntry {
   rows: HTMLElement[][];
 }
 const tabRenderCache = new Map<BrowseTab, TabRenderEntry>();
+let lastImpressionFingerprint: string | null = null;
+let nextCatalogPaintYield = false;
+let homeRenderGeneration = 0;
 let appsSection: HTMLElement | null = null;
 let appsRow: HTMLElement[] = [];
 let focusedBrowseElement: HTMLElement | null = null;
@@ -462,6 +467,9 @@ function init(): void {
 
 function renderHome(): void {
   const started = performance.now();
+  const generation = ++homeRenderGeneration;
+  const yieldPaint = nextCatalogPaintYield;
+  nextCatalogPaintYield = false;
   const tabButtons = buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
   const showShuffle = catalogState.status === "ready"
     && catalogShuffleFingerprint(activeBrowseTab, catalogState.rails) !== null;
@@ -471,7 +479,45 @@ function renderHome(): void {
     ? [searchEntry, ...tabButtons, ...personalizationChrome, libraryRefreshBtn]
     : [searchEntry, ...tabButtons, ...personalizationChrome];
   ensureAppsSection();
+  if (yieldPaint && catalogState.status === "ready") {
+    tabRenderCache.delete(activeBrowseTab);
+    const container = document.createElement("div");
+    container.className = "rails__tab";
+    container.dataset.tab = activeBrowseTab;
+    mountRailsView(container);
+    focusGridRows = [browseChrome, appsRow];
+    focusGrid.setRows(focusGridRows, {
+      preferredKey: tabFocusKeys.get(activeBrowseTab),
+      fallbackPosition: tabFocusPositions.get(activeBrowseTab),
+    });
+    void (async () => {
+      const rows = await buildCatalogRailsProgressive(container, {
+        onContentSelect: handleContentSelect,
+        onAppSelect: handleAppSelect,
+      }, buildHomeOptions(), catalogState);
+      if (generation !== homeRenderGeneration) return;
+      tabRenderCache.set(activeBrowseTab, {
+        railsRef: catalogState.rails,
+        savedRef: savedKeys,
+        freshness: catalogState.freshness,
+        container,
+        rows,
+      });
+      finishHomeRender(browseChrome, container, rows, false, started);
+    })();
+    return;
+  }
   const { container: activeContainer, rows: catalogRows, reused } = renderActiveTabCatalog();
+  finishHomeRender(browseChrome, activeContainer, catalogRows, reused, started);
+}
+
+function finishHomeRender(
+  browseChrome: HTMLElement[],
+  activeContainer: HTMLElement,
+  catalogRows: HTMLElement[][],
+  reused: boolean,
+  started: number,
+): void {
   mountRailsView(activeContainer);
   railsEl.setAttribute("aria-busy", String(catalogState.status === "loading"));
   focusGridRows = [browseChrome, ...catalogRows, appsRow];
@@ -493,12 +539,20 @@ function renderHome(): void {
     cache: reused ? "hit" : "miss",
     duration_ms: Math.round(performance.now() - started),
   });
-  if (activeBrowseTab === "youtube" && catalogState.status === "ready") {
+  noteCatalogImpressionsIfChanged();
+  scheduleReliabilityBadge();
+}
+
+function noteCatalogImpressionsIfChanged(): void {
+  if (catalogState.status !== "ready") return;
+  const fingerprint = catalogImpressionFingerprint(activeBrowseTab, catalogState.rails);
+  if (!fingerprint || fingerprint === lastImpressionFingerprint) return;
+  lastImpressionFingerprint = fingerprint;
+  if (activeBrowseTab === "youtube") {
     void noteYoutubeImpressions(catalogState.rails).catch(() => undefined);
-  } else if (["movies", "series"].includes(activeBrowseTab) && catalogState.status === "ready") {
+  } else if (activeBrowseTab === "movies" || activeBrowseTab === "series") {
     void noteVodRecommendationImpressions(catalogState.rails).catch(() => undefined);
   }
-  scheduleReliabilityBadge();
 }
 
 function ensureAppsSection(): void {
@@ -1529,6 +1583,7 @@ async function loadCatalog(
     catalogState = { status: "ready", rails: usableRails, freshness: "fresh" };
     catalogStateTab = requestedTab;
     catalogStateOwner = completedOwner;
+    nextCatalogPaintYield = reshuffle;
     renderHome();
     logPerf("catalog_fetch", {
       tab: requestedTab,

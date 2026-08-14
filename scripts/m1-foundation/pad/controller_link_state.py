@@ -27,6 +27,7 @@ ASLEEP_SCAN_SEC = 2.0
 # Sole-owner Connect probe interval after Host-is-down. Keep this short so
 # ordinary power-on is paged within about one BlueZ attempt, not a 15s+ gap.
 ASLEEP_PROBE_SEC = 1.0
+ASLEEP_PROBE_MAX_SEC = 3.0
 # After a disconnect, allow one immediate Connect before treating Host-is-down
 # as "peripheral off".
 DISCONNECT_GRACE_SEC = 1.0
@@ -65,6 +66,7 @@ class LinkRetryState:
     maintenance_retry_sec: float = MAINTENANCE_RETRY_SEC
     asleep_scan_sec: float = ASLEEP_SCAN_SEC
     asleep_probe_sec: float = ASLEEP_PROBE_SEC
+    asleep_probe_max_sec: float = ASLEEP_PROBE_MAX_SEC
     disconnect_grace_sec: float = DISCONNECT_GRACE_SEC
     connected: bool = False
     attempt_in_flight: bool = False
@@ -77,6 +79,7 @@ class LinkRetryState:
     # True after we saw advertising / RSSI / services while asleep — prefer
     # immediate Connect over the probe cadence.
     wake_detected: bool = False
+    asleep_probe_streak: int = 0
     next_attempt_at: float = 0.0
     next_scan_at: float = 0.0
     last_disconnect_at: float = 0.0
@@ -94,6 +97,7 @@ class LinkRetryState:
         self.fast_retry_exhausted = False
         self.peripheral_asleep = False
         self.wake_detected = False
+        self.asleep_probe_streak = 0
         self.next_attempt_at = 0.0
         self.next_scan_at = 0.0
         self.last_connected_at = now
@@ -109,6 +113,7 @@ class LinkRetryState:
         self.fast_retry_exhausted = False
         self.peripheral_asleep = False
         self.wake_detected = False
+        self.asleep_probe_streak = 0
         # One grace Connect is allowed; Host-is-down then parks us in asleep.
         self.next_attempt_at = now + self.disconnect_grace_sec
         self.next_scan_at = now + self.disconnect_grace_sec
@@ -150,8 +155,12 @@ class LinkRetryState:
         self.retry_index = len(self.fast_retry_delays_sec) - 1
         if error:
             self.last_error = error
-        # Keep paging on a short sole-owner cadence (not a multi-second dark gap).
-        self.next_attempt_at = now + self.asleep_probe_sec
+        delay = min(
+            self.asleep_probe_sec * (2 ** self.asleep_probe_streak),
+            self.asleep_probe_max_sec,
+        )
+        self.asleep_probe_streak += 1
+        self.next_attempt_at = now + delay
         self.next_scan_at = now
 
     def mark_wake_detected(self, now: float) -> None:
@@ -159,6 +168,7 @@ class LinkRetryState:
         if self.connected:
             return
         self.wake_detected = True
+        self.asleep_probe_streak = 0
         self.peripheral_asleep = False
         self.retry_index = 0
         self.fast_retry_exhausted = False
@@ -215,6 +225,7 @@ class LinkRetryState:
             self.fast_retry_exhausted = False
             self.peripheral_asleep = False
             self.wake_detected = True
+            self.asleep_probe_streak = 0
             self.next_attempt_at = now
             self.next_scan_at = now
 

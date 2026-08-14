@@ -83,6 +83,58 @@ test('persisted session state never contains transport URLs', () => withSessionS
   const raw = await readFile(path, 'utf8');
   assert.doesNotMatch(raw, /secret\.invalid/);
   assert.match(raw, /display_label/);
+  assert.doesNotMatch(raw, /audio_url/);
+}));
+
+test('playback session result keeps only the launcher-needed subset', () => withSessionState(async () => {
+  await createPlaybackSession({
+    requestId: 'session-slim',
+    epoch: 31,
+    source: 'catalog',
+  });
+  await transitionPlaybackSession('session-slim', 'playing', {
+    result: {
+      ok: true,
+      ttff_ms: 120,
+      total_ms: 400,
+      attempts: 2,
+      candidate_count: 4,
+      win_ladder_step: 'ideal',
+      first_time_verified: true,
+      unused_blob: 'drop-me',
+      stream: {
+        format: '1080p',
+        display_label: '1080p',
+        cached: true,
+        resolve_ms: 80,
+        url: 'https://secret.invalid/signed',
+        extra: 'nope',
+      },
+      filters: {
+        applied: { main_ladder: [{ step: 'ideal' }], other: true },
+        play_ladder: ['ideal'],
+      },
+    },
+  });
+  const session = await getPlaybackSession('session-slim');
+  assert.deepEqual(session?.result, {
+    ok: true,
+    ttff_ms: 120,
+    total_ms: 400,
+    attempts: 2,
+    candidate_count: 4,
+    win_ladder_step: 'ideal',
+    first_time_verified: true,
+    stream: {
+      display_label: '1080p',
+      resolve_ms: 80,
+      format: '1080p',
+      cached: true,
+    },
+    filters: {
+      applied: { main_ladder: [{ step: 'ideal' }] },
+    },
+  });
 }));
 
 test('terminal cancellation cannot be overwritten by a late success', () => withSessionState(async () => {

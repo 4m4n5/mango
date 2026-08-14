@@ -2564,13 +2564,18 @@ export class CatalogCore {
     };
   }
 
-  private warmMetaCacheForRailItems(items: Array<{ type: string; id: string }>): void {
+  private warmMetaCacheForRailItems(
+    items: Array<{ type: string; id: string; poster?: string; title?: string }>,
+  ): void {
     if (!META_WARM_ENABLED) {
       return;
     }
     const seen = new Set<string>();
     const warmTargets = items.filter((item) => {
       if (item.type !== 'movie' && item.type !== 'series') {
+        return false;
+      }
+      if ((item.poster || '').trim() && (item.title || '').trim()) {
         return false;
       }
       const key = `${item.type}:${item.id}`;
@@ -3149,6 +3154,8 @@ export class CatalogCore {
           value.rails.flatMap((rail) => rail.items.map((item) => ({
             type: item.type,
             id: item.id,
+            poster: item.poster,
+            title: item.title,
           }))),
         );
       }

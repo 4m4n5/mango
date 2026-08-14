@@ -11,6 +11,7 @@ import {
   type YoutubeTakeoutImportAudit,
 } from '../library/db.js';
 import { loadYoutubeConfig } from './config.js';
+import { applySqliteHotPragmas } from '../sqlite-hot.js';
 import type {
   YoutubeItem,
   YoutubeItemKind,
@@ -71,7 +72,9 @@ export function youtubeDbPath(): string {
 function openDb(): Database.Database {
   if (!dbSingleton) {
     mkdirSync(dirname(youtubeDbPath()), { recursive: true });
-    dbSingleton = new Database(youtubeDbPath());
+    const db = new Database(youtubeDbPath());
+    applySqliteHotPragmas(db);
+    dbSingleton = db;
   }
   return dbSingleton;
 }
@@ -653,6 +656,8 @@ export type YoutubePruneStats = {
   generations: number;
   v1_candidates: number;
   orphan_items: number;
+  raw_json: number;
+  impressions: number;
 };
 
 /** Drop unused v1 reservoirs and generations beyond current + previous last-good. */
@@ -679,7 +684,17 @@ ORDER BY generation DESC LIMIT 1 OFFSET ?
     'youtube_rail_items',
     'youtube_impressions',
   ].reduce((sum, table) => sum + db.prepare(`DELETE FROM ${table}`).run().changes, 0);
-  return { generations, v1_candidates: v1Candidates, orphan_items: 0 };
+  const rawJson = db.prepare(`
+UPDATE youtube_items SET raw_json = NULL WHERE raw_json IS NOT NULL
+`).run().changes;
+  const currentSequence = db.prepare(`
+SELECT MAX(slate_sequence) AS seq FROM youtube_profile_impressions
+`).get() as { seq: number | null } | undefined;
+  const sequenceFloor = Math.max(0, Number(currentSequence?.seq ?? 0) - 32);
+  const impressions = db.prepare(`
+DELETE FROM youtube_profile_impressions WHERE slate_sequence < ?
+`).run(sequenceFloor).changes;
+  return { generations, v1_candidates: v1Candidates, orphan_items: 0, raw_json: rawJson, impressions };
 }
 
 /** Exclusive lock; never call on the couch path. */
@@ -748,7 +763,7 @@ ON CONFLICT(kind, id) DO UPDATE SET
     excluded.official_metadata_checked_at,
     youtube_items.official_metadata_checked_at
   ),
-  raw_json = COALESCE(excluded.raw_json, youtube_items.raw_json),
+  raw_json = NULL,
   updated_at = excluded.updated_at;
 `);
   const tx = db.transaction(() => {

@@ -79,8 +79,50 @@ function sanitizedValue(value: unknown): unknown {
   return sanitized;
 }
 
+function slimPlaybackResult(result: Record<string, unknown>): Record<string, unknown> {
+  const slim: Record<string, unknown> = {};
+  if ('ok' in result) slim.ok = result.ok;
+  for (const key of [
+    'ttff_ms',
+    'total_ms',
+    'attempts',
+    'error',
+    'first_time_verified',
+    'candidate_count',
+    'win_ladder_step',
+  ] as const) {
+    if (result[key] !== undefined) slim[key] = result[key];
+  }
+  if (result.stream && typeof result.stream === 'object') {
+    const stream = result.stream as Record<string, unknown>;
+    const slimStream: Record<string, unknown> = {};
+    for (const key of [
+      'source',
+      'title',
+      'quality',
+      'display_label',
+      'resolve_ms',
+      'format',
+      'cached',
+    ] as const) {
+      if (stream[key] !== undefined) slimStream[key] = stream[key];
+    }
+    if (Object.keys(slimStream).length > 0) slim.stream = slimStream;
+  }
+  if (result.filters && typeof result.filters === 'object') {
+    const filters = result.filters as Record<string, unknown>;
+    const applied = filters.applied && typeof filters.applied === 'object'
+      ? filters.applied as Record<string, unknown>
+      : {};
+    if (Array.isArray(applied.main_ladder)) {
+      slim.filters = { applied: { main_ladder: applied.main_ladder } };
+    }
+  }
+  return slim;
+}
+
 function sanitizeResult(result: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
-  return result ? sanitizedValue(result) as Record<string, unknown> : null;
+  return result ? sanitizedValue(slimPlaybackResult(result)) as Record<string, unknown> : null;
 }
 
 async function hydrate(): Promise<void> {

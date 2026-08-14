@@ -89,7 +89,46 @@ fi
 [[ "$REQUEST_CLASS" == "user" || "$REQUEST_CLASS" == "background" ]] || usage
 
 now_ms() {
+  local ts="${EPOCHREALTIME-}"
+  if [[ -n "$ts" ]]; then
+    local sec="${ts%.*}"
+    local frac="${ts#*.}000"
+    printf '%s\n' "$((10#$sec * 1000 + 10#${frac:0:3}))"
+    return 0
+  fi
   python3 -c 'import time; print(int(time.time()*1000))'
+}
+
+# Parse mpv IPC JSON {"data": <value>} without spawning Python on the hot path.
+mpv_ipc_data() {
+  local reply="$1"
+  local fallback="${2:-0}"
+  if [[ -z "$reply" ]]; then
+    printf '%s\n' "$fallback"
+    return 0
+  fi
+  if [[ "$reply" == *'"data":true'* || "$reply" == *'"data": true'* ]]; then
+    printf 'true\n'
+    return 0
+  fi
+  if [[ "$reply" == *'"data":false'* || "$reply" == *'"data": false'* ]]; then
+    printf 'false\n'
+    return 0
+  fi
+  if [[ "$reply" == *'"data":null'* || "$reply" == *'"data": null'* ]]; then
+    printf '%s\n' "$fallback"
+    return 0
+  fi
+  if [[ "$reply" =~ \"data\":[[:space:]]*(-?[0-9]+(\.[0-9]+)?) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  if [[ "$reply" =~ \"data\":[[:space:]]*\"([^\"]*)\" ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or sys.argv[1])' \
+    "$fallback" <<<"$reply" 2>/dev/null || printf '%s\n' "$fallback"
 }
 
 # The script receives only the remaining server budget. Start its one deadline
@@ -176,7 +215,7 @@ mpv_property() {
   local property="$1"
   local reply
   reply="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property "$property" 2>/dev/null || true)"
-  python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' <<<"$reply" 2>/dev/null || echo 0
+  mpv_ipc_data "$reply" 0
 }
 
 technical_profile_b64() {
@@ -848,24 +887,13 @@ wait_mpv_vo_ready() {
     if [[ -S "$SOCKET" ]]; then
       local reply ready
       reply="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property vo-configured 2>/dev/null || true)"
-      ready="$(printf '%s' "$reply" | python3 -c 'import json,sys
-try:
-  data=json.load(sys.stdin).get("data")
-  print("1" if data in (True, "yes", 1) else "0")
-except Exception:
-  print("0")' 2>/dev/null || echo 0)"
-      if [[ "$ready" == "1" ]]; then
+      ready="$(mpv_ipc_data "$reply" 0)"
+      if [[ "$ready" == "true" || "$ready" == "1" || "$ready" == "yes" ]]; then
         return 0
       fi
-      # Fallback: frames are leaving the decoder even if vo-configured lags.
       reply="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property estimated-vf-fps 2>/dev/null || true)"
-      ready="$(printf '%s' "$reply" | python3 -c 'import json,sys
-try:
-  data=json.load(sys.stdin).get("data")
-  print("1" if isinstance(data,(int,float)) and float(data) > 0 else "0")
-except Exception:
-  print("0")' 2>/dev/null || echo 0)"
-      if [[ "$ready" == "1" ]]; then
+      ready="$(mpv_ipc_data "$reply" 0)"
+      if awk -v n="${ready:-0}" 'BEGIN { exit !(n+0 > 0) }'; then
         return 0
       fi
     fi
@@ -1094,6 +1122,18 @@ if ! $PROBE; then
       audio_label="${audio_args[$i]#--audio-device=}"
     fi
   done
+  if [[ -n "${MANGO_MPV_KNOWN_WIDTH:-}" && "${MANGO_MPV_KNOWN_WIDTH}" =~ ^[0-9]+$ ]]; then
+    video_width="$MANGO_MPV_KNOWN_WIDTH"
+  fi
+  if [[ -n "${MANGO_MPV_KNOWN_HEIGHT:-}" && "${MANGO_MPV_KNOWN_HEIGHT}" =~ ^[0-9]+$ ]]; then
+    video_height="$MANGO_MPV_KNOWN_HEIGHT"
+  fi
+  if [[ -n "${MANGO_MPV_KNOWN_FPS:-}" ]]; then
+    video_fps="$MANGO_MPV_KNOWN_FPS"
+  fi
+  if [[ -n "$video_width" && -n "$video_height" && -n "$video_fps" ]]; then
+    video_label="${video_width}x${video_height}@${video_fps}"
+  fi
   if [[ "${MANGO_MPV_SKIP_FFPROBE:-0}" != "1" ]] \
     && [[ -z "$video_width" || -z "$video_height" || -z "$video_fps" ]]; then
     if profile="$(detect_video_profile 2>/dev/null || true)" && [[ -n "$profile" ]]; then
@@ -1165,8 +1205,8 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
   fi
   if [[ -S "$SOCKET" ]]; then
     REPLY="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property playback-time 2>/dev/null || true)"
-    PT="$(printf '%s' "$REPLY" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' 2>/dev/null || echo 0)"
-    if python3 -c "import sys; sys.exit(0 if float('${PT:-0}') > 0 else 1)" 2>/dev/null; then
+    PT="$(mpv_ipc_data "$REPLY" 0)"
+    if awk -v n="${PT:-0}" 'BEGIN { exit !(n+0 > 0) }'; then
       if playback_is_real "${PT:-0}"; then
         # Deferred foreground ownership requires both real-playback proof and
         # cache readiness. Never hide the launcher for a status clip, a stream
@@ -1217,7 +1257,7 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
         if $PROBE && ! $MIN_DURATION_SET; then
           min_duration=5
         fi
-        if python3 -c "import sys; d=float('${DUR:-0}'); sys.exit(0 if d > 0 and d < float('${min_duration}') else 1)" 2>/dev/null; then
+        if awk -v d="${DUR:-0}" -v min="${min_duration}" 'BEGIN { exit !(d+0 > 0 && d+0 < min+0) }'; then
           echo "FAIL: debrid_status_clip duration=${DUR}" >&2
           MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
           exit 1

@@ -8,6 +8,7 @@ import {
   libraryDatabase,
   pruneLibraryMaintenance,
   pruneStoryGraphGenerationHistory,
+  recordRecommendationImpressions,
   resetLibraryDbForTests,
   RECOMMENDATION_JOB_TERMINAL_RETENTION,
   RECOMMENDATION_SERVED_SLATE_TTL_MS,
@@ -216,4 +217,30 @@ INSERT INTO vod_story_dna_generations(
     (db.prepare('SELECT COUNT(*) AS count FROM vod_story_dna_generations').get() as { count: number }).count,
     1,
   );
+}));
+
+test('VOD recommendation impressions older than 90 days are pruned', () => withLibrary(() => {
+  const now = Date.now();
+  recordRecommendationImpressions({
+    profile_id: 'household',
+    domain: 'vod',
+    rail_id: 'for-you-movies',
+    slate_revision: 1,
+    shown_at: now - 100 * 24 * 60 * 60 * 1000,
+    items: [{ type: 'movie', id: 'tt-old', rank: 0 }],
+  });
+  recordRecommendationImpressions({
+    profile_id: 'household',
+    domain: 'vod',
+    rail_id: 'for-you-movies',
+    slate_revision: 2,
+    shown_at: now - 10 * 24 * 60 * 60 * 1000,
+    items: [{ type: 'movie', id: 'tt-recent', rank: 0 }],
+  });
+  const stats = pruneLibraryMaintenance(now);
+  assert.equal(stats.impressions, 1);
+  const remaining = libraryDatabase().prepare(`
+SELECT item_id FROM profile_recommendation_impressions ORDER BY item_id
+`).all() as Array<{ item_id: string }>;
+  assert.deepEqual(remaining.map((row) => row.item_id), ['tt-recent']);
 }));

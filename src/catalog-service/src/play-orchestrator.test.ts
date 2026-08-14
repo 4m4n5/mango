@@ -460,6 +460,28 @@ test('S3: picker attempts exactly one URL and passes its explicit ladder step to
   assert.equal(result.win_on_main, false);
 });
 
+test('successful probe technical profile is threaded into play', async () => {
+  const picked = candidate('https://example.test/probed.mkv');
+  let seen: { width?: number; height?: number; fps?: number } | undefined;
+  const result = await playWithLadder([picked], testConfig(), {
+    preflight: async () => 'video',
+    probe: async () => ({
+      ok: true,
+      ttff_ms: 120,
+      duration_sec: 5400,
+      technical: { width: 1920, height: 1080, fps: 24, codec: 'h264' },
+    }),
+    play: async (_url, _timeout, options) => {
+      seen = options?.knownTechnical;
+      return { ok: true, ttff_ms: 200 };
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(seen?.width, 1920);
+  assert.equal(seen?.height, 1080);
+  assert.equal(seen?.fps, 24);
+});
+
 test('S5: win_on_main is true for a main-ladder outcome', async () => {
   const main = candidate('https://example.test/main-win.mkv');
   const result = await playWithLadder([main], testConfig(), {
@@ -546,8 +568,8 @@ test('playWithLadder Phase B keeps unattempted Phase A URLs eligible', async () 
   // (exclude attempted URLs only).
   const first = candidate('https://example.test/phase-a-first.mkv');
   const second = candidate('https://example.test/phase-a-second.mkv', '[TB☁️⚡] Torrentio 1080p B');
-  const prevReserve = process.env.MANGO_PLAY_OBLIGATION_MIN_MS;
-  process.env.MANGO_PLAY_OBLIGATION_MIN_MS = '0';
+  const prevExtension = process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS;
+  process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS = '2000';
   try {
     const config = mergeFilterConfig({
       ...testConfig(),
@@ -578,8 +600,8 @@ test('playWithLadder Phase B keeps unattempted Phase A URLs eligible', async () 
       'second URL must play via Phase B after Phase A wall starvation',
     );
   } finally {
-    if (prevReserve === undefined) delete process.env.MANGO_PLAY_OBLIGATION_MIN_MS;
-    else process.env.MANGO_PLAY_OBLIGATION_MIN_MS = prevReserve;
+    if (prevExtension === undefined) delete process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS;
+    else process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS = prevExtension;
   }
 });
 
@@ -912,4 +934,151 @@ test('cached-bad zero-I/O skip does not consume auto_play_max_attempts', async (
   assert.equal(result.attempts.length, 2);
   assert.equal(result.attempts[0]?.error, 'stream_url_bad_cached');
   assert.equal(result.attempts[1]?.ok, true);
+});
+
+test('Phase A uses the full play wall without an obligation reserve', async () => {
+  const prevExtension = process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS;
+  process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS = '0';
+  const first = candidate('https://example.test/full-wall-a.mkv');
+  const second = candidate('https://example.test/full-wall-b.mkv', '[TB☁️⚡] Torrentio 1080p B');
+  const third = candidate('https://example.test/full-wall-c.mkv', '[TB☁️⚡] Torrentio 1080p C');
+  let probeCalls = 0;
+  try {
+    await playWithLadder([first, second, third], testConfig({
+      auto_play_wall_ms: 1200,
+      auto_play_probe_ms: 400,
+      auto_play_max_attempts: 8,
+      last_resort_ladder: [],
+    }), {
+      preflight: async () => 'video',
+      probe: async () => {
+        probeCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        throw new Error('mpv-play failed: expected wall exhaustion');
+      },
+      play: async () => ({ ok: true, ttff_ms: 100 }),
+    });
+  } catch {
+    // expected: no playable stream
+  } finally {
+    if (prevExtension === undefined) delete process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS;
+    else process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS = prevExtension;
+  }
+  // Full 1200ms wall fits two 400ms probes (remaining after two is ~400 < 500).
+  // A 20s upfront reserve would have collapsed this short wall to 500ms (one probe).
+  assert.equal(probeCalls, 2);
+});
+
+test('hard title with floor candidates gets the Phase B extension', async () => {
+  const prevExtension = process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS;
+  process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS = '800';
+  const ladderOnly = candidate('https://example.test/extend-ladder.mkv', '[TB☁️⚡] Torrentio 1080p HEVC');
+  ladderOnly.description = 'WEB-DL 1080p x265';
+  const floorOnly: Stream = {
+    url: 'https://example.test/extend-floor.mkv',
+    source: 'AIOStreams',
+    name: '[TB⏳] Torrentio 720p',
+    title: '[TB⏳] Torrentio 720p',
+    description: 'WEBRip 720p x264',
+    behaviorHints: {},
+  };
+  try {
+    const result = await playWithLadder([ladderOnly, floorOnly], {
+      ...preferenceOnlyConfig(),
+      auto_play_wall_ms: 500,
+      auto_play_probe_ms: 400,
+      auto_play_max_attempts: 8,
+    }, {
+      preflight: async () => 'video',
+      probe: async (url) => {
+        if (url.includes('extend-ladder')) {
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          throw new Error('mpv-play failed: expected');
+        }
+        return { ok: true, ttff_ms: 120, duration_sec: 5400 };
+      },
+      play: async (url) => {
+        assert.ok(url.includes('extend-floor'));
+        return { ok: true, ttff_ms: 200 };
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.win_ladder_step, 'obligation_floor');
+  } finally {
+    if (prevExtension === undefined) delete process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS;
+    else process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS = prevExtension;
+  }
+});
+
+test('Phase B does not extend when there are no obligation candidates', async () => {
+  const prevExtension = process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS;
+  process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS = '5000';
+  const only = candidate('https://example.test/no-floor.mkv');
+  let probeCalls = 0;
+  try {
+    await playWithLadder([only], testConfig({
+      auto_play_wall_ms: 800,
+      auto_play_max_attempts: 4,
+      last_resort_ladder: [],
+    }), {
+      preflight: async () => 'video',
+      probe: async () => {
+        probeCalls += 1;
+        throw new Error('mpv-play failed: expected');
+      },
+      play: async () => ({ ok: true, ttff_ms: 100 }),
+    });
+  } catch {
+    // expected
+  } finally {
+    if (prevExtension === undefined) delete process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS;
+    else process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS = prevExtension;
+  }
+  assert.equal(probeCalls, 1);
+});
+
+test('Phase B extension never exceeds the server deadline', async () => {
+  const prevExtension = process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS;
+  process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS = '30000';
+  const ladderOnly = candidate('https://example.test/cap-ladder.mkv', '[TB☁️⚡] Torrentio 1080p HEVC');
+  ladderOnly.description = 'WEB-DL 1080p x265';
+  const floors: Stream[] = [1, 2, 3].map((index) => ({
+    url: `https://example.test/cap-floor-${index}.mkv`,
+    source: 'AIOStreams',
+    name: `[TB⏳] Torrentio 720p ${index}`,
+    title: `[TB⏳] Torrentio 720p ${index}`,
+    description: 'WEBRip 720p x264',
+    behaviorHints: {},
+  }));
+  let floorProbes = 0;
+  const started = Date.now();
+  try {
+    await playWithLadder([ladderOnly, ...floors], {
+      ...preferenceOnlyConfig(),
+      auto_play_wall_ms: 400,
+      auto_play_probe_ms: 300,
+      auto_play_max_attempts: 8,
+    }, {
+      startedAtMs: started,
+      deadlineAtMs: started + 900,
+      preflight: async () => 'video',
+      probe: async (url) => {
+        if (url.includes('cap-ladder')) {
+          throw new Error('mpv-play failed: expected');
+        }
+        floorProbes += 1;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        throw new Error('mpv-play failed: expected floor miss');
+      },
+      play: async () => ({ ok: true, ttff_ms: 100 }),
+    });
+  } catch {
+    // expected
+  } finally {
+    if (prevExtension === undefined) delete process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS;
+    else process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS = prevExtension;
+  }
+  // Server wall is 900ms. Uncapped +30s would attempt all three floor streams.
+  assert.ok(floorProbes >= 1 && floorProbes <= 2, `floorProbes=${floorProbes}`);
+  assert.ok(Date.now() - started < 2500);
 });

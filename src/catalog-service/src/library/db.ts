@@ -4,6 +4,7 @@ import { basename, dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
 import type { CatalogTab } from '../rails.js';
 import { seriesBareId } from '../playability/ids.js';
+import { applySqliteHotPragmas } from '../sqlite-hot.js';
 
 export const DEFAULT_LIBRARY_DB_PATH = '/etc/mango/library.db';
 /** Reserved for short-lived smoke fixtures; never a recommendation signal. */
@@ -335,7 +336,9 @@ export function legacyPinsPath(): string {
 function openDb(): Database.Database {
   if (!dbSingleton) {
     mkdirSync(dirname(libraryDbPath()), { recursive: true });
-    dbSingleton = new Database(libraryDbPath());
+    const db = new Database(libraryDbPath());
+    applySqliteHotPragmas(db);
+    dbSingleton = db;
   }
   return dbSingleton;
 }
@@ -1353,6 +1356,8 @@ CREATE TABLE IF NOT EXISTS vod_rank_items (
 );
 CREATE INDEX IF NOT EXISTS idx_vod_rank_items_serving
   ON vod_rank_items(rank_generation_id, serving_eligible, best_thread, rank_score DESC);
+CREATE INDEX IF NOT EXISTS idx_vod_rank_items_serving_rank
+  ON vod_rank_items(rank_generation_id, content_type, serving_eligible, rank);
 
 CREATE TABLE IF NOT EXISTS vod_active_generations (
   content_type TEXT PRIMARY KEY CHECK(content_type IN ('movie', 'series')),
@@ -1759,6 +1764,7 @@ export type LibraryPruneStats = {
   runtime_state: number;
   served_slates: number;
   frontier_queue: number;
+  impressions: number;
   skipped_story_graph: boolean;
 };
 
@@ -1965,11 +1971,18 @@ WHERE status IN ('complete', 'superseded', 'failed')
   AND updated_at < ?
 `).run(now - 14 * 24 * 60 * 60 * 1000).changes
     : 0;
+  const impressions = tableExists(db, 'profile_recommendation_impressions')
+    ? db.prepare(`
+DELETE FROM profile_recommendation_impressions
+WHERE shown_at < ?
+`).run(now - 90 * 24 * 60 * 60 * 1000).changes
+    : 0;
   return {
     ...story,
     dna_edges: dnaEdges,
     ...bookkeeping,
     frontier_queue: frontierQueue,
+    impressions,
   };
 }
 

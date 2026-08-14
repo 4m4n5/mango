@@ -16,6 +16,7 @@ import {
   YOUTUBE_V2_GENERATION_RETENTION,
   recordYoutubeImpressions,
   putYoutubeSearchCache,
+  pruneYoutubeMaintenance,
   resetYoutubeDbForTests,
   setYoutubeProfileCandidateState,
   setYoutubeState,
@@ -527,4 +528,49 @@ test('YouTube quota reader normalizes an existing old-model daily record', () =>
   assert.equal(normalized.search_calls_today, 2);
   incrementYoutubeQuota(1);
   assert.equal(youtubeRefreshStatus().quota_used_today, 2);
+}));
+
+test('YouTube prune nulls raw_json, retains recent impressions, and keeps candidate state', () => withTempYoutube((dir) => {
+  initYoutubeDb();
+  upsertYoutubeItems([sampleItem('keep')]);
+  const db = new Database(join(dir, 'youtube.db'));
+  db.prepare('UPDATE youtube_items SET raw_json = ? WHERE id = ?').run('{"blob":true}', 'keep');
+  db.close();
+  recordYoutubeImpressions({
+    profile_id: 'household',
+    slate_sequence: 1,
+    rail_id: 'for_you',
+    item_ids: ['old'],
+    impressed_at: 1000,
+  });
+  recordYoutubeImpressions({
+    profile_id: 'household',
+    slate_sequence: 80,
+    rail_id: 'for_you',
+    item_ids: ['fresh'],
+    impressed_at: 2000,
+  });
+  const beforeState = listYoutubeProfileCandidateStates({
+    profile_id: 'household',
+    rail_id: 'for_you',
+  }).length;
+  assert.ok(beforeState >= 1);
+  const stats = pruneYoutubeMaintenance();
+  assert.equal(stats.raw_json, 1);
+  assert.equal(stats.impressions, 1);
+  const after = new Database(join(dir, 'youtube.db'));
+  try {
+    const raw = after.prepare('SELECT raw_json FROM youtube_items WHERE id = ?').get('keep') as { raw_json: string | null };
+    assert.equal(raw.raw_json, null);
+    const sequences = after.prepare(
+      'SELECT slate_sequence FROM youtube_profile_impressions ORDER BY slate_sequence',
+    ).all() as Array<{ slate_sequence: number }>;
+    assert.deepEqual(sequences.map((row) => row.slate_sequence), [80]);
+  } finally {
+    after.close();
+  }
+  assert.equal(
+    listYoutubeProfileCandidateStates({ profile_id: 'household', rail_id: 'for_you' }).length,
+    beforeState,
+  );
 }));

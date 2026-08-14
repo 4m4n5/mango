@@ -125,6 +125,7 @@ async function runMpv(
     requestClass: 'user' | 'background';
     isolatedProbe?: boolean;
     hud?: PlaybackHudContext;
+    knownTechnical?: StreamTechnicalProfile;
   },
 ): Promise<PlayResult> {
   const script = resolve(repoDir(), 'scripts/m2-catalog/service/mpv-play.sh');
@@ -165,6 +166,16 @@ async function runMpv(
   env.MANGO_PLAY_REQUEST_CLASS = options.requestClass;
   if (options.isolatedProbe) {
     env.MANGO_MPV_ISOLATED_PROBE = '1';
+  }
+  const known = options.knownTechnical;
+  if (known?.width && known.width > 0) {
+    env.MANGO_MPV_KNOWN_WIDTH = String(Math.round(known.width));
+  }
+  if (known?.height && known.height > 0) {
+    env.MANGO_MPV_KNOWN_HEIGHT = String(Math.round(known.height));
+  }
+  if (known?.fps && known.fps > 0) {
+    env.MANGO_MPV_KNOWN_FPS = String(known.fps);
   }
   let childResult;
   try {
@@ -273,6 +284,7 @@ export async function playUrl(
     audioUrl?: string;
     ladderStep?: string;
     hud?: PlaybackHudContext;
+    knownTechnical?: StreamTechnicalProfile;
   } = {},
 ): Promise<PlayResult> {
   return runMpv(url, {
@@ -285,6 +297,7 @@ export async function playUrl(
     audioUrl: options.audioUrl,
     ladderStep: options.ladderStep,
     hud: options.hud,
+    knownTechnical: options.knownTechnical,
     requestClass: 'user',
   });
 }

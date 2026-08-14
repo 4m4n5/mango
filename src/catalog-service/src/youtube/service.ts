@@ -764,7 +764,6 @@ function publicYoutubeRails(rails: YoutubeRail[]): PublicYoutubeRail[] {
       kind: item.kind,
       title: item.title,
       subtitle: item.subtitle,
-      description: item.description,
       thumbnail: item.thumbnail,
       channel_id: item.channel_id,
       channel_title: item.channel_title,

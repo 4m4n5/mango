@@ -524,9 +524,14 @@ def pad_nav_recovery_reason(now: float | None = None) -> str | None:
 
 def start_pad_nav_recovery_watch() -> None:
     """Watch input progress outside Chromium so a wedged page can be replaced."""
+    active_sleep = 0.25
+    idle_sleep = min(2.0, PAD_NAV_STALL_SEC)
+
     def _watch() -> None:
         while True:
-            time.sleep(0.25)
+            with _pad_nav_lock:
+                active = bool(_pad_nav_session_id and _pad_nav_commands)
+            time.sleep(active_sleep if active else idle_sleep)
             reason = pad_nav_recovery_reason()
             if reason is None:
                 continue
@@ -573,6 +578,26 @@ def pad_nav_health_snapshot() -> dict[str, object]:
         }
 
 
+_pad_health_cache: dict[str, object] = {}
+_pad_health_cache_at = 0.0
+PAD_HEALTH_TTL_SEC: Final = 1.5
+
+
+def collect_pad_health_cached() -> dict[str, object]:
+    global _pad_health_cache, _pad_health_cache_at
+    now = time.time()
+    if _pad_health_cache and now - _pad_health_cache_at < PAD_HEALTH_TTL_SEC:
+        return _pad_health_cache
+    pad_health = (
+        run_json(["bash", str(PAD_HEALTH_SCRIPT), "--json", "--quiet"], timeout=3.0)
+        if PAD_HEALTH_SCRIPT.is_file()
+        else {}
+    )
+    _pad_health_cache = pad_health if isinstance(pad_health, dict) else {}
+    _pad_health_cache_at = now
+    return _pad_health_cache
+
+
 def collect_health(port: int) -> dict[str, object]:
     launcher_ok = (LAUNCHER_DIST / "index.html").is_file()
     chromium_ok = run_check(
@@ -580,11 +605,7 @@ def collect_health(port: int) -> dict[str, object]:
     )
     firefox_ok = run_check(["pgrep", "-f", f"firefox.*127.0.0.1:{port}/"])
     browser_ok = chromium_ok or firefox_ok
-    pad_health = (
-        run_json(["bash", str(PAD_HEALTH_SCRIPT), "--json", "--quiet"], timeout=3.0)
-        if PAD_HEALTH_SCRIPT.is_file()
-        else {}
-    )
+    pad_health = collect_pad_health_cached()
     tv_pad = bool(pad_health.get("ok")) or run_check(["pgrep", "-f", "mango-tv-pad.py"])
     tv_pad_ready = bool(pad_health.get("ok")) if pad_health else tv_pad
     remapper = "unknown"

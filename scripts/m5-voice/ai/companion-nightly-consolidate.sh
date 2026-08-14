@@ -5,6 +5,10 @@
 set -uo pipefail
 
 REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+if [[ "${MANGO_VOICE:-0}" != "1" ]]; then
+  echo "companion-nightly: SKIP — MANGO_VOICE is not enabled"
+  exit 0
+fi
 CATALOG="${MANGO_CATALOG_UPSTREAM:-http://127.0.0.1:3020}"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
 OPS_DIR="${CACHE_DIR}/ops"

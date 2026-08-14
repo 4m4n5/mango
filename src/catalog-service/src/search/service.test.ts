@@ -297,3 +297,20 @@ test('launcher Search snapshots omit synopsis text', () => withSearchServiceTest
   assert.ok(items.some((item) => item.id === 'verbose-video'));
   assert.equal(items.some((item) => item.description), false);
 }));
+
+test('unchanged Search revision returns the cached clone, never the live snapshot', () => withSearchServiceTest(async (service) => {
+  const first = await service.startQuery({
+    query: 'cached clone',
+    scope: 'all',
+    diagnostic: true,
+  });
+  const again = service.snapshot(first.search_id);
+  assert.ok(again);
+  assert.equal(again, first);
+  const live = (service as unknown as {
+    jobs: Map<string, { snapshot: { revision: number } }>;
+  }).jobs.get(first.search_id)?.snapshot;
+  assert.ok(live);
+  assert.notEqual(again, live);
+  assert.equal(again.revision, live.revision);
+}));

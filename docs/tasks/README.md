@@ -41,6 +41,7 @@ defects, so future changes still use the reviewed manual path.
 | [RECOMMENDATIONS_SIMPLIFY_WORK_AGENT_PROMPT.md](RECOMMENDATIONS_SIMPLIFY_WORK_AGENT_PROMPT.md) | Source implementation contract that produced the current redesign |
 | [RECOMMENDATIONS_STORYDNA_BULK_WORK_AGENT_PROMPT.md](RECOMMENDATIONS_STORYDNA_BULK_WORK_AGENT_PROMPT.md) | Superseded whole-corpus bulk/import proposal; retain as planning input only if measured progressive coverage/quality gaps justify it |
 | [m6-4k-fidelity.md](m6-4k-fidelity.md) | Detailed 4K SDR/HDR experiments and native architecture boundary |
+| [efficiency-audit/PLAN.md](efficiency-audit/PLAN.md) | Efficiency & lightness audit exploration; findings and Pi baseline in the same directory |
 
 ## Rollout and acceptance records
 

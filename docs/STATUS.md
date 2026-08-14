@@ -11,6 +11,7 @@ Follow-up `e49dd4d` / `72bc1e0` are test/gate-only. gate-lite **PASS** at
 `72bc1e0`. Reliability remains usable-yellow (`broken_verified=1/32`). The pad
 router is waiting for the 8BitDo. Human couch verdict remains **DEFERRED**.
 Prior 2026-08-13 line `f8da9bc` still records 30 fps YouTube on 1080p60 HDMI.
+Use `git status`, `git rev-parse HEAD`, and the Pi commands below before acting.
 
 ## How to read this page
 

@@ -2145,6 +2145,10 @@ test('serve order, labels, card counts, creator caps, and global dedupe match th
     .every((item) => item.channel_id && seeded.subscriptionChannels.has(item.channel_id)));
   const moreLike = response.rails.find((rail) => rail.rail_id === 'more_like')!.items;
   assert.equal(moreLike.filter((item) => item.channel_id === seeded.watchedChannel).length, 4);
+  assert.equal(
+    response.rails.flatMap((rail) => rail.items).some((item) => 'description' in item),
+    false,
+  );
 }));
 
 test('For You and Beyond enforce source, seed, and creator portfolios before deterministic relaxation', () => withTempState(() => {

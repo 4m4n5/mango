@@ -38,6 +38,9 @@ import {
   type PersonalizationOwner,
 } from "./personalization";
 import { tabForCard } from "./library-tab";
+import { PlayWaitCopy, PLAY_WAIT_ROTATE_MS } from "./play-wait-copy";
+
+const playWaitCopy = new PlayWaitCopy();
 
 // VOD related stays seven portrait cards across the full-width row. YouTube uses
 // four landscape cards with titles under the thumb, matching Home rails.
@@ -47,6 +50,10 @@ const YOUTUBE_RELATED_DISPLAY_LIMIT = 4;
 export function relatedTitlesLimit(tab: BrowseTab): { display: number; fetch: number } {
   const display = tab === "youtube" ? YOUTUBE_RELATED_DISPLAY_LIMIT : RELATED_DISPLAY_LIMIT;
   return { display, fetch: display + 1 };
+}
+
+export function cardHasCompleteDetailMeta(card: ContentCard): boolean {
+  return Boolean(card.description?.trim() && (card.posterUrl || "").trim());
 }
 
 /** Play-only / floor steps — never styled as verified in the side-list. */
@@ -482,44 +489,12 @@ export class DetailController {
       this.origin.searchState,
       owner,
     );
-    this.publishPlayProgress(
-      startSec
-        ? "resuming…"
-        : this.isYoutubeCard(card)
-          ? "starting YouTube…"
-          : preferUrl
-          ? "starting stream…"
-          : this.browseTab === "live"
-            ? "tuning in…"
-            : "finding stream…",
-    );
-    const startingTimer = window.setTimeout(() => {
-      if (this.playToken === token && this.card?.id === card.id) {
-        this.publishPlayProgress(
-          this.isYoutubeCard(card)
-            ? "resolving YouTube…"
-            : this.browseTab === "live"
-            ? "connecting to channel…"
-            : "still finding a playable stream…",
-        );
+    this.publishPlayProgress(playWaitCopy.next());
+    const waitCopyTimer = window.setInterval(() => {
+      if (this.playToken === token && this.card?.id === card.id && this.resolvingPlay) {
+        this.publishPlayProgress(playWaitCopy.next());
       }
-    }, 2000);
-    const slowResolveTimer = window.setTimeout(() => {
-      if (this.playToken === token && this.card?.id === card.id) {
-        if (this.isYoutubeCard(card) || this.browseTab === "live") {
-          return;
-        }
-        this.publishPlayProgress("still finding a playable stream…");
-      }
-    }, 10000);
-    const longResolveTimer = window.setTimeout(() => {
-      if (this.playToken === token && this.card?.id === card.id) {
-        if (this.isYoutubeCard(card) || this.browseTab === "live") {
-          return;
-        }
-        this.publishPlayProgress("this is taking longer than usual…");
-      }
-    }, 20000);
+    }, PLAY_WAIT_ROTATE_MS);
     try {
       const result = await playCard(card, {
         expectedOwner: owner,
@@ -595,9 +570,7 @@ export class DetailController {
       const message = error instanceof Error ? error.message : "couldn't start playback. try another title.";
       showToast(playErrorMessage(message), { tone: "error" });
     } finally {
-      window.clearTimeout(startingTimer);
-      window.clearTimeout(slowResolveTimer);
-      window.clearTimeout(longResolveTimer);
+      window.clearInterval(waitCopyTimer);
       if (this.playAbort === abort) {
         this.playAbort = null;
       }
@@ -1878,6 +1851,9 @@ export class DetailController {
   }
 
   private async loadFullMeta(card: ContentCard): Promise<void> {
+    if (cardHasCompleteDetailMeta(card)) {
+      return;
+    }
     try {
       const meta = await loadMeta(card);
       if (!this.card || this.card.id !== card.id || this.card.type !== card.type) {

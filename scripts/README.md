@@ -56,8 +56,6 @@ Run after grow-rail, compose, monitor, or playability policy changes:
 bash scripts/m3-play/playability/gate-m3-library-grow.sh
 ```
 
-Legacy per-PR gates (`gate-m3-grow-rail.sh`, `gate-m3-library-grower.sh`, …) forward to the unified gate above.
-
 ---
 
 ## Milestone directories
@@ -96,7 +94,7 @@ diag/            manual diagnostics
 | Script | Role |
 |--------|------|
 | `m3-play/playability/grow-run-control.sh` | Start/status/watch/assess/abort grow runs |
-| `m3-play/playability/quick-playability-topup.sh` | ~8 min grow |
+| `m3-play/playability/playability-grow.sh` | Grow worker (`--mode grow --preset quick` ≈ 8 min) |
 | `m3-play/playability/overnight-playability-grow.sh` | ~4 h loop |
 | `m3-play/playability/playability-maintenance.sh` | Nightly worker |
 | `m3-play/playability/playability-catch-up.sh` | Explicit post-boot/operator catch-up |

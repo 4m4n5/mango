@@ -7,7 +7,7 @@ export type YoutubeItem = {
   kind: YoutubeItemKind;
   title: string;
   subtitle: string;
-  description: string | null;
+  description?: string | null;
   thumbnail: string | null;
   channel_id: string | null;
   channel_title: string | null;

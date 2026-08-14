@@ -466,6 +466,13 @@ class ControllerLinkSupervisor:
         if self.force_repair_requested:
             self.force_repair_requested = False
             self._repair_bluez()
+        if self.retry.connected:
+            self._connected_tick_idle = getattr(self, "_connected_tick_idle", 0) + 1
+            if self._connected_tick_idle < 8:
+                return True
+            self._connected_tick_idle = 0
+        else:
+            self._connected_tick_idle = 0
         now = time.monotonic()
         if self.retry.attempt_in_flight and now - self.retry.attempt_started_at >= CONNECT_ATTEMPT_TIMEOUT_SEC:
             self.retry.complete_attempt(now, "connect_attempt_timeout")

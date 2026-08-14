@@ -6,8 +6,10 @@ import {
   catalogStateAfterFailure,
   catalogStateAfterSuccess,
   catalogShuffleFingerprint,
+  catalogImpressionFingerprint,
   catalogTabCacheIsWarm,
   browseTabSwitchPlan,
+  browseTabsCanReuse,
   hasCatalogItems,
   nonEmptyCatalogRails,
   sameCatalogPresentation,
@@ -189,4 +191,28 @@ test("tab switches paint a warm cache and only load on first visit", () => {
   assert.equal(browseTabSwitchPlan("movies", "series", true), "paint-cache");
   assert.equal(browseTabSwitchPlan("movies", "series", false), "load");
   assert.equal(browseTabSwitchPlan("series", "movies", true), "paint-cache");
+});
+
+test("browse tab chrome can reuse an unchanged tab order", () => {
+  assert.equal(browseTabsCanReuse(["movies", "series", "live", "youtube"]), true);
+  assert.equal(browseTabsCanReuse(["movies", "series", "live"]), false);
+  assert.equal(browseTabsCanReuse(["series", "movies", "live", "youtube"]), false);
+});
+
+test("impression fingerprints change with slate sequence and card ids", () => {
+  const rails: ContentRail[] = [{
+    id: "for_you",
+    label: "For You",
+    slateSequence: 12,
+    attributionToken: "tok-a",
+    cards: [{ id: "tt1", type: "movie", title: "One", subtitle: "2024" }],
+  }];
+  const first = catalogImpressionFingerprint("movies", rails);
+  assert.ok(first);
+  assert.equal(catalogImpressionFingerprint("movies", rails), first);
+  assert.notEqual(
+    catalogImpressionFingerprint("movies", [{ ...rails[0]!, slateSequence: 13 }]),
+    first,
+  );
+  assert.equal(catalogImpressionFingerprint("live", rails), null);
 });

@@ -83,10 +83,45 @@ export function slimSearchSnapshot(snapshot: SearchSnapshot | null): SearchSnaps
   };
 }
 
+/** Frame-or-50ms pad turn. Matches `waitInputTurn` in pad-nav.ts. */
+export const SEARCH_YIELD_FALLBACK_MS = 50;
+
 function yieldToPadInput(): Promise<void> {
   return new Promise((resolve) => {
-    globalThis.setTimeout(resolve, 0);
+    let settled = false;
+    let frame = 0;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timer);
+      if (frame && typeof globalThis.cancelAnimationFrame === "function") {
+        globalThis.cancelAnimationFrame(frame);
+      }
+      resolve();
+    };
+    const timer = globalThis.setTimeout(finish, SEARCH_YIELD_FALLBACK_MS);
+    if (typeof globalThis.requestAnimationFrame === "function") {
+      frame = globalThis.requestAnimationFrame(() => finish());
+    }
   });
+}
+
+export function searchEmptyResultsFocusKey(scope: SearchScope): string {
+  return `search:scope:${scope}`;
+}
+
+/** Rebuild focus rows in visible-group order from a per-rail map. */
+export function mergeSearchResultRows<T>(
+  visibleGroupIds: readonly string[],
+  rowsByRailId: ReadonlyMap<string, T[][]>,
+): T[][] {
+  const rows: T[][] = [];
+  for (const id of visibleGroupIds) {
+    const railRows = rowsByRailId.get(id);
+    if (!railRows) continue;
+    rows.push(...railRows);
+  }
+  return rows;
 }
 
 type SearchStateResponse = {
@@ -374,6 +409,8 @@ export class SearchController {
   private resultsPaint: number | undefined;
   private resultsPaintGeneration = 0;
   private railPaintActive = false;
+  private resultsPaintDirty = false;
+  private resultRowsByRail = new Map<string, HTMLElement[][]>();
   private atmosphere: HTMLElement | null = null;
   private atmosphereImage: HTMLImageElement | null = null;
   private atmosphereTimer: number | undefined;
@@ -470,7 +507,7 @@ export class SearchController {
     const state = this.playbackState();
     void this.cancelActive();
     this.pollToken += 1;
-    this.cancelResultsPaint();
+    this.abortResultsPaint();
     this.view.classList.add("hidden");
     this.clearPersisted();
     this.callbacks.onClose(state);
@@ -616,7 +653,7 @@ export class SearchController {
       this.snapshot = emptySearchSnapshot(this.query, this.scope);
       this.pages = {};
       this.activeSearchId = null;
-      this.focusedKey = "search:edit";
+      this.focusedKey = searchEmptyResultsFocusKey(this.scope);
       this.render();
       return;
     }
@@ -626,7 +663,7 @@ export class SearchController {
     this.activeSearchId = response.search_id;
     this.focusedKey = response.groups[0]?.items[0]?.key
       ? `rail:${response.groups[0].id}:${response.groups[0].items[0].type}:${response.groups[0].items[0].id}`
-      : "search:edit";
+      : searchEmptyResultsFocusKey(this.scope);
     this.render();
     void this.poll(response.search_id, response.revision, ++this.pollToken);
   }
@@ -646,7 +683,7 @@ export class SearchController {
         this.snapshot = this.snapshot
           ? { ...this.snapshot, complete: true }
           : emptySearchSnapshot(this.query, this.scope);
-        this.refreshResults();
+        this.scheduleResultsRefresh();
         return;
       }
       if (snapshot.revision > after) {
@@ -665,7 +702,7 @@ export class SearchController {
     const id = this.activeSearchId;
     this.activeSearchId = null;
     this.pollToken += 1;
-    this.cancelResultsPaint();
+    this.abortResultsPaint();
     if (!id) return;
     await fetch(`/api/catalog/search/query/${encodeURIComponent(id)}/cancel`, {
       method: "POST",
@@ -674,7 +711,7 @@ export class SearchController {
   }
 
   private render(): void {
-    this.cancelResultsPaint();
+    this.abortResultsPaint();
     this.view.replaceChildren();
     this.view.classList.toggle("search--results", this.submitted);
     this.view.classList.toggle("search--compose", !this.submitted);
@@ -759,6 +796,7 @@ export class SearchController {
       this.starterRows = [];
       this.preview = null;
       this.resultRows = [];
+      this.resultRowsByRail.clear();
       const results = document.createElement("div");
       results.className = "search-results rails";
       this.view.appendChild(results);
@@ -1171,7 +1209,14 @@ export class SearchController {
         }
         cursor = section.nextSibling;
         if (built) {
-          this.resultRows = this.collectResultRows(results, visibleGroups);
+          this.resultRowsByRail.set(
+            group.id,
+            this.collectRowsForRailSection(section, group.layout),
+          );
+          this.resultRows = mergeSearchResultRows(
+            visibleGroups.map((visible) => visible.id),
+            this.resultRowsByRail,
+          );
           this.applyFocusRows();
           await yieldToPadInput();
         }
@@ -1181,11 +1226,20 @@ export class SearchController {
       for (const section of existingRails.values()) {
         if (!retained.has(section)) section.remove();
       }
+      const visibleIds = new Set(visibleGroups.map((group) => group.id));
+      for (const railId of [...this.resultRowsByRail.keys()]) {
+        if (!visibleIds.has(railId)) this.resultRowsByRail.delete(railId);
+      }
       this.resultRows = this.collectResultRows(results, visibleGroups);
       this.applyFocusRows();
     } finally {
       if (generation === this.resultsPaintGeneration) {
         this.railPaintActive = false;
+        if (this.resultsPaintDirty) {
+          this.resultsPaintDirty = false;
+          void this.fillResultsView(results);
+          return;
+        }
         if (this.focusedElement && !isSearchPinnedChromeKey(this.focusedKey)) {
           this.scheduleResultsAtmosphere(this.focusedElement);
         }
@@ -1193,21 +1247,30 @@ export class SearchController {
     }
   }
 
+  private collectRowsForRailSection(
+    section: HTMLElement,
+    layout: SearchGroup["layout"],
+  ): HTMLElement[][] {
+    const items = Array.from(
+      section.querySelectorAll<HTMLElement>(":scope > .rail-track > [data-focus-key]"),
+    );
+    return splitFocusRows(items, railColumns(layout === "landscape"));
+  }
+
   private collectResultRows(
     results: HTMLElement,
     visibleGroups: SearchGroup[],
   ): HTMLElement[][] {
-    const rows: HTMLElement[][] = [];
+    const rowsByRailId = new Map<string, HTMLElement[][]>();
+    const sections = Array.from(results.querySelectorAll<HTMLElement>(":scope > .rail"));
     for (const group of visibleGroups) {
-      const section = Array.from(results.querySelectorAll<HTMLElement>(":scope > .rail"))
-        .find((candidate) => candidate.dataset.railId === group.id);
+      const section = sections.find((candidate) => candidate.dataset.railId === group.id);
       if (!section) continue;
-      const items = Array.from(
-        section.querySelectorAll<HTMLElement>(":scope > .rail-track > [data-focus-key]"),
-      );
-      rows.push(...splitFocusRows(items, railColumns(group.layout === "landscape")));
+      const rows = this.collectRowsForRailSection(section, group.layout);
+      rowsByRailId.set(group.id, rows);
     }
-    return rows;
+    this.resultRowsByRail = rowsByRailId;
+    return mergeSearchResultRows(visibleGroups.map((group) => group.id), rowsByRailId);
   }
 
   private createMoreCard(group: SearchGroup, landscape: boolean, shownCount: number): HTMLButtonElement {
@@ -1278,18 +1341,26 @@ export class SearchController {
     this.applyFocusRows();
   }
 
-  private cancelResultsPaint(): void {
+  private abortResultsPaint(): void {
     if (this.resultsPaint !== undefined) {
       window.clearTimeout(this.resultsPaint);
       this.resultsPaint = undefined;
     }
     this.resultsPaintGeneration += 1;
     this.railPaintActive = false;
+    this.resultsPaintDirty = false;
   }
 
   private scheduleResultsRefresh(): void {
     if (!this.submitted) return;
-    this.cancelResultsPaint();
+    if (this.railPaintActive) {
+      this.resultsPaintDirty = true;
+      return;
+    }
+    if (this.resultsPaint !== undefined) {
+      window.clearTimeout(this.resultsPaint);
+      this.resultsPaint = undefined;
+    }
     // Trailing timeout, not rAF: pad input also waits on animation frames, so
     // a leading-edge paint stole the turn that should have moved focus to the
     // pinned scopes. First cards still appear on a 0-delay macrotask; later
@@ -1307,7 +1378,7 @@ export class SearchController {
     if (!this.submitted) return;
     const current = this.view.querySelector<HTMLElement>(".search-results");
     if (!current) return;
-    this.cancelResultsPaint();
+    this.abortResultsPaint();
     void this.fillResultsView(current);
   }
 

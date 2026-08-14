@@ -406,7 +406,7 @@ not a fresh grow proof. Use `playability-status.py` and
 | Job | UI label | Command |
 |-----|----------|---------|
 | Reshuffle | Refresh library | launcher inline |
-| Quick top-up | ~8 min | `quick-playability-topup.sh --detach` |
+| Quick top-up | ~8 min | `playability-grow.sh --mode grow --preset quick --detach` |
 | Nightly | ~60–90 min total | `playability-maintenance.sh --mode nightly` |
 | Overnight | ~4 h loop | `overnight-playability-grow.sh --detach` |
 | Manual grow | — | `playability-grow.sh --mode grow --detach` |

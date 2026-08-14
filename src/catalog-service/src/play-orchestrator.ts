@@ -164,12 +164,12 @@ function candidateIsBad(candidate: LadderCandidate): boolean {
   return isStreamUrlBad(streamReleaseFingerprint(candidate.stream));
 }
 
-/** Reserve wall budget so Phase B obligation floor is not starved by Phase A. */
-export function playObligationReserveMs(): number {
-  const raw = process.env.MANGO_PLAY_OBLIGATION_MIN_MS;
-  if (raw === undefined || raw === '') return 20_000;
+/** Extra Phase B window when obligation candidates exist after the main wall. */
+export function playPhaseBExtensionMs(): number {
+  const raw = process.env.MANGO_PLAY_PHASE_B_EXTENSION_MS;
+  if (raw === undefined || raw === '') return 30_000;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return 20_000;
+  if (!Number.isFinite(parsed)) return 30_000;
   return Math.max(0, Math.min(60_000, Math.floor(parsed)));
 }
 
@@ -400,6 +400,7 @@ async function attemptOne(options: AttemptOneOptions): Promise<AttemptOneResult>
       startSec: options.startSec,
       ladderStep: candidate.ladder_step,
       hud: options.hud,
+      knownTechnical: structuredProbeResult?.technical,
     });
     if (options.playEpoch !== undefined) {
       await assertPlayEpoch(options.playEpoch);
@@ -784,12 +785,22 @@ export async function playWithLadder(
     ?? (options.preferUrl ? 'picker' : 'auto');
   const mainLadder = config.main_ladder ?? config.play_ladder;
   const lastResortLadder = config.last_resort_ladder ?? [];
-  const deadline = Math.min(options.deadlineAtMs ?? Number.POSITIVE_INFINITY, started + wallMs);
-  const obligationReserve = playObligationReserveMs();
-  const mainDeadline = Math.max(
-    started + 500,
-    deadline - obligationReserve,
-  );
+  const wallDeadline = Math.min(options.deadlineAtMs ?? Number.POSITIVE_INFINITY, started + wallMs);
+  const deadline = wallDeadline;
+  const mainDeadline = wallDeadline;
+  let phaseBDeadline = wallDeadline;
+  let phaseBExtended = false;
+  const extendPhaseBIfNeeded = (hasCandidates: boolean): number => {
+    if (!hasCandidates) return phaseBDeadline;
+    if (!phaseBExtended) {
+      phaseBExtended = true;
+      phaseBDeadline = Math.min(
+        wallDeadline + playPhaseBExtensionMs(),
+        options.deadlineAtMs ?? Number.POSITIVE_INFINITY,
+      );
+    }
+    return phaseBDeadline;
+  };
   const preferLadderStep = options.preferLadderStep
     ?? options.verified_hint?.win_ladder_step
     ?? null;
@@ -939,15 +950,13 @@ export async function playWithLadder(
     !allAttempts.some((attempt) => attempt.url && attempt.url === candidate.stream.url)
   ));
 
-  if (
-    phaseResort.length > 0
-    && attemptBudget.used < attemptBudget.limit
-    && deadline - Date.now() >= 500
-  ) {
+  if (phaseResort.length > 0 && attemptBudget.used < attemptBudget.limit) {
+    const resortDeadline = extendPhaseBIfNeeded(true);
+    if (resortDeadline - Date.now() >= 500) {
     totalCandidates += phaseResort.length;
     const resortResult = await attemptCandidates({
       ...shared,
-      deadline,
+      deadline: resortDeadline,
       candidates: phaseResort,
       attemptOffset: allAttempts.length,
       attemptBudget,
@@ -964,10 +973,10 @@ export async function playWithLadder(
     }
     allAttempts.push(...resortResult.attempts);
     deferredRiskyCandidates.push(...resortResult.deferred_risky);
+    }
   }
 
-  const remainingMs = deadline - Date.now();
-  if (attemptBudget.used < attemptBudget.limit && remainingMs >= 500) {
+  if (attemptBudget.used < attemptBudget.limit) {
     const excludeUrls = new Set(
       allAttempts.map((attempt) => attempt.url).filter((url): url is string => Boolean(url)),
     );
@@ -981,6 +990,8 @@ export async function playWithLadder(
       exclude_remux: config.request_overrides?.exclude_remux,
     });
     if (phaseFloor.length > 0) {
+      const floorDeadline = extendPhaseBIfNeeded(true);
+      if (floorDeadline - Date.now() >= 500) {
       obligationFloorRan = true;
       totalCandidates += phaseFloor.length;
       const floorResult = await attemptCandidates({
@@ -988,7 +999,7 @@ export async function playWithLadder(
         candidates: phaseFloor,
         attemptOffset: allAttempts.length,
         obligationFloorRan: true,
-        deadline,
+        deadline: floorDeadline,
         attemptBudget,
       });
       if (floorResult.kind === 'success') {
@@ -1004,13 +1015,14 @@ export async function playWithLadder(
       }
       allAttempts.push(...floorResult.attempts);
       deferredRiskyCandidates.push(...floorResult.deferred_risky);
+      }
     }
   }
 
   if (
     deferredRiskyCandidates.length > 0
     && attemptBudget.used < attemptBudget.limit
-    && deadline - Date.now() >= 500
+    && phaseBDeadline - Date.now() >= 500
   ) {
     const fallbackResult = await attemptCandidates({
       ...shared,
@@ -1018,7 +1030,7 @@ export async function playWithLadder(
       attemptOffset: allAttempts.length,
       obligationFloorRan: true,
       deferKnownRiskAfterProbe: false,
-      deadline,
+      deadline: phaseBDeadline,
       attemptBudget,
     });
     if (fallbackResult.kind === 'success') {

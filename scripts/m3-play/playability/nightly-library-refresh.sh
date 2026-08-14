@@ -113,6 +113,51 @@ if [[ "${MANGO_NIGHTLY_WAL_CHECKPOINT:-1}" == "1" ]]; then
   bash "$REPO_DIR/scripts/lib/checkpoint-wal-dbs.sh" || true
 fi
 
+# Idle-gated library VACUUM after grow/prune/WAL checkpoint. Exclusive lock;
+# never on the couch path. Pre-copy beside the file so a bad vacuum can roll back.
+if [[ "${MANGO_NIGHTLY_VACUUM:-1}" == "1" ]]; then
+  LIBRARY_DB="${MANGO_LIBRARY_DB_PATH:-/etc/mango/library.db}"
+  PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${CACHE_DIR}/playback-active}"
+  couch_idle=0
+  if [[ -f "$REPO_DIR/scripts/lib/couch-activity.sh" ]] \
+      && bash "$REPO_DIR/scripts/lib/couch-activity.sh" is-idle >/dev/null 2>&1; then
+    couch_idle=1
+  fi
+  if [[ -f "$PLAYBACK_ACTIVE_FILE" ]]; then
+    echo "nightly library refresh: VACUUM skipped (playback active)"
+  elif [[ "$couch_idle" -ne 1 ]]; then
+    echo "nightly library refresh: VACUUM skipped (couch not idle)"
+  elif [[ ! -f "$LIBRARY_DB" ]]; then
+    echo "nightly library refresh: VACUUM skipped (library.db missing)"
+  else
+    pre="${LIBRARY_DB}.pre-vacuum"
+    echo "nightly library refresh: pre-copy $LIBRARY_DB -> $pre"
+    cp -a "$LIBRARY_DB" "$pre" || true
+    [[ -f "${LIBRARY_DB}-wal" ]] && cp -a "${LIBRARY_DB}-wal" "${pre}-wal" || true
+    [[ -f "${LIBRARY_DB}-shm" ]] && cp -a "${LIBRARY_DB}-shm" "${pre}-shm" || true
+    BSQLITE="$REPO_DIR/src/catalog-service/node_modules/better-sqlite3"
+    if node -e '
+      const Database = require(process.argv[1]);
+      const db = new Database(process.argv[2], { timeout: 8000 });
+      try {
+        const freelist = Number(db.pragma("freelist_count", { simple: true }) || 0);
+        if (freelist < 1024) {
+          console.log("nightly library refresh: VACUUM skipped (freelist=" + freelist + ")");
+        } else {
+          db.exec("VACUUM");
+          console.log("nightly library refresh: VACUUM complete (freelist was " + freelist + ")");
+        }
+      } finally {
+        db.close();
+      }
+    ' "$BSQLITE" "$LIBRARY_DB"; then
+      true
+    else
+      echo "nightly library refresh: VACUUM skipped (busy or unavailable)" >&2
+    fi
+  fi
+fi
+
 # Inspect stable lock ownership before proof. Existing lock pathnames are
 # normal permanent state and are never removed as crash cleanup.
 if [[ -f "$REPO_DIR/scripts/lib/stale-flock-cleanup.sh" ]]; then
