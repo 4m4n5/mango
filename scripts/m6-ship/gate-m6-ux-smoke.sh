@@ -178,7 +178,9 @@ for search_contract in (
     "shouldClearSuggestions(this.query, this.suggestions.length)",
     "persistSoon",
     "restorePersisted",
-    "updateResultsView",
+    "fillResultsView",
+    "yieldToPadInput",
+    "slimSearchSnapshot",
     "emptySearchSnapshot",
     "searchQueryCaretLeading",
     "ARTWORK_DWELL_MS",
@@ -229,6 +231,7 @@ for pad_contract in (
     "FRAME_FALLBACK_MS",
     "ACTION_MAX_AGE_MS",
     "/api/pad/heartbeat",
+    "searchMoveDelta",
 ):
     if pad_contract not in pad_nav:
         raise SystemExit(f"pad-nav.ts missing liveness contract: {pad_contract}")
