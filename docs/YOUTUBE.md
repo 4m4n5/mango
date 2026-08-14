@@ -85,10 +85,11 @@ googlevideo URLs, and a forced `tv,android,ios` set replaced them and left
 only muxed itag 18 (360p). Muxed progressive is never a candidate. If mpv
 rejects the first split stream before the first frame, Mango performs one
 fresh resolve with that exact selector excluded and retries H.264+AAC DASH.
-It never loops formats at couch time and this path uses no YouTube Data API
-quota. Legacy `/etc/mango` selectors that slash-or to `best` are upgraded to
-the same adaptive policy. Operators may set `MANGO_YTDLP_EXTRACTOR_ARGS` only
-as an explicit override.
+YouTube 30 fps stays on 1080p60 HDMI (not 30 Hz); film 24 fps still matches
+24 Hz. It never loops formats at couch time and this path uses no YouTube
+Data API quota. Legacy `/etc/mango` selectors that slash-or to `best` are
+upgraded to the same adaptive policy. Operators may set
+`MANGO_YTDLP_EXTRACTOR_ARGS` only as an explicit override.
 
 ---
 

@@ -146,6 +146,11 @@ fi
   && gate_pass "mpv deferred foreground handoff enabled" \
   || gate_fail "mpv deferred foreground handoff disabled"
 
+grep -q 'choose-display-rate.py' scripts/lib/mango-display-mode.sh \
+  && python3 scripts/lib/choose-display-rate.py --self-test >/dev/null \
+  && gate_pass "30 fps HDMI match prefers 60 Hz; film keeps 24 Hz" \
+  || gate_fail "choose-display-rate.py missing or self-test failed"
+
 # HDMI SSOT: match only after launcher hide + black root (never while Chromium mapped).
 grep -q 'pre_match_playback_display' scripts/m2-catalog/service/mpv-play.sh \
   && gate_pass "mpv-play can source-match HDMI before reveal" \

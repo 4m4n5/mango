@@ -163,47 +163,9 @@ best_rate_for_fps() {
   local rates
   rates="$(rates_for_mode "$output" "$mode" | tr '\n' ' ')"
   [[ -n "$rates" && -n "$fps" ]] || return 1
-  python3 - "$fps" "$rates" <<'PY'
-import math
-import sys
-
-try:
-    target = float(sys.argv[1])
-except ValueError:
-    raise SystemExit(1)
-
-rates = []
-for token in " ".join(sys.argv[2:]).split():
-    try:
-        rates.append((token, float(token)))
-    except ValueError:
-        pass
-
-if target <= 0 or not rates:
-    raise SystemExit(1)
-
-best = None
-for label, rate in rates:
-    diff = abs(rate - target)
-    score = None
-    # Prefer exact film/TV refresh modes: 23.976 -> 23.98, 24 -> 24.00, etc.
-    if diff <= 0.08:
-        score = diff
-    else:
-        ratio = rate / target
-        nearest = round(ratio)
-        # Fall back to clean multiples only when no direct mode exists.
-        if 2 <= nearest <= 5 and abs(ratio - nearest) <= 0.015:
-            score = 10 + abs(ratio - nearest) + nearest / 100.0
-    if score is None:
-        continue
-    if best is None or score < best[0]:
-        best = (score, label)
-
-if best is None:
-    raise SystemExit(1)
-print(best[1])
-PY
+  # Film keeps 24 Hz. 25/30 fps use 50/60 Hz — exact 30 Hz is what made
+  # YouTube hitch every few seconds on this TV.
+  python3 "$SCRIPT_DIR/choose-display-rate.py" "$fps" $rates
 }
 
 playback_auto_modes() {
@@ -333,6 +295,11 @@ apply_mode() {
     fi
 
     if [[ -n "$rate" ]] && rate_available "$output" "$mode" "$rate"; then
+      if [[ "$(current_mode "$output")" == "${mode}@${rate}" ]]; then
+        log "${label}: already output=${output} mode=${mode}@${rate}"
+        sync_playback_display_matched_marker "$label"
+        return 0
+      fi
       if xrandr --output "$output" --mode "$mode" --rate "$rate" >/dev/null 2>&1; then
         log "${label}: applied output=${output} mode=${mode}@${rate} attempt=${attempt}/${attempts}"
         sync_playback_display_matched_marker "$label"
