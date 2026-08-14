@@ -267,3 +267,33 @@ test('YouTube retry updates only a completed degraded Search job', () => {
     assert.equal(retried?.phases.ai.status, 'skipped');
   }, search);
 });
+
+test('launcher Search snapshots omit synopsis text', () => withSearchServiceTest(async (service) => {
+  upsertYoutubeItems([{
+    id: 'verbose-video',
+    kind: 'video',
+    title: 'Dune sandwalk',
+    subtitle: 'Film Craft',
+    description: 'x'.repeat(5000),
+    thumbnail: null,
+    channel_id: 'channel-1',
+    channel_title: 'Film Craft',
+    published_at: '2026-07-01T00:00:00Z',
+    duration_sec: 900,
+    live_status: 'none',
+    playlist_id: null,
+    updated_at: Date.now(),
+  }]);
+  (service as unknown as { generationCheckedAt: number }).generationCheckedAt = 0;
+  await service.state();
+  const flight = (service as unknown as { indexFlight: Promise<void> | null }).indexFlight;
+  if (flight) await flight;
+  const snapshot = await service.startQuery({
+    query: 'dune sandwalk',
+    scope: 'youtube',
+    diagnostic: true,
+  });
+  const items = snapshot.groups.flatMap((group) => group.items);
+  assert.ok(items.some((item) => item.id === 'verbose-video'));
+  assert.equal(items.some((item) => item.description), false);
+}));

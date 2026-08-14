@@ -121,8 +121,8 @@ youtube:
   stale_after_hours: 24
   playback:
     yt_dlp_command: scripts/m6-ship/youtube-yt-dlp.sh
-    # Adaptive DASH only, highest up to 4K. Do not slash-or to `best`:
-    # muxed progressive is typically 360p (itag 18) and is not a fallback.
+    # Adaptive DASH only, highest up to 4K SDR VP9 when YouTube publishes it.
+    # Do not slash-or to `best`: muxed progressive is typically 360p (itag 18).
     yt_dlp_format: bv*[height<=2160]+ba
     # Optional when the operator wants Premium/account cookies available to yt-dlp.
     # cookies_file: /etc/mango/youtube-cookies.txt

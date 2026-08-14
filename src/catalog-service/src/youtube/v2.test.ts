@@ -44,6 +44,7 @@ import {
 import {
   createYoutubeV2CandidateQualityEvaluator,
   invalidateYoutubeV2ExactExclusions,
+  invalidateYoutubeV2HistoryItems,
   rebuildYoutubeV2Generation,
   YOUTUBE_V2_MORE_LIKE_QUERY_SIZE,
   YOUTUBE_V2_MORE_LIKE_TARGET,
@@ -1038,7 +1039,7 @@ test('Home and X are latest-generation-only; ordinary reload epoch is stable', (
   assert.equal(apiCalls, 0);
 }));
 
-test('fifty X presses stay cache-only under the latency bound and keep History and Saved stable', () => withTempState(async () => {
+test('fifty X presses stay cache-only under the latency bound and keep Saved stable', () => withTempState(async () => {
   seedV2();
   process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
   rebuildYoutubeV2Generation({ force: true });
@@ -1055,7 +1056,6 @@ test('fifty X presses stay cache-only under the latency bound and keep History a
   const initial = await service.rails() as { rails: YoutubeRail[] };
   const stable = (railId: string) => initial.rails.find((rail) => rail.rail_id === railId)?.items
     .map((item) => item.id) ?? [];
-  const history = stable('history');
   const saved = stable('saved');
   const quotaBefore = youtubeRefreshStatus();
   const historyBuildsBefore = (youtubeV2ExactExclusionCacheDiagnostics() as {
@@ -1066,8 +1066,8 @@ test('fifty X presses stay cache-only under the latency bound and keep History a
     const startedAt = process.hrtime.bigint();
     const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
     durationsMs.push(Number(process.hrtime.bigint() - startedAt) / 1_000_000);
-    assert.deepEqual(response.rails.find((rail) => rail.rail_id === 'history')?.items.map((item) => item.id), history);
     assert.deepEqual(response.rails.find((rail) => rail.rail_id === 'saved')?.items.map((item) => item.id), saved);
+    assert.equal(response.rails.find((rail) => rail.rail_id === 'history')?.items.length, 4);
   }
   const quotaAfter = youtubeRefreshStatus();
   const historyBuildsAfter = (youtubeV2ExactExclusionCacheDiagnostics() as {
@@ -1082,6 +1082,39 @@ test('fifty X presses stay cache-only under the latency bound and keep History a
     [quotaAfter.quota_used_today, quotaAfter.search_calls_today, quotaAfter.api_calls_today],
     [quotaBefore.quota_used_today, quotaBefore.search_calls_today, quotaBefore.api_calls_today],
   );
+}));
+
+test('X shuffles History from the cached watch pool and ordinary reload keeps that slate', () => withTempState(async () => {
+  seedV2();
+  const extra = Array.from({ length: 12 }, (_, index) => video(
+    `HistoryShuffle${index}`,
+    `History shuffle watch ${index}`,
+    `history-shuffle-channel-${index}`,
+  ));
+  upsertYoutubeItems(extra);
+  importOfficialHistory(extra, Date.now() - 60_000, 'history-shuffle-pool');
+  invalidateYoutubeV2HistoryItems();
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  rebuildYoutubeV2Generation({ force: true });
+  const service = new YoutubeService();
+  const ids = (rails: YoutubeRail[], railId: string) => rails
+    .find((rail) => rail.rail_id === railId)?.items.map((item) => item.id) ?? [];
+  const first = await service.rails() as { slate_sequence: number; rails: YoutubeRail[] };
+  const firstHistory = ids(first.rails, 'history');
+  const saved = ids(first.rails, 'saved');
+  assert.equal(firstHistory.length, 4);
+  let changed = firstHistory;
+  for (let press = 0; press < 8; press += 1) {
+    const shuffled = await service.rails({ reshuffle: true }) as { slate_sequence: number; rails: YoutubeRail[] };
+    changed = ids(shuffled.rails, 'history');
+    assert.equal(changed.length, 4);
+    assert.deepEqual(ids(shuffled.rails, 'saved'), saved);
+    if (changed.join(',') !== firstHistory.join(',')) break;
+  }
+  assert.notEqual(changed.join(','), firstHistory.join(','));
+  const reloaded = await service.rails() as { rails: YoutubeRail[] };
+  assert.deepEqual(ids(reloaded.rails, 'history'), changed);
+  assert.deepEqual(ids(reloaded.rails, 'saved'), saved);
 }));
 
 test('fifty cache-only X presses stay fast with four complete 512-candidate pools', () => withTempState(async () => {
@@ -1100,7 +1133,7 @@ test('fifty cache-only X presses stay fast with four complete 512-candidate pool
     : index < 448
       ? 0.38 + 0.269 * (1 - (index - 320) / 127)
       : 0.20 + 0.179 * (1 - (index - 448) / 63);
-  const railIds = ['for_you', 'beyond', 'more_like', 'new_from_subscriptions'] as const;
+  const railIds = ['for_you', 'new_from_subscriptions', 'more_like', 'beyond'] as const;
   publishYoutubeV2Generation({
     model_version: YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION,
     source_hash: 'complete-512-pools',
@@ -2085,11 +2118,11 @@ test('serve order, labels, card counts, creator caps, and global dedupe match th
   assert.equal(response.recommendations_status, 'ready');
   assert.deepEqual(response.rails.map((rail) => [rail.rail_id, rail.label]), [
     ['for_you', 'For You'],
-    ['beyond', 'Beyond Your Subscriptions'],
+    ['new_from_subscriptions', 'From Your Subscriptions'],
     ['more_like', `More from Channel ${seeded.watchedChannel}`],
+    ['beyond', 'Beyond Your Subscriptions'],
     ['history', 'History'],
     ['saved', 'Saved'],
-    ['new_from_subscriptions', 'From Your Subscriptions'],
     ['live_now', 'Live Now'],
   ]);
   for (const rail of response.rails) {

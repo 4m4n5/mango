@@ -174,16 +174,18 @@ export function commandsAfterSeq(
   );
 }
 
-/** Drop stale Home movement after a UI stall. Search keeps the latest move so
- *  progressive result paints cannot eat 5–6 D-pad clicks. The first Search
- *  move in a batch skips waitInputTurn so Up to pinned scopes is not queued
- *  behind a result-paint rAF; later Search moves in the same batch still
- *  yield so a held D-pad cannot dump a whole rail in one frame. */
+/**
+ * Home drops stale movement after a stall so a tab/shuffle hitch cannot dump
+ * a burst onto a new rail. Search is the same surface while results paint, so
+ * expired Search commands are still the user's intent: coalesce leftover
+ * movement into one grid step, then apply select/back. Live Search holds still
+ * pace one card per turn so a held D-pad cannot skip a whole rail.
+ */
 const MOVE_MAX_AGE_MS = 900;
 const ACTION_MAX_AGE_MS = 1500;
 const FRAME_FALLBACK_MS = 50;
 
-/** Drop stale intent after a UI stall instead of replaying it on a new surface. */
+/** Drop stale Home intent after a UI stall instead of replaying it on a new surface. */
 export function isPadNavCommandFresh(
   command: PadNavCommand,
   nowMs = Date.now(),
@@ -196,6 +198,16 @@ export function isPadNavCommandFresh(
     ? ACTION_MAX_AGE_MS
     : MOVE_MAX_AGE_MS;
   return ageMs <= maxAge;
+}
+
+export function searchMoveDelta(
+  direction: string | null | undefined,
+): { row: number; col: number } {
+  if (direction === "up") return { row: -1, col: 0 };
+  if (direction === "down") return { row: 1, col: 0 };
+  if (direction === "left") return { row: 0, col: -1 };
+  if (direction === "right") return { row: 0, col: 1 };
+  return { row: 0, col: 0 };
 }
 
 function waitInputTurn(): Promise<void> {
@@ -219,12 +231,10 @@ function waitInputTurn(): Promise<void> {
 }
 
 /**
- * Apply fresh commands in order. Home yields at most one command per visual
- * turn so a stall cannot dump a burst onto a new rail. The first Search move
- * in a batch is applied immediately so it is not queued behind a result-paint
- * rAF; later Search moves still wait, matching D-pad hold pacing. A timeout
- * still protects Home if rAF is wedged. Expired commands still advance the
- * ack cursor so they can never replay after recovery.
+ * Apply commands in order. Home yields at most one fresh command per visual
+ * turn. Search never drops commands: stale movement is netted into one step
+ * so a results-paint hitch cannot eat the D-pad, and live holds still wait a
+ * turn after the first move. Expired commands still advance the ack cursor.
  */
 export async function applyPadNavBatch(
   batch: PadNavCommand[],
@@ -233,18 +243,47 @@ export async function applyPadNavBatch(
 ): Promise<number> {
   let applied = lastSeq;
   const pending = commandsAfterSeq(batch, lastSeq);
-  const lastMoveIndex = pending.reduce(
-    (found, command, index) => (command.action === "move" ? index : found),
-    -1,
-  );
   let searchMoveApplied = false;
-  for (const [index, command] of pending.entries()) {
+  let staleSearchRow = 0;
+  let staleSearchCol = 0;
+
+  const ack = (command: PadNavCommand): void => {
+    if (typeof command.seq === "number" && command.seq > applied) {
+      applied = command.seq;
+    }
+  };
+
+  const flushStaleSearchMoves = (): void => {
+    if (staleSearchRow === 0 && staleSearchCol === 0) {
+      return;
+    }
+    if (staleSearchRow !== 0) {
+      handlers.searchMoveRow(staleSearchRow);
+    }
+    if (staleSearchCol !== 0) {
+      handlers.searchMoveCol(staleSearchCol);
+    }
+    staleSearchRow = 0;
+    staleSearchCol = 0;
+    searchMoveApplied = true;
+  };
+
+  for (const command of pending) {
     const fresh = isPadNavCommandFresh(command);
-    const searchMove = command.action === "move" && handlers.isInSearch();
-    const replaySearchMove = !fresh
-      && searchMove
-      && index === lastMoveIndex;
-    if (fresh || replaySearchMove) {
+    const inSearch = handlers.isInSearch();
+    const searchMove = command.action === "move" && inSearch;
+
+    if (searchMove && !fresh) {
+      const delta = searchMoveDelta(command.direction);
+      staleSearchRow += delta.row;
+      staleSearchCol += delta.col;
+      ack(command);
+      continue;
+    }
+
+    flushStaleSearchMoves();
+
+    if (inSearch) {
       if (!searchMove || searchMoveApplied) {
         await waitInputTurn();
       }
@@ -252,11 +291,17 @@ export async function applyPadNavBatch(
       if (searchMove) {
         searchMoveApplied = true;
       }
+      ack(command);
+      continue;
     }
-    if (typeof command.seq === "number" && command.seq > applied) {
-      applied = command.seq;
+
+    if (fresh) {
+      await waitInputTurn();
+      handlePadNav(command, handlers);
     }
+    ack(command);
   }
+  flushStaleSearchMoves();
   return applied;
 }
 

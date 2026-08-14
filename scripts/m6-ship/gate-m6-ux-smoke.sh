@@ -47,6 +47,10 @@ if "MAX_VISIBLE_MS = 12_000" not in voice:
     raise SystemExit("voice-hud missing 12s max-visible timer")
 if "moveRow" not in detail or "moveCol" not in detail:
     raise SystemExit("detail.ts missing 2D moveRow/moveCol")
+if "detail--youtube" not in detail or "relatedTitlesLimit" not in detail:
+    raise SystemExit("detail.ts missing YouTube landscape related surface")
+if ".detail--youtube .detail-related-track" not in style:
+    raise SystemExit("style.css missing YouTube detail related grid")
 if "getBoundingClientRect" not in detail:
     raise SystemExit("detail.ts missing geometry-based spatial focus (getBoundingClientRect)")
 # Side-panel focus contract. Both of these are load-bearing and neither is visible in
@@ -254,6 +258,7 @@ PY
   "$SRC/playback-session-client.test.ts" \
   "$SRC/stream-list-recovery.test.ts" \
   "$SRC/detail-search-queue.test.ts" \
+  "$SRC/detail-related.test.ts" \
   "$SRC/search.test.ts" \
   "$SRC/pad-nav.test.ts" \
   "$SRC/ratings.test.ts" \

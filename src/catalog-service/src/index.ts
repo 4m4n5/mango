@@ -3049,9 +3049,6 @@ async function main(): Promise<void> {
 
         if (req.method === 'GET' && parts.length === 2 && parts[1] === 'related') {
           const railId = url.searchParams.get('rail_id')?.trim() ?? '';
-          if (!railId) {
-            throw new CatalogError(400, 'GET /youtube/related requires rail_id');
-          }
           const exclude = parseTitleExcludeQuery(url.searchParams.get('exclude'));
           const limit = Number(url.searchParams.get('limit') || 8);
           sendJson(res, 200, await youtube.railRelated(

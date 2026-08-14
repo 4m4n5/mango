@@ -65,6 +65,30 @@ function emptySearchSnapshot(query: string, scope: SearchScope): SearchSnapshot 
   };
 }
 
+function omitSearchDescription(item: SearchResult): SearchResult {
+  if (item.description === undefined) return item;
+  const { description: _omit, ...rest } = item;
+  return rest;
+}
+
+/** Search shows cards, never prose. Drop synopsis text before persist/parse work. */
+export function slimSearchSnapshot(snapshot: SearchSnapshot | null): SearchSnapshot | null {
+  if (!snapshot) return null;
+  return {
+    ...snapshot,
+    groups: snapshot.groups.map((group) => ({
+      ...group,
+      items: group.items.map(omitSearchDescription),
+    })),
+  };
+}
+
+function yieldToPadInput(): Promise<void> {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, 0);
+  });
+}
+
 type SearchStateResponse = {
   recents?: Array<{ normalized_query: string; display_query: string }>;
   starters?: Array<{
@@ -253,7 +277,6 @@ function resultToCard(item: SearchResult, railId: string): ContentCard {
     subtitle: item.subtitle,
     posterUrl: item.poster,
     year: item.year,
-    description: item.description,
     source: item.source,
     librarySource: item.library_source,
     kind: item.kind,
@@ -349,6 +372,8 @@ export class SearchController {
   private previewChoice: SearchChoice | undefined;
   private previewTimer: number | undefined;
   private resultsPaint: number | undefined;
+  private resultsPaintGeneration = 0;
+  private railPaintActive = false;
   private atmosphere: HTMLElement | null = null;
   private atmosphereImage: HTMLImageElement | null = null;
   private atmosphereTimer: number | undefined;
@@ -413,7 +438,7 @@ export class SearchController {
       this.query = state.query;
       this.scope = state.scope;
       this.submitted = state.submitted;
-      this.snapshot = state.snapshot;
+      this.snapshot = slimSearchSnapshot(state.snapshot);
       this.pages = state.pages;
       this.focusedKey = state.focusedKey;
       this.preferredPosition = state.position;
@@ -511,7 +536,7 @@ export class SearchController {
       query: this.query,
       scope: this.scope,
       submitted: this.submitted,
-      snapshot: this.snapshot,
+      snapshot: slimSearchSnapshot(this.snapshot),
       pages: { ...this.pages },
       focusedKey: this.focusedKey,
       position: this.preferredPosition,
@@ -596,7 +621,7 @@ export class SearchController {
       return;
     }
     this.submitted = true;
-    this.snapshot = response;
+    this.snapshot = slimSearchSnapshot(response);
     this.pages = {};
     this.activeSearchId = response.search_id;
     this.focusedKey = response.groups[0]?.items[0]?.key
@@ -626,7 +651,7 @@ export class SearchController {
       }
       if (snapshot.revision > after) {
         after = snapshot.revision;
-        this.snapshot = snapshot;
+        this.snapshot = slimSearchSnapshot(snapshot);
         this.scheduleResultsRefresh();
       }
       if (snapshot.complete) {
@@ -649,6 +674,7 @@ export class SearchController {
   }
 
   private render(): void {
+    this.cancelResultsPaint();
     this.view.replaceChildren();
     this.view.classList.toggle("search--results", this.submitted);
     this.view.classList.toggle("search--compose", !this.submitted);
@@ -727,13 +753,18 @@ export class SearchController {
       this.starterRows = this.renderStarters(compose);
       this.resultRows = [];
       this.view.appendChild(compose);
+      this.applyFocusRows();
     } else {
       this.keyboardRows = [];
       this.starterRows = [];
       this.preview = null;
-      this.resultRows = this.renderResults();
+      this.resultRows = [];
+      const results = document.createElement("div");
+      results.className = "search-results rails";
+      this.view.appendChild(results);
+      this.applyFocusRows();
+      void this.fillResultsView(results);
     }
-    this.applyFocusRows();
   }
 
   private mountQueryContents(query: HTMLElement): void {
@@ -1032,22 +1063,19 @@ export class SearchController {
     next.src = choice.poster;
   }
 
-  private renderResults(): HTMLElement[][] {
-    const results = document.createElement("div");
-    results.className = "search-results rails";
-    this.view.appendChild(results);
-    return this.updateResultsView(results);
-  }
-
   /**
    * Reconcile progressive Search groups by rail ID.
    *
    * The API returns a full snapshot on each revision, but replacing the complete
    * result subtree forced Chromium to decode the same posters again and detached
    * the focused element on every provider response. Only a changed rail is rebuilt
-   * now; stable rails, images, focus nodes and scroll state stay mounted.
+   * now; stable rails, images, focus nodes and scroll state stay mounted. Newly
+   * built rails yield to pad input so the first cards can move before later
+   * groups monopolize the main thread.
    */
-  private updateResultsView(results: HTMLElement): HTMLElement[][] {
+  private async fillResultsView(results: HTMLElement): Promise<void> {
+    const generation = this.resultsPaintGeneration;
+    this.railPaintActive = true;
     const groups = this.snapshot?.groups || [];
     const windows = new Map(groups.map((group) => [
       group.id,
@@ -1100,49 +1128,75 @@ export class SearchController {
     const retained = new Set<HTMLElement>();
     let cursor: ChildNode | null = chrome ? chrome.nextSibling : results.firstChild;
 
-    for (const group of visibleGroups) {
-      const window = windows.get(group.id);
-      if (!window) continue;
-      const signature = JSON.stringify([
-        group.label,
-        group.layout,
-        window.hasMore,
-        window.items.map((item) => item.key),
-      ]);
-      let section = existingRails.get(group.id);
-      if (!section || section.dataset.searchSignature !== signature) {
-        const staging = document.createElement("div");
-        const rail: ContentRail = {
-          id: group.id,
-          label: group.label,
-          layout: group.layout,
-          cards: window.items.map((item) => resultToCard(item, `search:${group.id}`)),
-        };
-        buildCatalogRails(staging, {
-          onContentSelect: (card, railLabel) => this.openResult(card, railLabel),
-          onAppSelect: () => undefined,
-        }, {
-          railRowLimit: null,
-          railTrailingAction: (_rail, landscape) => window.hasMore
-            ? this.createMoreCard(group, landscape, window.items.length)
-            : null,
-        }, { status: "ready", rails: [rail], freshness: "fresh" });
-        const replacement = staging.querySelector<HTMLElement>(":scope > .rail");
-        if (!replacement) continue;
-        replacement.dataset.searchSignature = signature;
-        section = replacement;
+    try {
+      for (const group of visibleGroups) {
+        if (generation !== this.resultsPaintGeneration) return;
+        const window = windows.get(group.id);
+        if (!window) continue;
+        const signature = JSON.stringify([
+          group.label,
+          group.layout,
+          window.hasMore,
+          window.items.map((item) => item.key),
+        ]);
+        let section = existingRails.get(group.id);
+        let built = false;
+        if (!section || section.dataset.searchSignature !== signature) {
+          const staging = document.createElement("div");
+          const rail: ContentRail = {
+            id: group.id,
+            label: group.label,
+            layout: group.layout,
+            cards: window.items.map((item) => resultToCard(item, `search:${group.id}`)),
+          };
+          buildCatalogRails(staging, {
+            onContentSelect: (card, railLabel) => this.openResult(card, railLabel),
+            onAppSelect: () => undefined,
+          }, {
+            railRowLimit: null,
+            railTrailingAction: (_rail, landscape) => window.hasMore
+              ? this.createMoreCard(group, landscape, window.items.length)
+              : null,
+          }, { status: "ready", rails: [rail], freshness: "fresh" });
+          const replacement = staging.querySelector<HTMLElement>(":scope > .rail");
+          if (!replacement) continue;
+          replacement.dataset.searchSignature = signature;
+          section = replacement;
+          built = true;
+        }
+        if (!section) continue;
+        retained.add(section);
+        if (section !== cursor) {
+          results.insertBefore(section, cursor);
+        }
+        cursor = section.nextSibling;
+        if (built) {
+          this.resultRows = this.collectResultRows(results, visibleGroups);
+          this.applyFocusRows();
+          await yieldToPadInput();
+        }
       }
-      retained.add(section);
-      if (section !== cursor) {
-        results.insertBefore(section, cursor);
+
+      if (generation !== this.resultsPaintGeneration) return;
+      for (const section of existingRails.values()) {
+        if (!retained.has(section)) section.remove();
       }
-      cursor = section.nextSibling;
+      this.resultRows = this.collectResultRows(results, visibleGroups);
+      this.applyFocusRows();
+    } finally {
+      if (generation === this.resultsPaintGeneration) {
+        this.railPaintActive = false;
+        if (this.focusedElement && !isSearchPinnedChromeKey(this.focusedKey)) {
+          this.scheduleResultsAtmosphere(this.focusedElement);
+        }
+      }
     }
+  }
 
-    for (const section of existingRails.values()) {
-      if (!retained.has(section)) section.remove();
-    }
-
+  private collectResultRows(
+    results: HTMLElement,
+    visibleGroups: SearchGroup[],
+  ): HTMLElement[][] {
     const rows: HTMLElement[][] = [];
     for (const group of visibleGroups) {
       const section = Array.from(results.querySelectorAll<HTMLElement>(":scope > .rail"))
@@ -1225,9 +1279,12 @@ export class SearchController {
   }
 
   private cancelResultsPaint(): void {
-    if (this.resultsPaint === undefined) return;
-    window.clearTimeout(this.resultsPaint);
-    this.resultsPaint = undefined;
+    if (this.resultsPaint !== undefined) {
+      window.clearTimeout(this.resultsPaint);
+      this.resultsPaint = undefined;
+    }
+    this.resultsPaintGeneration += 1;
+    this.railPaintActive = false;
   }
 
   private scheduleResultsRefresh(): void {
@@ -1236,7 +1293,8 @@ export class SearchController {
     // Trailing timeout, not rAF: pad input also waits on animation frames, so
     // a leading-edge paint stole the turn that should have moved focus to the
     // pinned scopes. First cards still appear on a 0-delay macrotask; later
-    // revisions wait out SEARCH_RESULTS_PAINT_MS so D-pad can drain.
+    // revisions wait out SEARCH_RESULTS_PAINT_MS so D-pad can drain. Each new
+    // rail then yields again so later groups cannot pin the main thread.
     const hasRails = Boolean(this.view.querySelector(".search-results .rail"));
     const delay = hasRails ? SEARCH_RESULTS_PAINT_MS : 0;
     this.resultsPaint = window.setTimeout(() => {
@@ -1249,8 +1307,8 @@ export class SearchController {
     if (!this.submitted) return;
     const current = this.view.querySelector<HTMLElement>(".search-results");
     if (!current) return;
-    this.resultRows = this.updateResultsView(current);
-    this.applyFocusRows();
+    this.cancelResultsPaint();
+    void this.fillResultsView(current);
   }
 
   private applyFocusRows(): void {
@@ -1268,6 +1326,7 @@ export class SearchController {
 
   private scheduleResultsAtmosphere(element: HTMLElement): void {
     if (!this.submitted || !this.atmosphere || !this.atmosphereImage) return;
+    if (this.railPaintActive) return;
     if (this.atmosphereTimer !== undefined) {
       window.clearTimeout(this.atmosphereTimer);
       this.atmosphereTimer = undefined;

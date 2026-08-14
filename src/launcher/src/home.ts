@@ -43,6 +43,7 @@ const YOUTUBE_SHUFFLE_RAIL_IDS = new Set([
   "more_like",
   "new_from_subscriptions",
   "live_now",
+  "history",
 ]);
 
 export function shuffleableCatalogRails(tab: BrowseTab, rails: ContentRail[]): ContentRail[] {
@@ -503,7 +504,7 @@ export function posterRevealMeta(card: ContentCard): string {
   return BARE_TYPE_SUBTITLES.has(subtitle.toLowerCase()) ? "" : subtitle;
 }
 
-function isLandscapeCard(card: ContentCard, browseTab?: BrowseTab): boolean {
+export function isLandscapeCard(card: ContentCard, browseTab?: BrowseTab): boolean {
   return browseTab === "live"
     || browseTab === "youtube"
     || card.source === "youtube"
@@ -512,7 +513,7 @@ function isLandscapeCard(card: ContentCard, browseTab?: BrowseTab): boolean {
     || Boolean(card.liveStatus);
 }
 
-function shouldShowLivePill(card: ContentCard, browseTab?: BrowseTab): boolean {
+export function shouldShowLivePill(card: ContentCard, browseTab?: BrowseTab): boolean {
   return card.liveStatus === "live" || (browseTab === "live" && card.type === "tv");
 }
 

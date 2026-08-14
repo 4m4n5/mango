@@ -13,6 +13,7 @@ export {
   YOUTUBE_ADAPTIVE_FORMAT,
   YOUTUBE_COMPAT_ADAPTIVE_FORMAT,
   YOUTUBE_FORMAT_SORT,
+  YOUTUBE_MID_ADAPTIVE_FORMAT,
   ytDlpFormatCandidates,
 } from './format-policy.js';
 
@@ -47,8 +48,14 @@ export function youtubeYtDlpResolveArgs(
     '--format-sort',
     process.env.MANGO_YTDLP_FORMAT_SORT?.trim() || YOUTUBE_FORMAT_SORT,
   ];
-  // Do not pin player_client. yt-dlp's default clients are what still expose
-  // DASH; a forced tv/android/ios set replaced them and left only 360p muxed.
+  // yt-dlp 2026.07 enables only deno by default. The Pi has node, not deno;
+  // without an explicit runtime, web/web_safari formats are skipped and some
+  // 4K DASH never appears. Do not pin player_client: tv/android/ios replaced
+  // defaults and left only 360p muxed.
+  const jsRuntimes = process.env.MANGO_YTDLP_JS_RUNTIMES?.trim();
+  if (jsRuntimes !== 'none' && jsRuntimes !== '0') {
+    args.push('--js-runtimes', jsRuntimes || 'node');
+  }
   const extractorArgs = process.env.MANGO_YTDLP_EXTRACTOR_ARGS?.trim();
   if (extractorArgs) {
     args.push('--extractor-args', extractorArgs);

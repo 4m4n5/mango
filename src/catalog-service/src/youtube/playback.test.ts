@@ -10,6 +10,7 @@ import {
   YOUTUBE_ADAPTIVE_FORMAT,
   YOUTUBE_COMPAT_ADAPTIVE_FORMAT,
   YOUTUBE_FORMAT_SORT,
+  YOUTUBE_MID_ADAPTIVE_FORMAT,
   youtubeYtDlpResolveArgs,
   ytDlpFormatCandidates,
 } from './playback.js';
@@ -73,27 +74,70 @@ test('a tighter operator cap does not fall through to 1080p H.264', () => {
   assert.deepEqual(formats, ['bv*[height<=720]+ba']);
 });
 
+test('a 1080 operator cap retries H.264, not 1440', () => {
+  assert.deepEqual(
+    ytDlpFormatCandidates('bv*[height<=1080]+ba'),
+    ['bv*[height<=1080]+ba', YOUTUBE_COMPAT_ADAPTIVE_FORMAT],
+  );
+});
+
+test('a 1440 operator cap does not climb to 4K', () => {
+  assert.deepEqual(
+    ytDlpFormatCandidates(YOUTUBE_MID_ADAPTIVE_FORMAT),
+    [YOUTUBE_MID_ADAPTIVE_FORMAT, YOUTUBE_COMPAT_ADAPTIVE_FORMAT],
+  );
+});
+
 test('ytDlpFormatCandidates keeps configured format first and de-dupes fallbacks', () => {
   const formats = ytDlpFormatCandidates('best');
   assert.equal(formats[0], YOUTUBE_ADAPTIVE_FORMAT);
   assert.equal(formats.filter((format) => format === YOUTUBE_ADAPTIVE_FORMAT).length, 1);
   assert.deepEqual(formats, [
     YOUTUBE_ADAPTIVE_FORMAT,
+    YOUTUBE_MID_ADAPTIVE_FORMAT,
     YOUTUBE_COMPAT_ADAPTIVE_FORMAT,
   ]);
 });
 
 test('ytDlpFormatCandidates advances past an already failed transport format', () => {
   const formats = ytDlpFormatCandidates(YOUTUBE_ADAPTIVE_FORMAT, [YOUTUBE_ADAPTIVE_FORMAT]);
-  assert.deepEqual(formats, [YOUTUBE_COMPAT_ADAPTIVE_FORMAT]);
+  assert.deepEqual(formats, [YOUTUBE_MID_ADAPTIVE_FORMAT, YOUTUBE_COMPAT_ADAPTIVE_FORMAT]);
 });
 
-test('yt-dlp resolve sorts by resolution and leaves player clients to yt-dlp', () => {
-  const args = youtubeYtDlpResolveArgs({}, YOUTUBE_ADAPTIVE_FORMAT, 'dQw4w9wgGcQ');
+test('ytDlpFormatCandidates keeps 1080p H.264 after 4K and 1440 both fail', () => {
+  assert.deepEqual(
+    ytDlpFormatCandidates(YOUTUBE_ADAPTIVE_FORMAT, [
+      YOUTUBE_ADAPTIVE_FORMAT,
+      YOUTUBE_MID_ADAPTIVE_FORMAT,
+    ]),
+    [YOUTUBE_COMPAT_ADAPTIVE_FORMAT],
+  );
+});
+
+test('yt-dlp resolve sorts by resolution, uses node EJS, and leaves player clients to yt-dlp', () => {
+  const args = youtubeYtDlpResolveArgs({}, YOUTUBE_ADAPTIVE_FORMAT, 'dQw4w9WgXcQ');
   assert.equal(args[args.indexOf('-f') + 1], YOUTUBE_ADAPTIVE_FORMAT);
   assert.equal(args[args.indexOf('--format-sort') + 1], YOUTUBE_FORMAT_SORT);
+  assert.equal(args[args.indexOf('--js-runtimes') + 1], 'node');
   assert.equal(args.includes('--extractor-args'), false);
   assert.ok(args.includes('-g'));
+  assert.match(YOUTUBE_FORMAT_SORT, /vcodec:vp9:vp9\.2/);
+  assert.doesNotMatch(YOUTUBE_FORMAT_SORT, /hdr:12/);
+});
+
+test('yt-dlp resolve omits JS runtime when the operator disables it', () => {
+  const previous = process.env.MANGO_YTDLP_JS_RUNTIMES;
+  process.env.MANGO_YTDLP_JS_RUNTIMES = 'none';
+  try {
+    const args = youtubeYtDlpResolveArgs({}, YOUTUBE_ADAPTIVE_FORMAT, 'dQw4w9WgXcQ');
+    assert.equal(args.includes('--js-runtimes'), false);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.MANGO_YTDLP_JS_RUNTIMES;
+    } else {
+      process.env.MANGO_YTDLP_JS_RUNTIMES = previous;
+    }
+  }
 });
 
 test('yt-dlp resolve passes operator extractor-args only when set', () => {

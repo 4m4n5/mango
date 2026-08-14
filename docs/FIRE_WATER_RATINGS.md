@@ -266,7 +266,7 @@ cards, two deal 3/3, and one deals all six. Browse v3 replaces rank-only
 sampling with `1 + 31q²` relevance weighting above the 2.5 fit floor and caps a
 franchise at two cards; the prior four rendered slates remain avoided when
 supply permits. One atomic active-tab X deal also recency-shuffles Continue and
-Saved, re-deals every trusted category and AI catalog, and fills Explore last
+Saved (Continue also weights remaining progress), re-deals every trusted category and AI catalog, and fills Explore last
 from every eligible verified title. Global same-page deduplication applies.
 Load-time DB revalidation checks verified state, artwork, uniqueness, and exact
 exclusions. If a complete tab deal cannot be persisted, Mango retains the

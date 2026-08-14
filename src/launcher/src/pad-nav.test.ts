@@ -6,6 +6,7 @@ import {
   commandsAfterSeq,
   handlePadNav,
   isPadNavCommandFresh,
+  searchMoveDelta,
   type PadNavCommand,
   type PadNavHandlers,
 } from "./pad-nav";
@@ -116,6 +117,12 @@ test("stale movement is dropped while recent Select and Back remain actionable",
   );
 });
 
+test("searchMoveDelta maps D-pad directions onto one grid step", () => {
+  assert.deepEqual(searchMoveDelta("down"), { row: 1, col: 0 });
+  assert.deepEqual(searchMoveDelta("right"), { row: 0, col: 1 });
+  assert.deepEqual(searchMoveDelta("up"), { row: -1, col: 0 });
+});
+
 test("expired Home movement advances the ack cursor without changing focus", async () => {
   const log: string[] = [];
   const next = await applyPadNavBatch(
@@ -145,7 +152,7 @@ test("the first Search D-pad move does not wait a visual turn", async () => {
   assert.ok(Date.now() - started < 40);
 });
 
-test("a stalled Search still applies the latest queued move so results are not frozen", async () => {
+test("a stalled Search coalesces leftover D-pad moves instead of keeping only the last click", async () => {
   const log: string[] = [];
   const now = Date.now();
   const next = await applyPadNavBatch(
@@ -159,6 +166,12 @@ test("a stalled Search still applies the latest queued move so results are not f
       {
         seq: 10,
         action: "move",
+        direction: "down",
+        issued_at: (now - 1100) / 1000,
+      },
+      {
+        seq: 11,
+        action: "move",
         direction: "right",
         issued_at: (now - 1000) / 1000,
       },
@@ -166,6 +179,22 @@ test("a stalled Search still applies the latest queued move so results are not f
     handlers(log, "search"),
     8,
   );
-  assert.equal(next, 10);
-  assert.deepEqual(log, ["search-col"]);
+  assert.equal(next, 11);
+  assert.deepEqual(log, ["search-row", "search-col"]);
+});
+
+test("a stalled Search still applies Select after results paint", async () => {
+  const log: string[] = [];
+  const now = Date.now();
+  const next = await applyPadNavBatch(
+    [{
+      seq: 4,
+      action: "select",
+      issued_at: (now - 1800) / 1000,
+    }],
+    handlers(log, "search"),
+    3,
+  );
+  assert.equal(next, 4);
+  assert.deepEqual(log, ["search-select"]);
 });

@@ -10,12 +10,13 @@ import {
   readPersistedSearchState,
   SEARCH_KEYBOARD,
   SEARCH_KEYBOARD_COLUMNS,
-  SEARCH_RESULTS_PAINT_MS,
-  searchGroupPageWindow,
-  searchQueryCaretLeading,
-  searchQueryDisplayText,
-  shouldClearSuggestions,
-  validRestoreState,
+    SEARCH_RESULTS_PAINT_MS,
+    searchGroupPageWindow,
+    searchQueryCaretLeading,
+    searchQueryDisplayText,
+    shouldClearSuggestions,
+    slimSearchSnapshot,
+    validRestoreState,
 } from "./search";
 
 test("Search compose focus rows connect keyboard and right-side suggestions", () => {
@@ -175,4 +176,40 @@ test("Search pagination keeps each rail action in that rail's final focus row", 
     ["yt-1", "yt-2", "more:youtube"],
     ["vod-1", "more:external"],
   ]);
+});
+
+test("Search restore snapshots drop synopsis text", () => {
+  const slim = slimSearchSnapshot({
+    ok: true,
+    search_id: "s1",
+    query: "dune",
+    normalized_query: "dune",
+    scope: "all",
+    revision: 2,
+    complete: true,
+    groups: [{
+      id: "youtube",
+      label: "YouTube",
+      layout: "landscape",
+      total: 1,
+      status: "ready",
+      items: [{
+        key: "youtube:youtube_video:abc",
+        source: "youtube",
+        type: "youtube_video",
+        id: "abc",
+        title: "Dune",
+        subtitle: "Film Craft",
+        description: "A".repeat(4000),
+        tab: "youtube",
+        in_library: true,
+        queued_for_verify: false,
+      }],
+    }],
+    phases: {},
+    created_at: 1,
+    updated_at: 1,
+  });
+  assert.equal(slim?.groups[0]?.items[0]?.title, "Dune");
+  assert.equal(slim?.groups[0]?.items[0]?.description, undefined);
 });

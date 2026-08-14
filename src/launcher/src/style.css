@@ -2486,6 +2486,52 @@ h1 {
   font-size: var(--text-micro);
 }
 
+/* YouTube Detail: 16:9 hero and a four-across related row with titles under the
+   thumb, matching Home landscape rails. VOD Detail keeps the portrait related row. */
+.detail--youtube .detail-hero {
+  grid-template-columns: minmax(18rem, 28vw) minmax(0, 1fr);
+  align-items: start;
+}
+
+.detail--youtube .detail-poster-wrap,
+.detail--youtube:has(.detail-related:not(.hidden)) .detail-poster-wrap {
+  aspect-ratio: 16 / 9;
+  max-height: none;
+  align-self: start;
+}
+
+.detail--youtube .detail-poster {
+  object-fit: contain;
+}
+
+.detail--youtube .detail-related-track {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--card-gap);
+}
+
+.detail--youtube .detail-related-track .card--poster {
+  flex: unset;
+  aspect-ratio: unset;
+  width: 100%;
+  max-width: none;
+}
+
+.detail--youtube .card--landscape .poster-image {
+  object-fit: contain;
+}
+
+.detail--youtube .card--related.card--landscape .card-title {
+  font-size: var(--text-title);
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+}
+
+.detail--youtube .card--related.card--landscape .card-subtitle {
+  font-size: var(--text-caption);
+  -webkit-line-clamp: 1;
+}
+
 .detail-side {
   grid-area: side;
   position: relative;
@@ -3805,6 +3851,19 @@ h1 {
 
   .detail-related-track .card--poster {
     width: clamp(120px, 14vw, 148px);
+  }
+
+  .detail--youtube .detail-hero {
+    grid-template-columns: minmax(12rem, 42vw) minmax(0, 1fr);
+  }
+
+  .detail--youtube .detail-poster-wrap,
+  .detail--youtube:has(.detail-related:not(.hidden)) .detail-poster-wrap {
+    max-height: none;
+  }
+
+  .detail--youtube .detail-related-track .card--poster {
+    width: 100%;
   }
 }
 

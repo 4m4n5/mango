@@ -623,10 +623,11 @@ actual no-recommendation/utility-only surface instead.
   rows. StoryDNA teacher/network failure leaves last-good local slates usable.
 - Household exact Not for me disappears immediately, Undo restores it, and it
   creates no semantic penalty for related titles, creators, or topics.
-- YouTube orders logical positions For You, Beyond Your Subscriptions, More Like
-  …, History, Saved, then conditional From Your Subscriptions and Live Now.
+- YouTube orders logical positions For You, From Your Subscriptions, More Like
+  …, Beyond Your Subscriptions, History, then Saved, then Live Now.
   Normal rows render only with exactly four cards and can be absent under thin
-  supply; Live Now may have one to four. Rendered History/Saved stay stable.
+  supply; Live Now may have one to four. History shuffles from its cached watch
+  pool; Saved stays stable.
 - Save four distinct YouTube videos: Saved remains stable, none enters For You,
   and acquisition/affinity do not change except for exact output exclusion.
 - Open Search from TV Shows, save a known movie such as Dune, and verify it

@@ -91,13 +91,16 @@ content.
   the debounce and are replaced once as a subtree when the next set is ready;
   the header and keyboard are never rebuilt or refocused.
 - Progressive revisions reconcile groups by rail ID. Unchanged rails, decoded
-  artwork, focused nodes, and scroll state remain mounted. Later paints wait a
-  short trailing window so D-pad can drain; they are timeouts, not animation
-  frames, because pad input also used rAF and Up from the first rail to the
-  pinned scopes was waiting on the paint. Header focus does not scroll or
-  rebuild atmosphere. Search state writes are coalesced after navigation
-  settles; Detail entry and surface exit still flush immediately for
-  restart-safe restoration.
+  artwork, focused nodes, and scroll state remain mounted. Newly built rails
+  yield to pad input after each group so later rows cannot pin the main thread.
+  Later snapshot revisions wait a short trailing window before that work.
+  Header focus does not scroll or rebuild atmosphere. Search payloads are cards
+  only — no synopsis text on the wire or in the six-hour restore snapshot.
+  Search D-pad commands are never dropped as stale: leftover movement after a
+  paint hitch is coalesced into one grid step. Home still expires stale
+  movement because a hitch there often lands on a new rail. Search state writes
+  remain coalesced after navigation settles; Detail entry and surface exit still
+  flush immediately for restart-safe restoration.
 - On an ordinary Chromium self-heal, a valid persisted Search session reopens
   automatically at its query, scope, page, and focus. A playback-return snapshot
   takes precedence and restores Detail first.

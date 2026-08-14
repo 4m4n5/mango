@@ -43,7 +43,11 @@ import {
   YOUTUBE_INTERACTIVE_SEARCH_CALL_RESERVE,
   type YoutubeV2RelationType,
 } from './db.js';
-import { resolveYoutubePlayback, shouldRefreshYoutubeTransport } from './playback.js';
+import {
+  resolveYoutubePlayback,
+  shouldRefreshYoutubeTransport,
+  ytDlpFormatCandidates,
+} from './playback.js';
 import type {
   YoutubeItem,
   YoutubeItemKind,
@@ -52,7 +56,7 @@ import type {
   YoutubeRefreshPhaseResult,
   YoutubeSearchGroups,
 } from './types.js';
-import { YOUTUBE_RAIL_LIMIT } from './constants.js';
+import { YOUTUBE_RAIL_LIMIT, YOUTUBE_V2_DISPLAY_ORDER } from './constants.js';
 import type { PersonalizationSnapshot } from '../personalization-coherence.js';
 import { assertExpectedPersonalization } from '../personalization-request.js';
 import { recommendationOwnerForRollout } from '../recommendations/v2-mode.js';
@@ -77,6 +81,7 @@ import {
   youtubeV2ExactExcludedIds,
   youtubeV2MoreLikeSeeds,
   youtubeV2RecommendationRails,
+  selectYoutubeHistoryRail,
   youtubeRefreshDiagnostics,
   youtubeV2SourceStaleState,
   youtubeV2TopicSeed,
@@ -1965,19 +1970,34 @@ export class YoutubeService {
   ): Promise<Record<string, unknown>> {
     const excludeKeys = new Set(exclude.map(titleRefKey));
     const response = await this.rails();
-    const pool = response.rails.find((rail) => rail.rail_id === railId)?.items ?? [];
-    const eligible = filterNotInterested(pool, 'household').filter((item) => !excludeKeys.has(titleRefKey({
+    const preferred = railId
+      ? response.rails.find((rail) => rail.rail_id === railId)?.items ?? []
+      : [];
+    const fill = response.rails
+      .filter((rail) => !railId || rail.rail_id !== railId)
+      .flatMap((rail) => rail.items);
+    const eligible = (items: YoutubeItem[]) => filterNotInterested(items, 'household').filter((item) => (
+      !excludeKeys.has(titleRefKey({
         type: youtubeContentType(item),
         id: item.id,
-      })));
-    const picked = deterministicShuffle(
-      eligible,
-      `household:rail-related:${railId}:${[...excludeKeys].sort().join(',')}`,
-      (item) => item.id,
-    ).slice(0, Math.max(1, Math.min(limit, 24)));
+      }))
+    ));
+    const cap = Math.max(1, Math.min(limit, 24));
+    const seed = `household:rail-related:${railId || 'all'}:${[...excludeKeys].sort().join(',')}`;
+    const picked: YoutubeItem[] = [];
+    const seen = new Set<string>();
+    for (const item of [
+      ...deterministicShuffle(eligible(preferred), seed, (item) => item.id),
+      ...deterministicShuffle(eligible(fill), `${seed}:fill`, (item) => item.id),
+    ]) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      picked.push(item);
+      if (picked.length >= cap) break;
+    }
     return {
       ok: true,
-      rail_id: railId,
+      rail_id: railId || null,
       items: picked,
     };
   }
@@ -2003,9 +2023,14 @@ export class YoutubeService {
       Boolean(options.reshuffle) && mode === 'serve',
     );
     const reservedIds = new Set<string>();
-    const historyItems = youtubeV2CachedHistoryItems(YOUTUBE_RAIL_POOL_LIMIT, ownerProfileId)
-      .filter((item) => !reservedIds.has(item.id))
-      .slice(0, YOUTUBE_RAIL_LIMIT);
+    const historyItems = selectYoutubeHistoryRail(
+      youtubeV2CachedHistoryItems(YOUTUBE_RAIL_POOL_LIMIT, ownerProfileId)
+        .filter((item) => !reservedIds.has(item.id)),
+      {
+        generation: servingEpoch.generation,
+        shuffle_epoch: servingEpoch.shuffle_epoch,
+      },
+    );
     const history = historyItems.length === YOUTUBE_RAIL_LIMIT
       ? {
           rail_id: 'history',
@@ -2037,15 +2062,16 @@ export class YoutubeService {
         })
       : [];
     const byId = new Map(recommendationRails.map((rail) => [rail.rail_id, rail] as const));
-    const rails = attachSavedLibrarySources([
-      byId.get('for_you'),
-      byId.get('beyond'),
-      byId.get('more_like'),
-      history,
-      saved,
-      byId.get('new_from_subscriptions'),
-      byId.get('live_now'),
-    ].filter((rail): rail is YoutubeRail => Boolean(rail)), savedLibrarySourcesByVideoId(ownerProfileId));
+    const rails = attachSavedLibrarySources(
+      YOUTUBE_V2_DISPLAY_ORDER
+        .map((railId) => {
+          if (railId === 'history') return history;
+          if (railId === 'saved') return saved;
+          return byId.get(railId);
+        })
+        .filter((rail): rail is YoutubeRail => Boolean(rail)),
+      savedLibrarySourcesByVideoId(ownerProfileId),
+    );
     const attributionContexts = Object.fromEntries(rails.map((rail) => [
       rail.rail_id,
       {
@@ -2295,6 +2321,7 @@ export class YoutubeService {
     }
     const started = nowMs();
     const playEpoch = options.playEpoch ?? await bumpPlayEpoch();
+    const excludedFormats: string[] = [];
     let resolved = await resolveYoutubePlayback(this.config, id);
     const live = item.live_status === 'live';
     const playResolved = () => playUrl(resolved.url, 90000, {
@@ -2310,19 +2337,25 @@ export class YoutubeService {
     });
     let playback;
     try {
-      try {
-        playback = await playResolved();
-      } catch (firstError) {
-        const firstMessage = firstError instanceof Error ? firstError.message : String(firstError);
-        if (!shouldRefreshYoutubeTransport(firstMessage)) {
-          throw firstError;
+      for (;;) {
+        try {
+          playback = await playResolved();
+          break;
+        } catch (startError) {
+          const startMessage = startError instanceof Error ? startError.message : String(startError);
+          if (!shouldRefreshYoutubeTransport(startMessage)) {
+            throw startError;
+          }
+          excludedFormats.push(resolved.format);
+          if (ytDlpFormatCandidates(this.config.yt_dlp_format, excludedFormats).length === 0) {
+            throw startError;
+          }
+          await assertPlayEpoch(playEpoch);
+          resolved = await resolveYoutubePlayback(this.config, id, 30000, {
+            excludeFormats: excludedFormats,
+          });
+          await assertPlayEpoch(playEpoch);
         }
-        await assertPlayEpoch(playEpoch);
-        resolved = await resolveYoutubePlayback(this.config, id, 30000, {
-          excludeFormats: [resolved.format],
-        });
-        await assertPlayEpoch(playEpoch);
-        playback = await playResolved();
       }
     } catch (error) {
       if (error instanceof CatalogError) throw error;

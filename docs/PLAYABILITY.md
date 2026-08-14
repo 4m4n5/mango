@@ -58,9 +58,10 @@ taste-thread quotas, franchise caps, playability, and Household exclusions. It
 deals from the complete ranked reserve on demand, persists only the current plus
 four rendered slates, and advances by compare-and-swap. Story Graph keeps the
 active generation, the previous complete last-good, and any in-flight `building`
-work; older DNA/rank copies are deleted after publish. Continue and Saved keep
-their chronological/recency behavior. Shuffle performs no provider, metadata,
-graph, ranking, verification, or acquisition call.
+work; older DNA/rank copies are deleted after publish. Continue and Saved stay
+newest-first on ordinary load and recency-weighted `deep-weighted-v1` samples on
+X (Continue also weights remaining progress). Shuffle performs no provider,
+metadata, graph, ranking, verification, or acquisition call.
 
 Story Graph last-good is the active generation plus one previous complete
 copy (and any in-flight `building` work). Older DNA/rank copies, unused
@@ -75,10 +76,11 @@ never deleted.
 Couch X must feel instant: the HTTP response is the in-memory deal. For You
 playability uses the current verified-key set rather than a bulk title lookup,
 Browse v3 category/Explore deals skip `rail_session` writes, Continue/Saved are
-copied from the previous tab deal, and library/playability persistence plus
-attribution run after the body is in flight. A later X never drops while one
-deal is outstanding; it queues one trailing press. Do not add `busy_timeout` to
-`library.db` to hide writer stalls — the serving path must not wait on them.
+recency-weighted samples from local progress/Saved pools (no provider or
+metadata work), and library/playability persistence plus attribution run after
+the body is in flight. A later X never drops while one deal is outstanding; it
+queues one trailing press. Do not add `busy_timeout` to `library.db` to hide
+writer stalls — the serving path must not wait on them.
 
 This keeps Mango's candidate generation/eligibility, scoring, and final
 constraint re-ranking separate, matching Google's documented recommender

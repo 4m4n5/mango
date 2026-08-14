@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   aiCatalogWeight,
   categoryWeight,
+  dealVodUtilityRail,
   deepSamplingMasses,
   deepWeightedDeal,
   exploreWeight,
@@ -13,6 +14,7 @@ import {
   relatedScore,
   relatedWeight,
   strongestRelatedFrontier,
+  vodUtilityProgressWeight,
   weightedDeal,
 } from './vod-browse-v3.js';
 
@@ -129,6 +131,44 @@ test('utility recency weighting is bounded and rewards recent activity without e
   const old = recencyWeight(now - 365 * 24 * 60 * 60 * 1_000, 30, now);
   assert.equal(recent, 1);
   assert.ok(old >= 0.25 && old < recent);
+});
+
+test('VOD utility dealer is deterministic, epoch-sensitive, and recency-biased', () => {
+  const now = Date.UTC(2026, 7, 13);
+  const items = [
+    ...Array.from({ length: 12 }, (_, index) => ({
+      type: 'movie',
+      id: `new-${String(index).padStart(2, '0')}`,
+      saved_at: now,
+    })),
+    ...Array.from({ length: 12 }, (_, index) => ({
+      type: 'movie',
+      id: `old-${String(index).padStart(2, '0')}`,
+      saved_at: now - 400 * 24 * 60 * 60 * 1_000,
+    })),
+  ];
+  const original = structuredClone(items);
+  const weightFor = (item: (typeof items)[number]) => recencyWeight(item.saved_at, 180, now);
+  const first = dealVodUtilityRail(items, 9, 'movies:deal:7:saved', weightFor);
+  const replay = dealVodUtilityRail(items, 9, 'movies:deal:7:saved', weightFor);
+  const next = dealVodUtilityRail(items, 9, 'movies:deal:8:saved', weightFor);
+  assert.deepEqual(first, replay);
+  assert.deepEqual(items, original);
+  assert.equal(first.length, 9);
+  assert.notDeepEqual(first.map((item) => item.id), next.map((item) => item.id));
+
+  let recentSlots = 0;
+  let oldSlots = 0;
+  for (let epoch = 0; epoch < 200; epoch += 1) {
+    for (const item of dealVodUtilityRail(items, 9, `movies:deal:${epoch}:saved`, weightFor)) {
+      if (item.id.startsWith('new-')) recentSlots += 1;
+      else oldSlots += 1;
+    }
+  }
+  assert.ok(recentSlots > oldSlots);
+  assert.equal(vodUtilityProgressWeight(undefined), 1);
+  assert.equal(vodUtilityProgressWeight(0.1), 0.64);
+  assert.equal(vodUtilityProgressWeight(0.8), 0.92);
 });
 
 test('Related requires independently scored families and gives semantics most of the mass', () => {

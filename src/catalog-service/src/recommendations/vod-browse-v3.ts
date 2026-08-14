@@ -191,10 +191,42 @@ export function aiCatalogWeight(input: {
   return input.pinned ? Math.max(base, 2) : base;
 }
 
+export const VOD_UTILITY_DISPLAY_LIMIT = 9;
+export const VOD_CONTINUE_SHUFFLE_POOL = 40;
+export const VOD_SAVED_RECENCY_HALF_LIFE_DAYS = 180;
+export const VOD_CONTINUE_RECENCY_HALF_LIFE_DAYS = 30;
+
 export function recencyWeight(activityAt: number | null | undefined, halfLifeDays: number, now: number): number {
   if (!activityAt || !Number.isFinite(activityAt) || halfLifeDays <= 0) return 0.25;
   const ageDays = Math.max(0, now - activityAt) / (24 * 60 * 60 * 1_000);
   return 0.25 + 0.75 * 2 ** (-ageDays / halfLifeDays);
+}
+
+/** Modest boost for titles closer to finishing; just-started Continue rows stay eligible. */
+export function vodUtilityProgressWeight(progressPct: number | null | undefined): number {
+  if (progressPct == null || !Number.isFinite(progressPct)) return 1;
+  return 0.6 + 0.4 * clampUnit(progressPct);
+}
+
+/** Deterministic recency-weighted Home sample for Continue and Saved. */
+export function dealVodUtilityRail<T extends { type: string; id: string }>(
+  items: readonly T[],
+  limit: number,
+  seed: string,
+  weightFor: (item: T) => number,
+): T[] {
+  const bounded = Math.max(0, Math.min(Math.floor(limit), items.length));
+  if (bounded === 0) return [];
+  return deepWeightedDeal(
+    items.map((item) => ({
+      item,
+      type: item.type,
+      id: item.id,
+      weight: weightFor(item),
+    })),
+    bounded,
+    seed,
+  ).map((entry) => entry.item);
 }
 
 export type RelatedFamilyScore = {

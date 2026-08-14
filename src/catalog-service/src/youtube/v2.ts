@@ -27,7 +27,7 @@ import {
   type YoutubeV2GenerationItemInput,
   type YoutubeV2Provenance,
 } from './db.js';
-import { YOUTUBE_RAIL_LIMIT } from './constants.js';
+import { YOUTUBE_RAIL_LIMIT, YOUTUBE_V2_DISPLAY_ORDER } from './constants.js';
 import type {
   YoutubeItem,
   YoutubeRail,
@@ -969,6 +969,18 @@ export function youtubeV2CachedHistoryItems(
   return loadYoutubeV2HistorySnapshot().items.slice(0, bounded).map((item) => ({ ...item }));
 }
 
+export function selectYoutubeHistoryRail(
+  items: readonly YoutubeRailItem[],
+  input: { generation: number | null; shuffle_epoch: number; limit?: number },
+): YoutubeRailItem[] {
+  const limit = Math.max(1, input.limit ?? YOUTUBE_RAIL_LIMIT);
+  return youtubeV2WeightedShuffle(items, {
+    generation: input.generation ?? 0,
+    shuffle_epoch: input.shuffle_epoch,
+    rail_id: 'history',
+  }).slice(0, limit);
+}
+
 function stableSourceHash(
   watches: WatchAnchor[],
   subscriptions: ReturnType<typeof listYoutubeV2Subscriptions>,
@@ -1840,7 +1852,7 @@ export function youtubeV2RecommendationRailsFromSnapshot(input: {
       stale,
     });
   }
-  return ['for_you', 'beyond', 'more_like', 'new_from_subscriptions', 'live_now']
+  return YOUTUBE_V2_DISPLAY_ORDER
     .map((railId) => selected.get(railId))
     .filter((rail): rail is YoutubeRail => Boolean(rail));
 }

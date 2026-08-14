@@ -76,12 +76,13 @@ test("empty copy respects Live's no-shuffle contract", () => {
   assert.doesNotMatch(catalogEmptyCopy("live").body, /press X/i);
 });
 
-test("VOD Shuffle covers every visible VOD rail while YouTube keeps utilities stable", () => {
+test("VOD Shuffle covers every visible VOD rail while YouTube keeps Saved stable", () => {
   const curated = populatedRail("discover");
   const saved = populatedRail("saved");
   const continuing = populatedRail("continue-watching");
   const vodForYou = populatedRail("for-you-movies");
   const youtubeForYou = populatedRail("for_you");
+  const youtubeHistory = populatedRail("history");
   assert.deepEqual(
     shuffleableCatalogRails("movies", [continuing, saved, vodForYou, curated]).map((rail) => rail.id),
     ["continue-watching", "saved", "for-you-movies", "discover"],
@@ -91,9 +92,10 @@ test("VOD Shuffle covers every visible VOD rail while YouTube keeps utilities st
     ["continue-watching", "saved", "discover"],
   );
   assert.deepEqual(shuffleableCatalogRails("youtube", [saved]), []);
-  assert.deepEqual(shuffleableCatalogRails("youtube", [saved, youtubeForYou]).map((rail) => rail.id), [
-    "for_you",
-  ]);
+  assert.deepEqual(
+    shuffleableCatalogRails("youtube", [saved, youtubeHistory, youtubeForYou]).map((rail) => rail.id),
+    ["history", "for_you"],
+  );
 });
 
 test("a second Shuffle press queues instead of dropping while one deal is in flight", () => {

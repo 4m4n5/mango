@@ -209,7 +209,7 @@ state transition explicitly rather than treating shadow as invisible compute.
 | F13 | Rollback | serve → shadow/off removes For You without data loss; reviewed Git rollback is required for older ranking behavior | |
 | F14 | Quality | Human compares relevance, diversity, familiarity, novelty, multilingual fit, and repetition across Movies/TV | |
 | F15 | Shadow identity | Personal rows/counts remain intact; profile/mood writes are typed; Continue/progress and Saved ownership match the accepted Household policy with no shadow/serve divergence | |
-| F16 | Recommendation-disabled Shuffle | Off/shadow expose no `For You` or public recommendation epoch, but X still honestly changes cached category rails; no-op/exhausted pools never report false success | |
+| F16 | Recommendation-disabled Shuffle | Off/shadow expose no `For You` or public recommendation epoch, but X still honestly changes cached category rails plus Continue/Saved; no-op/exhausted pools never report false success | |
 | F17 | Explore breadth | Across twenty epochs, Explore and large categories materially exceed the old stable-head unique-title exposure; every card is verified, poster-bearing, unseen, and launchable | |
 | F18 | Related | Enriched Detail samples judge at least six of eight cards recognizably thematic; sparse titles omit honestly; current Home cards, known titles, and unverified titles are absent | |
 
@@ -242,9 +242,9 @@ source-tested at the target and must be re-proven on the Pi.
 | YT3 | Takeout | Bounded ZIP/JSON/HTML import is path-safe/idempotent; normalized events remain; raw upload is discarded | |
 | YT4 | Playback | Video B → `yt-dlp` → mpv; one selector fallback at most; couch-safe 403/429/CAPTCHA error | |
 | YT5 | Input isolation | Only authoritative OAuth subscriptions and official Takeout history influence v2; Mango-local viewing is History/progress plus exact cooldown only | |
-| YT6 | Logical order | For You, Beyond, More Like, History, Saved, then conditional Subscriptions/Live | |
+| YT6 | Logical order | For You, From Your Subscriptions, More Like, Beyond, History, then Saved, then Live | |
 | YT7 | Supply honesty | Normal rows render only at exactly four cards and can be absent; Live renders 1–4; no unrelated filler | |
-| YT8 | X/quota | X makes an independent cached weighted draw; API/search counters unchanged through 50 presses; History/Saved stable; impressions do not affect a replayed epoch | |
+| YT8 | X/quota | X makes an independent cached weighted draw; API/search counters unchanged through 50 presses; History shuffles from its watch pool; Saved stable; impressions do not affect a replayed epoch | |
 | YT9 | For You | Quality-gated official-Takeout history/subscription evidence, with both source families visible when both have eligible supply; exact meaningful watches are absent for 30 days while Saved/Short/live exclusions remain exact | |
 | YT10 | Beyond/More Like | Beyond excludes subscribed creators; nightly More Like diagnostics prove up to ten opaque official-Takeout seeds, at least eight contributing topics when supply permits, continued quality-gated fill toward no more than 512 published candidates, and creator/seed caps plus within-slate/global dedupe | |
 | YT11 | Not for me | Exact reversible video suppression only; no creator/topic penalty | |
@@ -267,6 +267,7 @@ absence of that feed is not a defect in Mango's supported model.
 | S3 | X | Tap deletes one character; hold ≥600 ms clears; returning Home restores current-tab X | |
 | S4 | Local | Verified Movies/TV plus cached proven Live/YouTube appear quickly without submit | |
 | S5 | Submit | External VOD, unknown Live, YouTube, optional AI phases progress independently | |
+| S5A | Results D-pad | After cards appear, D-pad moves immediately on the first rail; later rails must not freeze input | |
 | S6 | Partial failure | One degraded source cannot erase usable rows; state/copy says which phase failed | |
 | S7 | Quota | Cached result first; admitted fresh YouTube work respects protected interactive budgets | |
 | S8 | Detail/playback return | Query, scope, results, focus, scroll, and origin survive Detail and playback | |

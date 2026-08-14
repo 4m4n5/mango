@@ -100,6 +100,11 @@ assert phases.get("live", {}).get("status") == "skipped"
 assert phases.get("ai", {}).get("status") == "skipped"
 assert phases.get("youtube", {}).get("status") in {"ready", "empty", "degraded"}
 assert all(isinstance(group.get("items"), list) for group in data["groups"])
+assert all(
+    "description" not in item
+    for group in data["groups"]
+    for item in group.get("items", [])
+)
 PY
 then
   gate_pass "progressive long-poll completed with cache-only phase isolation"

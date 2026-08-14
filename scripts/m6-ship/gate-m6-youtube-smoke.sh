@@ -257,8 +257,8 @@ if mode == "serve":
         assert setup_required is True
 
     allowed_order = [
-        "for_you", "beyond", "more_like", "history", "saved",
-        "new_from_subscriptions", "live_now",
+        "for_you", "new_from_subscriptions", "more_like", "beyond",
+        "history", "saved", "live_now",
     ]
     rail_ids = [(rail or {}).get("rail_id") for rail in rails]
     assert len(rail_ids) == len(set(rail_ids)), "v2 YouTube rails contain duplicate IDs"

@@ -109,9 +109,14 @@ import {
   type VodBrowseAffinitySnapshot,
 } from './recommendations/story-graph-service.js';
 import {
+  dealVodUtilityRail,
   recencyWeight,
   vodBrowseV3Mode,
-  weightedDeal,
+  vodUtilityProgressWeight,
+  VOD_CONTINUE_RECENCY_HALF_LIFE_DAYS,
+  VOD_CONTINUE_SHUFFLE_POOL,
+  VOD_SAVED_RECENCY_HALF_LIFE_DAYS,
+  VOD_UTILITY_DISPLAY_LIMIT,
 } from './recommendations/vod-browse-v3.js';
 import { vodRecommendationsV2Mode } from './recommendations/v2-mode.js';
 import {
@@ -401,7 +406,7 @@ export type ProfileOwnedTabRailItemsResponse = TabRailItemsResponse & {
 export function vodUtilityRailMembershipMatches(
   rail: RailItemsResponse | undefined,
   currentKeys: ReadonlySet<string>,
-  limit = 9,
+  limit = VOD_UTILITY_DISPLAY_LIMIT,
 ): boolean {
   const items = rail?.items ?? [];
   return items.length === Math.min(limit, currentKeys.size)
@@ -2376,15 +2381,13 @@ export class CatalogCore {
       household_blend: vodUtilityHouseholdBlend(tab, profileId),
     }).filter((item) => !options.excludeKeys?.has(titleKey(item.type, item.id)));
     const selectedSavedItems = options.shuffleSeed
-      ? weightedDeal(
-        savedItems.map((item) => ({
-          ...item,
-          weight: recencyWeight(item.saved_at, 180, started),
-        })),
-        Math.min(9, savedItems.length),
+      ? dealVodUtilityRail(
+        savedItems,
+        VOD_UTILITY_DISPLAY_LIMIT,
         `${options.shuffleSeed}:saved`,
+        (item) => recencyWeight(item.saved_at, VOD_SAVED_RECENCY_HALF_LIFE_DAYS, started),
       )
-      : savedItems;
+      : savedItems.slice(0, VOD_UTILITY_DISPLAY_LIMIT);
     const items = await mapInBatches(
       selectedSavedItems,
       RAIL_META_CONCURRENCY,
@@ -2414,17 +2417,22 @@ export class CatalogCore {
     options: { shuffleSeed?: string } = {},
   ): Promise<RailItemsResponse> {
     const started = Date.now();
-    const candidates = listContinueItems(tab, undefined, { profile_id: profileId });
+    const candidates = listContinueItems(
+      tab,
+      options.shuffleSeed ? VOD_CONTINUE_SHUFFLE_POOL : undefined,
+      { profile_id: profileId },
+    );
     const selected = options.shuffleSeed
-      ? weightedDeal(
-        candidates.map((candidate) => ({
-          ...candidate,
-          weight: recencyWeight(candidate.activity_at, 30, started),
-        })),
-        Math.min(9, candidates.length),
+      ? dealVodUtilityRail(
+        candidates,
+        VOD_UTILITY_DISPLAY_LIMIT,
         `${options.shuffleSeed}:continue`,
+        (candidate) => (
+          recencyWeight(candidate.activity_at, VOD_CONTINUE_RECENCY_HALF_LIFE_DAYS, started)
+          * vodUtilityProgressWeight(candidate.progress.progress_pct)
+        ),
       )
-      : candidates;
+      : candidates.slice(0, VOD_UTILITY_DISPLAY_LIMIT);
     const items = selected.map((candidate) => ({
       id: candidate.id,
       type: candidate.type,
@@ -2584,19 +2592,10 @@ export class CatalogCore {
     ).catch(() => undefined);
   }
 
-  private cloneStoredUtilityRail(
-    stored: { payload_json: string } | null,
-    railId: string,
-  ): RailItemsResponse | null {
-    if (!stored) return null;
-    try {
-      const previous = JSON.parse(stored.payload_json) as TabRailItemsResponse;
-      const rail = previous.rails.find((entry) => entry.rail_id === railId);
-      if (!rail) return null;
-      return { ...rail, items: rail.items.map((item) => ({ ...item })) };
-    } catch {
-      return null;
-    }
+  private allocateVodUtilityShuffleSeed(tab: VodRecommendationTab): string {
+    const nextEpoch = (this.vodBrowseDealEpoch.get(tab) ?? -1) + 1;
+    this.vodBrowseDealEpoch.set(tab, nextEpoch);
+    return `${tab}:deal:${nextEpoch}`;
   }
 
   private enqueueVodBrowsePersist(work: () => Promise<void>): void {
@@ -2615,7 +2614,7 @@ export class CatalogCore {
       profile_id: profileId,
       household_blend: vodUtilityHouseholdBlend(tab, profileId),
     }).map((item) => titleKey(item.type, item.id)));
-    const currentContinue = new Set(listContinueItems(tab, undefined, {
+    const currentContinue = new Set(listContinueItems(tab, VOD_CONTINUE_SHUFFLE_POOL, {
       profile_id: profileId,
     }).map((item) => titleKey(item.type, item.id)));
     const dealableSaved = new Set([...currentSaved].filter((key) => !currentContinue.has(key)));
@@ -2727,24 +2726,15 @@ export class CatalogCore {
       }
     }
     try {
-      const continueRail = reshuffle
-        ? this.cloneStoredUtilityRail(stored, CONTINUE_RAIL_ID)
-          ?? await this.buildContinueRail(tab, utilityProfileId)
-        : await this.buildContinueRail(tab, utilityProfileId, {
-          shuffleSeed: dealSeed,
-        });
+      const continueRail = await this.buildContinueRail(tab, utilityProfileId, {
+        shuffleSeed: reshuffle ? dealSeed : undefined,
+      });
       const continueKeys = new Set(continueRail.items.map((item) => titleKey(item.type, item.id)));
-      const savedRail = reshuffle
-        ? this.cloneStoredUtilityRail(stored, SAVED_RAIL_ID)
-          ?? await this.buildSavedRail(tab, utilityProfileId, {
-            cachedOnly: true,
-            excludeKeys: continueKeys,
-          })
-        : await this.buildSavedRail(tab, utilityProfileId, {
-          cachedOnly: true,
-          shuffleSeed: dealSeed,
-          excludeKeys: continueKeys,
-        });
+      const savedRail = await this.buildSavedRail(tab, utilityProfileId, {
+        cachedOnly: true,
+        shuffleSeed: reshuffle ? dealSeed : undefined,
+        excludeKeys: continueKeys,
+      });
       const utilityKeys = new Set([
         ...continueKeys,
         ...savedRail.items.map((item) => titleKey(item.type, item.id)),
@@ -2980,8 +2970,12 @@ export class CatalogCore {
     }
     const rails = this.browsableRailsForTab(tab);
     const shufflePolicy = vodDiscoveryShufflePolicy(tab, reshuffle);
+    const utilityProfileId = vodUtilityProfileId(tab, personalization.active_profile_id);
+    const utilityShuffleSeed = reshuffle && (tab === 'movies' || tab === 'series')
+      ? this.allocateVodUtilityShuffleSeed(tab)
+      : undefined;
     const cachedUtilityRail = (railId: string): RailItemsResponse | null => (
-      shufflePolicy.cachedOnly
+      !utilityShuffleSeed && shufflePolicy.cachedOnly
         ? cachedTab?.payload.rails.find((rail) => rail.rail_id === railId) ?? null
         : null
     );
@@ -2993,13 +2987,14 @@ export class CatalogCore {
         minDisplay: rail.playability.min_display,
         playability: rail.playability,
       })),
-      // Manual VOD shuffle is tab-scoped: every category rail gets a fresh
-      // deal, while utility rails are rebuilt in their chronological order.
+      // Manual VOD shuffle is tab-scoped: category rails and Continue/Saved
+      // each take a fresh cached deal. Continue/Saved use recency-weighted
+      // sampling; they never wait on provider or metadata work.
       forceReshuffle: shufflePolicy.forceCuratedReshuffle,
       stableRatio: shufflePolicy.stableRatio,
     });
 
-    const [railResponses, continueRail, savedRail] = await Promise.all([
+    const [railResponses, continueRail] = await Promise.all([
       Promise.all(
         rails.map(async (rail) => {
           const session = sessions.get(rail.id);
@@ -3011,14 +3006,20 @@ export class CatalogCore {
       ),
       cachedUtilityRail(CONTINUE_RAIL_ID) ?? this.buildContinueRail(
         tab,
-        vodUtilityProfileId(tab, personalization.active_profile_id),
-      ),
-      cachedUtilityRail(SAVED_RAIL_ID) ?? this.buildSavedRail(
-        tab,
-        vodUtilityProfileId(tab, personalization.active_profile_id),
-        { cachedOnly: shufflePolicy.cachedOnly },
+        utilityProfileId,
+        { shuffleSeed: utilityShuffleSeed },
       ),
     ]);
+    const continueKeys = new Set(continueRail.items.map((item) => titleKey(item.type, item.id)));
+    const savedRail = cachedUtilityRail(SAVED_RAIL_ID) ?? await this.buildSavedRail(
+      tab,
+      utilityProfileId,
+      {
+        cachedOnly: shufflePolicy.cachedOnly,
+        shuffleSeed: utilityShuffleSeed,
+        excludeKeys: continueKeys,
+      },
+    );
 
     const responses = railResponses.filter((rail): rail is RailItemsResponse => rail !== null);
     const forYouRail = tab === 'movies' || tab === 'series'

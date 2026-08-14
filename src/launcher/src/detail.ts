@@ -27,7 +27,7 @@ import {
   type PlaybackOrigin,
 } from "./playback-return";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
-import { formatRailLabel, posterRevealMeta } from "./home";
+import { formatRailLabel, isLandscapeCard, posterRevealMeta, shouldShowLivePill } from "./home";
 import { MINIMAL_VOD_POSTER_LABELS } from "./ui-flags";
 import { CatalogOwnershipChangedError, playErrorMessage } from "./catalog-errors";
 import { reconcileEpisodePlayTimeout } from "./playback-reconciliation";
@@ -39,11 +39,15 @@ import {
 } from "./personalization";
 import { tabForCard } from "./library-tab";
 
-// The row spans the full width beneath the side panel, so seven 228px cards fit
-// (1706px of 1728). One spare is still fetched because a title is filtered out of
-// its own related list.
+// VOD related stays seven portrait cards across the full-width row. YouTube uses
+// four landscape cards with titles under the thumb, matching Home rails.
 const RELATED_DISPLAY_LIMIT = 7;
-const RELATED_FETCH_LIMIT = RELATED_DISPLAY_LIMIT + 1;
+const YOUTUBE_RELATED_DISPLAY_LIMIT = 4;
+
+export function relatedTitlesLimit(tab: BrowseTab): { display: number; fetch: number } {
+  const display = tab === "youtube" ? YOUTUBE_RELATED_DISPLAY_LIMIT : RELATED_DISPLAY_LIMIT;
+  return { display, fetch: display + 1 };
+}
 
 /** Play-only / floor steps — never styled as verified in the side-list. */
 const UNVERIFIED_STREAM_STEPS = new Set([
@@ -310,6 +314,7 @@ export class DetailController {
       backdrop.src = resolveCardPosterUrl(card, "large");
       bindPosterImage(backdrop, "");
     }
+    this.view.classList.toggle("detail--youtube", canonicalTab === "youtube");
     this.view.classList.remove("hidden");
     const isLive = canonicalTab === "live";
     const isYoutube = canonicalTab === "youtube";
@@ -382,6 +387,7 @@ export class DetailController {
     this.homeVisibleCards = [];
     this.relatedLoadToken += 1;
     this.origin = { surface: "home" };
+    this.view.classList.remove("detail--youtube");
     this.view.classList.add("hidden");
     this.callbacks.onClose(origin);
   }
@@ -961,7 +967,12 @@ export class DetailController {
     const token = this.relatedLoadToken + 1;
     this.relatedLoadToken = token;
     try {
-      const related = await loadRailRelatedCards(card, this.homeVisibleCards, tab, RELATED_FETCH_LIMIT);
+      const related = await loadRailRelatedCards(
+        card,
+        this.homeVisibleCards,
+        tab,
+        relatedTitlesLimit(tab).fetch,
+      );
       if (token !== this.relatedLoadToken || this.card?.id !== card.id || this.card?.type !== card.type) {
         return;
       }
@@ -981,7 +992,7 @@ export class DetailController {
     const card = this.card;
     const siblings = related
       .filter((sibling) => !card || sibling.id !== card.id || sibling.type !== card.type)
-      .slice(0, RELATED_DISPLAY_LIMIT);
+      .slice(0, relatedTitlesLimit(tab).display);
     if (siblings.length === 0) {
       this.relatedWrap.classList.add("hidden");
       return;
@@ -1012,14 +1023,19 @@ export class DetailController {
   ): HTMLButtonElement {
     const button = document.createElement("button");
     button.type = "button";
+    const landscape = isLandscapeCard(sibling, tab);
     // Same reveal-on-focus treatment as the home rails: a wall of permanently
     // labelled posters is duplicated text noise, since the art carries the title.
     // Gated on tab exactly as home.ts gates it, so the two surfaces cannot drift
-    // into showing labels under different conditions.
-    const minimalLabels = MINIMAL_VOD_POSTER_LABELS && (tab === "movies" || tab === "series");
-    button.className = minimalLabels
-      ? "card card--poster card--portrait card--related card--poster-minimal"
-      : "card card--poster card--portrait card--related";
+    // into showing labels under different conditions. Landscape cards always show
+    // title text under the thumb, matching Home YouTube rails.
+    const minimalLabels = MINIMAL_VOD_POSTER_LABELS
+      && !landscape
+      && (tab === "movies" || tab === "series");
+    button.className = `card card--poster card--related${landscape ? " card--landscape" : " card--portrait"}`;
+    if (minimalLabels) {
+      button.classList.add("card--poster-minimal");
+    }
     button.dataset.focusKey = `detail:related:${sibling.type}:${sibling.id}`;
     button.setAttribute("role", "listitem");
     button.setAttribute("aria-label", `${sibling.title}, ${sibling.subtitle}`);
@@ -1044,10 +1060,40 @@ export class DetailController {
     content.className = "poster-content";
     content.append(title, subtitle);
 
-    const shade = document.createElement("span");
-    shade.className = "poster-shade";
-    shade.setAttribute("aria-hidden", "true");
-    button.append(poster, shade, content);
+    const livePill = shouldShowLivePill(sibling, tab)
+      ? (() => {
+          const pill = document.createElement("span");
+          pill.className = "card-live-pill";
+          pill.textContent = "live";
+          pill.setAttribute("aria-hidden", "true");
+          return pill;
+        })()
+      : null;
+
+    if (landscape) {
+      const frame = document.createElement("span");
+      frame.className = "poster-frame";
+      frame.append(poster);
+      if (sibling.progressPct !== undefined && sibling.progressPct > 0) {
+        const progress = document.createElement("span");
+        progress.className = "poster-progress";
+        progress.setAttribute("aria-hidden", "true");
+        progress.style.setProperty("--progress", `${Math.round(sibling.progressPct * 100)}%`);
+        frame.append(progress);
+      }
+      if (livePill) {
+        frame.append(livePill);
+      }
+      button.append(frame, content);
+    } else {
+      const shade = document.createElement("span");
+      shade.className = "poster-shade";
+      shade.setAttribute("aria-hidden", "true");
+      button.append(poster, shade, content);
+      if (livePill) {
+        button.append(livePill);
+      }
+    }
 
     button.addEventListener("click", () => {
       const saved = this.callbacks.isSaved?.(sibling) ?? false;

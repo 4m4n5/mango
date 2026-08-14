@@ -79,17 +79,22 @@ activating a personal-profile ranker.
 
 Playback resolves with `yt-dlp -g` and starts mpv on those direct URLs. The
 selector is adaptive DASH only (`bv*+ba`, highest up to 4K), ranked by
-`--format-sort` (resolution, fps, HDR, then codec). Mango does not pin
-`player_client`: yt-dlp's default clients are what still expose DASH
-googlevideo URLs, and a forced `tv,android,ios` set replaced them and left
-only muxed itag 18 (360p). Muxed progressive is never a candidate. If mpv
-rejects the first split stream before the first frame, Mango performs one
-fresh resolve with that exact selector excluded and retries H.264+AAC DASH.
-YouTube 30 fps stays on 1080p60 HDMI (not 30 Hz); film 24 fps still matches
-24 Hz. It never loops formats at couch time and this path uses no YouTube
-Data API quota. Legacy `/etc/mango` selectors that slash-or to `best` are
-upgraded to the same adaptive policy. Operators may set
-`MANGO_YTDLP_EXTRACTOR_ARGS` only as an explicit override.
+`--format-sort` (resolution, fps, then VP9 SDR before VP9.2 HDR). Pi 5 can
+hardware-decode HEVC (VOD 4K) but YouTube 4K is VP9/AV1 software; preferring
+HDR VP9.2 made mpv reject the stream and the only retry was 1080p H.264.
+If mpv rejects the first split stream, Mango retries 1440p DASH, then
+H.264+AAC 1080p DASH. Muxed progressive is never a candidate. Mango does not
+pin `player_client`: a forced `tv,android,ios` set replaced yt-dlp defaults
+and left only muxed itag 18 (360p). Resolve passes `--js-runtimes node`
+because this yt-dlp enables only deno by default and the Pi has node; without
+a JS runtime, web formats are skipped. YouTube 30 fps stays on 1080p60 HDMI
+(not 30 Hz); film 24 fps still matches 24 Hz. Many YouTube titles simply have
+no 4K encode — the cap is then YouTube's, not Mango's. Couch retries walk a
+short DASH ladder (4K adaptive → 1440 → 1080p H.264), not every itag. This
+path uses no YouTube Data API quota. Legacy
+`/etc/mango` selectors that slash-or to `best` are upgraded to the same
+adaptive policy. Operators may set `MANGO_YTDLP_EXTRACTOR_ARGS` or
+`MANGO_YTDLP_JS_RUNTIMES` only as explicit overrides.
 
 ---
 
@@ -143,8 +148,8 @@ That blocker does not change the `yt-dlp` ownership contract.
 | `GET` | `/youtube/companion/auth/poll?session_id=` | Sanitized status plus account/sync state after automatic authoritative refresh |
 | `POST` | `/youtube/companion/auth/disconnect` | Sanitized `{ "ok": true }` only |
 | `POST` | `/youtube/refresh` | Enqueue metadata/cache refresh; returns HTTP 202 and a durable job ID |
-| `GET` | `/youtube/rails` | History/Saved utility rails in off/shadow; five ordered v2 logical positions plus conditional subscriptions/live in serve |
-| `GET` | `/youtube/rails?reshuffle=1` | Advance cached recommendation/discovery/subscription/live slates; History/Saved stay stable; no API, acquisition, or ranking work |
+| `GET` | `/youtube/rails` | History/Saved utility rails in off/shadow; ordered v2 rails plus History/Saved/Live in serve |
+| `GET` | `/youtube/rails?reshuffle=1` | Advance cached recommendation/discovery/subscription/live/history slates; Saved stays stable; no API, acquisition, or ranking work |
 | `POST` | `/youtube/takeout/import` | Localhost-only streamed ZIP/JSON/HTML history import; stores normalized events/diagnostics and discards raw input |
 | `POST` | `/youtube/impressions` | Validate opaque served tokens and record exact rendered membership against the server-owned Household generation/context; never URLs |
 | `GET` | `/youtube/search?q=` | Grouped Videos / Channels / Playlists |
@@ -374,19 +379,18 @@ eligible utility rails remain. Exact active-personal ownership in `off` is
 source-tested at the target and remains a Pi rollback check.
 
 - Browse tabs are **Movies · TV Shows · Live · YouTube**.
-- Five visually equal logical core positions are ordered **For You → Beyond Your
-  Subscriptions → More Like … → History → Saved**. A normal row renders only
-  when it has exactly four globally unique landscape cards, so thin supply can
-  omit any position (including History/Saved). **From Your Subscriptions**
-  follows when an authenticated authoritative snapshot has enough supply, and
-  **Live Now** follows when subscribed channels have live content.
+- Display order is **For You → From Your Subscriptions → More Like … → Beyond Your
+  Subscriptions → History**. **Saved** follows as a stable utility when it has
+  four cards. **Live Now** follows when subscribed channels have live content.
+  A normal row renders only when it has exactly four globally unique landscape
+  cards, so thin supply can omit any position (including History/Saved).
 - `Live Now` may contain one to four cards instead of receiving unrelated filler.
-- History is newest-first across normalized Takeout and resolvable Mango-local
-  launches, including bare starts. Only Takeout watches seed recommendations;
-  meaningful Mango-local watches start only the rolling 30-day exact-video
-  cooldown. Saved is explicit utility
-  state. Both rails are
-  chronological/stable and neither affects recommendation scoring.
+- History is a recency-weighted sample of normalized Takeout and resolvable
+  Mango-local launches, including bare starts. X redraws four cards from that
+  cached pool. Only Takeout watches seed recommendations; meaningful
+  Mango-local watches start only the rolling 30-day exact-video cooldown. Saved
+  is explicit utility state, stays stable across X, and has zero recommendation
+  scoring influence.
 - For You uses quality-gated official-history and subscription evidence and
   includes both source families when both have eligible supply. History
   affinity rises from 0.60 to 1.00 with decayed strength; subscription-backed
@@ -414,7 +418,7 @@ source-tested at the target and remains a Pi rollback check.
   cached item shape has no aspect ratio, so v2 conservatively treats every
   video at or below 180 seconds (or explicitly tagged `#shorts`) as a Short;
   this can exclude a landscape clip but fails closed against vertical Shorts.
-- X advances only published recommendation/discovery/subscription/live slates.
+- X advances published recommendation/discovery/subscription/live/history slates.
   Each epoch is an independent deterministic quality-weighted draw. Four cards
   are sampled without replacement inside the current response, but a later X
   may legitimately repeat one; there is no exposure counter, recent-slate
@@ -458,11 +462,11 @@ keeps a positive path to the eligible tail.
 | Rail | Role | Source of truth | X behavior |
 |------|------|-----------------|------------|
 | For You | Core | Published rank from history + subscriptions only | Independent cached weighted draw |
-| Beyond Your Subscriptions | Core | Provenance-gated history/subscription topic acquisition; subscribed creators excluded | Independent cached weighted draw |
-| More Like … | Conditional core position | Up to ten daily-stable official-history seeds, seek eight contributing topics, and continue bounded quality-gated fill toward cap 512; thematic four, sparse-history exact-channel four, or honest omission | Independent cached weighted draw |
-| History | Core utility | Normalized Takeout + resolvable Mango-local launches, including bare starts, in `library.db` | Never shuffled |
-| Saved | Core utility | Explicit Household state in `library.db`; zero rank influence | Never shuffled |
 | From Your Subscriptions | Conditional | Newest unwatched uploads from the authoritative snapshot | Independent cached weighted draw |
+| More Like … | Conditional core position | Up to ten daily-stable official-history seeds, seek eight contributing topics, and continue bounded quality-gated fill toward cap 512; thematic four, sparse-history exact-channel four, or honest omission | Independent cached weighted draw |
+| Beyond Your Subscriptions | Core | Provenance-gated history/subscription topic acquisition; subscribed creators excluded | Independent cached weighted draw |
+| History | Core utility | Normalized Takeout + resolvable Mango-local launches, including bare starts, in `library.db` | Independent cached weighted draw |
+| Saved | Core utility | Explicit Household state in `library.db`; zero rank influence | Never shuffled |
 | Live Now | Conditional | Currently live streams from subscribed channels only | Independent cached weighted draw; 1–4 cards allowed |
 
 Specialized rails allocate first, then For You fills, while the display order

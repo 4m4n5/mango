@@ -393,10 +393,9 @@ playback, but `yt-dlp` failures such as 403/429/CAPTCHA are surfaced as
 couch-safe playback errors. Channels and playlists open detail lists; only
 videos can be Saved in M6.2.
 
-In `serve`, YouTube v2 has five logical core positions in this order: **For You → Beyond Your
-Subscriptions → More Like … → History → Saved**. **From Your Subscriptions** is
-sixth when an authoritative authenticated subscription snapshot exists, and
-**Live Now** is seventh when subscribed channels have live content. Normal rows
+In `serve`, YouTube v2 display order is **For You → From Your Subscriptions → More Like … → Beyond Your
+Subscriptions → History**. **Saved** follows as a stable utility when it has four
+cards, and **Live Now** follows when subscribed channels have live content. Normal rows
 render only with exactly four globally unique landscape cards; therefore a
 logical position can be absent when supply is thin. Live Now may contain one to
 four.
@@ -774,7 +773,7 @@ See [PLAYABILITY.md](PLAYABILITY.md) for play-first policy.
 | `GET` | `/youtube/companion/auth/poll?session_id=` | Loopback upstream for sanitized OAuth poll |
 | `POST` | `/youtube/companion/auth/disconnect` | Loopback upstream for sanitized disconnect |
 | `POST` | `/youtube/refresh` | Fill/update cache and recommender rails |
-| `GET` | `/youtube/rails` | Exact active-profile History/Saved in off; exact Household utilities in shadow; five ordered latest-v2 logical positions plus conditional subscriptions/live in serve |
+| `GET` | `/youtube/rails` | Exact active-profile History/Saved in off; exact Household utilities in shadow; ordered latest-v2 rails plus History/Saved/Live in serve |
 | `POST` | `/youtube/takeout/import` | Localhost-only streaming ZIP/JSON/HTML history import; normalized events only, raw upload discarded |
 | `POST` | `/youtube/impressions` | Token-validate exact rendered membership against server-owned source revision and context; no URLs |
 | `GET` | `/youtube/search?q=` | Grouped videos/channels/playlists |

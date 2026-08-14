@@ -319,13 +319,13 @@ function mapYoutubeItem(
 
 function mapYoutubeRails(data: YoutubeRailResponse): ContentRail[] {
   // Rail allocation/order belongs to the catalog service. In particular,
-  // YouTube v2 has five equal core rows plus conditional source rows; launcher
+  // YouTube v2 has a fixed display order plus conditional source rows; launcher
   // regrouping would silently undo that couch contract.
   const rails: ContentRail[] = data.rails.map((rail) => ({
     id: rail.rail_id,
     label: rail.stale ? `${rail.label} · stale` : rail.label,
     // The catalog service owns cross-rail allocation and has access to deeper
-    // reserves. Preserve its stable History/Saved anchors and last-resort thin
+    // reserves. Preserve its stable Saved anchor and last-resort thin
     // cache fallbacks instead of thinning rows again in the launcher.
     cards: rail.items.map((item) => mapYoutubeItem(
       item,
@@ -459,9 +459,8 @@ export async function loadRailRelatedCards(
   const exclude = buildExcludeParam(homeVisible, card);
   try {
     if (tab === "youtube" || card.source === "youtube") {
-      if (!railId) return pickRelatedFallback(homeVisible, card, limit);
       const data = await fetchJson<{ items: YoutubeItem[] }>(
-        `/api/catalog/youtube/related?rail_id=${encodeURIComponent(railId)}&exclude=${encodeURIComponent(exclude)}&limit=${limit}`,
+        `/api/catalog/youtube/related?rail_id=${encodeURIComponent(railId ?? "")}&exclude=${encodeURIComponent(exclude)}&limit=${limit}`,
         undefined,
         8000,
       );

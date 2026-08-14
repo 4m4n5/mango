@@ -178,6 +178,28 @@ function phase(status: SearchPhase['status'], message?: string): SearchPhase {
   return message ? { status, message } : { status };
 }
 
+function withoutDescription(item: SearchResult): SearchResult {
+  if (item.description === undefined) return item;
+  const { description: _omit, ...rest } = item;
+  return rest;
+}
+
+function launcherSearchGroup(
+  id: string,
+  label: string,
+  layout: SearchGroup['layout'],
+  items: SearchResult[],
+): SearchGroup {
+  return {
+    id,
+    label,
+    layout,
+    items: items.map(withoutDescription),
+    total: items.length,
+    status: 'ready',
+  };
+}
+
 function emptyGroup(
   id: string,
   label: string,
@@ -802,19 +824,30 @@ export class UnifiedSearchService {
     const external = uniqueRanked(job.results.external.filter((item) => !item.in_library), boosts);
     const related = uniqueRanked(job.results.related, boosts);
     const groups: SearchGroup[] = [];
-    if (top.length > 0) groups.push({ id: 'top', label: 'Top results', layout: 'landscape', items: top, total: top.length, status: 'ready' });
-    if (movies.length > 0) groups.push({ id: 'movies', label: 'Movies', layout: 'poster', items: movies, total: movies.length, status: 'ready' });
-    if (series.length > 0) groups.push({ id: 'series', label: 'TV shows', layout: 'poster', items: series, total: series.length, status: 'ready' });
-    if (live.length > 0) groups.push({ id: 'live', label: 'Live', layout: 'landscape', items: live, total: live.length, status: 'ready' });
-    if (youtubeVideos.length > 0) groups.push({ id: 'youtube', label: 'YouTube', layout: 'landscape', items: youtubeVideos, total: youtubeVideos.length, status: 'ready' });
+    if (top.length > 0) groups.push(launcherSearchGroup('top', 'Top results', 'landscape', top));
+    if (movies.length > 0) groups.push(launcherSearchGroup('movies', 'Movies', 'poster', movies));
+    if (series.length > 0) groups.push(launcherSearchGroup('series', 'TV shows', 'poster', series));
+    if (live.length > 0) groups.push(launcherSearchGroup('live', 'Live', 'landscape', live));
+    if (youtubeVideos.length > 0) {
+      groups.push(launcherSearchGroup('youtube', 'YouTube', 'landscape', youtubeVideos));
+    }
     if (job.snapshot.scope === 'youtube' && youtubeChannels.length > 0) {
-      groups.push({ id: 'youtube_channels', label: 'Channels', layout: 'landscape', items: youtubeChannels, total: youtubeChannels.length, status: 'ready' });
+      groups.push(launcherSearchGroup('youtube_channels', 'Channels', 'landscape', youtubeChannels));
     }
     if (job.snapshot.scope === 'youtube' && youtubePlaylists.length > 0) {
-      groups.push({ id: 'youtube_playlists', label: 'Playlists', layout: 'landscape', items: youtubePlaylists, total: youtubePlaylists.length, status: 'ready' });
+      groups.push(launcherSearchGroup(
+        'youtube_playlists',
+        'Playlists',
+        'landscape',
+        youtubePlaylists,
+      ));
     }
-    if (external.length > 0) groups.push({ id: 'external', label: 'More movies & shows', layout: 'poster', items: external, total: external.length, status: 'ready' });
-    if (related.length > 0) groups.push({ id: 'related', label: 'Related to your search', layout: 'landscape', items: related, total: related.length, status: 'ready' });
+    if (external.length > 0) {
+      groups.push(launcherSearchGroup('external', 'More movies & shows', 'poster', external));
+    }
+    if (related.length > 0) {
+      groups.push(launcherSearchGroup('related', 'Related to your search', 'landscape', related));
+    }
     if (groups.length === 0 && job.snapshot.complete) {
       groups.push(emptyGroup('empty', 'No results', 'landscape', 'empty', 'Try another title, channel, or topic'));
     }
