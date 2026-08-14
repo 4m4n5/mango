@@ -3,16 +3,13 @@
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
 Latest recorded Pi deployment: **2026-08-13**,
-`333e663650c98ae2290e98e7cfedd4890942dc0a`. YouTube resolve no longer pins
-`player_client`; muxed 360p is not a candidate. Catalog-service was rebuilt and
-restarted on this SHA. The standard pre-couch gate, Search smoke, and YouTube
-smoke all **PASS**. A Pi `yt-dlp` print with the catalog selector (no extractor
-args) selected `299+251` 1080p on the Household video that previously listed
-only itag 18; smoke does not play video, so HUD start-height remains
-couch-deferred. Reliability remains usable-yellow (`broken_verified=3/32`). The
-pad router is waiting for the 8BitDo. Human couch verdict remains **DEFERRED**.
-Prior 2026-08-13 line `9c0dd4e` still records Search Up-to-scopes input
-decoupling; that SHA's client pin is what left only itag 18. Use `git status`,
+`f8da9bcab2d570619a4c4a0a8fbe2a9a8074acc6`. YouTube 30 fps now matches 1080p60
+HDMI instead of 30 Hz (the hitch on this TV); film 24 Hz is unchanged. Catalog
+runtime is still the `333e663` DASH-default build. The standard pre-couch gate
+and YouTube smoke **PASS**. Reliability remains usable-yellow
+(`broken_verified=4/32`). The pad router is waiting for the 8BitDo. Human couch
+verdict remains **DEFERRED**. Prior 2026-08-13 line `333e663` still records
+dropping the `player_client` pin that left only itag 18. Use `git status`,
 `git rev-parse HEAD`, and the Pi commands below before acting.
 
 ## How to read this page
