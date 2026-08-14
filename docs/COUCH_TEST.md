@@ -241,13 +241,13 @@ source-tested at the target and must be re-proven on the Pi.
 | YT2 | Connect | Companion device flow succeeds; token stays `/etc/mango`, 0600; LAN status DTO stays sanitized | |
 | YT3 | Takeout | Bounded ZIP/JSON/HTML import is path-safe/idempotent; normalized events remain; raw upload is discarded | |
 | YT4 | Playback | Video B → `yt-dlp` → mpv; one selector fallback at most; couch-safe 403/429/CAPTCHA error | |
-| YT5 | Input isolation | Only authoritative OAuth subscriptions and official Takeout history influence v2; Mango-local viewing is History/progress plus exact cooldown only | |
-| YT6 | Logical order | For You, From Your Subscriptions, More Like, Beyond, History, then Saved, then Live | |
+| YT5 | Input isolation | Authoritative OAuth subscriptions, official Takeout history, and Mango-local meaningful watches influence v3; Search/Saved/mood/VOD/companion stay isolated | |
+| YT6 | Logical order | For You, From Your Subscriptions, Your regulars, More Like, Beyond, History, then Saved, then Live | |
 | YT7 | Supply honesty | Normal rows render only at exactly four cards and can be absent; Live renders 1–4; no unrelated filler | |
 | YT8 | X/quota | X makes an independent cached weighted draw; API/search counters unchanged through 50 presses; History shuffles from its watch pool; Saved stable; impressions do not affect a replayed epoch | |
-| YT9 | For You | Quality-gated official-Takeout history/subscription evidence, with both source families visible when both have eligible supply; exact meaningful watches are absent for 30 days while Saved/Short/live exclusions remain exact | |
+| YT9 | For You | Quality-gated Takeout+local-history/subscription evidence, with both source families visible when both have eligible supply; exact meaningful watches are absent for 30 days except on Your regulars, while Saved/Short/live exclusions remain exact | |
 | YT10 | Beyond/More Like | Beyond excludes subscribed creators; nightly More Like diagnostics prove up to ten opaque official-Takeout seeds, at least eight contributing topics when supply permits, continued quality-gated fill toward no more than 512 published candidates, and creator/seed caps plus within-slate/global dedupe | |
-| YT11 | Not for me | Exact reversible video suppression only; no creator/topic penalty | |
+| YT11 | Not for me | Exact reversible video suppression plus a decaying channel penalty; Undo restores both | |
 | YT12 | Failure | OAuth, quota, any incomplete authoritative subscription/discovery/Live request, or publication failure preserves the explicit stale last-good generation. A clean zero-result source remains valid; the clean 90-second wall discards a late response, keeps earlier eligible work, and may publish with `wall_limit` rather than pretending a source failure | |
 | YT13 | Empty setup | With neither qualifying subscriptions/history, show connect/import/watch setup—not fake Popular filler | |
 | YT14 | Human quality | Across initial load plus ten X presses, judge relevance, creator diversity, novelty, multilingual/topic fit, stale behavior, and observed repetition. Cross-shuffle repeats are valid; do not expect or grade a show-once deck | |

@@ -622,9 +622,10 @@ actual no-recommendation/utility-only surface instead.
 - Profile and mood controls are absent; rejected writes do not mutate dormant
   rows. StoryDNA teacher/network failure leaves last-good local slates usable.
 - Household exact Not for me disappears immediately, Undo restores it, and it
-  creates no semantic penalty for related titles, creators, or topics.
-- YouTube orders logical positions For You, From Your Subscriptions, More Like
-  …, Beyond Your Subscriptions, History, then Saved, then Live Now.
+  also applies a decaying channel penalty that Undo removes.
+- YouTube orders logical positions For You, From Your Subscriptions, Your
+  regulars, More Like …, Beyond Your Subscriptions, History, then Saved, then
+  Live Now.
   Normal rows render only with exactly four cards and can be absent under thin
   supply; Live Now may have one to four. History shuffles from its cached watch
   pool; Saved stays stable.

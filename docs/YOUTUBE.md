@@ -1,22 +1,25 @@
 # mango — native YouTube
 
-**Milestone:** M6.2 · **Status:** the native YouTube base and
-`youtube-household-v2.7` are deployed on final Pi SHA `04171bb`; exact revision
-evidence is in [STATUS.md](STATUS.md). V2.7 uses deeper quality-gated reservoirs
-and independent weighted cached shuffles. Automated Pi proof is current;
-subjective recommendation quality and physical-TV behavior are not yet
-couch-observed.
+**Milestone:** M6.2 · **Status:** the native YouTube base is deployed; the
+current source model is `youtube-household-v3.0` (learning taste, channel
+affinity, Your regulars). Exact Pi revision evidence remains in
+[STATUS.md](STATUS.md) until the next git-only deploy records v3. V3 uses
+deeper quality-gated reservoirs, watch-weighted channel affinity, and
+independent weighted cached shuffles. Automated Pi proof of v2.7 is current on
+the living Pi until v3 is pulled; subjective recommendation quality and
+physical-TV behavior are not yet couch-observed.
 The latest model keeps authoritative subscription/history v2
 as the sole executable recommendation architecture behind an independent
 `off|shadow|serve` flag and replaces the lifetime exact-watch veto with a
-rolling 30-day cooldown. The current source also includes post-auth account/sync
+rolling 30-day cooldown (rewatches on Your regulars are exempt). The current source also includes post-auth account/sync
 truth, complete bounded subscription coverage, official metadata evidence,
 source/seed portfolio constraints, and an up-to-ten-seed thematic More Like
 reserve with uploads-playlist-backed sparse-history recovery. The latest
 recorded India account snapshot is Ready with 55 subscriptions.
 Its watch-history HTML import produced 2,872 normalized events covering 2,548
-unique videos. Those official Takeout events plus the OAuth subscription
-snapshot are the only taste/acquisition inputs. The one-time Household reset
+unique videos. Those official Takeout events plus Mango-local meaningful
+watches (equal decayed strength) and the OAuth subscription snapshot are the
+taste/acquisition inputs. The one-time Household reset
 removed 986 Mango-local YouTube history rows without changing Takeout, Saved,
 progress, ratings, profiles, VOD history, or StoryDNA. Search-history HTML was not imported and cannot affect
 recommendations. Exact Pi runtime proof is recorded in [STATUS.md](STATUS.md).
@@ -67,7 +70,7 @@ Launcher YouTube tab
 | Layer | Owns |
 |-------|------|
 | `youtube.db` | Cached videos/channels/playlists, authoritative subscription generations, explicit candidate provenance, published rail generations, refresh/quota counters, auth sessions |
-| `library.db` | Saved, normalized Takeout and Mango-local watch history, exact Not-for-me, finished state, import batches, and current context; only Takeout history may teach the recommender, while personal profile rows remain preserved |
+| `library.db` | Saved, normalized Takeout and Mango-local watch history, exact Not-for-me, finished state, import batches, and current context; Takeout plus meaningful local watches teach the recommender, while personal profile rows remain preserved |
 | YouTube Data API | Exact authorized-channel identity, metadata/search/subscriptions, and channel upload playlists |
 | `yt-dlp -> mpv` | Playback resolution/rendering via the Mango wrapper; no Data API quota use |
 
@@ -379,7 +382,7 @@ eligible utility rails remain. Exact active-personal ownership in `off` is
 source-tested at the target and remains a Pi rollback check.
 
 - Browse tabs are **Movies · TV Shows · Live · YouTube**.
-- Display order is **For You → From Your Subscriptions → More Like … → Beyond Your
+- Display order is **For You → From Your Subscriptions → Your regulars → More Like … → Beyond Your
   Subscriptions → History**. **Saved** follows as a stable utility when it has
   four cards. **Live Now** follows when subscribed channels have live content.
   A normal row renders only when it has exactly four globally unique landscape
@@ -387,16 +390,18 @@ source-tested at the target and remains a Pi rollback check.
 - `Live Now` may contain one to four cards instead of receiving unrelated filler.
 - History is a recency-weighted sample of normalized Takeout and resolvable
   Mango-local launches, including bare starts. X redraws four cards from that
-  cached pool. Only Takeout watches seed recommendations; meaningful
-  Mango-local watches start only the rolling 30-day exact-video cooldown. Saved
+  cached pool. Takeout and meaningful Mango-local watches seed recommendations
+  with equal decayed strength; meaningful local watches also start the rolling
+  30-day exact-video cooldown and coalesced acquisition. Saved
   is explicit utility state, stays stable across X, and has zero recommendation
   scoring influence.
-- For You uses quality-gated official-history and subscription evidence and
-  includes both source families when both have eligible supply. History
-  affinity rises from 0.60 to 1.00 with decayed strength; subscription-backed
-  evidence uses 1.00 rather than a separate fixed 60/40 blend. It excludes videos meaningfully
+- For You uses quality-gated official-history, local meaningful-watch, and
+  subscription evidence and includes both source families when both have
+  eligible supply. Unsubscribed history affinity rises from 0.60 to 1.00 with
+  decayed channel strength; subscribed evidence rises from 0.75 to 1.00 rather
+  than a flat 1.00 or a separate fixed 60/40 blend. It excludes videos meaningfully
   watched within the last 30 days, plus exact Saved, Short, and live items, and
-  caps creators.
+  caps creators. Your regulars may still show a repeated title.
 - Beyond Your Subscriptions uses bounded topics derived only from subscriptions
   and decayed history, excludes subscribed channels, and admits at most one card
   per creator.
@@ -437,8 +442,8 @@ source-tested at the target and remains a Pi rollback check.
 - Search still returns grouped Videos / Channels / Playlists and falls back to
   cached metadata when quota/rate limits prevent a fresh request.
 - Video detail supports Play, Save/Unsave, exact reversible Not for me, and Back;
-  channel/playlist detail opens a D-pad list. Not-for-me never expands to a
-  creator or topic penalty.
+  channel/playlist detail opens a D-pad list. Not-for-me keeps the exact-video
+  veto and adds a decaying channel penalty; Undo restores both.
 - An opaque server token binds immutable Household, rail, generation, and exact
   membership. Scores, provenance, internal context, and ranking internals stay
   private; cards use the same visual treatment and show no technical reasons.
@@ -447,9 +452,12 @@ source-tested at the target and remains a Pi rollback check.
   paths are neither requested by the browser nor admitted by the proxy.
 
 Generation quality combines relation (`direct`/`same_topic` 1.00,
-`deeper_dive` 0.85, `wildcard` 0.55, unknown 0.35), source position (1.00 down
-to 0.55 across ranks 0–49; legacy 0.75), decayed Takeout affinity or
-subscription recency, and up to 0.12 of independent-provenance support. Scores
+`deeper_dive` 0.85, `wildcard` 0.55, unknown 0.35) using IDF-weighted title/tag
+overlap at acquisition, source position (1.00 down
+to 0.55 across ranks 0–49; legacy 0.75), decayed Takeout+local channel affinity or
+subscription recency, a decaying Not-for-me channel penalty, and up to 0.12 of
+independent-provenance support. Optional embeddings (`MANGO_YOUTUBE_EMBEDDINGS=1`)
+can replace or blend the relation factor via `MANGO_YOUTUBE_SIM`. Scores
 form tier A at 0.65+, B at 0.38+, and C at 0.20+; lower candidates are rejected.
 Publication takes all A/B candidates up to 512, then at most 64 C candidates if
 capacity remains. Serving multiplies A/B/C by 1.00/0.55/0.25 and a 0.75–1.25
@@ -461,8 +469,9 @@ keeps a positive path to the eligible tail.
 
 | Rail | Role | Source of truth | X behavior |
 |------|------|-----------------|------------|
-| For You | Core | Published rank from history + subscriptions only | Independent cached weighted draw |
+| For You | Core | Published rank from Takeout + local meaningful watches + subscriptions | Independent cached weighted draw |
 | From Your Subscriptions | Conditional | Newest unwatched uploads from the authoritative snapshot | Independent cached weighted draw |
+| Your regulars | Conditional | Repeated titles plus fresh uploads from top-affinity channels | Independent cached weighted draw |
 | More Like … | Conditional core position | Up to ten daily-stable official-history seeds, seek eight contributing topics, and continue bounded quality-gated fill toward cap 512; thematic four, sparse-history exact-channel four, or honest omission | Independent cached weighted draw |
 | Beyond Your Subscriptions | Core | Provenance-gated history/subscription topic acquisition; subscribed creators excluded | Independent cached weighted draw |
 | History | Core utility | Normalized Takeout + resolvable Mango-local launches, including bare starts, in `library.db` | Independent cached weighted draw |
@@ -495,13 +504,15 @@ YouTube Data API no longer provides `search.list relatedToVideoId`, and the
 need an unofficial/scraping path and must be added as an explicit experimental
 operator opt-in, separate from the supported official API cache.
 
-YouTube v2 uses only authoritative subscriptions plus normalized official
-Takeout history for recommendation acquisition and ranking. Mango-local viewing
-is limited to History/progress and the 30-day exact-video cooldown. Search, Saved,
+YouTube v3 uses authoritative subscriptions plus normalized official
+Takeout history and Mango-local meaningful watches for recommendation
+acquisition and ranking. Exact videos stay on a 30-day cooldown except on
+Your regulars. Search, Saved,
 profiles, mood, VOD, companion memory, AI catalogs, and global charts are
 explicitly isolated. Refresh may use bounded official search/detail metadata to
 resolve those approved seeds, then serves the last-good generation if later work
 fails. Cloud AI and unofficial sources are never recommendation dependencies.
+Embeddings are flag-gated and default off.
 
 ---
 

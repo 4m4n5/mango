@@ -5,6 +5,7 @@ export const YOUTUBE_RAIL_LIMIT = 4;
 export const YOUTUBE_V2_DISPLAY_ORDER = [
   'for_you',
   'new_from_subscriptions',
+  'frequently_watched',
   'more_like',
   'beyond',
   'history',

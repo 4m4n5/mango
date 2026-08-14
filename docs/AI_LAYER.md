@@ -56,9 +56,10 @@ Structural facts for the latest-only contracts:
    Every visible rail has exactly six strongest supported fits allocated across
    up to three Household taste threads; no fixed exploration bucket or cooled
    rewatch lane exists. Explicit positive Fire/Water owns 85% when present.
-3. YouTube v2 uses only authoritative subscriptions and Takeout/Mango-local
-   meaningful history. Display order is For You, From Your Subscriptions, More
-   Like …, Beyond Your Subscriptions, History, then Saved, then Live Now.
+3. YouTube v3 uses authoritative subscriptions plus Takeout and Mango-local
+   meaningful history. Display order is For You, From Your Subscriptions, Your
+   regulars, More Like …, Beyond Your Subscriptions, History, then Saved, then
+   Live Now.
    Normal rows render only with exactly four
    cards, so thin positions can be absent; X changes cached
    recommendation/discovery/subscription/live/history slates. Saved stays stable.
@@ -186,7 +187,7 @@ Request flow: Phone PTT (WSS `:8765`) → orchestrator (Deepgram STT → Anthrop
 | Rewatch | Rated, Saved, and meaningfully watched exact VOD titles remain ineligible; no cooled-rewatch lane |
 | AI boundary | Stateless StoryDNA content teaching runs off the couch path; the local versioned theme graph owns all scores, uncertainty, rank, and publication |
 | Rank execution | Batched feature I/O plus a deadline-bounded worker thread; diagnostic inline opt-out only |
-| YouTube shape | In `serve`, display order is For You → From Your Subscriptions → More Like … → Beyond Your Subscriptions → History, then Saved, then Live Now; normal rows require exactly four cards and may be absent |
+| YouTube shape | In `serve`, display order is For You → From Your Subscriptions → Your regulars → More Like … → Beyond Your Subscriptions → History, then Saved, then Live Now; normal rows require exactly four cards and may be absent |
 | YouTube mix | For You is a renormalized 60% decayed-history / 40% subscription blend; Beyond and More Like provide bounded novelty and thematic depth |
 | YouTube reservoir | Only subscription/history provenance can enter atomic generations; exact meaningful watches cool down for 30 days, Saved videos remain excluded, and OAuth failure retains explicitly stale last-good |
 | YouTube X | Discovery rotation from cache only; History shuffles from its cached watch pool; Saved stable; no provider/API/quota activity |

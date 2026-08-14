@@ -26,8 +26,35 @@ import {
   type YoutubeV2Generation,
   type YoutubeV2GenerationItemInput,
   type YoutubeV2Provenance,
+  type YoutubeV2ScoreBreakdown,
+  type YoutubeV2ServeProvenance,
 } from './db.js';
 import { YOUTUBE_RAIL_LIMIT, YOUTUBE_V2_DISPLAY_ORDER } from './constants.js';
+import {
+  embeddingRelationFactor,
+  maxTasteSimilarity,
+  tasteEmbeddingsFromAnchors,
+  youtubeEmbeddingDiagnostics,
+  youtubeEmbeddingsEnabled,
+  youtubeSimilarityMode,
+} from './embeddings.js';
+import {
+  channelAffinityFactor,
+  channelAffinityMap,
+  channelPenaltyFactor,
+  householdChannelPenaltyEvents,
+  householdWatchAnchors as loadHouseholdWatchAnchors,
+  rewatchScore,
+  TAKEOUT_STRENGTH,
+  topAffinityChannels,
+  WATCH_HALF_LIFE_DAYS,
+  WATCH_PER_VIDEO_STRENGTH_CAP,
+  youtubeCreatorKey,
+  youtubeScoringVariant,
+  type YoutubeChannelPenaltyEvent,
+  type YoutubeScoringVariant,
+  type YoutubeWatchAnchor,
+} from './taste.js';
 import type {
   YoutubeItem,
   YoutubeRail,
@@ -35,7 +62,7 @@ import type {
   YoutubeRefreshStatus,
 } from './types.js';
 
-export const YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION = 'youtube-household-v2.7';
+export const YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION = 'youtube-household-v3.0';
 export const YOUTUBE_V2_CANDIDATE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const YOUTUBE_V2_WATCH_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 export const YOUTUBE_V2_LIVE_TTL_MS = 15 * 60 * 1000;
@@ -50,9 +77,9 @@ const V2_PROVENANCE_LIMIT = 50_000;
 const V2_WATCH_LIMIT = 5_000;
 const V2_EXCLUSION_PAGE_SIZE = 1_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const WATCH_HALF_LIFE_DAYS = 90;
-const TAKEOUT_STRENGTH = 0.55;
-const WATCH_PER_VIDEO_STRENGTH_CAP = 3;
+const V2_RESERVE_RAIL_IDS = [
+  'for_you', 'beyond', 'more_like', 'new_from_subscriptions', 'frequently_watched', 'live_now',
+] as const;
 
 export type YoutubeRecommendationsV2Mode = 'off' | 'shadow' | 'serve';
 
@@ -105,15 +132,14 @@ export function youtubeV2SourceStaleState(): YoutubeV2SourceStaleState {
   };
 }
 
-type WatchAnchor = {
-  id: string;
-  title: string;
-  channel_id: string | null;
-  channel_title: string | null;
-  watched_at: number;
-  base_strength: number;
-  decayed_strength: number;
-  source: 'takeout';
+type WatchAnchor = YoutubeWatchAnchor;
+
+type YoutubeV2ScoringContext = {
+  variant: YoutubeScoringVariant;
+  affinity: Map<string, number>;
+  penaltyEvents: YoutubeChannelPenaltyEvent[];
+  tasteEmbeddings: Float32Array[];
+  simMode: 'lexical' | 'embedding' | 'blend';
 };
 
 export type YoutubeV2TopicSeed = {
@@ -129,6 +155,7 @@ type RankedCandidate = {
   history_affinity: number;
   subscription_affinity: number;
   score: number;
+  score_breakdown: YoutubeV2ScoreBreakdown;
 };
 
 export type YoutubeV2QualityTier = 'A' | 'B' | 'C' | 'rejected';
@@ -152,6 +179,7 @@ const YOUTUBE_REFRESH_PHASES = new Set([
   'v2_history_acquisition',
   'v2_live_acquisition',
   'v2_publish',
+  'v2_embeddings',
 ]);
 const YOUTUBE_SOURCE_STALE_REASONS = new Set([
   'not_connected',
@@ -325,56 +353,33 @@ function isLiveLike(item: YoutubeItem): boolean {
   return item.live_status === 'live' || item.live_status === 'upcoming';
 }
 
-function decayedWatchStrength(base: number, watchedAt: number, at: number): number {
-  const ageDays = Math.max(0, (at - watchedAt) / DAY_MS);
-  return base * (0.5 ** (ageDays / WATCH_HALF_LIFE_DAYS));
+function householdWatchAnchors(
+  at = Date.now(),
+  options: { watchUntil?: number; includeLocal?: boolean } = {},
+): WatchAnchor[] {
+  return loadHouseholdWatchAnchors({
+    at,
+    watchUntil: options.watchUntil,
+    includeLocal: options.includeLocal,
+  });
 }
 
-function householdWatchAnchors(at = Date.now()): WatchAnchor[] {
-  const merged = new Map<string, WatchAnchor>();
-  const eventTimes = new Map<string, number[]>();
-  const addEvent = (anchor: WatchAnchor) => {
-    const times = eventTimes.get(anchor.id) ?? [];
-    if (times.some((timestamp) => Math.abs(timestamp - anchor.watched_at) <= 60_000)) return;
-    times.push(anchor.watched_at);
-    eventTimes.set(anchor.id, times);
-    const current = merged.get(anchor.id);
-    if (!current) {
-      merged.set(anchor.id, anchor);
-      return;
-    }
-    const newest = anchor.watched_at > current.watched_at ? anchor : current;
-    merged.set(anchor.id, {
-      ...newest,
-      watched_at: Math.max(current.watched_at, anchor.watched_at),
-      base_strength: Math.min(
-        WATCH_PER_VIDEO_STRENGTH_CAP,
-        current.base_strength + anchor.base_strength,
-      ),
-      decayed_strength: Math.min(
-        WATCH_PER_VIDEO_STRENGTH_CAP,
-        current.decayed_strength + anchor.decayed_strength,
-      ),
-      source: 'takeout',
-    });
+function scoringContextFor(
+  watches: readonly WatchAnchor[],
+  at: number,
+  variant: YoutubeScoringVariant,
+): YoutubeV2ScoringContext {
+  const embeddingsOn = variant === 'v3-embed'
+    || (variant !== 'legacy' && youtubeEmbeddingsEnabled() && youtubeSimilarityMode() !== 'lexical');
+  return {
+    variant,
+    affinity: channelAffinityMap(watches),
+    penaltyEvents: variant === 'legacy' ? [] : householdChannelPenaltyEvents(at),
+    tasteEmbeddings: embeddingsOn ? tasteEmbeddingsFromAnchors(watches) : [],
+    simMode: variant === 'v3-embed'
+      ? (youtubeSimilarityMode() === 'lexical' ? 'blend' : youtubeSimilarityMode())
+      : youtubeSimilarityMode(),
   };
-  for (const row of listYoutubeV2ImportedHistory(V2_WATCH_LIMIT)) {
-    const cached = getYoutubeItem('video', row.video_id);
-    const anchor: WatchAnchor = {
-      id: row.video_id,
-      title: cached?.title || row.title,
-      channel_id: cached?.channel_id || row.channel_id,
-      channel_title: cached?.channel_title || row.channel_title,
-      watched_at: row.watched_at,
-      base_strength: TAKEOUT_STRENGTH,
-      decayed_strength: decayedWatchStrength(TAKEOUT_STRENGTH, row.watched_at, at),
-      source: 'takeout',
-    };
-    addEvent(anchor);
-  }
-  return [...merged.values()]
-    .sort((left, right) => right.watched_at - left.watched_at || left.id.localeCompare(right.id))
-    .slice(0, V2_WATCH_LIMIT);
 }
 
 function recentHouseholdHistoryIds(at = Date.now()): Set<string> {
@@ -990,9 +995,11 @@ function stableSourceHash(
   blockedIds: ReadonlySet<string>,
   topicSeeds: readonly YoutubeV2TopicSeed[],
   at: number,
+  variant: YoutubeScoringVariant = 'v3',
 ): string {
   const digest = createHash('sha256');
   digest.update(YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION);
+  digest.update(`\nvariant:${variant}`);
   for (const row of [...watches].sort((left, right) => left.id.localeCompare(right.id))) {
     digest.update(`\nw:${row.id}:${row.watched_at}:${row.base_strength}:${row.source}`);
   }
@@ -1086,17 +1093,43 @@ function provenanceRowQuality(
   anchorById: ReadonlyMap<string, WatchAnchor>,
   subscriptions: ReturnType<typeof listYoutubeV2Subscriptions>,
   at: number,
-): number {
+  scoring: YoutubeV2ScoringContext,
+): YoutubeV2ScoreBreakdown {
   const subscriptionBacked = row.provenance.startsWith('subscription_')
     || Boolean(subscriptionForTopicRef(row.provenance_ref, subscriptions));
-  const anchorStrength = anchorById.get(row.provenance_ref)?.decayed_strength ?? 0;
-  const affinity = subscriptionBacked
-    ? 1
-    : 0.6 + 0.4 * Math.min(1, Math.max(0, anchorStrength / WATCH_PER_VIDEO_STRENGTH_CAP));
-  return provenanceRelationFactor(row)
-    * provenanceRankFactor(row)
-    * affinity
-    * subscriptionFreshnessFactor(row.item, subscriptionBacked, at);
+  const itemKey = youtubeCreatorKey(row.item);
+  const channelStrength = scoring.affinity.get(itemKey) ?? 0;
+  const seedStrength = anchorById.get(row.provenance_ref)?.decayed_strength ?? 0;
+  const affinity = channelAffinityFactor({
+    subscriptionBacked,
+    channelStrength,
+    seedStrength,
+    variant: scoring.variant,
+  });
+  const relation = provenanceRelationFactor(row);
+  const embeddingSim = scoring.tasteEmbeddings.length > 0
+    ? maxTasteSimilarity(row.item, scoring.tasteEmbeddings)
+    : 0;
+  let relationFactor = relation;
+  if (scoring.tasteEmbeddings.length > 0 && scoring.simMode !== 'lexical') {
+    const embedFactor = embeddingRelationFactor(embeddingSim);
+    relationFactor = scoring.simMode === 'embedding'
+      ? embedFactor
+      : (relation + embedFactor) / 2;
+  }
+  const rank = provenanceRankFactor(row);
+  const freshness = subscriptionFreshnessFactor(row.item, subscriptionBacked, at);
+  const penalty = channelPenaltyFactor(itemKey, scoring.penaltyEvents, at, scoring.variant);
+  const quality = relationFactor * rank * affinity * freshness * penalty;
+  return {
+    relation: relationFactor,
+    rank,
+    affinity,
+    freshness,
+    penalty,
+    embedding_sim: embeddingSim,
+    quality,
+  };
 }
 
 function candidateQuality(
@@ -1104,9 +1137,17 @@ function candidateQuality(
   anchorById: ReadonlyMap<string, WatchAnchor>,
   subscriptions: ReturnType<typeof listYoutubeV2Subscriptions>,
   at: number,
-): number {
-  if (rows.length === 0) return 0;
-  const best = Math.max(...rows.map((row) => provenanceRowQuality(row, anchorById, subscriptions, at)));
+  scoring: YoutubeV2ScoringContext,
+): YoutubeV2ScoreBreakdown {
+  if (rows.length === 0) {
+    return {
+      relation: 0, rank: 0, affinity: 0, freshness: 0, penalty: 1, embedding_sim: 0, quality: 0,
+    };
+  }
+  const parts = rows.map((row) => provenanceRowQuality(row, anchorById, subscriptions, at, scoring));
+  const best = parts.reduce((winner, candidate) => (
+    candidate.quality > winner.quality ? candidate : winner
+  ));
   const independentReferences = new Set(rows.map((row) => {
     const subscription = row.provenance.startsWith('subscription_')
       ? subscriptions.find((candidate) => (
@@ -1120,7 +1161,8 @@ function candidateQuality(
     // and topic acquisition. That is one source of evidence, not two votes.
     return `history:${row.provenance_ref.trim()}`;
   })).size;
-  return Math.min(1, Math.max(0, best + Math.min(0.12, 0.03 * Math.max(0, independentReferences - 1))));
+  const quality = Math.min(1, Math.max(0, best.quality + Math.min(0.12, 0.03 * Math.max(0, independentReferences - 1))));
+  return { ...best, quality };
 }
 
 export type YoutubeV2CandidateQualityEvaluator = {
@@ -1137,11 +1179,13 @@ export type YoutubeV2CandidateQualityEvaluator = {
 export function createYoutubeV2CandidateQualityEvaluator(
   at = Date.now(),
 ): YoutubeV2CandidateQualityEvaluator {
-  const anchors = householdWatchAnchors(at);
+  const variant = youtubeScoringVariant();
+  const anchors = householdWatchAnchors(at, { includeLocal: variant !== 'legacy' });
   const anchorById = new Map(anchors.map((anchor) => [anchor.id, anchor] as const));
   const subscriptions = authoritativeSubscriptions();
+  const scoring = scoringContextFor(anchors, at, variant);
   const quality = (rows: readonly YoutubeV2CandidateProvenance[]): number => (
-    candidateQuality([...rows], anchorById, subscriptions, at)
+    candidateQuality([...rows], anchorById, subscriptions, at, scoring).quality
   );
   return {
     quality,
@@ -1167,12 +1211,13 @@ function provenanceFor(
   anchorById: ReadonlyMap<string, WatchAnchor>,
   subscriptions: ReturnType<typeof listYoutubeV2Subscriptions>,
   at: number,
+  scoring: YoutubeV2ScoringContext,
 ): YoutubeV2CandidateProvenance | null {
   return candidate.rows
     .filter((row) => allowed.includes(row.provenance))
     .sort((left, right) => {
-      const leftWeight = provenanceRowQuality(left, anchorById, subscriptions, at);
-      const rightWeight = provenanceRowQuality(right, anchorById, subscriptions, at);
+      const leftWeight = provenanceRowQuality(left, anchorById, subscriptions, at, scoring).quality;
+      const rightWeight = provenanceRowQuality(right, anchorById, subscriptions, at, scoring).quality;
       return rightWeight - leftWeight
         || (left.source_rank ?? Number.MAX_SAFE_INTEGER) - (right.source_rank ?? Number.MAX_SAFE_INTEGER)
         || left.provenance_ref.localeCompare(right.provenance_ref);
@@ -1185,6 +1230,7 @@ function rankCandidates(
   subscriptions: ReturnType<typeof listYoutubeV2Subscriptions>,
   excludedIds: Set<string>,
   at: number,
+  scoring: YoutubeV2ScoringContext,
 ): RankedCandidate[] {
   const anchorById = new Map(watches.map((watch) => [watch.id, watch] as const));
   const grouped = new Map<string, YoutubeV2CandidateProvenance[]>();
@@ -1236,12 +1282,14 @@ function rankCandidates(
       row.provenance.startsWith('subscription_')
       || (row.provenance === 'history_topic' && Boolean(subscriptionForTopicRef(row.provenance_ref, subscriptions)))
     )) ? 1 : 0;
+    const breakdown = candidateQuality(rows, anchorById, subscriptions, at, scoring);
     return {
       item,
       rows,
       history_affinity: historyAffinity,
       subscription_affinity: subscriptionAffinity,
-      score: candidateQuality(rows, anchorById, subscriptions, at),
+      score: breakdown.quality,
+      score_breakdown: breakdown,
     };
   };
   return [...grouped.values()].map(scoreRows)
@@ -1273,13 +1321,15 @@ function generationInputs(
   watches: WatchAnchor[],
   subscriptions: ReturnType<typeof listYoutubeV2Subscriptions>,
   excludedIds: Set<string>,
+  hardExcludedIds: ReadonlySet<string>,
   topicSeeds: readonly YoutubeV2TopicSeed[],
   at: number,
+  scoring: YoutubeV2ScoringContext,
 ): YoutubeV2GenerationItemInput[] {
   const anchorById = new Map(watches.map((watch) => [watch.id, watch] as const));
   const subscribedChannels = new Set(subscriptions.flatMap((row) => row.channel_id ? [row.channel_id] : []));
   const subscribedNames = new Set(subscriptions.map((row) => normalizedText(row.channel_title)).filter(Boolean));
-  const candidates = rankCandidates(provenance, watches, subscriptions, excludedIds, at);
+  const candidates = rankCandidates(provenance, watches, subscriptions, excludedIds, at, scoring);
 
   // Recompute a lane-local score after provenance filtering. Otherwise a row
   // acquired for Beyond could inflate a More Like item (or vice versa) even
@@ -1297,12 +1347,14 @@ function generationInputs(
       row.provenance.startsWith('subscription_')
       || (row.provenance === 'history_topic' && Boolean(subscriptionForTopicRef(row.provenance_ref, subscriptions)))
     )) ? 1 : 0;
+    const breakdown = candidateQuality(rows, anchorById, subscriptions, at, scoring);
     return {
       ...candidate,
       rows,
       history_affinity: historyAffinity,
       subscription_affinity: subscriptionAffinity,
-      score: candidateQuality(rows, anchorById, subscriptions, at),
+      score: breakdown.quality,
+      score_breakdown: breakdown,
     };
   };
 
@@ -1370,7 +1422,7 @@ function generationInputs(
         .filter((candidate) => youtubeV2QualityTier(candidate.score) === 'C')
         .slice(0, Math.min(YOUTUBE_V2_C_TIER_LIMIT, YOUTUBE_V2_RESERVE_LIMIT - strong.length));
     for (const candidate of [...strong, ...exploratory]) {
-      const source = provenanceFor(candidate, allowed, anchorById, subscriptions, at);
+      const source = provenanceFor(candidate, allowed, anchorById, subscriptions, at, scoring);
       if (!source) continue;
       output.push({
         rail_id: railId,
@@ -1381,6 +1433,7 @@ function generationInputs(
         provenance_ref: source.provenance_ref,
         source_expires_at: source.expires_at,
         context_id: contextId,
+        score_breakdown: candidate.score_breakdown,
       });
     }
   };
@@ -1433,12 +1486,95 @@ function generationInputs(
   addRail('new_from_subscriptions', fromSubscriptions, ['subscription_upload']);
   addRail('live_now', live, ['subscription_live']);
   addRail('for_you', forYou, ['history_channel', 'history_topic', 'subscription_upload']);
+
+  const watchedLifetime = new Set(watches.map((watch) => watch.id));
+  const topChannels = new Set(topAffinityChannels(scoring.affinity, 8));
+  const rewatchItems: YoutubeV2GenerationItemInput[] = [];
+  for (const watch of watches) {
+    if (watch.event_times.length < 2) continue;
+    const item = cachedOrStub(watch);
+    if (isShort(item) || isLiveLike(item) || hardExcludedIds.has(item.id)) continue;
+    const score = rewatchScore(watch, at);
+    if (score <= 0) continue;
+    const channelKey = youtubeCreatorKey(item);
+    const penalty = channelPenaltyFactor(channelKey, scoring.penaltyEvents, at, scoring.variant);
+    const quality = Math.min(1, Math.max(0, score * penalty));
+    if (youtubeV2QualityTier(quality) === 'rejected') continue;
+    rewatchItems.push({
+      rail_id: 'frequently_watched',
+      item,
+      score: quality,
+      reason: 'youtube_v2:rewatch',
+      provenance: 'rewatch',
+      provenance_ref: watch.id,
+      source_expires_at: at + YOUTUBE_V2_CANDIDATE_TTL_MS,
+      context_id: 'rewatch',
+      score_breakdown: {
+        relation: 1,
+        rank: 1,
+        affinity: channelAffinityFactor({
+          subscriptionBacked: Boolean(item.channel_id && subscribedChannels.has(item.channel_id)),
+          channelStrength: scoring.affinity.get(channelKey) ?? watch.decayed_strength,
+          seedStrength: watch.decayed_strength,
+          variant: scoring.variant,
+        }),
+        freshness: 1,
+        penalty,
+        embedding_sim: 0,
+        quality,
+      },
+    });
+  }
+  const frequentChannel = candidates.filter((candidate) => {
+    if (isLiveLike(candidate.item) || isShort(candidate.item)) return false;
+    if (watchedLifetime.has(candidate.item.id) || excludedIds.has(candidate.item.id)) return false;
+    const key = youtubeCreatorKey(candidate.item);
+    if (!topChannels.has(key)) return false;
+    return candidate.rows.some((row) => (
+      row.provenance === 'subscription_upload' || row.provenance === 'history_channel'
+    ));
+  }).sort((left, right) => right.score - left.score || left.item.id.localeCompare(right.item.id));
+  const regulars: YoutubeV2GenerationItemInput[] = [
+    ...rewatchItems.sort((left, right) => right.score - left.score || left.item.id.localeCompare(right.item.id)),
+    ...frequentChannel.map((candidate) => {
+      const source = candidate.rows.find((row) => (
+        row.provenance === 'subscription_upload' || row.provenance === 'history_channel'
+      )) ?? candidate.rows[0]!;
+      return {
+        rail_id: 'frequently_watched' as const,
+        item: candidate.item,
+        score: candidate.score,
+        reason: 'youtube_v2:frequent_channel',
+        provenance: 'frequent_channel' as const,
+        provenance_ref: youtubeCreatorKey(candidate.item) || source.provenance_ref,
+        source_expires_at: source.expires_at,
+        context_id: 'frequent_channel',
+        score_breakdown: candidate.score_breakdown,
+      };
+    }),
+  ];
+  const seenRegulars = new Set<string>();
+  for (const entry of regulars) {
+    if (seenRegulars.has(entry.item.id)) continue;
+    seenRegulars.add(entry.item.id);
+    output.push(entry);
+    if (seenRegulars.size >= YOUTUBE_V2_RESERVE_LIMIT) break;
+  }
   return output;
 }
 
-export function rebuildYoutubeV2Generation(options: { force?: boolean; at?: number } = {}): YoutubeV2Generation | null {
+export function rebuildYoutubeV2Generation(options: {
+  force?: boolean;
+  at?: number;
+  watchUntil?: number;
+  scoringVariant?: YoutubeScoringVariant;
+} = {}): YoutubeV2Generation | null {
   const at = options.at ?? Date.now();
-  const watches = householdWatchAnchors(at);
+  const variant = options.scoringVariant ?? youtubeScoringVariant();
+  const watches = householdWatchAnchors(at, {
+    watchUntil: options.watchUntil,
+    includeLocal: variant !== 'legacy',
+  });
   const subscriptions = authoritativeSubscriptions();
   const provenance = listYoutubeV2CandidateProvenance({ at, limit: V2_PROVENANCE_LIMIT });
   const exclusions = loadYoutubeV2ExactExclusions(true, at);
@@ -1449,6 +1585,7 @@ export function rebuildYoutubeV2Generation(options: { force?: boolean; at?: numb
   const savedIds = exclusions.saved;
   const blockedIds = exclusions.blocked;
   const topicSeeds = moreLikeSeedsFromSources(watches, subscriptions, provenance, at);
+  const scoring = scoringContextFor(watches, at, variant);
   const sourceHash = stableSourceHash(
     watches,
     subscriptions,
@@ -1458,6 +1595,7 @@ export function rebuildYoutubeV2Generation(options: { force?: boolean; at?: numb
     blockedIds,
     topicSeeds,
     at,
+    variant,
   );
   const latestRecord = latestYoutubeV2GenerationRecord();
   if (!options.force
@@ -1465,10 +1603,13 @@ export function rebuildYoutubeV2Generation(options: { force?: boolean; at?: numb
     && latestRecord.model_version === YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION) {
     return latestRecord.status === 'ready' ? latestYoutubeV2Generation() : null;
   }
-  const excludedIds = new Set([...watchedIds, ...savedIds, ...blockedIds]);
+  const hardExcludedIds = new Set([...savedIds, ...blockedIds]);
+  const excludedIds = new Set([...watchedIds, ...hardExcludedIds]);
   const candidates = (watches.length === 0 && subscriptions.length === 0)
     ? []
-    : generationInputs(provenance, watches, subscriptions, excludedIds, topicSeeds, at);
+    : generationInputs(
+      provenance, watches, subscriptions, excludedIds, hardExcludedIds, topicSeeds, at, scoring,
+    );
   const generation = publishYoutubeV2Generation({
     model_version: YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION,
     source_hash: sourceHash,
@@ -1617,6 +1758,7 @@ const V2_LABELS: Record<string, string> = {
   beyond: 'Beyond Your Subscriptions',
   more_like: 'More Like',
   new_from_subscriptions: 'From Your Subscriptions',
+  frequently_watched: 'Your regulars',
   live_now: 'Live Now',
 };
 const V2_SUBSCRIPTION_MORE_LABEL = 'More from channels you follow';
@@ -1653,8 +1795,9 @@ function selectWithCreatorCap(
 }
 
 type PortfolioItem = YoutubeRailItem & {
-  provenance?: YoutubeV2Provenance;
+  provenance?: YoutubeV2ServeProvenance;
   provenance_ref?: string;
+  context_id?: string;
 };
 
 function selectRecommendationPortfolio(
@@ -1668,8 +1811,9 @@ function selectRecommendationPortfolio(
   },
 ): YoutubeRailItem[] {
   const eligible = pool.filter((item) => !seen.has(item.id));
-  const source = (item: PortfolioItem): 'history' | 'subscription' | 'other' => (
-    item.provenance?.startsWith('history_') ? 'history'
+  const source = (item: PortfolioItem): 'history' | 'subscription' | 'regular' | 'other' => (
+    item.provenance === 'rewatch' || item.provenance === 'frequent_channel' ? 'regular'
+      : item.provenance?.startsWith('history_') ? 'history'
       : item.provenance?.startsWith('subscription_') ? 'subscription'
         : 'other'
   );
@@ -1737,6 +1881,9 @@ function generationEntryIsCurrentlyEligible(
     if (preservePublishedSubscriptionSnapshot) return true;
     return subscriptionForTopicRef(entry.provenance_ref, subscriptions) !== null;
   }
+  if (entry.provenance === 'rewatch' || entry.provenance === 'frequent_channel') {
+    return !isLiveLike(entry);
+  }
   return true;
 }
 
@@ -1769,6 +1916,7 @@ export function youtubeV2RecommendationRailsFromSnapshot(input: {
   const allocationOrder = [
     { id: 'live_now', cap: 1, relax: true, live: true },
     { id: 'new_from_subscriptions', cap: 1, relax: true, live: false },
+    { id: 'frequently_watched', cap: 2, relax: true, live: false },
     { id: 'more_like', cap: 1, relax: true, live: false },
     { id: 'beyond', cap: 1, relax: false, live: false },
     { id: 'for_you', cap: 2, relax: false, live: false },
@@ -1812,6 +1960,33 @@ export function youtubeV2RecommendationRailsFromSnapshot(input: {
       pool = unreservedSameChannel.length > 0
         ? [unreservedSameChannel[0]!, ...thematic, ...unreservedSameChannel.slice(1)]
         : thematic;
+    } else if (spec.id === 'frequently_watched') {
+      const rewatch = weightedShuffle(
+        pool.filter((item) => item.provenance === 'rewatch'),
+        'rewatch',
+      );
+      const frequent = weightedShuffle(
+        pool.filter((item) => item.provenance === 'frequent_channel'),
+        'frequent_channel',
+      );
+      const mixed: PortfolioItem[] = [];
+      const take = (source: PortfolioItem[], count: number) => {
+        for (const item of source) {
+          if (mixed.length >= YOUTUBE_RAIL_LIMIT) break;
+          if (mixed.some((entry) => entry.id === item.id) || seen.has(item.id)) continue;
+          mixed.push(item);
+          if (mixed.filter((entry) => entry.provenance === item.provenance).length >= count
+            && mixed.length >= 2) break;
+        }
+      };
+      take(rewatch, 2);
+      take(frequent, 2);
+      for (const item of [...rewatch, ...frequent]) {
+        if (mixed.length >= YOUTUBE_RAIL_LIMIT) break;
+        if (mixed.some((entry) => entry.id === item.id) || seen.has(item.id)) continue;
+        mixed.push(item);
+      }
+      pool = mixed;
     } else {
       pool = weightedShuffle(pool, 'all');
     }
@@ -1834,6 +2009,8 @@ export function youtubeV2RecommendationRailsFromSnapshot(input: {
               seed_cap: 1,
               require_source_mix: false,
             })
+        : spec.id === 'frequently_watched'
+          ? selectWithCreatorCap(pool, seen, limit, spec.cap, spec.relax)
         : selectWithCreatorCap(pool, seen, limit, spec.cap, spec.relax);
     if ((!spec.live && items.length !== YOUTUBE_RAIL_LIMIT) || (spec.live && items.length === 0)) continue;
     items.forEach((item) => seen.add(item.id));
@@ -2129,12 +2306,10 @@ export function youtubeV2Diagnostics(): Record<string, unknown> {
   const subscriptions = authoritativeSubscriptions();
   const activeProvenance = listYoutubeV2CandidateProvenance({ limit: V2_PROVENANCE_LIMIT });
   const takeout = latestYoutubeV2TakeoutImport();
-  const reserveDepths = Object.fromEntries([
-    'for_you', 'beyond', 'more_like', 'new_from_subscriptions', 'live_now',
-  ].map((railId) => [railId, ready?.items.filter((item) => item.rail_id === railId).length ?? 0]));
-  const poolQuality = Object.fromEntries([
-    'for_you', 'beyond', 'more_like', 'new_from_subscriptions', 'live_now',
-  ].map((railId) => {
+  const reserveDepths = Object.fromEntries(V2_RESERVE_RAIL_IDS.map((railId) => (
+    [railId, ready?.items.filter((item) => item.rail_id === railId).length ?? 0]
+  )));
+  const poolQuality = Object.fromEntries(V2_RESERVE_RAIL_IDS.map((railId) => {
     const items = ready?.items.filter((item) => item.rail_id === railId) ?? [];
     return [railId, {
       ...youtubeV2WeightedPoolDiagnostics(items),
@@ -2143,6 +2318,15 @@ export function youtubeV2Diagnostics(): Record<string, unknown> {
     }];
   }));
   const watches = householdWatchAnchors();
+  const localWatches = watches.filter((watch) => watch.source === 'local' || watch.source === 'mixed');
+  const takeoutWatches = watches.filter((watch) => watch.source === 'takeout' || watch.source === 'mixed');
+  const affinity = channelAffinityMap(watches);
+  const scoreExplanations = (ready?.items ?? []).slice(0, 12).map((item) => ({
+    rail_id: item.rail_id,
+    item_ref: diagnosticOpaqueRef(item.id),
+    provenance: item.provenance,
+    ...(item.score_breakdown ?? {}),
+  }));
   return {
     mode: youtubeRecommendationsV2Mode(),
     model_version: YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION,
@@ -2162,20 +2346,24 @@ export function youtubeV2Diagnostics(): Record<string, unknown> {
     },
     sources: {
       meaningful_history: watches.length,
-      mango_history: 0,
-      takeout_history: watches.length,
-      mixed_history: 0,
+      mango_history: localWatches.length,
+      takeout_history: takeoutWatches.length,
+      mixed_history: watches.filter((watch) => watch.source === 'mixed').length,
       subscriptions: subscriptions.length,
-      recommendation_history_policy: 'official_takeout_only',
-      mango_local_usage: 'history_utility_and_30_day_exact_cooldown_only',
+      recommendation_history_policy: 'takeout_and_local_meaningful',
+      mango_local_usage: 'taste_cooldown_history_and_coalesced_acquisition',
+      channel_affinity_count: affinity.size,
     },
     quality_policy: {
       history_affinity_floor: 0.6,
       history_affinity_ceiling: 1,
       history_strength_at_ceiling: WATCH_PER_VIDEO_STRENGTH_CAP,
-      subscription_affinity: 1,
+      subscription_affinity_floor: 0.75,
+      subscription_affinity_ceiling: 1,
       watch_half_life_days: WATCH_HALF_LIFE_DAYS,
       takeout_strength: TAKEOUT_STRENGTH,
+      local_watch_strength: TAKEOUT_STRENGTH,
+      channel_penalty: { per_event: 0.6, half_life_days: 60, floor: 0.25 },
       relation_factors: {
         direct: 1,
         same_topic: 1,
@@ -2212,7 +2400,10 @@ export function youtubeV2Diagnostics(): Record<string, unknown> {
       more_like_max_seeds: YOUTUBE_V2_MORE_LIKE_MAX_SEEDS,
       more_like_target: YOUTUBE_V2_MORE_LIKE_TARGET,
       more_like_query_size: YOUTUBE_V2_MORE_LIKE_QUERY_SIZE,
+      frequently_watched_subpool_target: 2,
     },
+    embeddings: youtubeEmbeddingDiagnostics(),
+    score_explanations: scoreExplanations,
     daily_topic_seed: youtubeV2DailyTopicSeedDiagnostics(
       getYoutubeState<unknown>('youtube_v2_daily_topic_seed', null),
     ),

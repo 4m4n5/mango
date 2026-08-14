@@ -17,6 +17,7 @@
     "spike:core": "node scripts/spike-core-boot.mjs",
     "ratings:seed": "npm run build && node dist/library/seed-cli.js",
     "youtube:takeout": "npm run build && node dist/youtube/takeout-cli.js",
+    "youtube:eval": "npm run build && node dist/youtube/eval-cli.js",
     "state:prune": "npm run build && node dist/library/prune-cli.js"
   },
   "dependencies": {

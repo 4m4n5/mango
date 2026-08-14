@@ -82,7 +82,7 @@ allowed_provenance = {
 }
 v2 = {
     "mode": "serve",
-    "model_version": "youtube-household-v2.7",
+    "model_version": "youtube-household-v3.0",
     "status": "ready",
     "setup_required": False,
     "generation": 7,
@@ -92,6 +92,7 @@ v2 = {
         "beyond": 4,
         "more_like": 4,
         "new_from_subscriptions": 0,
+        "frequently_watched": 0,
         "live_now": 0,
     },
     "pool_quality": {
@@ -99,6 +100,7 @@ v2 = {
         "beyond": pool_quality(4),
         "more_like": pool_quality(4),
         "new_from_subscriptions": pool_quality(0),
+        "frequently_watched": pool_quality(0),
         "live_now": pool_quality(0),
     },
     "sampling": {
@@ -132,8 +134,8 @@ v2 = {
 }
 rails = [
     rail("for_you", "for-you"),
-    rail("beyond", "beyond"),
     rail("more_like", "more-like"),
+    rail("beyond", "beyond"),
 ]
 payload = {
     "ok": True,
@@ -146,7 +148,7 @@ payload = {
 if fixture == "serve-ready-duplicate":
     payload["rails"][1]["items"][0]["id"] = payload["rails"][0]["items"][0]["id"]
 elif fixture == "serve-ready-missing-core":
-    payload["rails"] = [payload["rails"][0], payload["rails"][2]]
+    payload["rails"] = [rail for rail in payload["rails"] if rail["rail_id"] != "beyond"]
     v2["candidate_count"] = 8
     v2["reserve_depths"]["beyond"] = 0
     v2["pool_quality"]["beyond"] = pool_quality(0)

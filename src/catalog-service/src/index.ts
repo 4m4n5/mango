@@ -147,6 +147,7 @@ import {
   youtubePublicPersonalizationPayload,
   youtubeRecommendationsV2Mode,
 } from './youtube/service.js';
+import { rebuildYoutubeV2Generation } from './youtube/v2.js';
 import type { YoutubeItemKind } from './youtube/types.js';
 import {
   ReliabilityService,
@@ -2611,6 +2612,7 @@ async function main(): Promise<void> {
           });
           if (feedbackDomain === 'youtube') {
             invalidateYoutubeV2ExactExclusions();
+            if (youtubeRecommendationsV2Mode() !== 'off') rebuildYoutubeV2Generation({ force: true });
             core.clearRailItemsCache();
           }
           else if (target.type === 'movie' || target.type === 'series') {
@@ -2636,6 +2638,7 @@ async function main(): Promise<void> {
           });
           if (feedbackDomain === 'youtube') {
             invalidateYoutubeV2ExactExclusions();
+            if (youtubeRecommendationsV2Mode() !== 'off') rebuildYoutubeV2Generation({ force: true });
             core.clearRailItemsCache();
           }
           else if (target.type === 'movie' || target.type === 'series') {

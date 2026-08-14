@@ -42,6 +42,7 @@ const YOUTUBE_SHUFFLE_RAIL_IDS = new Set([
   "beyond",
   "more_like",
   "new_from_subscriptions",
+  "frequently_watched",
   "live_now",
   "history",
 ]);

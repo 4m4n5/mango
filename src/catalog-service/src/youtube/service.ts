@@ -28,6 +28,7 @@ import {
   listYoutubeItems,
   listYoutubeV2ImportedHistory,
   listYoutubeV2Subscriptions,
+  latestYoutubeV2Generation,
   latestYoutubeV2GenerationRecord,
   replaceYoutubeV2Subscriptions,
   recordYoutubeImpressions,
@@ -57,6 +58,14 @@ import type {
   YoutubeSearchGroups,
 } from './types.js';
 import { YOUTUBE_RAIL_LIMIT, YOUTUBE_V2_DISPLAY_ORDER } from './constants.js';
+import { maybeRefreshYoutubeEmbeddings } from './embeddings.js';
+import {
+  buildYoutubeIdfTable,
+  idfWeightedOverlap,
+  tokenOverlapScore,
+  youtubeTitleTokens,
+  type YoutubeIdfTable,
+} from './tokens.js';
 import type { PersonalizationSnapshot } from '../personalization-coherence.js';
 import { assertExpectedPersonalization } from '../personalization-request.js';
 import { recommendationOwnerForRollout } from '../recommendations/v2-mode.js';
@@ -87,6 +96,7 @@ import {
   youtubeV2TopicSeed,
   type YoutubeV2TopicSeed,
 } from './v2.js';
+import { householdWatchAnchors } from './taste.js';
 
 export {
   importYoutubeTakeout,
@@ -211,21 +221,6 @@ export function youtubeV2AcquisitionQueryBudget(
   };
 }
 const BECAUSE_YOU_WATCHED_SEARCH_BUDGET = 6;
-const TITLE_TOKEN_STOPWORDS = new Set([
-  'the',
-  'and',
-  'for',
-  'with',
-  'from',
-  'this',
-  'that',
-  'live',
-  'official',
-  'video',
-  'episode',
-  'full',
-]);
-
 
 type RefreshResult = {
   ok: boolean;
@@ -374,7 +369,8 @@ type YoutubeRefreshPhase =
   | 'v2_history_metadata'
   | 'v2_history_acquisition'
   | 'v2_live_acquisition'
-  | 'v2_publish';
+  | 'v2_publish'
+  | 'v2_embeddings';
 
 type BecauseYouWatchedQuerySpec = {
   query: string;
@@ -518,33 +514,10 @@ function youtubeContentType(item: YoutubeItem): string {
   return 'youtube_video';
 }
 
-export function youtubeTitleTokens(title: string): Set<string> {
-  return new Set(
-    title
-      .normalize('NFKD')
-      .toLowerCase()
-      .replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ')
-      .split(/\s+/)
-      .map((token) => token.trim())
-      .filter((token) => Array.from(token).length >= 2 && !TITLE_TOKEN_STOPWORDS.has(token)),
-  );
-}
+export { youtubeTitleTokens } from './tokens.js';
 
 function titleTokens(item: YoutubeItem | { title?: string | null }): Set<string> {
   return youtubeTitleTokens(item.title || '');
-}
-
-function tokenOverlapScore(left: Set<string>, right: Set<string>): number {
-  if (left.size === 0 || right.size === 0) {
-    return 0;
-  }
-  let overlap = 0;
-  for (const token of left) {
-    if (right.has(token)) {
-      overlap += 1;
-    }
-  }
-  return overlap / Math.max(1, Math.min(left.size, right.size));
 }
 
 function isShortLikeVideo(item: YoutubeItem): boolean {
@@ -666,7 +639,11 @@ function isSameChannel(left: YoutubeItem, right: YoutubeItem): boolean {
   );
 }
 
-function becauseRelationForItem(item: YoutubeItem, seed: YoutubeItem): BecauseYouWatchedRelation | null {
+function becauseRelationForItem(
+  item: YoutubeItem,
+  seed: YoutubeItem,
+  idf: YoutubeIdfTable | null = null,
+): BecauseYouWatchedRelation | null {
   if (item.id === seed.id) return null;
   if (isSameChannel(item, seed)) return 'same_channel';
   const semanticTokens = (value: YoutubeItem): Set<string> => youtubeTitleTokens([
@@ -683,7 +660,8 @@ function becauseRelationForItem(item: YoutubeItem, seed: YoutubeItem): BecauseYo
   const seedLanguage = seed.default_audio_language || seed.default_language;
   const languageCompatible = !itemLanguage || !seedLanguage || itemLanguage === seedLanguage;
   if (shared.length < 2 && !(shared.length === 1 && sameCategory && languageCompatible)) return null;
-  const overlap = tokenOverlapScore(seedTokens, itemTokens);
+  const rawOverlap = tokenOverlapScore(seedTokens, itemTokens);
+  const overlap = Math.max(rawOverlap, idfWeightedOverlap(seedTokens, itemTokens, idf));
   const text = `${item.title} ${item.description || ''}`.toLowerCase();
   const deepDive = /\b(documentary|explained|analysis|interview|deep dive|history|lecture|breakdown|essay)\b/.test(text)
     || (item.duration_sec !== null && item.duration_sec >= 45 * 60);
@@ -1146,6 +1124,13 @@ export class YoutubeService {
             query: entry.spec.query,
             channel_id: entry.spec.channelId ?? null,
           })).digest('hex')}`;
+        const relationIdf = buildYoutubeIdfTable([
+          [entry.seed.item.title, entry.seed.item.description, entry.seed.item.channel_title, ...(entry.seed.item.tags ?? [])]
+            .filter(Boolean).join(' '),
+          ...rankedVideos.map(({ item }) => (
+            [item.title, item.description, item.channel_title, ...(item.tags ?? [])].filter(Boolean).join(' ')
+          )),
+        ]);
         const candidates = rankedVideos.flatMap(({ item, source_rank: sourceRank }) => {
           if (item.kind !== 'video') return [];
           if (isLiveVideo(item)) { funnel.live_rejected += 1; return []; }
@@ -1155,7 +1140,7 @@ export class YoutubeService {
             funnel.exact_excluded += 1;
             return [];
           }
-          const relation = becauseRelationForItem(item, entry.seed.item);
+          const relation = becauseRelationForItem(item, entry.seed.item, relationIdf);
           const related = provenance === 'history_channel'
             ? relation === 'same_channel'
             : entry.lane === 'beyond'
@@ -1920,6 +1905,17 @@ export class YoutubeService {
       });
     });
     phases.push(publishPhase);
+    const embeddingsPhase = await this.runRefreshPhase('v2_embeddings', async () => {
+      const published = latestYoutubeV2Generation();
+      const result = await maybeRefreshYoutubeEmbeddings({
+        watches: householdWatchAnchors(),
+        itemIds: published?.items.map((item) => item.id) ?? [],
+      });
+      if (!result.ok && !result.skipped) {
+        throw new Error(result.error || 'embedding refresh failed');
+      }
+    });
+    phases.push(embeddingsPhase);
     if (!publishPhase.ok && !subscriptionError && acquisitionPhase.ok && livePhase.ok) {
       setYoutubeState('youtube_v2_source_stale', {
         stale: true,
@@ -2264,6 +2260,9 @@ export class YoutubeService {
         : activeViewerProfileId(),
     });
     invalidateYoutubeV2ExactExclusions();
+    if (youtubeRecommendationsV2Mode() !== 'off') {
+      rebuildYoutubeV2Generation({ force: true });
+    }
     // The active recommendation owner is the reversible source of truth. Candidate
     // counters deliberately remain untouched so Undo removes both the exact
     // veto and its decaying semantic contribution on the next read.
@@ -2422,10 +2421,6 @@ export async function refreshYoutubeV2AfterLocalSignal(options: {
 }): Promise<YoutubeV2LocalRefreshResult> {
   const at = options.at ?? nowMs();
   if (options.reason === 'meaningful_watch') {
-    // Mango-local viewing is a chronological utility and a 30-day exact-video
-    // cooldown only. Official Takeout and OAuth subscriptions are the sole
-    // recommendation/acquisition signals, so a local watch does no rank or
-    // provider work.
     invalidateYoutubeV2ExactExclusions();
     invalidateYoutubeV2HistoryItems();
   }
@@ -2437,13 +2432,6 @@ export async function refreshYoutubeV2AfterLocalSignal(options: {
     };
   }
   if (options.changed === false) {
-    return {
-      local_generation: latestYoutubeV2GenerationRecord()?.generation ?? null,
-      acquisition: 'noop',
-      acquisition_result: null,
-    };
-  }
-  if (options.reason === 'meaningful_watch') {
     return {
       local_generation: latestYoutubeV2GenerationRecord()?.generation ?? null,
       acquisition: 'noop',

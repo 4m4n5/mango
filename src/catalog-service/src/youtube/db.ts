@@ -383,7 +383,8 @@ CREATE TABLE IF NOT EXISTS youtube_v2_generations (
 CREATE TABLE IF NOT EXISTS youtube_v2_generation_items (
   generation INTEGER NOT NULL,
   rail_id TEXT NOT NULL CHECK(rail_id IN (
-    'for_you', 'beyond', 'more_like', 'new_from_subscriptions', 'live_now'
+    'for_you', 'beyond', 'more_like', 'new_from_subscriptions', 'live_now',
+    'frequently_watched'
   )),
   rank INTEGER NOT NULL,
   kind TEXT NOT NULL DEFAULT 'video' CHECK(kind = 'video'),
@@ -391,14 +392,25 @@ CREATE TABLE IF NOT EXISTS youtube_v2_generation_items (
   score REAL NOT NULL,
   reason TEXT,
   provenance TEXT NOT NULL CHECK(provenance IN (
-    'subscription_upload', 'subscription_live', 'history_channel', 'history_topic'
+    'subscription_upload', 'subscription_live', 'history_channel', 'history_topic',
+    'rewatch', 'frequent_channel'
   )),
   provenance_ref TEXT NOT NULL,
   context_id TEXT NOT NULL DEFAULT '',
+  score_breakdown_json TEXT NOT NULL DEFAULT '{}',
   PRIMARY KEY(generation, rail_id, rank),
   UNIQUE(generation, rail_id, kind, id),
   FOREIGN KEY(generation) REFERENCES youtube_v2_generations(generation) ON DELETE CASCADE,
   FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS youtube_v2_embeddings (
+  kind TEXT NOT NULL,
+  id TEXT NOT NULL,
+  model TEXT NOT NULL,
+  vector BLOB NOT NULL,
+  text_hash TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(kind, id, model)
 );
 CREATE INDEX IF NOT EXISTS idx_youtube_v2_generation_rail
   ON youtube_v2_generation_items(generation, rail_id, rank);
@@ -633,6 +645,82 @@ ADD COLUMN source_rank INTEGER CHECK(source_rank IS NULL OR source_rank >= 0);
 `);
       }
       db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (17, ?)')
+        .run(nowMs());
+    })();
+  }
+  const v3GenerationItemsMigration = db.prepare(
+    'SELECT 1 FROM youtube_migrations WHERE version = 18',
+  ).get();
+  if (!v3GenerationItemsMigration) {
+    const generationItemsSql = (db.prepare(`
+SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'youtube_v2_generation_items'
+`).get() as { sql?: string } | undefined)?.sql ?? '';
+    const columns = db.prepare('PRAGMA table_info(youtube_v2_generation_items)')
+      .all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((column) => column.name));
+    const needsRebuild = !generationItemsSql.includes('frequently_watched')
+      || !generationItemsSql.includes('rewatch')
+      || !generationItemsSql.includes('frequent_channel');
+    db.transaction(() => {
+      if (needsRebuild) {
+        db.exec(`
+CREATE TABLE youtube_v2_generation_items_v18 (
+  generation INTEGER NOT NULL,
+  rail_id TEXT NOT NULL CHECK(rail_id IN (
+    'for_you', 'beyond', 'more_like', 'new_from_subscriptions', 'live_now',
+    'frequently_watched'
+  )),
+  rank INTEGER NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'video' CHECK(kind = 'video'),
+  id TEXT NOT NULL,
+  score REAL NOT NULL,
+  reason TEXT,
+  provenance TEXT NOT NULL CHECK(provenance IN (
+    'subscription_upload', 'subscription_live', 'history_channel', 'history_topic',
+    'rewatch', 'frequent_channel'
+  )),
+  provenance_ref TEXT NOT NULL,
+  context_id TEXT NOT NULL DEFAULT '',
+  source_expires_at INTEGER NOT NULL DEFAULT 0,
+  score_breakdown_json TEXT NOT NULL DEFAULT '{}',
+  PRIMARY KEY(generation, rail_id, rank),
+  UNIQUE(generation, rail_id, kind, id),
+  FOREIGN KEY(generation) REFERENCES youtube_v2_generations(generation) ON DELETE CASCADE,
+  FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
+);
+INSERT INTO youtube_v2_generation_items_v18(
+  generation, rail_id, rank, kind, id, score, reason,
+  provenance, provenance_ref, context_id, source_expires_at, score_breakdown_json
+)
+SELECT
+  generation, rail_id, rank, kind, id, score, reason,
+  provenance, provenance_ref, context_id,
+  ${columnNames.has('source_expires_at') ? 'source_expires_at' : '0'},
+  ${columnNames.has('score_breakdown_json') ? 'score_breakdown_json' : "'{}'"}
+FROM youtube_v2_generation_items;
+DROP TABLE youtube_v2_generation_items;
+ALTER TABLE youtube_v2_generation_items_v18 RENAME TO youtube_v2_generation_items;
+CREATE INDEX idx_youtube_v2_generation_rail
+  ON youtube_v2_generation_items(generation, rail_id, rank);
+`);
+      } else if (!columnNames.has('score_breakdown_json')) {
+        db.exec(`
+ALTER TABLE youtube_v2_generation_items
+ADD COLUMN score_breakdown_json TEXT NOT NULL DEFAULT '{}';
+`);
+      }
+      db.exec(`
+CREATE TABLE IF NOT EXISTS youtube_v2_embeddings (
+  kind TEXT NOT NULL,
+  id TEXT NOT NULL,
+  model TEXT NOT NULL,
+  vector BLOB NOT NULL,
+  text_hash TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(kind, id, model)
+);
+`);
+      db.prepare('INSERT INTO youtube_migrations(version, applied_at) VALUES (18, ?)')
         .run(nowMs());
     })();
   }
@@ -1587,6 +1675,21 @@ export type YoutubeV2Provenance =
   | 'history_channel'
   | 'history_topic';
 
+export type YoutubeV2ServeProvenance =
+  | YoutubeV2Provenance
+  | 'rewatch'
+  | 'frequent_channel';
+
+export type YoutubeV2ScoreBreakdown = {
+  relation: number;
+  rank: number;
+  affinity: number;
+  freshness: number;
+  penalty: number;
+  embedding_sim: number;
+  quality: number;
+};
+
 export type YoutubeV2RelationType =
   | 'direct'
   | 'same_topic'
@@ -1772,14 +1875,15 @@ GROUP BY provenance
 }
 
 export type YoutubeV2GenerationItemInput = {
-  rail_id: 'for_you' | 'beyond' | 'more_like' | 'new_from_subscriptions' | 'live_now';
+  rail_id: 'for_you' | 'beyond' | 'more_like' | 'new_from_subscriptions' | 'live_now' | 'frequently_watched';
   item: YoutubeItem;
   score: number;
   reason: string | null;
-  provenance: YoutubeV2Provenance;
+  provenance: YoutubeV2ServeProvenance;
   provenance_ref: string;
   source_expires_at: number;
   context_id?: string;
+  score_breakdown?: YoutubeV2ScoreBreakdown | null;
 };
 
 export type YoutubeV2Generation = {
@@ -1793,10 +1897,11 @@ export type YoutubeV2Generation = {
   items: Array<YoutubeRailItem & {
     rail_id: YoutubeV2GenerationItemInput['rail_id'];
     rank: number;
-    provenance: YoutubeV2Provenance;
+    provenance: YoutubeV2ServeProvenance;
     provenance_ref: string;
     source_expires_at: number;
     context_id: string;
+    score_breakdown: YoutubeV2ScoreBreakdown | null;
   }>;
 };
 
@@ -1848,8 +1953,8 @@ INSERT INTO youtube_v2_generations(
     const insert = db.prepare(`
 INSERT INTO youtube_v2_generation_items(
   generation, rail_id, rank, kind, id, score, reason,
-  provenance, provenance_ref, source_expires_at, context_id
-) VALUES (?, ?, ?, 'video', ?, ?, ?, ?, ?, ?, ?)
+  provenance, provenance_ref, source_expires_at, context_id, score_breakdown_json
+) VALUES (?, ?, ?, 'video', ?, ?, ?, ?, ?, ?, ?, ?)
 `);
     const ranks = new Map<string, number>();
     for (const entry of items) {
@@ -1865,6 +1970,7 @@ INSERT INTO youtube_v2_generation_items(
         entry.provenance_ref,
         entry.source_expires_at,
         entry.context_id?.trim() || '',
+        JSON.stringify(entry.score_breakdown ?? {}),
       );
       ranks.set(entry.rail_id, rank + 1);
     }
@@ -1891,6 +1997,30 @@ LIMIT 1
 `).get() as YoutubeV2GenerationRecord | undefined) ?? null;
 }
 
+function parseScoreBreakdown(raw: string | null | undefined): YoutubeV2ScoreBreakdown | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<YoutubeV2ScoreBreakdown>;
+    if (!parsed || typeof parsed !== 'object') return null;
+    const numbers = [
+      parsed.relation, parsed.rank, parsed.affinity, parsed.freshness,
+      parsed.penalty, parsed.embedding_sim, parsed.quality,
+    ];
+    if (numbers.some((value) => typeof value !== 'number' || !Number.isFinite(value))) return null;
+    return {
+      relation: parsed.relation!,
+      rank: parsed.rank!,
+      affinity: parsed.affinity!,
+      freshness: parsed.freshness!,
+      penalty: parsed.penalty!,
+      embedding_sim: parsed.embedding_sim!,
+      quality: parsed.quality!,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function readYoutubeV2GenerationItems(
   db: Database.Database,
   generation: number,
@@ -1898,7 +2028,7 @@ function readYoutubeV2GenerationItems(
   const items = db.prepare(`
 SELECT
   gi.rail_id, gi.rank, gi.score, gi.reason, gi.provenance, gi.provenance_ref,
-  gi.source_expires_at, gi.context_id, yi.id, yi.kind, yi.title, yi.subtitle, yi.description,
+  gi.source_expires_at, gi.context_id, gi.score_breakdown_json, yi.id, yi.kind, yi.title, yi.subtitle, yi.description,
   yi.thumbnail, yi.channel_id, yi.channel_title, yi.published_at,
   yi.duration_sec, yi.live_status, yi.playlist_id, yi.category_id, yi.default_language,
   yi.default_audio_language, yi.tags_json, yi.official_metadata_checked_at, yi.updated_at
@@ -1906,8 +2036,18 @@ FROM youtube_v2_generation_items gi
 JOIN youtube_items yi ON yi.kind = gi.kind AND yi.id = gi.id
 WHERE gi.generation = ?
 ORDER BY gi.rail_id, gi.rank
-`).all(generation) as Array<YoutubeV2Generation['items'][number] & { tags_json?: string }>;
-  return items.map((entry) => ({ ...entry, ...youtubeItemFromRow(entry) }));
+`).all(generation) as Array<YoutubeV2Generation['items'][number] & {
+    tags_json?: string;
+    score_breakdown_json?: string;
+  }>;
+  return items.map((entry) => {
+    const { score_breakdown_json: rawBreakdown, ...rest } = entry;
+    return {
+      ...rest,
+      ...youtubeItemFromRow(entry),
+      score_breakdown: parseScoreBreakdown(rawBreakdown),
+    };
+  });
 }
 
 function youtubeV2GenerationValue(
@@ -2118,4 +2258,37 @@ export function updateYoutubeAuthSession(
 
 export function deleteYoutubeAuthSession(sessionId: string): void {
   ensureDb().prepare('DELETE FROM youtube_auth_sessions WHERE session_id = ?').run(sessionId);
+}
+
+export type YoutubeV2EmbeddingRow = {
+  kind: string;
+  id: string;
+  model: string;
+  vector: Buffer;
+  text_hash: string;
+  updated_at: number;
+};
+
+export function upsertYoutubeV2Embedding(row: YoutubeV2EmbeddingRow): void {
+  ensureDb().prepare(`
+INSERT INTO youtube_v2_embeddings(kind, id, model, vector, text_hash, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(kind, id, model) DO UPDATE SET
+  vector = excluded.vector,
+  text_hash = excluded.text_hash,
+  updated_at = excluded.updated_at
+`).run(row.kind, row.id, row.model, row.vector, row.text_hash, Math.floor(row.updated_at));
+}
+
+export function getYoutubeV2Embedding(
+  kind: string,
+  id: string,
+  model: string,
+): YoutubeV2EmbeddingRow | null {
+  const row = ensureDb().prepare(`
+SELECT kind, id, model, vector, text_hash, updated_at
+FROM youtube_v2_embeddings
+WHERE kind = ? AND id = ? AND model = ?
+`).get(kind, id, model) as YoutubeV2EmbeddingRow | undefined;
+  return row ?? null;
 }

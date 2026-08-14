@@ -394,7 +394,7 @@ playback, but `yt-dlp` failures such as 403/429/CAPTCHA are surfaced as
 couch-safe playback errors. Channels and playlists open detail lists; only
 videos can be Saved in M6.2.
 
-In `serve`, YouTube v2 display order is **For You → From Your Subscriptions → More Like … → Beyond Your
+In `serve`, YouTube v2 display order is **For You → From Your Subscriptions → Your regulars → More Like … → Beyond Your
 Subscriptions → History**. **Saved** follows as a stable utility when it has four
 cards, and **Live Now** follows when subscribed channels have live content. Normal rows
 render only with exactly four globally unique landscape cards; therefore a
@@ -419,12 +419,14 @@ within-tier percentile. Selection is without replacement only inside that
 visible response; cross-shuffle repeats are valid, and rendered impressions or
 exposure counters never influence membership.
 
-Recommendation acquisition and scoring accept exactly two official inputs:
-authoritative OAuth subscription snapshots and Google Takeout watch history.
-Mango-local viewing remains useful for chronological History/progress and a
-30-day exact-video cooldown, but it never teaches taste or starts acquisition.
+Recommendation acquisition and scoring accept official inputs:
+authoritative OAuth subscription snapshots, Google Takeout watch history, and
+Mango-local meaningful watches (equal decayed strength). Exact videos stay on a
+30-day cooldown except on Your regulars. Not-for-me remains an exact video veto
+and also applies a decaying channel penalty.
 Explicit provenance (`subscription_upload`,
-`subscription_live`, `history_channel`, or `history_topic`) is required; a video
+`subscription_live`, `history_channel`, or `history_topic`) is required for
+acquisition; generation may also serve `rewatch` and `frequent_channel`. A video
 in the generic Search/detail/AI/chart metadata cache cannot leak into a
 recommendation rail. Saved remains a utility rail and has zero ranking effect.
 Profiles, mood, VOD activity, companion state, Search, AI catalogs, and global

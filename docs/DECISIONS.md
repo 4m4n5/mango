@@ -147,17 +147,20 @@ explicit product approval.
 |-------|---------------|
 | Source | First-class native tab; official Data API for metadata/search/subscriptions and `yt-dlp` → mpv for playback |
 | Auth/secrets | Operator-owned `/etc/mango/*`, never repository secrets |
-| Inputs | Only authoritative complete subscriptions and official Google Takeout watch history influence recommendation acquisition/ranking; Mango-local viewing is limited to History/progress and a 30-day exact-video cooldown |
-| Isolation | Search, Saved, profiles, mood, VOD, companion memory, AI catalogs, charts, and generic cache do not influence YouTube v2 |
-| Core positions | For You → From Your Subscriptions → More Like → Beyond Your Subscriptions → History; Saved follows as a utility; Live Now follows when present |
+| Inputs | Authoritative complete subscriptions plus official Google Takeout and Mango-local meaningful watches (equal decayed strength) influence recommendation acquisition/ranking; exact Not-for-me remains a video veto and also applies a decaying channel penalty |
+| Isolation | Search, Saved, profiles, mood, VOD, companion memory, AI catalogs, charts, and generic cache do not influence YouTube v3 |
+| Core positions | For You → From Your Subscriptions → Your regulars → More Like → Beyond Your Subscriptions → History; Saved follows as a utility; Live Now follows when present |
 | Visibility | Normal rows render only with exactly four cards; Live Now renders one to four; logical positions are not guaranteed visible |
-| For You | Quality-gated official-history and subscription candidates; both source families must appear when both have eligible supply. History affinity rises from 0.60 to 1.00 with decayed strength; subscription-backed evidence uses 1.00. The retired fixed 60/40 blend is not a second ranker |
+| For You | Quality-gated Takeout+local-history and subscription candidates; both source families must appear when both have eligible supply. Unsubscribed history affinity rises from 0.60 to 1.00 with decayed channel strength; subscribed affinity rises from 0.75 to 1.00. The retired fixed 60/40 blend is not a second ranker |
 | Portfolio | When both sources have eligible supply, For You contains both; creator and seed caps relax only to fill four. Beyond uses one creator and at most two cards per seed before shortage relaxation |
 | OAuth ready | Token receipt is not Ready: resolve authorized channel, enumerate authoritative subscriptions, cover official upload playlists in bounded pages, then report sanitized account/sync truth |
 | Locale | India discovery (`IN`) and English relevance (`en`) are independent explicit settings; never infer account country from an absent channel field |
 | Candidate depth | Quality-gated A/B candidates plus at most 64 tier-C candidates publish up to 512 per normal rail. Nightly uses at most the configured background Search allowance after preserving 25 interactive calls; triggered refresh stays coalesced and capped at 12 Search calls |
 | More Like | Up to ten daily-stable official-history seeds; 50 results/query; seek at least eight contributing topics and continue quality-gated fill toward the 512 rail cap; distinct seed/creator slate preference; official uploads-playlist fallback only for a sub-four thematic pool, then honest omission |
+| Your regulars | Mixed rewatch (≥2 lifetime watches, exempt from the 30-day cooldown) and fresh uploads from top-affinity channels; target 2+2 with either-way backfill |
 | History/Saved | History shuffles with X from the cached watch pool; Saved is a stable utility with zero ranking influence |
+| Not-for-me | Exact reversible video veto plus a decaying channel penalty (×0.6 per event, 60-day half-life, floor ~0.25). Undo restores both |
+| Embeddings | `MANGO_YOUTUBE_EMBEDDINGS=1` enables optional MiniLM/hash embeddings; `MANGO_YOUTUBE_SIM=lexical\|embedding\|blend` defaults to lexical. Absent flag is zero compute |
 | X | Each epoch is an independent deterministic relevance-weighted draw from the published cache. Uniqueness is only within the visible slate; repeats across X are valid. No impressions, exposure counts, recent-slate exclusion, deck, acquisition, API quota, ranking, or network work affects selection; History shuffles from its cached pool; Saved stays stable |
 | Failure boundary | Incomplete authoritative subscription/discovery/Live requests and atomic publication failures preserve an explicitly stale last-good generation. The clean 90-second acquisition wall is a successful bounded stop: discard the late result and permit previously accepted candidates to publish; ordinary eight-second request timeouts remain source failures |
 | Native-feed claim | Public YouTube Data API cannot reproduce YouTube's proprietary Home feed; Mango does not claim it can |

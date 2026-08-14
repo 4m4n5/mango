@@ -77,9 +77,9 @@ test('initYoutubeDb creates WAL cache schema', () => withTempYoutube((dir) => {
     assert.equal(String(mode).toLowerCase(), 'wal');
     const rows = db.prepare('SELECT version FROM youtube_migrations').all() as Array<{ version: number }>;
     assert.deepEqual(
-      rows.map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
-    );
+    rows.map((row) => row.version),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+  );
   } finally {
     db.close();
   }

@@ -91,7 +91,7 @@ def is_number(value):
 if mode == "serve":
     v2 = state.get("recommendations_v2")
     assert isinstance(v2, dict), "v2 diagnostics are missing"
-    assert v2.get("model_version") == "youtube-household-v2.7", v2.get("model_version")
+    assert v2.get("model_version") == "youtube-household-v3.0", v2.get("model_version")
     status = v2.get("status")
     assert status in {"setup", "empty", "ready", "stale"}, status
     setup_required = v2.get("setup_required")
@@ -146,7 +146,8 @@ if mode == "serve":
     assert type(candidate_count) is int and candidate_count >= 0, candidate_count
     reserve_depths = v2.get("reserve_depths")
     reserve_ids = {
-        "for_you", "beyond", "more_like", "new_from_subscriptions", "live_now",
+        "for_you", "beyond", "more_like", "new_from_subscriptions",
+        "frequently_watched", "live_now",
     }
     assert isinstance(reserve_depths, dict), "v2 reserve depths are missing"
     assert set(reserve_depths) == reserve_ids, reserve_depths
@@ -257,7 +258,7 @@ if mode == "serve":
         assert setup_required is True
 
     allowed_order = [
-        "for_you", "new_from_subscriptions", "more_like", "beyond",
+        "for_you", "new_from_subscriptions", "frequently_watched", "more_like", "beyond",
         "history", "saved", "live_now",
     ]
     rail_ids = [(rail or {}).get("rail_id") for rail in rails]
@@ -265,7 +266,7 @@ if mode == "serve":
     assert all(rail_id in allowed_order for rail_id in rail_ids), rail_ids
     assert rail_ids == sorted(rail_ids, key=allowed_order.index), rail_ids
     normal_recommendation_ids = {
-        "for_you", "beyond", "more_like", "new_from_subscriptions",
+        "for_you", "beyond", "more_like", "new_from_subscriptions", "frequently_watched",
     }
     for rail_id in normal_recommendation_ids:
         if reserve_depths[rail_id] < 4:

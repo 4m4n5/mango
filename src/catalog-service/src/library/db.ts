@@ -4018,6 +4018,57 @@ LIMIT @limit;
   }) as LibraryItemIdCursorRow[];
 }
 
+export type MeaningfulYoutubeWatchEvent = {
+  history_id: number;
+  id: string;
+  title: string | null;
+  watched_at: number;
+};
+
+/**
+ * Cursor-paged meaningful Mango-local YouTube watches for v3 taste. Same
+ * threshold as cooldown/ranking; includes each qualifying event so repeats
+ * raise affinity the same way Takeout events do.
+ */
+export function listMeaningfulYoutubeWatchEventsPage(options: {
+  profile_id?: string | null;
+  household_blend?: boolean;
+  watched_until?: number | null;
+  after_history_id?: number | null;
+  limit?: number;
+} = {}): MeaningfulYoutubeWatchEvent[] {
+  const profileId = options.profile_id?.trim().toLowerCase() || activeViewerProfileId();
+  const householdBlend = options.household_blend !== false && profileId === 'household';
+  return ensureDb().prepare(`
+SELECT wh.history_id, li.id, COALESCE(wh.title, li.title) AS title, wh.watched_at
+FROM watch_history wh
+JOIN library_items li ON li.item_key = wh.item_key
+JOIN profile_watch_history scoped ON scoped.history_id = wh.history_id
+WHERE li.type = 'youtube_video'
+  AND (@household_blend = 1 OR scoped.profile_id = @profile_id)
+  AND wh.history_id > @after_history_id
+  AND wh.watched_at <= @watched_until
+  AND (
+    wh.progress_pct >= 0.9
+    OR lower(wh.event) IN ('complete', 'completed', 'finish', 'finished', 'ended', 'credits')
+    OR wh.position_sec >= CASE
+      WHEN wh.duration_sec > 0 THEN MIN(wh.duration_sec * 0.25, 300.0)
+      ELSE 120.0
+    END
+  )
+ORDER BY wh.history_id
+LIMIT @limit;
+`).all({
+    profile_id: profileId,
+    household_blend: householdBlend ? 1 : 0,
+    watched_until: Number.isFinite(options.watched_until)
+      ? Math.floor(options.watched_until as number)
+      : Number.MAX_SAFE_INTEGER,
+    after_history_id: Math.max(0, Math.floor(options.after_history_id ?? 0)),
+    limit: Math.max(1, Math.min(2_000, Math.floor(options.limit ?? 1_000))),
+  }) as MeaningfulYoutubeWatchEvent[];
+}
+
 export function upsertYoutubeTakeoutHistory(
   history: Array<Omit<YoutubeTakeoutHistoryEntry, 'source_generation' | 'imported_at'>>,
   options: { source_generation: string; imported_at?: number },

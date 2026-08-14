@@ -68,6 +68,7 @@ import {
   weightedDailyHistorySeedId,
 } from './v2.js';
 import type { YoutubeItem, YoutubeRail } from './types.js';
+import { evaluateYoutubeVariants } from './eval-cli.js';
 
 function video(
   id: string,
@@ -130,6 +131,9 @@ function withTempState<T>(fn: () => T | Promise<T>): T | Promise<T> {
     delete process.env.MANGO_YOUTUBE_OAUTH_CLIENT_FILE;
     delete process.env.MANGO_YOUTUBE_AUTH_TOKEN_FILE;
     delete process.env.MANGO_YOUTUBE_RECS_V2;
+    delete process.env.MANGO_YOUTUBE_EMBEDDINGS;
+    delete process.env.MANGO_YOUTUBE_SIM;
+    delete process.env.MANGO_YOUTUBE_SCORING;
     delete process.env.MANGO_YTDLP_COMMAND;
     rmSync(dir, { recursive: true, force: true });
   };
@@ -176,7 +180,7 @@ function seedV2(): SeededV2 {
     `Fermentation science field guide ${index}`,
     `topic-channel-${index}`,
   ));
-  const channelVideos = Array.from({ length: 5 }, (_, index) => video(
+  const channelVideos = Array.from({ length: 12 }, (_, index) => video(
     `ChannelVideo${index}`,
     `Fermentation creator followup ${index}`,
     watchedChannel,
@@ -449,7 +453,7 @@ test('Takeout refresh is off-safe and uses one durable 15-minute acquisition coa
   assert.equal(refreshes, 1);
 }));
 
-test('a Mango-local meaningful watch changes only History and the exact cooldown', () => withTempState(async () => {
+test('a Mango-local meaningful watch rebuilds taste and coalesces acquisition', () => withTempState(async () => {
   process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
   const now = Date.now();
   seedV2();
@@ -478,13 +482,9 @@ test('a Mango-local meaningful watch changes only History and the exact cooldown
       return { ok: true };
     } } as unknown as Pick<YoutubeService, 'refresh'>,
   });
-  assert.deepEqual(result, {
-    local_generation: before.generation,
-    acquisition: 'noop',
-    acquisition_result: null,
-  });
-  assert.equal(providerRefreshes, 0);
-  assert.equal(latestYoutubeV2GenerationRecord()?.generation, before.generation);
+  assert.equal(result.acquisition, 'queued');
+  assert.ok((result.local_generation ?? 0) > before.generation);
+  assert.equal(providerRefreshes, 1);
   assert.equal(youtubeV2HistoryItems().some((item) => item.id === local.id), true);
   assert.equal(youtubeV2RecommendationRails({ shuffle_epoch: 0 })
     .flatMap((rail) => rail.items).some((item) => item.id === local.id), false);
@@ -615,7 +615,10 @@ test('v2 ranks only four exact provenance types and enforces watch, Saved, Short
   }]);
   const generation = rebuildYoutubeV2Generation({ force: true });
   assert.ok(generation);
-  const allowed = new Set(['subscription_upload', 'subscription_live', 'history_channel', 'history_topic']);
+  const allowed = new Set([
+    'subscription_upload', 'subscription_live', 'history_channel', 'history_topic',
+    'rewatch', 'frequent_channel',
+  ]);
   assert.ok(generation.items.every((item) => allowed.has(item.provenance)));
   assert.equal(generation.items.some((item) => item.id === seeded.chartOnly.id), false);
   assert.equal(generation.items.some((item) => item.id === 'ShortBlocked01'), false);
@@ -789,7 +792,7 @@ test('More Like acquisition can reacquire an official-history video after the 30
   )));
 }));
 
-test('official Takeout history alone drives taste while Mango-local viewing stays utility-only', () => withTempState(() => {
+test('official Takeout and meaningful local watches both drive taste', () => withTempState(() => {
   const now = Date.now();
   const complete = video('CompleteSeed', 'Complete fermentation seed', 'complete-channel');
   const bare = video('BareSeed', 'Bare fermentation seed', 'bare-channel');
@@ -828,13 +831,11 @@ test('official Takeout history alone drives taste while Mango-local viewing stay
   })));
   const generation = rebuildYoutubeV2Generation({ force: true, at: now });
   assert.ok(generation);
-  // Mango launches remain chronological utility state, but neither a complete
-  // nor a bare local session becomes a recommendation seed.
   assert.equal(youtubeV2HistoryItems().some((item) => item.id === complete.id), true);
   assert.equal(youtubeV2HistoryItems().some((item) => item.id === bare.id), true);
   assert.equal(youtubeV2TopicSeed(now)?.provenance_ref, youtubeV2TopicSeed(now + 60_000)?.provenance_ref);
   const forYou = new Map(generation.items.filter((item) => item.rail_id === 'for_you').map((item) => [item.id, item.score]));
-  assert.equal(forYou.has('CompleteCandidate'), false);
+  assert.equal(forYou.has('CompleteCandidate'), true);
   assert.equal(forYou.has('BareCandidate'), false);
   assert.ok(forYou.get('TakeoutRecentCandidate')! > forYou.get('TakeoutOldCandidate')!);
 }));
@@ -1354,7 +1355,7 @@ test('v2 refresh runs only subscription/history acquisition and bounded publish 
   assert.equal(result.ok, true);
   assert.deepEqual(result.phases?.map((phase) => phase.phase), [
     'subscriptions', 'v2_subscription_acquisition', 'v2_history_metadata',
-    'v2_history_acquisition', 'v2_live_acquisition', 'v2_publish',
+    'v2_history_acquisition', 'v2_live_acquisition', 'v2_publish', 'v2_embeddings',
   ]);
   assert.ok(searchCalls <= 12);
   const acquisition = getYoutubeState<{
@@ -1419,7 +1420,7 @@ test('shadow refresh builds only the provenance-gated v2 phases', () => withTemp
   const phases = result.phases?.map((phase) => phase.phase) ?? [];
   assert.deepEqual(phases, [
     'subscriptions', 'v2_subscription_acquisition', 'v2_history_metadata',
-    'v2_history_acquisition', 'v2_live_acquisition', 'v2_publish',
+    'v2_history_acquisition', 'v2_live_acquisition', 'v2_publish', 'v2_embeddings',
   ]);
 }));
 
@@ -1602,7 +1603,7 @@ test('More Like reports and labels an exact-channel fallback honestly when topic
     searchRecommendationVideos: () => Promise<ReturnType<typeof rankedVideos>>;
   } }).api;
   api.channelUploadPlaylists = async (ids) => new Map([[ids[0]!, 'boxing-uploads']]);
-  api.playlistRecommendationVideos = async () => rankedVideos(Array.from({ length: 6 }, (_, index) => (
+  api.playlistRecommendationVideos = async () => rankedVideos(Array.from({ length: 10 }, (_, index) => (
     video(`same-channel-${index}`, `Boxing footwork episode ${index}`, 'boxing-channel')
   )));
   api.searchRecommendationVideos = async () => [];
@@ -2119,6 +2120,7 @@ test('serve order, labels, card counts, creator caps, and global dedupe match th
   assert.deepEqual(response.rails.map((rail) => [rail.rail_id, rail.label]), [
     ['for_you', 'For You'],
     ['new_from_subscriptions', 'From Your Subscriptions'],
+    ['frequently_watched', 'Your regulars'],
     ['more_like', `More from Channel ${seeded.watchedChannel}`],
     ['beyond', 'Beyond Your Subscriptions'],
     ['history', 'History'],
@@ -2457,16 +2459,17 @@ test('v2.7 quality factors and independent support boost match the locked produc
     }]);
   };
   const day = 24 * 60 * 60 * 1_000;
-  assert.equal(subscriptionQuality(7 * day), 1);
-  assert.equal(subscriptionQuality(7 * day + 1), 0.9);
-  assert.equal(subscriptionQuality(30 * day), 0.9);
-  assert.equal(subscriptionQuality(30 * day + 1), 0.75);
-  assert.equal(subscriptionQuality(90 * day), 0.75);
-  assert.equal(subscriptionQuality(90 * day + 1), 0.55);
-  assert.equal(subscriptionQuality(365 * day), 0.55);
-  assert.equal(subscriptionQuality(365 * day + 1), 0.35);
-  assert.equal(subscriptionQuality(0, 49), 0.55);
-  assert.equal(subscriptionQuality(0, null), 0.75);
+  const dormantSub = 0.75;
+  assert.equal(subscriptionQuality(7 * day), dormantSub);
+  assert.equal(subscriptionQuality(7 * day + 1), dormantSub * 0.9);
+  assert.equal(subscriptionQuality(30 * day), dormantSub * 0.9);
+  assert.equal(subscriptionQuality(30 * day + 1), dormantSub * 0.75);
+  assert.equal(subscriptionQuality(90 * day), dormantSub * 0.75);
+  assert.equal(subscriptionQuality(90 * day + 1), dormantSub * 0.55);
+  assert.equal(subscriptionQuality(365 * day), dormantSub * 0.55);
+  assert.equal(subscriptionQuality(365 * day + 1), dormantSub * 0.35);
+  assert.equal(subscriptionQuality(0, 49), dormantSub * 0.55);
+  assert.equal(subscriptionQuality(0, null), dormantSub * 0.75);
 }));
 
 test('v2.7 quality gates bound exploration and publish the full honest reserve', () => withTempState(() => {
@@ -3024,3 +3027,94 @@ test('full YouTube state and rails sanitize config, refresh, import, acquisition
   assert.equal(JSON.stringify(malformedAuthState).includes('malformed-expiry-secret-marker'), false);
   assert.equal(JSON.stringify(malformedAuthState).includes('malformed-access-token-secret-marker'), false);
 }));
+
+test('Your regulars mixes rewatch cooldown exemption with frequent-channel uploads', () => withTempState(() => {
+  const now = Date.now();
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  const repeat = video('RepeatRegular', 'Repeat fermentation kitchen', 'regular-channel');
+  const fresh = video('FreshRegular', 'Fresh fermentation kitchen', 'regular-channel');
+  upsertYoutubeItems([repeat, fresh]);
+  upsertYoutubeV2ImportedHistory([
+    {
+      video_id: repeat.id, title: repeat.title, title_url: null,
+      channel_id: repeat.channel_id, channel_title: repeat.channel_title, watched_at: now,
+    },
+    {
+      video_id: repeat.id, title: repeat.title, title_url: null,
+      channel_id: repeat.channel_id, channel_title: repeat.channel_title,
+      watched_at: now - 3 * 24 * 60 * 60 * 1000,
+    },
+  ], { source_generation: 'regulars-history', imported_at: now });
+  upsertYoutubeV2CandidateProvenance([{
+    item: fresh, provenance: 'history_channel', provenance_ref: repeat.id,
+    source_generation: 'regulars-channel', acquired_at: now, expires_at: now + 1_000_000,
+    relation_type: 'direct', source_rank: 0,
+  }]);
+  const generation = rebuildYoutubeV2Generation({ force: true, at: now })!;
+  const regulars = generation.items.filter((item) => item.rail_id === 'frequently_watched');
+  assert.ok(regulars.some((item) => item.id === repeat.id && item.provenance === 'rewatch'));
+  assert.ok(regulars.some((item) => item.id === fresh.id && item.provenance === 'frequent_channel'));
+  assert.equal(generation.items.some((item) => item.rail_id !== 'frequently_watched' && item.id === repeat.id), false);
+}));
+
+test('Not-for-me applies a decaying channel penalty while exact video veto stays', () => withTempState(() => {
+  const now = Date.now();
+  const seed = video('PenaltySeed', 'Penalty seed documentary', 'penalty-seed');
+  const sameChannel = video('PenaltySame', 'Penalty same-channel documentary', 'penalty-channel');
+  const other = video('PenaltyOther', 'Penalty other documentary', 'other-channel');
+  const hidden = video('PenaltyHidden', 'Penalty hidden documentary', 'penalty-channel');
+  upsertYoutubeItems([seed, sameChannel, other, hidden]);
+  importOfficialHistory([seed], now, 'penalty-history');
+  setLibraryFeedback({
+    source: 'youtube', type: 'youtube_video', id: hidden.id, title: hidden.title,
+    tab: 'youtube', feedback: 'not_interested', created_at: now,
+  });
+  upsertYoutubeV2CandidateProvenance([
+    {
+      item: sameChannel, provenance: 'history_topic', provenance_ref: seed.id,
+      source_generation: 'penalty-same', acquired_at: now, expires_at: now + 1_000_000,
+      relation_type: 'same_topic', source_rank: 0,
+    },
+    {
+      item: other, provenance: 'history_topic', provenance_ref: seed.id,
+      source_generation: 'penalty-other', acquired_at: now, expires_at: now + 1_000_000,
+      relation_type: 'same_topic', source_rank: 0,
+    },
+    {
+      item: hidden, provenance: 'history_topic', provenance_ref: seed.id,
+      source_generation: 'penalty-hidden', acquired_at: now, expires_at: now + 1_000_000,
+      relation_type: 'same_topic', source_rank: 0,
+    },
+  ]);
+  const generation = rebuildYoutubeV2Generation({ force: true, at: now })!;
+  const scores = new Map(generation.items.filter((item) => item.rail_id === 'for_you').map((item) => [item.id, item.score]));
+  assert.equal(scores.has(hidden.id), false);
+  assert.ok(scores.get(other.id)! > scores.get(sameChannel.id)!);
+  assert.ok(generation.items.some((item) => item.score_breakdown && item.score_breakdown.penalty < 1));
+}));
+
+test('v3 diagnostics keep impression-free sampling and embeddings off by default', () => withTempState(() => {
+  seedV2();
+  rebuildYoutubeV2Generation({ force: true });
+  const diagnostics = youtubeV2Diagnostics();
+  assert.equal(diagnostics.model_version, 'youtube-household-v3.0');
+  assert.deepEqual(diagnostics.sampling, {
+    policy: 'independent_weighted_v1',
+    independent_epoch_draws: true,
+    without_replacement_scope: 'visible_slate',
+    impression_aware: false,
+    recent_slate_state: false,
+  });
+  assert.equal((diagnostics.sources as Record<string, unknown>).recommendation_history_policy, 'takeout_and_local_meaningful');
+  assert.equal((diagnostics.embeddings as Record<string, unknown>).enabled, false);
+  assert.ok('frequently_watched' in (diagnostics.reserve_depths as Record<string, unknown>));
+}));
+
+test('offline holdout eval is deterministic across identical rebuilds', () => withTempState(() => {
+  seedV2();
+  const first = evaluateYoutubeVariants(1_700_000_000_000);
+  const second = evaluateYoutubeVariants(1_700_000_000_000);
+  assert.deepEqual(first.variants, second.variants);
+  assert.equal((first.variants as Array<{ variant: string }>).map((row) => row.variant).join(','), 'legacy,v3,v3-embed');
+}));
+
