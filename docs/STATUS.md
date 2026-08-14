@@ -3,13 +3,16 @@
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
 Latest recorded Pi deployment: **2026-08-14**,
-`c672e2735513fbf9f43e91669f261e366f82bd62`. Launcher rebuilt from that SHA
-(Shuffle swaps Home atomically and restores the poster slot). gate-lite, UX,
-YouTube, reliability, playback, 4K-profile, stream-picker, and voice-ready
-**PASS** at `c672e27`. Reliability remains usable-yellow (`broken_verified=4/32`;
-rail growth and last nightly proof still yellow). Pad health is ok. Human couch
-verdict remains **DEFERRED**. Prior 2026-08-14 line `77cadbe` still records the
-previous pre-couch PASS.
+`caa0215e55b4c05020105b91d82670f379cd26a2`. Catalog and launcher rebuilt from
+that SHA (YouTube household v3.0: local meaningful watches as equal-weight
+taste, channel affinity, decaying channel Not-for-me, and Your regulars).
+gate-lite, UX, YouTube, reliability, playback, 4K-profile, and stream-picker
+**PASS** at `caa0215`. A manual YouTube refresh proved `v2_publish` and
+fail-soft `v2_embeddings` (embeddings remain off by default). Reliability
+remains usable-yellow (`broken_verified=4/32`; rail growth and last nightly
+proof still yellow). Pad health is ok. Human couch verdict remains **DEFERRED**,
+including visual check of Your regulars. Prior 2026-08-14 line `c672e27` still
+records the previous pre-couch PASS.
 Use `git status`, `git rev-parse HEAD`, and the Pi commands below before acting.
 
 ## How to read this page
@@ -37,7 +40,7 @@ prove only their exact revision and contract.
 | Mango library and Fire/Water input | Canonical Saved placement and tab-only library migration 18; ratings remain complete | Final Pi migration/readback passed: 12 misclassified tabs repaired to 0, user-state keys/counts preserved, Movies Saved 6 / Series Saved 8 / wrong-tab 0 | Human Dune-from-TV-Search placement and physical UI check |
 | VOD recommendations | `fb20baa` progressive profiles + Household Story Frontier + Browse v3 + StoryDNA Related; all historical data preserved | Pi serves complete 5,930/3,974 accounting with 720/675 rank reserves. Two active atomic browse reservoirs contain 19,950 candidate rows. Forty X presses per tab yielded 2,121/1,897 unique cards at p95 121.9/119.5 ms with global dedupe and zero provider/rank work | Human For You/category/Related verdict and physical focus/picture/audio checks |
 | Native YouTube base | Complete | Previously deployed/Pi-gated | Current exact-SHA revalidation and account-specific proof |
-| YouTube recommendations | `youtube-household-v2.7`: quality-gated reserves up to 512 per rail and independent weighted cache-only X | Final Pi generation 22: 1,441 candidates; reserves 512 For You / 405 Subscriptions / 274 Beyond / 250 More Like / 0 Live; 55 subscriptions; 50 X p50 58.83 ms, p95 174.66 ms with quota/generation flat and History stable | Human relevance, perceived repetition, focus/Back, offline, picture/audio observation |
+| YouTube recommendations | `youtube-household-v3.0`: Takeout + local meaningful watches, channel affinity, decaying channel Not-for-me, Your regulars; embeddings flag-gated off | Pi generation 26 at `caa0215`: 1,598 candidates; reserves 512 For You / 326 Subscriptions / 47 Regulars / 216 More Like / 497 Beyond / 0 Live; 55 subscriptions; 2,554 taste anchors (7 local, 1 mixed); Your regulars served 4 cards after manual refresh (`v2_embeddings:ok`, `impression_aware: false`) | Human relevance, Your regulars quality, perceived repetition, focus/Back, offline, picture/audio observation |
 | Voice/phone companion | Complete for trusted-LAN development contract | Automated corpus/memory/UX gates on earlier revisions; partial couch work | Full V1–V12/current coherence plus per-device client auth/pairing before appliance release |
 | Reliability Center/nightly proof | Implemented; sanitized launcher terminal outcomes and proof-version/type-conflict/episode counts added at `275ceb2` | Final Pi state is usable-yellow; terminal fixture recorded 2 playing and 2 `resolve/no_stream` failures, and the served-card sample found 16/32 legacy proof-v1 misses | Three clean nightly proofs, intentionally-disabled-Live policy, controller-action UI mismatch |
 | Controller reconnect | Source-complete | Automated gate exists; normal-wake behavior partially exercised | Five physical power-on reconnect cycles without pairing mode |
@@ -561,29 +564,30 @@ Detail: [FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md).
 | `shadow` | Build and diagnose only the authoritative Household v2 generation; recommendation rails remain hidden |
 | `serve` | Expose only the authoritative Household v2 generation; there is no legacy recommendation fallback |
 
-The latest Pi mode observation is `serve` on v2.7 generation 22 at `04171bb`.
+The latest Pi mode observation is `serve` on v3.0 generation 26 at `caa0215`.
 The following rails are deployed and automated-runtime-proven, but not yet
 couch-observed for relevance or physical-TV behavior.
 
 | Rail | Contract |
 |------|----------|
 | For You | Quality-gated qualifying history/subscription evidence with both source families represented when both have supply; no separate fixed 60/40 blend |
+| From Your Subscriptions | Conditional newest unwatched authoritative uploads |
+| Your regulars | Mixed rewatch (≥2 lifetime watches, cooldown-exempt) and unwatched uploads from high-affinity channels |
 | Beyond Your Subscriptions | Topic/channel discovery excluding subscribed creators |
 | More Like… | Up to ten daily-stable recent meaningful-watch seeds; seek eight contributing topics and continue bounded quality-gated fill toward the 512-item cap |
 | History | Stable chronological normalized history |
 | Saved | Stable explicit Saved; zero recommendation weight |
-| From Your Subscriptions | Conditional newest unwatched authoritative uploads |
 | Live Now | Conditional currently live subscribed-channel streams only |
 
-Only authoritative complete subscription snapshots and official Takeout
-history may create recommendation provenance. Mango-local viewing is limited
-to chronological History/progress and a 30-day exact-video cooldown. Search,
-generic cache, Saved, profiles, mood, VOD, companion state, AI catalogs, and
-global charts cannot leak into ranking. Normal rows contain four cards; Live
-Now contains one to four. Home and X independently sample the quality-weighted
-published reservoirs without quota/network work. Uniqueness is within the
-visible slate only; repeats across X are valid and impressions do not influence
-selection. History shuffles from its cached watch pool; Saved never shuffles.
+Official Takeout history and Mango-local meaningful watches both seed
+recommendation taste at equal strength. Exact-video Not-for-me remains a veto;
+channel Not-for-me is a decaying penalty. Search, generic cache, Saved,
+profiles, mood, VOD, companion state, AI catalogs, and global charts cannot
+leak into ranking. Normal rows contain four cards; Live Now contains one to
+four. Home and X independently sample the quality-weighted published reservoirs
+without quota/network work. Uniqueness is within the visible slate only; repeats
+across X are valid and impressions do not influence selection. History shuffles
+from its cached watch pool; Saved never shuffles.
 
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` controls this independently. Source-
 complete does not mean served or couch-observed. Exact active-profile utility
