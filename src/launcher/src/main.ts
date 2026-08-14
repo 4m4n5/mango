@@ -15,7 +15,6 @@ import {
   buildAppsRail,
   buildBrowseTabs,
   buildCatalogRails,
-  buildCatalogRailsProgressive,
   BROWSE_TAB_ORDER,
   catalogImpressionFingerprint,
   catalogShuffleFingerprint,
@@ -25,6 +24,7 @@ import {
   hasCatalogItems,
   nonEmptyCatalogRails,
   sameCatalogPresentation,
+  shuffleFocusRestore,
   shufflePressDecision,
   usableCatalogRails,
   youtubeHistoryImportRefreshPolicy,
@@ -165,6 +165,7 @@ let initialPersonalizationRead: Promise<void> | null = null;
 let settingsBuildSeq = 0;
 const tabFocusKeys = new Map<BrowseTab, string>();
 const tabFocusPositions = new Map<BrowseTab, { row: number; col: number }>();
+const tabCatalogFocusPositions = new Map<BrowseTab, { row: number; col: number }>();
 
 // Per-tab cache of built catalog DOM + focus rows. Keyed by tab, validated by
 // identity of the ContentRail[] and savedKeys Set — a genuine catalog refresh,
@@ -180,8 +181,7 @@ interface TabRenderEntry {
 }
 const tabRenderCache = new Map<BrowseTab, TabRenderEntry>();
 let lastImpressionFingerprint: string | null = null;
-let nextCatalogPaintYield = false;
-let homeRenderGeneration = 0;
+let nextHomeFocusIsShuffle = false;
 let appsSection: HTMLElement | null = null;
 let appsRow: HTMLElement[] = [];
 let focusedBrowseElement: HTMLElement | null = null;
@@ -197,6 +197,9 @@ const focusGrid = new FocusGrid((element) => {
     const key = element.dataset.focusKey;
     if (key) {
       tabFocusKeys.set(activeBrowseTab, key);
+      if (key.startsWith("rail:")) {
+        tabCatalogFocusPositions.set(activeBrowseTab, focusGrid.position);
+      }
     }
     tabFocusPositions.set(activeBrowseTab, focusGrid.position);
   }
@@ -467,9 +470,8 @@ function init(): void {
 
 function renderHome(): void {
   const started = performance.now();
-  const generation = ++homeRenderGeneration;
-  const yieldPaint = nextCatalogPaintYield;
-  nextCatalogPaintYield = false;
+  const shuffleRestore = nextHomeFocusIsShuffle;
+  nextHomeFocusIsShuffle = false;
   const tabButtons = buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
   const showShuffle = catalogState.status === "ready"
     && catalogShuffleFingerprint(activeBrowseTab, catalogState.rails) !== null;
@@ -479,36 +481,8 @@ function renderHome(): void {
     ? [searchEntry, ...tabButtons, ...personalizationChrome, libraryRefreshBtn]
     : [searchEntry, ...tabButtons, ...personalizationChrome];
   ensureAppsSection();
-  if (yieldPaint && catalogState.status === "ready") {
-    tabRenderCache.delete(activeBrowseTab);
-    const container = document.createElement("div");
-    container.className = "rails__tab";
-    container.dataset.tab = activeBrowseTab;
-    mountRailsView(container);
-    focusGridRows = [browseChrome, appsRow];
-    focusGrid.setRows(focusGridRows, {
-      preferredKey: tabFocusKeys.get(activeBrowseTab),
-      fallbackPosition: tabFocusPositions.get(activeBrowseTab),
-    });
-    void (async () => {
-      const rows = await buildCatalogRailsProgressive(container, {
-        onContentSelect: handleContentSelect,
-        onAppSelect: handleAppSelect,
-      }, buildHomeOptions(), catalogState);
-      if (generation !== homeRenderGeneration) return;
-      tabRenderCache.set(activeBrowseTab, {
-        railsRef: catalogState.rails,
-        savedRef: savedKeys,
-        freshness: catalogState.freshness,
-        container,
-        rows,
-      });
-      finishHomeRender(browseChrome, container, rows, false, started);
-    })();
-    return;
-  }
   const { container: activeContainer, rows: catalogRows, reused } = renderActiveTabCatalog();
-  finishHomeRender(browseChrome, activeContainer, catalogRows, reused, started);
+  finishHomeRender(browseChrome, activeContainer, catalogRows, reused, started, shuffleRestore);
 }
 
 function finishHomeRender(
@@ -517,14 +491,21 @@ function finishHomeRender(
   catalogRows: HTMLElement[][],
   reused: boolean,
   started: number,
+  shuffleRestore = false,
 ): void {
   mountRailsView(activeContainer);
   railsEl.setAttribute("aria-busy", String(catalogState.status === "loading"));
   focusGridRows = [browseChrome, ...catalogRows, appsRow];
-  focusGrid.setRows(focusGridRows, {
-    preferredKey: tabFocusKeys.get(activeBrowseTab),
-    fallbackPosition: tabFocusPositions.get(activeBrowseTab),
-  });
+  focusGrid.setRows(focusGridRows, shuffleRestore
+    ? shuffleFocusRestore({
+      currentKey: tabFocusKeys.get(activeBrowseTab),
+      currentPosition: tabFocusPositions.get(activeBrowseTab),
+      lastCatalogPosition: tabCatalogFocusPositions.get(activeBrowseTab),
+    })
+    : {
+      preferredKey: tabFocusKeys.get(activeBrowseTab),
+      fallbackPosition: tabFocusPositions.get(activeBrowseTab),
+    });
   if (focusBrowseTabOnRender) {
     focusBrowseTabOnRender = false;
     const tabIndex = BROWSE_TAB_ORDER.indexOf(activeBrowseTab);
@@ -877,7 +858,12 @@ function restoreHomeFromSearch(state: SearchRestoreState): void {
   inSettings = false;
   activeBrowseTab = state.homeTab || activeBrowseTab;
   if (state.homeFocusKey) tabFocusKeys.set(activeBrowseTab, state.homeFocusKey);
-  if (state.homePosition) tabFocusPositions.set(activeBrowseTab, state.homePosition);
+  if (state.homePosition) {
+    tabFocusPositions.set(activeBrowseTab, state.homePosition);
+    if (state.homeFocusKey?.startsWith("rail:")) {
+      tabCatalogFocusPositions.set(activeBrowseTab, state.homePosition);
+    }
+  }
   searchView.classList.add("hidden");
   settingsView.classList.add("hidden");
   detailView.classList.add("hidden");
@@ -1583,7 +1569,7 @@ async function loadCatalog(
     catalogState = { status: "ready", rails: usableRails, freshness: "fresh" };
     catalogStateTab = requestedTab;
     catalogStateOwner = completedOwner;
-    nextCatalogPaintYield = reshuffle;
+    nextHomeFocusIsShuffle = reshuffle;
     renderHome();
     logPerf("catalog_fetch", {
       tab: requestedTab,

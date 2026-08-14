@@ -59,15 +59,9 @@ Product/UX decisions (2026-08-14) are recorded in FINDINGS.md. This file is the 
 
 ---
 
-## Batch 3 — Shuffle yield (F-004)
+## Batch 3 — Shuffle yield (F-004) — **withdrawn**
 
-**Code:** `src/launcher/src/home.ts` `appendCatalogSections` — async; yield a frame between rails **only** when `reshuffle`. Single `setRows` at end. Do not yield on warm cache mount.
-
-**Tests:** existing home-state tests still pass; builder is async and ordered.
-
-**Gates:** `gate-lite.sh` (browse) + UX smoke.
-
-**Rebuild:** launcher + Chromium restart.
+Couch-rejected 2026-08-14: progressive Home paint scrolled to top, lost focus, and hung D-pad. Keep atomic `buildCatalogRails` + `shuffleFocusRestore` (poster slot, not old card key). Search progressive yield is unchanged.
 
 ---
 
@@ -197,7 +191,7 @@ Never `rsync`. If `gate-lite` fails: revert the batch on Mac, push, Pi reset to 
 
 1. Batch 1 (Search D-pad) — ship and couch-check F-002 before anything else.
 2. Batch 2 (Home chrome).
-3. Batch 3 (Shuffle yield).
+3. Batch 3 withdrawn — atomic Shuffle + slot restore (do not re-ship yield).
 4. Batch 4 (TTFF) — needs a human play.
 5. Batch 5 (health 300 ms) — cheap, helps every later gate.
 6. Batches 6, 7 as capacity allows.

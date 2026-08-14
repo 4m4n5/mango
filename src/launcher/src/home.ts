@@ -23,8 +23,6 @@ export interface HomeOptions {
    * hide results the viewer requested.
    */
   railRowLimit?: number | null;
-  /** Shuffle rebuild only: yield a frame between rails so D-pad stays live. */
-  yieldBetweenRails?: boolean;
 }
 
 export type CatalogState =
@@ -91,6 +89,22 @@ export function shufflePressDecision(input: {
   if (input.detailOpen || input.inSettings || input.tab === "live") return "ignore";
   if (input.inFlight) return "queue";
   return "start";
+}
+
+/**
+ * After Shuffle, card ids change so a stored focus key would miss and clamp
+ * onto chrome. Restore the poster slot instead: the rail row/column at press
+ * time, or the last catalog slot if Shuffle was pressed from chrome.
+ */
+export function shuffleFocusRestore(input: {
+  currentKey?: string;
+  currentPosition?: { row: number; col: number };
+  lastCatalogPosition?: { row: number; col: number };
+}): { fallbackPosition?: { row: number; col: number } } {
+  if (input.currentKey?.startsWith("rail:") && input.currentPosition) {
+    return { fallbackPosition: input.currentPosition };
+  }
+  return { fallbackPosition: input.lastCatalogPosition ?? input.currentPosition };
 }
 
 export type YoutubeHistoryImportRefreshPolicy = {
@@ -189,26 +203,7 @@ export function buildCatalogRails(
   options: HomeOptions,
   catalogState: CatalogState,
 ): HTMLElement[][] {
-  const rows = appendCatalogSections(container, callbacks, catalogState, {
-    ...options,
-    yieldBetweenRails: false,
-  }) as HTMLElement[][];
-  if (catalogState.status === "ready") {
-    window.requestAnimationFrame(() => options.onLayoutApplied?.());
-  }
-  return rows;
-}
-
-export async function buildCatalogRailsProgressive(
-  container: HTMLElement,
-  callbacks: HomeCallbacks,
-  options: HomeOptions,
-  catalogState: CatalogState,
-): Promise<HTMLElement[][]> {
-  const rows = await appendCatalogSections(container, callbacks, catalogState, {
-    ...options,
-    yieldBetweenRails: true,
-  });
+  const rows = appendCatalogSections(container, callbacks, catalogState, options);
   if (catalogState.status === "ready") {
     window.requestAnimationFrame(() => options.onLayoutApplied?.());
   }
@@ -252,21 +247,16 @@ function appendCatalogSections(
   callbacks: HomeCallbacks,
   catalogState: CatalogState,
   options: HomeOptions,
-): HTMLElement[][] | Promise<HTMLElement[][]> {
+): HTMLElement[][] {
   const preamble = appendCatalogPreamble(container, catalogState, options);
   if (preamble !== null) return preamble;
   if (catalogState.status !== "ready") return [];
 
-  const rails = nonEmptyCatalogRails(catalogState.rails);
-  if (!options.yieldBetweenRails || rails.length <= 1) {
-    const rows: HTMLElement[][] = [];
-    for (const rail of rails) {
-      rows.push(...appendOneCatalogRail(container, rail, callbacks, options));
-    }
-    return rows;
+  const rows: HTMLElement[][] = [];
+  for (const rail of nonEmptyCatalogRails(catalogState.rails)) {
+    rows.push(...appendOneCatalogRail(container, rail, callbacks, options));
   }
-
-  return appendCatalogRailsYielding(container, rails, callbacks, options);
+  return rows;
 }
 
 function appendCatalogPreamble(
@@ -295,40 +285,6 @@ function appendCatalogPreamble(
     container.appendChild(createCatalogStaleBanner());
   }
   return null;
-}
-
-async function appendCatalogRailsYielding(
-  container: HTMLElement,
-  rails: ContentRail[],
-  callbacks: HomeCallbacks,
-  options: HomeOptions,
-): Promise<HTMLElement[][]> {
-  const rows: HTMLElement[][] = [];
-  for (const [index, rail] of rails.entries()) {
-    if (index > 0) await yieldHomePaintTurn();
-    rows.push(...appendOneCatalogRail(container, rail, callbacks, options));
-  }
-  return rows;
-}
-
-function yieldHomePaintTurn(): Promise<void> {
-  return new Promise((resolve) => {
-    let settled = false;
-    let frame = 0;
-    const finish = (): void => {
-      if (settled) return;
-      settled = true;
-      globalThis.clearTimeout(timer);
-      if (frame && typeof globalThis.cancelAnimationFrame === "function") {
-        globalThis.cancelAnimationFrame(frame);
-      }
-      resolve();
-    };
-    const timer = globalThis.setTimeout(finish, 50);
-    if (typeof globalThis.requestAnimationFrame === "function") {
-      frame = globalThis.requestAnimationFrame(() => finish());
-    }
-  });
 }
 
 function appendOneCatalogRail(

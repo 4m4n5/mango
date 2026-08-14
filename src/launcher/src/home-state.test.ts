@@ -14,6 +14,7 @@ import {
   nonEmptyCatalogRails,
   sameCatalogPresentation,
   shuffleableCatalogRails,
+  shuffleFocusRestore,
   shufflePressDecision,
   youtubeHistoryImportRefreshPolicy,
 } from "./home.js";
@@ -97,6 +98,34 @@ test("VOD Shuffle covers every visible VOD rail while YouTube keeps Saved stable
   assert.deepEqual(
     shuffleableCatalogRails("youtube", [saved, youtubeHistory, youtubeForYou]).map((rail) => rail.id),
     ["history", "for_you"],
+  );
+});
+
+test("Shuffle restores the poster slot, not a vanished card key or chrome", () => {
+  const poster = { row: 3, col: 2 };
+  assert.deepEqual(
+    shuffleFocusRestore({
+      currentKey: "rail:for_you:movie:old",
+      currentPosition: poster,
+      lastCatalogPosition: poster,
+    }),
+    { fallbackPosition: poster },
+  );
+  assert.deepEqual(
+    shuffleFocusRestore({
+      currentKey: "browse:shuffle",
+      currentPosition: { row: 0, col: 6 },
+      lastCatalogPosition: poster,
+    }),
+    { fallbackPosition: poster },
+  );
+  assert.deepEqual(
+    shuffleFocusRestore({
+      currentKey: "app:settings",
+      currentPosition: { row: 8, col: 0 },
+      lastCatalogPosition: poster,
+    }),
+    { fallbackPosition: poster },
   );
 });
 

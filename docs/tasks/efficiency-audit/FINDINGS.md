@@ -15,7 +15,7 @@ Rank for shipping: impact × confidence ÷ effort. Contract-sensitive items are 
 - **Search interim focus:** resting on a scope chip during the pre-results window is acceptable — only fix the D-pad unresponsiveness. No pending-focus machinery.
 - **User move wins:** focus never snaps away from a deliberate D-pad move.
 - **Empty results:** focus lands on the active scope chip so the user can retry the query in another scope.
-- **Shuffle:** progressive rail paint over a few frames is approved.
+- **Shuffle:** atomic page swap; keep focus on the poster slot at press time. Do not progressive-paint Home.
 - **Detail backdrop (F-024):** downscale-then-blur.
 - **YouTube Detail interim (F-022):** brief "loading details…" is acceptable; omit description from rails payload.
 - **Controller-link backoff (F-008/F-009):** cap reconnect delay at ~3s, not 8s.
@@ -79,7 +79,7 @@ Rank for shipping: impact × confidence ÷ effort. Contract-sensitive items are 
 
 **Impact:** Noticeable hitch on X-shuffle / first visit to a tab.
 
-**Fix direction:** Make `appendCatalogSections` async; yield a frame between rails on shuffle rebuild only; one `FocusGrid.setRows` at the end. User approved progressive appearance.
+**Fix direction (revised 2026-08-14, couch-rejected):** Do **not** progressive-paint Home. Yielding between rails mounted an empty catalog, clamped focus onto chrome/apps, overwrote the saved poster slot, and left D-pad dead except Up. Shuffle must swap the page in one paint and restore by grid position (`shuffleFocusRestore`), never by the old card key.
 
 ---
 
