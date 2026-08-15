@@ -47,13 +47,112 @@ export function bindPosterImage(img: HTMLImageElement, title: string): void {
   }
 }
 
-/** Assign deferred poster URLs after the owning rail has yielded to pad input. */
-export function armDeferredPosterSources(root: ParentNode): void {
-  for (const img of Array.from(root.querySelectorAll<HTMLImageElement>("img[data-poster-src]"))) {
-    const url = img.dataset.posterSrc?.trim();
-    delete img.dataset.posterSrc;
-    if (url) img.src = url;
+/** Prefetch one extra scrollport of posters so the next rail is already fetching. */
+export const POSTER_SCROLLPORT_MARGIN_RATIO = 1;
+
+type Box = { top: number; right: number; bottom: number; left: number };
+
+/**
+ * True when `img` overlaps the scrollport expanded by `marginPx`.
+ * A zero-size box is not near — layout has not happened yet, so callers
+ * should observe instead of assigning `src`.
+ */
+export function posterIsNearScrollport(
+  img: Box,
+  root: Box,
+  marginPx: { x: number; y: number },
+): boolean {
+  if (img.right - img.left <= 0 || img.bottom - img.top <= 0) {
+    return false;
   }
+  return img.bottom >= root.top - marginPx.y
+    && img.top <= root.bottom + marginPx.y
+    && img.right >= root.left - marginPx.x
+    && img.left <= root.right + marginPx.x;
+}
+
+function revealDeferredPoster(img: HTMLImageElement): void {
+  const url = img.dataset.posterSrc?.trim();
+  delete img.dataset.posterSrc;
+  if (url) img.src = url;
+}
+
+const posterObservers = new WeakMap<Element, IntersectionObserver>();
+
+function posterObserverFor(root: Element): IntersectionObserver {
+  const existing = posterObservers.get(root);
+  if (existing) return existing;
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      const img = entry.target;
+      if (!(img instanceof HTMLImageElement)) continue;
+      if (!entry.isIntersecting) {
+        if (!img.isConnected) observer.unobserve(img);
+        continue;
+      }
+      observer.unobserve(img);
+      revealDeferredPoster(img);
+    }
+  }, {
+    root,
+    // Percentage is relative to the root box, so this stays one extra screen
+    // of prefetch if the scrollport is resized.
+    rootMargin: `${POSTER_SCROLLPORT_MARGIN_RATIO * 100}%`,
+  });
+  posterObservers.set(root, observer);
+  return observer;
+}
+
+function armDeferredPosterSourcesNow(
+  root: ParentNode,
+  scrollport: Element | null | undefined,
+): void {
+  const images = Array.from(root.querySelectorAll<HTMLImageElement>("img[data-poster-src]"));
+  if (images.length === 0) return;
+
+  const port = scrollport instanceof Element ? scrollport : null;
+  if (!port || typeof IntersectionObserver === "undefined") {
+    for (const img of images) revealDeferredPoster(img);
+    return;
+  }
+
+  // Reading layout here is the point: native loading=lazy skipped fetch when
+  // src was assigned on a disconnected node, then often never re-checked
+  // after attach or programmatic D-pad scroll inside .rails.
+  const rootRect = port.getBoundingClientRect();
+  const marginPx = {
+    x: rootRect.width * POSTER_SCROLLPORT_MARGIN_RATIO,
+    y: rootRect.height * POSTER_SCROLLPORT_MARGIN_RATIO,
+  };
+  const observer = posterObserverFor(port);
+  for (const img of images) {
+    if (posterIsNearScrollport(img.getBoundingClientRect(), rootRect, marginPx)) {
+      observer.unobserve(img);
+      revealDeferredPoster(img);
+    } else {
+      observer.observe(img);
+    }
+  }
+}
+
+/**
+ * Assign deferred poster URLs once cards are in the live scrollport.
+ *
+ * Without `scrollport`, every deferred image under `root` starts fetching
+ * (Detail related: a handful of already-attached cards). With `scrollport`,
+ * only posters near that box fetch now; the rest wait on an observer rooted
+ * at the actual scroller, not the layout viewport.
+ */
+export function armDeferredPosterSources(
+  root: ParentNode,
+  scrollport?: Element | null,
+): void {
+  armDeferredPosterSourcesNow(root, scrollport);
+  if (!(scrollport instanceof Element)) return;
+  if (root.querySelector("img[data-poster-src]") === null) return;
+  requestAnimationFrame(() => {
+    armDeferredPosterSourcesNow(root, scrollport);
+  });
 }
 
 function posterInitials(title: string): string {

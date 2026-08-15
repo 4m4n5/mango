@@ -24,9 +24,11 @@ export interface HomeOptions {
    */
   railRowLimit?: number | null;
   /**
-   * Search paints a full result page in one rail. Assigning poster `src` in
-   * that loop starts decode on every in-viewport image and starves D-pad.
-   * Cards mount first; the caller arms sources after a pad yield.
+   * Poster `src` is always deferred onto `data-poster-src`. Native
+   * `loading=lazy` is not used: Chromium evaluates it against the layout
+   * viewport, not `.rails`, and skips fetch when `src` is set on a
+   * disconnected node. Search still sets this flag as the contract that
+   * `fillResultsView` yields to pad input before arming a painted rail.
    */
   deferPosterSrc?: boolean;
 }
@@ -612,13 +614,10 @@ function createPosterCard(
   const poster = document.createElement("img");
   poster.className = "poster-image";
   poster.alt = "";
-  poster.loading = "lazy";
   poster.decoding = "async";
   const posterUrl = resolveCardPosterUrl(card);
-  if (options.deferPosterSrc && posterUrl) {
+  if (posterUrl) {
     poster.dataset.posterSrc = posterUrl;
-  } else {
-    poster.src = posterUrl;
   }
   bindPosterImage(poster, card.title);
 

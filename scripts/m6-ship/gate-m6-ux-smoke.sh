@@ -22,7 +22,7 @@ else
   gate_fail "launcher dist/index.html missing — cd src/launcher && npm run build"
 fi
 
-python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" "$SRC/main.ts" "$SRC/next-prompt.ts" "$SRC/playback-return.ts" "$SRC/catalog.ts" "$SRC/search.ts" "$SRC/pad-nav.ts" "$REPO_DIR/src/mango-ui-server/serve.py" "$SRC/home.ts" "$SRC/toast.ts" "$SRC/ratings.ts" "$SRC/style.css" <<'PY' \
+python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" "$SRC/main.ts" "$SRC/next-prompt.ts" "$SRC/playback-return.ts" "$SRC/catalog.ts" "$SRC/search.ts" "$SRC/pad-nav.ts" "$REPO_DIR/src/mango-ui-server/serve.py" "$SRC/home.ts" "$SRC/toast.ts" "$SRC/ratings.ts" "$SRC/style.css" "$SRC/poster.ts" <<'PY' \
   && gate_pass "launcher source UX contracts" \
   || gate_fail "launcher source UX contracts"
 import pathlib
@@ -42,6 +42,7 @@ home = pathlib.Path(sys.argv[11]).read_text(encoding="utf-8")
 toast = pathlib.Path(sys.argv[12]).read_text(encoding="utf-8")
 ratings = pathlib.Path(sys.argv[13]).read_text(encoding="utf-8")
 style = pathlib.Path(sys.argv[14]).read_text(encoding="utf-8")
+poster = pathlib.Path(sys.argv[15]).read_text(encoding="utf-8")
 
 if "MAX_VISIBLE_MS = 12_000" not in voice:
     raise SystemExit("voice-hud missing 12s max-visible timer")
@@ -223,6 +224,23 @@ for search_contract in (
 ):
     if search_contract not in search:
         raise SystemExit(f"search.ts missing Search surface contract: {search_contract}")
+if 'poster.loading = "lazy"' in home or 'poster.loading = "lazy"' in detail:
+    raise SystemExit("library posters must not use native loading=lazy")
+if "posterIsNearScrollport" not in poster or "IntersectionObserver" not in poster:
+    raise SystemExit("poster.ts missing scrollport-rooted deferred artwork loader")
+home_mount = main.split("function finishHomeRender", 1)[1].split(
+    "function ensureAppsSection", 1,
+)[0]
+if "mountRailsView(activeContainer)" not in home_mount:
+    raise SystemExit("finishHomeRender no longer mounts the active tab")
+if home_mount.find("mountRailsView(activeContainer)") > home_mount.find(
+    "armDeferredPosterSources(activeContainer, railsEl)"
+):
+    raise SystemExit("Home must arm deferred posters after the tab is attached to .rails")
+if "armDeferredPosterSources(section, results)" not in search:
+    raise SystemExit("Search must arm posters against the results scrollport")
+if "armDeferredPosterSources(this.relatedTrack)" not in detail:
+    raise SystemExit("Detail related posters are never armed after attach")
 if "tryRestoreSearchOnBoot();" not in main or "search.restorePersisted()" not in main:
     raise SystemExit("main.ts does not restore Search after a Chromium self-heal")
 detail_return = main.split("function restoreFromDetail", 1)[1].split(
@@ -309,6 +327,7 @@ PY
   "$SRC/playback-return-focus.test.ts" \
   "$SRC/playback-reconciliation.test.ts" \
   "$SRC/playback-session-client.test.ts" \
+  "$SRC/poster.test.ts" \
   "$SRC/stream-list-recovery.test.ts" \
   "$SRC/detail-search-queue.test.ts" \
   "$SRC/detail-related.test.ts" \

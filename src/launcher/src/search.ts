@@ -1242,7 +1242,7 @@ export class SearchController {
           );
           this.applyFocusRows();
           await yieldToPadInput();
-          armDeferredPosterSources(section);
+          armDeferredPosterSources(section, results);
         }
       }
 

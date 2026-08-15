@@ -32,6 +32,7 @@ import {
   type CatalogState,
   type HomeOptions,
 } from "./home";
+import { armDeferredPosterSources } from "./poster";
 import { buildSettingsRefresh, reliabilityBadgeText, settingsFocusables } from "./settings";
 import { fetchReliabilityState } from "./reliability";
 import { startVoiceHud } from "./voice-hud";
@@ -495,6 +496,7 @@ function finishHomeRender(
   shuffleRestore = false,
 ): void {
   mountRailsView(activeContainer);
+  armDeferredPosterSources(activeContainer, railsEl);
   railsEl.setAttribute("aria-busy", String(catalogState.status === "loading"));
   focusGridRows = [browseChrome, ...catalogRows, appsRow];
   focusGrid.setRows(focusGridRows, shuffleRestore

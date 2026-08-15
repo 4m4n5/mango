@@ -26,7 +26,7 @@ import {
   clearPlaybackReturnSnapshot,
   type PlaybackOrigin,
 } from "./playback-return";
-import { bindPosterImage, resolveCardPosterUrl } from "./poster";
+import { armDeferredPosterSources, bindPosterImage, resolveCardPosterUrl } from "./poster";
 import { formatRailLabel, isLandscapeCard, posterRevealMeta, shouldShowLivePill } from "./home";
 import { MINIMAL_VOD_POSTER_LABELS } from "./ui-flags";
 import { CatalogOwnershipChangedError, playErrorMessage } from "./catalog-errors";
@@ -985,6 +985,7 @@ export class DetailController {
       this.relatedTrack.append(button);
       this.relatedButtons.push(button);
     }
+    armDeferredPosterSources(this.relatedTrack);
     this.relatedWrap.classList.remove("hidden");
   }
 
@@ -1015,9 +1016,11 @@ export class DetailController {
     const poster = document.createElement("img");
     poster.className = "poster-image";
     poster.alt = "";
-    poster.loading = "lazy";
     poster.decoding = "async";
-    poster.src = resolveCardPosterUrl(sibling);
+    const posterUrl = resolveCardPosterUrl(sibling);
+    if (posterUrl) {
+      poster.dataset.posterSrc = posterUrl;
+    }
     bindPosterImage(poster, sibling.title);
 
     const title = document.createElement("span");
