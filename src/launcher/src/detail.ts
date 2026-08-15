@@ -127,7 +127,6 @@ export class DetailController {
     private readonly saveButton: HTMLButtonElement,
     private readonly rateButton: HTMLButtonElement,
     private readonly notInterestedButton: HTMLButtonElement,
-    private readonly backButton: HTMLButtonElement,
     private readonly streamsWrap: HTMLElement,
     private readonly streamList: HTMLElement,
     private readonly episodesWrap: HTMLElement,
@@ -142,7 +141,6 @@ export class DetailController {
     this.playButton.addEventListener("click", () => void this.play());
     this.saveButton.addEventListener("click", () => void this.toggleSaved());
     this.notInterestedButton.addEventListener("click", () => void this.markNotInterested());
-    this.backButton.addEventListener("click", () => this.hide());
   }
 
   get isOpen(): boolean {
@@ -237,7 +235,6 @@ export class DetailController {
     this.playButton.disabled = false;
     this.saveButton.disabled = false;
     this.notInterestedButton.disabled = false;
-    this.backButton.disabled = false;
     for (const button of this.streamButtons) {
       button.disabled = false;
     }
@@ -655,7 +652,6 @@ export class DetailController {
       this.saveButton,
       this.rateButton,
       this.notInterestedButton,
-      this.backButton,
     ].filter((control): control is HTMLButtonElement => !control.hidden);
   }
 
@@ -830,7 +826,7 @@ export class DetailController {
     // in-rail list items (season chips + episodes) as horizontal targets here.
     const fromEpisode = current.classList.contains("detail-episode");
     // Left from an episode escapes the right rail straight to the action column
-    // (play/save/back) rather than the spatially-closest related-title poster —
+    // (play/save) rather than the spatially-closest related-title poster —
     // "press left on an episode → focus the buttons on the left" (issue 3).
     if (direction === "left" && fromEpisode) {
       const action = this.actionButtons().find((button) => this.isFocusableEnabled(button));

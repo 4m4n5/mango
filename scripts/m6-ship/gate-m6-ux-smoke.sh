@@ -358,6 +358,8 @@ required = (
 missing = [token for token in required if token not in html]
 if missing:
     raise SystemExit(f"missing: {', '.join(missing)}")
+if 'id="detail-back"' in html:
+    raise SystemExit("detail still exposes a redundant on-screen Back button")
 if "What do you want to watch?" in html:
     raise SystemExit("home masthead prompt must be removed")
 PY
