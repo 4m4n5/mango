@@ -194,7 +194,7 @@ state transition explicitly rather than treating shadow as invisible compute.
 | ID | Check | Expected | Verdict/evidence |
 |----|-------|----------|------------------|
 | F1 | Rating sheet | Five flame/wave marks; labels + numeric values; half mark exactly clipped; 0 is valid | |
-| F2 | D-pad edit | Up/Down axis/action; B enters/confirms; Left/Right exact 0.5; Y cancels; X clear confirmation | |
+| F2 | D-pad edit | Up/Down axis/action; Left/Right exact 0.5 on the focused axis with no extra B; Y closes; X clear confirmation | |
 | F3 | Series identity | Rating from an episode writes show-level rating only | |
 | F4 | Prompt | Movie 90% / three distinct series episodes; invitation appears on return without stealing focus | |
 | F5 | Durability | Set/edit/clear survives restart; append-only history and seed precedence remain intact | |

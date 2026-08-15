@@ -33,6 +33,7 @@ import { CatalogOwnershipChangedError, playErrorMessage } from "./catalog-errors
 import { reconcileEpisodePlayTimeout } from "./playback-reconciliation";
 import { recoverTimedOutStreamList } from "./stream-list-recovery";
 import { RatingSheetController } from "./ratings";
+import { setControlLabel } from "./icons";
 import {
   samePersonalizationOwner,
   type PersonalizationOwner,
@@ -141,6 +142,7 @@ export class DetailController {
     this.playButton.addEventListener("click", () => void this.play());
     this.saveButton.addEventListener("click", () => void this.toggleSaved());
     this.notInterestedButton.addEventListener("click", () => void this.markNotInterested());
+    this.ratingSheet.connectNotForMe(() => void this.markNotInterested());
   }
 
   get isOpen(): boolean {
@@ -234,7 +236,7 @@ export class DetailController {
     this.clearPlayBusy();
     this.playButton.disabled = false;
     this.saveButton.disabled = false;
-    this.notInterestedButton.disabled = false;
+    this.setNotInterestedDisabled(false);
     for (const button of this.streamButtons) {
       button.disabled = false;
     }
@@ -285,8 +287,8 @@ export class DetailController {
     this.origin = origin;
     this.saved = saved;
     this.notInterested = false;
-    this.notInterestedButton.textContent = "not for me";
-    this.notInterestedButton.disabled = true;
+    this.setNotInterestedLabel("not for me");
+    this.setNotInterestedDisabled(true);
     this.homeVisibleCards = homeVisible;
     this.streams = [];
     this.streamButtons = [];
@@ -322,9 +324,8 @@ export class DetailController {
     this.view.classList.remove("hidden");
     const isLive = canonicalTab === "live";
     const isYoutube = canonicalTab === "youtube";
-    this.notInterestedButton.hidden = isLive
-      || !["movie", "series", "youtube_video"].includes(card.type);
-    if (!this.notInterestedButton.hidden) {
+    this.notInterestedButton.hidden = card.type !== "youtube_video";
+    if (["movie", "series", "youtube_video"].includes(card.type)) {
       void this.loadNotInterestedState(card, owner);
     }
     this.updateSaveButton();
@@ -336,7 +337,10 @@ export class DetailController {
       card,
       !isLive && !isYoutube && (card.type === "movie" || card.type === "series"),
       owner,
-    );
+    ).then(() => {
+      if (this.card !== card) return;
+      this.syncNotForMePlacement(card);
+    });
     const playable = this.canPlayCard(card);
     void this.loadFullMeta(card);
     if (isYoutube && !playable) {
@@ -651,7 +655,6 @@ export class DetailController {
       this.playButton,
       this.saveButton,
       this.rateButton,
-      this.notInterestedButton,
     ].filter((control): control is HTMLButtonElement => !control.hidden);
   }
 
@@ -1314,7 +1317,7 @@ export class DetailController {
   private updateSaveButton(): void {
     const card = this.card;
     const canSave = this.canSaveCard(card);
-    this.saveButton.textContent = this.saved ? "unsave" : "save";
+    setControlLabel(this.saveButton, this.saved ? "unsave" : "save");
     this.saveButton.setAttribute("aria-pressed", this.saved ? "true" : "false");
     this.saveButton.disabled = !canSave;
   }
@@ -1380,23 +1383,38 @@ export class DetailController {
     }
   }
 
+  private setNotInterestedLabel(text: string): void {
+    setControlLabel(this.notInterestedButton, text);
+    this.ratingSheet.setNotForMeLabel(text);
+  }
+
+  private setNotInterestedDisabled(disabled: boolean): void {
+    this.notInterestedButton.disabled = disabled;
+    this.ratingSheet.setNotForMeDisabled(disabled);
+  }
+
+  private syncNotForMePlacement(card: ContentCard): void {
+    const canHide = ["movie", "series", "youtube_video"].includes(card.type);
+    this.notInterestedButton.hidden = !canHide || !this.rateButton.hidden;
+  }
+
   private async markNotInterested(): Promise<void> {
     const card = this.card;
     const owner = this.personalizationOwner;
     if (!card || !owner) {
       return;
     }
-    this.notInterestedButton.disabled = true;
+    this.setNotInterestedDisabled(true);
     try {
       if (this.notInterested) {
         await undoNotInterestedCard(card, this.browseTab, owner);
         this.notInterested = false;
-        this.notInterestedButton.textContent = "not for me";
+        this.setNotInterestedLabel("not for me");
         showToast("back in recommendations.", { tone: "success" });
       } else {
         await notInterestedCard(card, this.browseTab, owner);
         this.notInterested = true;
-        this.notInterestedButton.textContent = "undo not for me";
+        this.setNotInterestedLabel("undo not for me");
         showToast("removed from recommendations — undo is available here.", {
           tone: "success",
           durationMs: 6000,
@@ -1411,7 +1429,7 @@ export class DetailController {
         { tone: error instanceof CatalogOwnershipChangedError ? "warning" : "error" },
       );
     } finally {
-      this.notInterestedButton.disabled = false;
+      this.setNotInterestedDisabled(false);
     }
   }
 
@@ -1424,18 +1442,18 @@ export class DetailController {
       if (this.card !== card || !this.personalizationOwner
         || !samePersonalizationOwner(this.personalizationOwner, owner)) return;
       this.notInterested = hidden;
-      this.notInterestedButton.textContent = hidden ? "undo not for me" : "not for me";
+      this.setNotInterestedLabel(hidden ? "undo not for me" : "not for me");
     } catch {
       // Last-good behavior: a state-read failure must not prevent an explicit
       // new choice. The mutation itself still fails closed with a toast.
       if (this.card !== card || !this.personalizationOwner
         || !samePersonalizationOwner(this.personalizationOwner, owner)) return;
       this.notInterested = false;
-      this.notInterestedButton.textContent = "not for me";
+      this.setNotInterestedLabel("not for me");
     } finally {
       if (this.card === card && this.personalizationOwner
         && samePersonalizationOwner(this.personalizationOwner, owner)) {
-        this.notInterestedButton.disabled = false;
+        this.setNotInterestedDisabled(false);
       }
     }
   }

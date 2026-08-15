@@ -1,6 +1,7 @@
 import type { ContentCard } from "./types";
 import { recommendationAttributionPayload } from "./recommendation-attribution";
 import { showToast } from "./toast";
+import { setControlLabel } from "./icons";
 import {
   personalizationExpectationBody,
   personalizationExpectationParams,
@@ -19,6 +20,12 @@ export const NEUTRAL_FIRE_WATER_RATING: HalfStepRating = 2;
 
 export function initialRatingAxisValue(value: HalfStepRating | null): HalfStepRating {
   return value ?? NEUTRAL_FIRE_WATER_RATING;
+}
+
+export function nudgeHalfStep(value: HalfStepRating | null, delta: number): HalfStepRating {
+  const current = initialRatingAxisValue(value);
+  const next = current + Math.sign(delta) * 0.5;
+  return Math.max(0, Math.min(5, next)) as HalfStepRating;
 }
 
 export type FireWaterRating = {
@@ -45,7 +52,7 @@ type RatingResponse = {
 } & PersonalizationOwnerPayload;
 
 type Axis = "fire" | "water";
-type FocusTarget = Axis | "save" | "cancel";
+type FocusTarget = Axis | "save" | "not_for_me";
 
 async function responseJson<T extends PersonalizationOwnerPayload>(
   response: Response,
@@ -125,10 +132,10 @@ export class RatingSheetController {
   private values: Record<Axis, number | null> = { fire: null, water: null };
   private confirmed: Record<Axis, boolean> = { fire: false, water: false };
   private focus: FocusTarget = "fire";
-  private adjusting: Axis | null = null;
   private saving = false;
   private clearConfirm = false;
   private invitationEligible = false;
+  private notForMeAction: (() => void) | null = null;
 
   constructor(
     private readonly sheet: HTMLElement,
@@ -141,7 +148,7 @@ export class RatingSheetController {
     private readonly waterMarks: HTMLElement,
     private readonly waterValue: HTMLElement,
     private readonly saveButton: HTMLButtonElement,
-    private readonly cancelButton: HTMLButtonElement,
+    private readonly notForMeButton: HTMLButtonElement,
     private readonly clearBand: HTMLElement,
     private readonly detailRateButton: HTMLButtonElement,
     private readonly detailChips: HTMLElement,
@@ -156,7 +163,19 @@ export class RatingSheetController {
     this.fireRow.addEventListener("click", () => this.activateTarget("fire"));
     this.waterRow.addEventListener("click", () => this.activateTarget("water"));
     this.saveButton.addEventListener("click", () => void this.save());
-    this.cancelButton.addEventListener("click", () => this.close());
+    this.notForMeButton.addEventListener("click", () => this.notForMeAction?.());
+  }
+
+  connectNotForMe(action: () => void): void {
+    this.notForMeAction = action;
+  }
+
+  setNotForMeLabel(text: string): void {
+    setControlLabel(this.notForMeButton, text);
+  }
+
+  setNotForMeDisabled(disabled: boolean): void {
+    this.notForMeButton.disabled = disabled;
   }
 
   get isOpen(): boolean {
@@ -188,7 +207,7 @@ export class RatingSheetController {
       this.renderDetailState();
     } catch {
       if (this.card === card) {
-        this.detailRateButton.textContent = "rate";
+        setControlLabel(this.detailRateButton, "rate");
         this.detailRateButton.hidden = false;
       }
     }
@@ -216,7 +235,7 @@ export class RatingSheetController {
 
   private renderDetailState(): void {
     const rating = this.current;
-    this.detailRateButton.textContent = rating ? "edit rating" : "rate";
+    setControlLabel(this.detailRateButton, rating ? "edit rating" : "rate");
     this.detailRateButton.classList.toggle("detail-button--rating-cue", this.invitationEligible && !rating);
     this.invitation.hidden = !this.invitationEligible || Boolean(rating);
     this.detailChips.hidden = !rating;
@@ -239,10 +258,9 @@ export class RatingSheetController {
       water: Boolean(this.current),
     };
     this.focus = "fire";
-    this.adjusting = null;
     this.saving = false;
     this.clearConfirm = false;
-    this.title.textContent = this.current ? `Edit rating · ${card.title}` : `Rate · ${card.title}`;
+    this.title.textContent = this.current ? `edit · ${card.title}` : `rate · ${card.title}`;
     this.errorBand.hidden = true;
     this.clearBand.hidden = true;
     const clearHelp = this.sheet.querySelector<HTMLElement>(".rating-sheet-clear-help");
@@ -256,7 +274,6 @@ export class RatingSheetController {
     if (!this.isOpen) return;
     this.sheet.classList.add("hidden");
     this.sheet.setAttribute("aria-hidden", "true");
-    this.adjusting = null;
     this.saving = false;
     this.clearConfirm = false;
     if (restoreFocus) {
@@ -277,10 +294,16 @@ export class RatingSheetController {
     return true;
   }
 
+  private focusTargets(): FocusTarget[] {
+    const targets: FocusTarget[] = ["fire", "water", "save"];
+    if (!this.notForMeButton.hidden) targets.push("not_for_me");
+    return targets;
+  }
+
   moveRow(delta: number): boolean {
     if (!this.isOpen || this.saving) return this.isOpen;
-    if (this.adjusting || this.clearConfirm) return true;
-    const targets: FocusTarget[] = ["fire", "water", "save", "cancel"];
+    if (this.clearConfirm) return true;
+    const targets = this.focusTargets();
     const index = targets.indexOf(this.focus);
     this.focus = targets[Math.max(0, Math.min(targets.length - 1, index + Math.sign(delta)))]!;
     this.render();
@@ -289,15 +312,17 @@ export class RatingSheetController {
 
   moveCol(delta: number): boolean {
     if (!this.isOpen || this.saving || this.clearConfirm) return this.isOpen;
-    if (this.adjusting) {
-      const current = initialRatingAxisValue(this.values[this.adjusting] as HalfStepRating | null);
-      this.values[this.adjusting] = Math.max(0, Math.min(5, current + Math.sign(delta) * 0.5));
+    if (this.focus === "fire" || this.focus === "water") {
+      this.values[this.focus] = nudgeHalfStep(this.values[this.focus] as HalfStepRating | null, delta);
+      this.confirmed[this.focus] = true;
       this.render();
       return true;
     }
-    if (this.focus === "save" || this.focus === "cancel") {
-      this.focus = this.focus === "save" ? "cancel" : "save";
-      this.render();
+    if (this.focus === "save" || this.focus === "not_for_me") {
+      if (!this.notForMeButton.hidden) {
+        this.focus = this.focus === "save" ? "not_for_me" : "save";
+        this.render();
+      }
     }
     return true;
   }
@@ -316,7 +341,6 @@ export class RatingSheetController {
     if (!this.isOpen) return false;
     if (!this.current || this.saving) return true;
     this.clearConfirm = true;
-    this.adjusting = null;
     this.clearBand.hidden = false;
     this.render();
     return true;
@@ -325,20 +349,11 @@ export class RatingSheetController {
   private activateTarget(target: FocusTarget): void {
     if (target === "fire" || target === "water") {
       this.focus = target;
-      if (this.adjusting === target) {
-        this.adjusting = null;
-        this.confirmed[target] = true;
-      } else {
-        this.adjusting = target;
-        if (this.values[target] === null) {
-          this.values[target] = initialRatingAxisValue(null);
-        }
-      }
       this.render();
     } else if (target === "save") {
       void this.save();
     } else {
-      this.close();
+      this.notForMeAction?.();
     }
   }
 
@@ -347,7 +362,6 @@ export class RatingSheetController {
     for (const axis of ["fire", "water"] as const) {
       const row = rows[axis];
       row.classList.toggle("focused", this.focus === axis);
-      row.classList.toggle("rating-axis--adjusting", this.adjusting === axis);
       row.setAttribute("aria-valuenow", String(this.values[axis] ?? 0));
       row.setAttribute("aria-valuetext", ratingLabel(this.values[axis]));
     }
@@ -359,14 +373,14 @@ export class RatingSheetController {
       && this.values.fire !== null && this.values.water !== null && !this.saving;
     this.saveButton.disabled = !canSave;
     this.saveButton.classList.toggle("focused", this.focus === "save");
-    this.cancelButton.classList.toggle("focused", this.focus === "cancel");
+    this.notForMeButton.classList.toggle("focused", this.focus === "not_for_me");
     const focused = this.focus === "fire"
       ? this.fireRow
       : this.focus === "water"
         ? this.waterRow
         : this.focus === "save"
           ? this.saveButton
-          : this.cancelButton;
+          : this.notForMeButton;
     focused.focus({ preventScroll: true });
   }
 
@@ -377,7 +391,7 @@ export class RatingSheetController {
       || this.values.fire === null || this.values.water === null) return;
     this.saving = true;
     this.errorBand.hidden = true;
-    this.saveButton.textContent = "saving…";
+    setControlLabel(this.saveButton, "saving…");
     this.render();
     try {
       const response = await responseJson<{
@@ -413,12 +427,12 @@ export class RatingSheetController {
       showToast("rating saved", { tone: "success" });
     } catch (error) {
       this.saving = false;
-      this.saveButton.textContent = "save rating";
+      setControlLabel(this.saveButton, "save");
       this.errorBand.textContent = error instanceof Error ? error.message : "Rating could not be saved.";
       this.errorBand.hidden = false;
       this.render();
     } finally {
-      if (!this.isOpen) this.saveButton.textContent = "save rating";
+      if (!this.isOpen) setControlLabel(this.saveButton, "save");
     }
   }
 

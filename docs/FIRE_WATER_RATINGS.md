@@ -82,19 +82,23 @@ The household reference is authoritative: Fire renders as five `🔥` marks and
 Water as five `🌊` marks. Filled marks retain their saturated native orange/blue
 color; unused marks use a neutral grayscale treatment. A `.5` value clips the
 colored foreground across exactly half of the next gray mark. Compact detail
-chips and the full rating sheet use the same renderer, with explicit Fire/Water
-labels and numeric values so color and emoji are never the only meaning.
+chips and the rating card use the same renderer, with explicit Fire/Water
+labels, in-button definitions, and numeric values so color and emoji are never
+the only meaning.
 
-The bottom sheet stays inside the 5% safe area. Its two slider rows use a 4px
-white focus ring, minimum 28px essential copy, and explicit adjustment mode:
+The Rate card is a centered compact dialog (same overlay family as next-up),
+inside the 5% safe area. Axis rows use the mango amber focus ring. Left/Right
+adjust the focused axis immediately in 0.5 steps; there is no extra B-to-enter
+mode:
 
 1. Up/Down chooses an axis or action.
-2. B enters an axis at the neutral `2.0` when unset.
-3. Left/Right changes exactly 0.5.
-4. B confirms that axis.
-5. Save enables only after both axes were deliberately confirmed.
-6. Y cancels. On an existing rating, X opens an inline clear confirmation; B
+2. Left/Right changes the focused Fire or Water value by exactly 0.5, starting
+   from the neutral `2.0` when unset.
+3. Save enables only after both axes were deliberately nudged or already set.
+4. Y closes. On an existing rating, X opens an inline clear confirmation; B
    clears and Y keeps it.
+5. Not for me lives in the card (YouTube keeps it on Detail because Rate is
+   VOD-only).
 
 ## Durable state and API
 

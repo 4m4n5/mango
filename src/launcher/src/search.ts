@@ -1,5 +1,6 @@
 import { FocusGrid } from "./focus";
 import { buildCatalogRails, splitFocusRows } from "./home";
+import { launcherIcon } from "./icons";
 import { railColumns } from "./layout";
 import { armDeferredPosterSources } from "./poster";
 import type { BrowseTab, ContentCard, ContentRail } from "./types";
@@ -291,26 +292,8 @@ type SearchChoice = {
 type SearchIconName = "search" | "clock" | "play" | "edit" | "refresh";
 
 function searchIcon(name: SearchIconName): SVGSVGElement {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("aria-hidden", "true");
+  const svg = launcherIcon(name);
   svg.classList.add("search-icon");
-  const paths: Record<SearchIconName, string[]> = {
-    search: ["M11 4a7 7 0 1 0 0 14a7 7 0 0 0 0-14", "M16 16l4 4"],
-    clock: ["M12 5a7 7 0 1 0 7 7", "M12 8v4l3 2"],
-    play: ["M8.5 6.5v11l9-5.5z"],
-    edit: ["M5 19h4l10-10-4-4L5 15v4z", "M13.5 6.5l4 4"],
-    refresh: ["M19 8a7 7 0 1 0 1 7", "M19 4v4h-4"],
-  };
-  for (const pathData of paths[name]) {
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", pathData);
-    if (name === "play") {
-      path.setAttribute("fill", "currentColor");
-      path.setAttribute("stroke", "none");
-    }
-    svg.appendChild(path);
-  }
   return svg;
 }
 

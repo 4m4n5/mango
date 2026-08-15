@@ -1,5 +1,6 @@
 import "./style.css";
 import { FocusGrid } from "./focus";
+import { mountLauncherIcons } from "./icons";
 import {
   flushProgress,
   loadCatalogRails,
@@ -126,7 +127,7 @@ const ratingWaterRow = mustGet<HTMLButtonElement>("rating-water-row");
 const ratingWaterMarks = mustGet<HTMLElement>("rating-water-marks");
 const ratingWaterValue = mustGet<HTMLElement>("rating-water-value");
 const ratingSave = mustGet<HTMLButtonElement>("rating-save");
-const ratingCancel = mustGet<HTMLButtonElement>("rating-cancel");
+const ratingNotInterested = mustGet<HTMLButtonElement>("rating-not-interested");
 const ratingClearConfirm = mustGet<HTMLElement>("rating-clear-confirm");
 const nextPromptView = mustGet<HTMLElement>("next-episode-prompt");
 const nextPromptTitle = mustGet<HTMLElement>("next-prompt-title");
@@ -231,6 +232,8 @@ const nextEpisodePrompt = new NextEpisodePrompt(
   },
 );
 
+mountLauncherIcons();
+
 const ratingSheet = new RatingSheetController(
   ratingSheetEl,
   ratingSheetTitle,
@@ -242,7 +245,7 @@ const ratingSheet = new RatingSheetController(
   ratingWaterMarks,
   ratingWaterValue,
   ratingSave,
-  ratingCancel,
+  ratingNotInterested,
   ratingClearConfirm,
   detailRate,
   detailRatingChips,

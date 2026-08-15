@@ -64,11 +64,24 @@
               <div class="detail-actions">
                 <button id="detail-play" class="detail-button detail-button--primary" type="button">
                   <span class="detail-button-spinner" aria-hidden="true"></span>
+                  <span class="detail-button-icon" data-icon="play" data-icon-outline="true" aria-hidden="true"></span>
                   <span class="detail-button-label">play</span>
                 </button>
-                <button id="detail-save" class="detail-button" type="button">save</button>
-                <button id="detail-rate" class="detail-button" type="button" hidden>rate</button>
-                <button id="detail-not-interested" class="detail-button" type="button" hidden>not interested</button>
+                <button id="detail-save" class="detail-button" type="button">
+                  <span class="detail-button-icon" data-icon="star" aria-hidden="true"></span>
+                  <span class="detail-button-label">save</span>
+                </button>
+                <button id="detail-rate" class="detail-button" type="button" hidden>
+                  <span class="detail-button-icon" aria-hidden="true">
+                    <span data-icon="flame"></span>
+                    <span data-icon="waves"></span>
+                  </span>
+                  <span class="detail-button-label">rate</span>
+                </button>
+                <button id="detail-not-interested" class="detail-button" type="button" hidden>
+                  <span class="detail-button-icon" data-icon="eye-off" aria-hidden="true"></span>
+                  <span class="detail-button-label">not for me</span>
+                </button>
               </div>
             </div>
           </div>
@@ -96,21 +109,18 @@
       </section>
 
       <section id="rating-sheet" class="rating-sheet hidden" aria-label="Fire and Water rating" aria-hidden="true">
-        <div class="rating-sheet-scrim" aria-hidden="true"></div>
         <div class="rating-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="rating-sheet-title">
           <div class="rating-sheet-head">
-            <div>
-              <p id="rating-owner-label" class="eyebrow">shared household rating</p>
-              <h2 id="rating-sheet-title">Rate</h2>
-            </div>
-            <p class="rating-sheet-help">B adjust or confirm · arrows move · Y cancel<span class="rating-sheet-clear-help"> · X clear</span></p>
+            <p id="rating-owner-label" class="eyebrow">shared household rating</p>
+            <h2 id="rating-sheet-title">rate</h2>
+            <p class="rating-sheet-help">left right 0.5 · Y close<span class="rating-sheet-clear-help"> · X clear</span></p>
           </div>
           <p id="rating-sheet-error" class="rating-sheet-error" role="alert" hidden></p>
           <div class="rating-axis-list">
             <button id="rating-fire-row" class="rating-axis" type="button" role="slider"
               aria-label="Fire rating" aria-valuemin="0" aria-valuemax="5" aria-valuenow="0" aria-valuetext="Not set">
               <span class="rating-axis-copy">
-                <span class="rating-axis-name rating-axis-name--fire">Fire</span>
+                <span class="rating-axis-name rating-axis-name--fire">fire</span>
                 <span class="rating-axis-definition">fun · energy · tension · spectacle</span>
               </span>
               <span id="rating-fire-marks" class="rating-marks"></span>
@@ -119,7 +129,7 @@
             <button id="rating-water-row" class="rating-axis" type="button" role="slider"
               aria-label="Water rating" aria-valuemin="0" aria-valuemax="5" aria-valuenow="0" aria-valuetext="Not set">
               <span class="rating-axis-copy">
-                <span class="rating-axis-name rating-axis-name--water">Water</span>
+                <span class="rating-axis-name rating-axis-name--water">water</span>
                 <span class="rating-axis-definition">heart · authenticity · emotional resonance</span>
               </span>
               <span id="rating-water-marks" class="rating-marks"></span>
@@ -130,8 +140,13 @@
             Clear this rating? Press B to clear or Y to keep it.
           </p>
           <div class="rating-sheet-actions">
-            <button id="rating-save" class="detail-button detail-button--primary" type="button" disabled>save rating</button>
-            <button id="rating-cancel" class="detail-button" type="button">cancel</button>
+            <button id="rating-save" class="detail-button detail-button--primary" type="button" disabled>
+              <span class="detail-button-label">save</span>
+            </button>
+            <button id="rating-not-interested" class="detail-button detail-button--quiet" type="button">
+              <span class="detail-button-icon" data-icon="eye-off" aria-hidden="true"></span>
+              <span class="detail-button-label">not for me</span>
+            </button>
           </div>
         </div>
       </section>
@@ -142,7 +157,10 @@
           <h2 id="next-prompt-title">series</h2>
           <p id="next-prompt-meta" class="next-prompt-meta">S1 E2</p>
           <div class="next-prompt-actions">
-            <button id="next-prompt-play" class="detail-button detail-button--primary" type="button">play next</button>
+            <button id="next-prompt-play" class="detail-button detail-button--primary" type="button">
+              <span class="detail-button-icon" data-icon="play" data-icon-outline="true" aria-hidden="true"></span>
+              <span class="detail-button-label">play next</span>
+            </button>
             <button id="next-prompt-dismiss" class="detail-button" type="button">not now</button>
           </div>
         </div>

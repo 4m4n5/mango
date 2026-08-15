@@ -164,14 +164,22 @@ for rating_contract in (
     "markValue * 100",
     'value.toFixed(1)',
     'setAttribute("aria-hidden", "true")',
+    "nudgeHalfStep",
+    'this.focus === "fire" || this.focus === "water"',
 ):
     if rating_contract not in ratings:
         raise SystemExit(f"ratings.ts missing household emoji rating contract: {rating_contract}")
+if "this.adjusting" in ratings:
+    raise SystemExit("ratings.ts still requires B to enter an adjust mode")
+if "from \"./icons\"" not in search or "launcherIcon" not in search:
+    raise SystemExit("search.ts must share launcherIcon with Detail")
 for rating_style_contract in (
     ".rating-mark-empty",
     ".rating-mark-fill",
     "grayscale(1)",
     "overflow: hidden",
+    "place-items: center",
+    "min(36rem, 100%)",
 ):
     if rating_style_contract not in style:
         raise SystemExit(f"style.css missing household emoji rating treatment: {rating_style_contract}")
@@ -347,6 +355,7 @@ required = (
     'id="search-view"',
     'id="detail-play"',
     'id="detail-episode-list"',
+    'id="rating-not-interested"',
     'class="voice-hud"',
     'class="browse-brand"',
     'data-visible="false"',
@@ -360,6 +369,8 @@ if missing:
     raise SystemExit(f"missing: {', '.join(missing)}")
 if 'id="detail-back"' in html:
     raise SystemExit("detail still exposes a redundant on-screen Back button")
+if 'id="rating-cancel"' in html:
+    raise SystemExit("rating card still exposes a redundant cancel button")
 if "What do you want to watch?" in html:
     raise SystemExit("home masthead prompt must be removed")
 PY
