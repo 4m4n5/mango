@@ -194,6 +194,13 @@ else
   gate_fail "playback HUD must render in-mpv via mango-hud.lua (--script), not a separate window"
 fi
 
+if grep -q 'append_mpv_volume_scale_args' scripts/m2-catalog/service/mpv-play.sh \
+  && grep -q 'volume-max="${MANGO_MPV_VOLUME_MAX:-100}"' scripts/m2-catalog/service/mpv-play.sh; then
+  gate_pass "mpv volume-max is 100 so HUD 100 is the real ceiling"
+else
+  gate_fail "mpv-play must cap volume-max at 100 (mpv default is 130)"
+fi
+
 # EOF / natural end must use the same stop path as pad ⌂ (not restore finish alone).
 grep -q 'mpv-stop\.sh' scripts/m2-catalog/service/mpv-play.sh \
   && awk '/^start_mpv_exit_monitor\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh | grep -q 'mpv-stop\.sh' \

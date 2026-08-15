@@ -43,6 +43,7 @@ DEBOUNCE_SEC = 0.12
 DPAD_DEBOUNCE_SEC = float(os.environ.get("MANGO_PAD_DPAD_DEBOUNCE_SEC", "0.05"))
 LAUNCHER_WID_TTL_SEC = float(os.environ.get("MANGO_PAD_LAUNCHER_WID_TTL_SEC", "2.0"))
 VOLUME_STEP_PERCENT = 5
+VOLUME_MAX_PERCENT = 100
 WAIT_LOG_INTERVAL_SEC = float(os.environ.get("MANGO_PAD_WAIT_LOG_INTERVAL_SEC", "45.0"))
 REPO = _HOME / "mango"
 CACHE_DIR = _HOME / ".cache" / "mango"
@@ -1000,6 +1001,10 @@ def adjust_volume(delta_percent: int) -> None:
     if delta_percent == 0:
         return
     if routing_app() == "mpv":
+        # mpv's default volume-max is 130. Cap it so HUD 100 is actually the ceiling.
+        popen_tv_user(
+            ["bash", str(MPV_IPC_SH), "set_property", "volume-max", str(VOLUME_MAX_PERCENT)],
+        )
         popen_tv_user(["bash", str(MPV_IPC_SH), "add", "volume", str(delta_percent)])
         show_playback_osd("volume")
         return

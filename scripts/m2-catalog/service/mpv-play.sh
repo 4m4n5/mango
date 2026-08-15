@@ -682,8 +682,15 @@ resolve_video_sync() {
   printf '%s\n' "$sync"
 }
 
+append_mpv_volume_scale_args() {
+  # mpv's default volume-max is 130. The HUD meter is 0-100, so extra gain after
+  # 100 was silent on the OSD but still raised loudness. 100 is unity / loudest.
+  mpv_args+=(--volume-max="${MANGO_MPV_VOLUME_MAX:-100}")
+}
+
 append_mpv_live_args() {
   $LIVE || return 0
+  append_mpv_volume_scale_args
   case "${MANGO_MPV_LIVE_CACHE:-yes}" in
     0 | no | false) return 0 ;;
   esac
@@ -755,6 +762,7 @@ append_mpv_vod_startup_policy_args() {
     *) mpv_args+=(--opengl-swapinterval="${MANGO_MPV_VOD_SWAPINTERVAL:-1}") ;;
   esac
   append_mpv_hud_args
+  append_mpv_volume_scale_args
   if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
     mpv_args+=(--start="$START_SEC")
   fi

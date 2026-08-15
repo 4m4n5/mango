@@ -68,6 +68,9 @@ class MangoHudContractTest(unittest.TestCase):
     def test_progress_volume_and_seek_without_title_hijack(self) -> None:
         self.assertIn('reason:match("^seek:([+-]?%d+)$")', HUD)
         self.assertIn("local function volume_percent", HUD)
+        self.assertIn('mp.get_property_number("volume-max")', HUD)
+        self.assertIn("VOLUME_MAX_PERCENT = 100", PAD_SRC)
+        self.assertIn('"volume-max"', PAD_SRC)
         self.assertIn("local function draw_volume", HUD)
         self.assertIn("VOL_TICKS = 10", HUD)
         self.assertIn("local function seek_transient", HUD)

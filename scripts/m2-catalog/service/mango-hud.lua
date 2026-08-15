@@ -541,7 +541,9 @@ local function volume_percent()
   end
   local volume = mp.get_property_number("volume")
   if volume == nil then return 0 end
-  return math.max(0, math.min(100, math.floor(volume + 0.5)))
+  local vmax = mp.get_property_number("volume-max") or 100
+  if vmax < 1 then vmax = 100 end
+  return math.max(0, math.min(100, math.floor(volume / vmax * 100 + 0.5)))
 end
 
 local function draw_volume(right, cy, active)
