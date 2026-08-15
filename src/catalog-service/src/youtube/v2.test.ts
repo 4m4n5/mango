@@ -3057,6 +3057,72 @@ test('Your regulars mixes rewatch cooldown exemption with frequent-channel uploa
   assert.equal(generation.items.some((item) => item.rail_id !== 'frequently_watched' && item.id === repeat.id), false);
 }));
 
+test('Your regulars shuffle deals from the full reserve instead of a frozen four', () => withTempState(() => {
+  const now = Date.now();
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  const items = [
+    ...Array.from({ length: 16 }, (_, index) => ({
+      rail_id: 'frequently_watched' as const,
+      item: video(`rewatch-${index}`, `Rewatch kitchen ${index}`, `rewatch-channel-${index}`),
+      score: 0.7,
+      reason: 'youtube_v2:rewatch',
+      provenance: 'rewatch' as const,
+      provenance_ref: `rewatch-${index}`,
+      source_expires_at: now + 1_000_000,
+      context_id: 'rewatch',
+    })),
+    ...Array.from({ length: 24 }, (_, index) => ({
+      rail_id: 'frequently_watched' as const,
+      item: video(`frequent-${index}`, `Frequent upload ${index}`, `frequent-channel-${index}`),
+      score: 0.55,
+      reason: 'youtube_v2:frequent_channel',
+      provenance: 'frequent_channel' as const,
+      provenance_ref: `frequent-channel-${index}`,
+      source_expires_at: now + 1_000_000,
+      context_id: 'frequent_channel',
+    })),
+  ];
+  publishYoutubeV2Generation({
+    model_version: YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION,
+    source_hash: 'regulars-shuffle-depth',
+    watch_count: 16,
+    subscription_count: 0,
+    generated_at: now,
+    items,
+  });
+  const generation = latestYoutubeV2Generation()!;
+  const unique = new Set<string>();
+  let previous = '';
+  let changed = 0;
+  const slate = (epoch: number, reserved_ids?: ReadonlySet<string>) => {
+    const rail = youtubeV2RecommendationRailsFromSnapshot({
+      generation,
+      subscriptions: [],
+      source_stale: { stale: false, reason: null, at: null },
+      serving_at: now,
+      shuffle_epoch: epoch,
+      reserved_ids,
+    }).find((entry) => entry.rail_id === 'frequently_watched');
+    assert.ok(rail);
+    assert.equal(rail.items.length, 4);
+    return rail.items;
+  };
+  for (let epoch = 0; epoch < 24; epoch += 1) {
+    const cards = slate(epoch);
+    const key = cards.map((item) => item.id).join(',');
+    if (epoch > 0 && key !== previous) changed += 1;
+    previous = key;
+    cards.forEach((item) => unique.add(item.id));
+    assert.ok(cards.some((item) => item.id.startsWith('rewatch-')));
+    assert.ok(cards.some((item) => item.id.startsWith('frequent-')));
+  }
+  assert.ok(unique.size > 4, `unique regulars ids=${unique.size}`);
+  assert.ok(changed >= 16, `slate changes=${changed}`);
+  const stolen = slate(0).map((item) => item.id);
+  const afterTheft = slate(0, new Set(stolen));
+  assert.equal(afterTheft.some((item) => stolen.includes(item.id)), false);
+}));
+
 test('Not-for-me applies a decaying channel penalty while exact video veto stays', () => withTempState(() => {
   const now = Date.now();
   const seed = video('PenaltySeed', 'Penalty seed documentary', 'penalty-seed');

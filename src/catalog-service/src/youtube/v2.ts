@@ -1794,6 +1794,45 @@ function selectWithCreatorCap(
   return best;
 }
 
+function selectRegularsSlate(
+  pool: PortfolioItem[],
+  seen: ReadonlySet<string>,
+  limit: number,
+  creatorCap: number,
+  relaxCap: boolean,
+): YoutubeRailItem[] {
+  const eligible = pool.filter((item) => !seen.has(item.id));
+  const select = (cap: number): YoutubeRailItem[] => {
+    const selected: YoutubeRailItem[] = [];
+    const selectedIds = new Set<string>();
+    const creators = new Map<string, number>();
+    const add = (item: PortfolioItem | undefined): void => {
+      if (!item || selectedIds.has(item.id) || selected.length >= limit) return;
+      const creator = creatorKey(item);
+      if ((creators.get(creator) ?? 0) >= cap) return;
+      selected.push(item);
+      selectedIds.add(item.id);
+      creators.set(creator, (creators.get(creator) ?? 0) + 1);
+    };
+    add(eligible.find((item) => item.provenance === 'rewatch'));
+    add(eligible.find((item) => item.provenance === 'frequent_channel'));
+    for (const item of eligible) {
+      add(item);
+      if (selected.length >= limit) break;
+    }
+    return selected;
+  };
+  const strict = select(creatorCap);
+  if (strict.length >= limit || !relaxCap) return strict;
+  let best = strict;
+  for (let cap = creatorCap + 1; cap <= limit; cap += 1) {
+    const relaxed = select(cap);
+    if (relaxed.length > best.length) best = relaxed;
+    if (relaxed.length >= limit) return relaxed;
+  }
+  return best;
+}
+
 type PortfolioItem = YoutubeRailItem & {
   provenance?: YoutubeV2ServeProvenance;
   provenance_ref?: string;
@@ -1960,33 +1999,6 @@ export function youtubeV2RecommendationRailsFromSnapshot(input: {
       pool = unreservedSameChannel.length > 0
         ? [unreservedSameChannel[0]!, ...thematic, ...unreservedSameChannel.slice(1)]
         : thematic;
-    } else if (spec.id === 'frequently_watched') {
-      const rewatch = weightedShuffle(
-        pool.filter((item) => item.provenance === 'rewatch'),
-        'rewatch',
-      );
-      const frequent = weightedShuffle(
-        pool.filter((item) => item.provenance === 'frequent_channel'),
-        'frequent_channel',
-      );
-      const mixed: PortfolioItem[] = [];
-      const take = (source: PortfolioItem[], count: number) => {
-        for (const item of source) {
-          if (mixed.length >= YOUTUBE_RAIL_LIMIT) break;
-          if (mixed.some((entry) => entry.id === item.id) || seen.has(item.id)) continue;
-          mixed.push(item);
-          if (mixed.filter((entry) => entry.provenance === item.provenance).length >= count
-            && mixed.length >= 2) break;
-        }
-      };
-      take(rewatch, 2);
-      take(frequent, 2);
-      for (const item of [...rewatch, ...frequent]) {
-        if (mixed.length >= YOUTUBE_RAIL_LIMIT) break;
-        if (mixed.some((entry) => entry.id === item.id) || seen.has(item.id)) continue;
-        mixed.push(item);
-      }
-      pool = mixed;
     } else {
       pool = weightedShuffle(pool, 'all');
     }
@@ -2010,7 +2022,7 @@ export function youtubeV2RecommendationRailsFromSnapshot(input: {
               require_source_mix: false,
             })
         : spec.id === 'frequently_watched'
-          ? selectWithCreatorCap(pool, seen, limit, spec.cap, spec.relax)
+          ? selectRegularsSlate(pool, seen, limit, spec.cap, spec.relax)
         : selectWithCreatorCap(pool, seen, limit, spec.cap, spec.relax);
     if ((!spec.live && items.length !== YOUTUBE_RAIL_LIMIT) || (spec.live && items.length === 0)) continue;
     items.forEach((item) => seen.add(item.id));
