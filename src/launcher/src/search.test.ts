@@ -8,6 +8,7 @@ import {
   isSearchPinnedChromeKey,
   mergeComposeFocusRows,
   mergeSearchResultRows,
+  nextPendingSearchRowDelta,
   readPersistedSearchState,
   SEARCH_KEYBOARD,
   SEARCH_KEYBOARD_COLUMNS,
@@ -219,6 +220,33 @@ test("Search restore snapshots drop synopsis text", () => {
 
 test("Search pad yield is a real input turn, not a 0-delay macrotask", () => {
   assert.equal(SEARCH_YIELD_FALLBACK_MS, 50);
+});
+
+test("Search keeps leftover Down until result rows exist, then drops it on empty complete", () => {
+  assert.equal(nextPendingSearchRowDelta({
+    submitted: true, delta: 1, moved: false, pending: 0,
+    resultsComplete: false, resultRowCount: 0,
+  }), 1);
+  assert.equal(nextPendingSearchRowDelta({
+    submitted: true, delta: 1, moved: false, pending: 1,
+    resultsComplete: false, resultRowCount: 0,
+  }), 2);
+  assert.equal(nextPendingSearchRowDelta({
+    submitted: true, delta: 1, moved: true, pending: 2,
+    resultsComplete: false, resultRowCount: 3,
+  }), 0);
+  assert.equal(nextPendingSearchRowDelta({
+    submitted: true, delta: 1, moved: false, pending: 1,
+    resultsComplete: true, resultRowCount: 0,
+  }), 0);
+  assert.equal(nextPendingSearchRowDelta({
+    submitted: false, delta: 1, moved: false, pending: 0,
+    resultsComplete: false, resultRowCount: 0,
+  }), 0);
+  assert.equal(nextPendingSearchRowDelta({
+    submitted: true, delta: -1, moved: false, pending: 1,
+    resultsComplete: false, resultRowCount: 0,
+  }), 1);
 });
 
 test("Empty Search results land on the active scope chip", () => {

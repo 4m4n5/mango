@@ -1,6 +1,7 @@
 import { FocusGrid } from "./focus";
 import { buildCatalogRails, splitFocusRows } from "./home";
 import { railColumns } from "./layout";
+import { armDeferredPosterSources } from "./poster";
 import type { BrowseTab, ContentCard, ContentRail } from "./types";
 import type { LauncherStatusReporter } from "./toast";
 
@@ -83,7 +84,7 @@ export function slimSearchSnapshot(snapshot: SearchSnapshot | null): SearchSnaps
   };
 }
 
-/** Frame-or-50ms pad turn. Matches `waitInputTurn` in pad-nav.ts. */
+/** Frame, then a macrotask, so pad-nav fetch/ack can run before the next rail. */
 export const SEARCH_YIELD_FALLBACK_MS = 50;
 
 function yieldToPadInput(): Promise<void> {
@@ -97,7 +98,9 @@ function yieldToPadInput(): Promise<void> {
       if (frame && typeof globalThis.cancelAnimationFrame === "function") {
         globalThis.cancelAnimationFrame(frame);
       }
-      resolve();
+      // rAF runs before I/O tasks. Resume fill on a timer so Chromium can
+      // apply D-pad commands that arrived during the previous rail's sync work.
+      globalThis.setTimeout(resolve, 0);
     };
     const timer = globalThis.setTimeout(finish, SEARCH_YIELD_FALLBACK_MS);
     if (typeof globalThis.requestAnimationFrame === "function") {
@@ -167,6 +170,25 @@ export const SEARCH_RESULTS_PAINT_MS = 100;
 export function isSearchPinnedChromeKey(key: string | undefined): boolean {
   if (!key) return false;
   return key === "search:edit" || key.startsWith("search:scope:");
+}
+
+/**
+ * Downs pressed while only Edit/scopes exist are geometric no-ops. Keep the
+ * net leftover until result rows can honor it, then drop it if the query
+ * finished empty (focus stays on the active chip).
+ */
+export function nextPendingSearchRowDelta(input: {
+  submitted: boolean;
+  delta: number;
+  moved: boolean;
+  pending: number;
+  resultsComplete: boolean;
+  resultRowCount: number;
+}): number {
+  if (!input.submitted || input.moved) return 0;
+  if (input.resultsComplete && input.resultRowCount === 0) return 0;
+  if (input.delta <= 0) return input.pending;
+  return input.pending + input.delta;
 }
 
 const QUERY_PLACEHOLDER = "search mango";
@@ -410,6 +432,7 @@ export class SearchController {
   private resultsPaintGeneration = 0;
   private railPaintActive = false;
   private resultsPaintDirty = false;
+  private pendingRowDelta = 0;
   private resultRowsByRail = new Map<string, HTMLElement[][]>();
   private atmosphere: HTMLElement | null = null;
   private atmosphereImage: HTMLImageElement | null = null;
@@ -450,6 +473,7 @@ export class SearchController {
     this.suggestions = [];
     this.focusedKey = "search:key:q";
     this.preferredPosition = undefined;
+    this.pendingRowDelta = 0;
     this.activeSearchId = null;
     this.view.classList.remove("hidden");
     this.render();
@@ -482,6 +506,7 @@ export class SearchController {
       this.homeTab = state.homeTab || this.homeTab;
       this.homeFocusKey = state.homeFocusKey;
       this.homePosition = state.homePosition;
+      this.pendingRowDelta = 0;
     }
     this.view.classList.remove("hidden");
     if (canReuseMountedDom) {
@@ -508,13 +533,23 @@ export class SearchController {
     void this.cancelActive();
     this.pollToken += 1;
     this.abortResultsPaint();
+    this.pendingRowDelta = 0;
     this.view.classList.add("hidden");
     this.clearPersisted();
     this.callbacks.onClose(state);
   }
 
   moveRow(delta: number): void {
+    const before = this.focus.position.row;
     this.focus.moveRow(delta);
+    this.pendingRowDelta = nextPendingSearchRowDelta({
+      submitted: this.submitted,
+      delta,
+      moved: this.focus.position.row !== before,
+      pending: this.pendingRowDelta,
+      resultsComplete: Boolean(this.snapshot?.complete),
+      resultRowCount: this.resultRows.length,
+    });
   }
 
   moveCol(delta: number): void {
@@ -661,9 +696,11 @@ export class SearchController {
     this.snapshot = slimSearchSnapshot(response);
     this.pages = {};
     this.activeSearchId = response.search_id;
-    this.focusedKey = response.groups[0]?.items[0]?.key
-      ? `rail:${response.groups[0].id}:${response.groups[0].items[0].type}:${response.groups[0].items[0].id}`
-      : searchEmptyResultsFocusKey(this.scope);
+    this.pendingRowDelta = 0;
+    // Rails are not mounted yet. Prefer the active chip so focus cannot clamp
+    // onto YouTube from the compose keyboard column, then snap to the first
+    // card once it exists and steal a D-pad move.
+    this.focusedKey = searchEmptyResultsFocusKey(this.scope);
     this.render();
     void this.poll(response.search_id, response.revision, ++this.pollToken);
   }
@@ -1167,6 +1204,8 @@ export class SearchController {
     let cursor: ChildNode | null = chrome ? chrome.nextSibling : results.firstChild;
 
     try {
+      await yieldToPadInput();
+      if (generation !== this.resultsPaintGeneration) return;
       for (const group of visibleGroups) {
         if (generation !== this.resultsPaintGeneration) return;
         const window = windows.get(group.id);
@@ -1192,6 +1231,7 @@ export class SearchController {
             onAppSelect: () => undefined,
           }, {
             railRowLimit: null,
+            deferPosterSrc: true,
             railTrailingAction: (_rail, landscape) => window.hasMore
               ? this.createMoreCard(group, landscape, window.items.length)
               : null,
@@ -1219,6 +1259,7 @@ export class SearchController {
           );
           this.applyFocusRows();
           await yieldToPadInput();
+          armDeferredPosterSources(section);
         }
       }
 
@@ -1390,6 +1431,13 @@ export class SearchController {
       preferredKey: this.focusedKey,
       fallbackPosition: this.preferredPosition,
     });
+    if (this.pendingRowDelta !== 0 && this.resultRows.length > 0) {
+      const before = this.focus.position.row;
+      this.focus.moveRow(this.pendingRowDelta);
+      if (this.focus.position.row !== before) this.pendingRowDelta = 0;
+    } else if (this.snapshot?.complete && this.resultRows.length === 0) {
+      this.pendingRowDelta = 0;
+    }
     if (this.submitted && this.focusedElement && !isSearchPinnedChromeKey(this.focusedKey)) {
       this.scheduleResultsAtmosphere(this.focusedElement);
     }

@@ -23,6 +23,12 @@ export interface HomeOptions {
    * hide results the viewer requested.
    */
   railRowLimit?: number | null;
+  /**
+   * Search paints a full result page in one rail. Assigning poster `src` in
+   * that loop starts decode on every in-viewport image and starves D-pad.
+   * Cards mount first; the caller arms sources after a pad yield.
+   */
+  deferPosterSrc?: boolean;
 }
 
 export type CatalogState =
@@ -608,7 +614,12 @@ function createPosterCard(
   poster.alt = "";
   poster.loading = "lazy";
   poster.decoding = "async";
-  poster.src = resolveCardPosterUrl(card);
+  const posterUrl = resolveCardPosterUrl(card);
+  if (options.deferPosterSrc && posterUrl) {
+    poster.dataset.posterSrc = posterUrl;
+  } else {
+    poster.src = posterUrl;
+  }
   bindPosterImage(poster, card.title);
 
   const title = document.createElement("span");

@@ -25,6 +25,7 @@ export function resolveCardPosterUrl(
 
 export function bindPosterImage(img: HTMLImageElement, title: string): void {
   const applyFallback = (): void => {
+    if (img.dataset.posterSrc) return;
     img.classList.add("poster-image--missing");
     img.removeAttribute("src");
     // Cards bind handlers before they are attached. Resolve the host only when
@@ -41,8 +42,17 @@ export function bindPosterImage(img: HTMLImageElement, title: string): void {
   };
 
   img.addEventListener("error", applyFallback, { once: true });
-  if (!img.getAttribute("src")?.trim()) {
+  if (!img.getAttribute("src")?.trim() && !img.dataset.posterSrc) {
     queueMicrotask(applyFallback);
+  }
+}
+
+/** Assign deferred poster URLs after the owning rail has yielded to pad input. */
+export function armDeferredPosterSources(root: ParentNode): void {
+  for (const img of Array.from(root.querySelectorAll<HTMLImageElement>("img[data-poster-src]"))) {
+    const url = img.dataset.posterSrc?.trim();
+    delete img.dataset.posterSrc;
+    if (url) img.src = url;
   }
 }
 

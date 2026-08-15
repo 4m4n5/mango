@@ -199,7 +199,10 @@ for search_contract in (
     "SEARCH_YIELD_FALLBACK_MS",
     "searchEmptyResultsFocusKey",
     "mergeSearchResultRows",
+    "nextPendingSearchRowDelta",
     "resultsPaintDirty",
+    "deferPosterSrc",
+    "armDeferredPosterSources",
     "slimSearchSnapshot",
     "emptySearchSnapshot",
     "searchQueryCaretLeading",
@@ -241,6 +244,8 @@ yield_fn = search.split("function yieldToPadInput", 1)[1].split(
 )[0]
 if "requestAnimationFrame" not in yield_fn or "SEARCH_YIELD_FALLBACK_MS" not in yield_fn:
     raise SystemExit("Search pad yield is not a real input turn")
+if "setTimeout(resolve, 0)" not in yield_fn:
+    raise SystemExit("Search pad yield does not drain pad-nav macrotasks before the next rail")
 schedule_refresh = search.split("private scheduleResultsRefresh", 1)[1].split(
     "private refreshResults", 1,
 )[0]
@@ -250,6 +255,9 @@ if "this.abortResultsPaint()" in schedule_refresh:
     raise SystemExit("Search poll refresh hard-aborts an in-flight fill")
 if "searchEmptyResultsFocusKey(this.scope)" not in search:
     raise SystemExit("Empty Search results do not land on the active scope chip")
+submit = search.split("private async submit", 1)[1].split("private async poll", 1)[0]
+if "groups[0]" in submit:
+    raise SystemExit("Search submit still prefers a result card before rails exist")
 if "searchQueryCaretLeading(this.query)" not in search:
     raise SystemExit("Search compose caret order helper is unused")
 preview = search.split("private schedulePreview", 1)[1].split("private applyPreview", 1)[0]
