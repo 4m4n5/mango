@@ -57,6 +57,7 @@ import {
   youtubeV2HistoryItems,
   youtubeV2ExactExclusionCacheDiagnostics,
   youtubeV2Diagnostics,
+  youtubeV2ExactExcludedIds,
   youtubeV2MoreLikeSeeds,
   youtubeV2RecommendationRails,
   youtubeV2RecommendationRailsFromSnapshot,
@@ -3090,16 +3091,18 @@ test('Your regulars shuffle deals from the full reserve instead of a frozen four
     generated_at: now,
     items,
   });
-  const generation = latestYoutubeV2Generation()!;
+  importOfficialHistory(
+    items.filter((entry) => entry.provenance === 'rewatch').map((entry) => entry.item),
+    now,
+    'regulars-shuffle-history',
+  );
+  invalidateYoutubeV2ExactExclusions();
+  assert.ok(youtubeV2ExactExcludedIds().has('rewatch-0'));
   const unique = new Set<string>();
   let previous = '';
   let changed = 0;
   const slate = (epoch: number, reserved_ids?: ReadonlySet<string>) => {
-    const rail = youtubeV2RecommendationRailsFromSnapshot({
-      generation,
-      subscriptions: [],
-      source_stale: { stale: false, reason: null, at: null },
-      serving_at: now,
+    const rail = youtubeV2RecommendationRails({
       shuffle_epoch: epoch,
       reserved_ids,
     }).find((entry) => entry.rail_id === 'frequently_watched');

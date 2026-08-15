@@ -1944,6 +1944,8 @@ export function youtubeV2RecommendationRailsFromSnapshot(input: {
   // dynamically fenced by current membership and its short verification TTL.
   const preservePublishedSubscriptionSnapshot = sourceStale.stale;
   const blocked = new Set(input.blocked_ids ?? []);
+  const exclusions = loadYoutubeV2ExactExclusions();
+  const hardBlocked = new Set([...exclusions.saved, ...exclusions.blocked]);
   const seen = new Set(input.reserved_ids ?? []);
   const servingAt = input.serving_at;
   const stale = generation.generated_at < servingAt - loadYoutubeConfig().stale_after_ms
@@ -1968,7 +1970,9 @@ export function youtubeV2RecommendationRailsFromSnapshot(input: {
           // OAuth/source loss keeps a visibly stale, non-live last-good couch
           // snapshot. Live can never outlive its verification window.
           || (sourceStale.stale && entry.rail_id !== 'live_now'))
-        && !blocked.has(entry.id)
+        && !(entry.provenance === 'rewatch'
+          ? hardBlocked.has(entry.id)
+          : blocked.has(entry.id))
         && generationEntryIsCurrentlyEligible(
           entry,
           subscriptions,
