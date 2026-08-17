@@ -4,16 +4,21 @@ import {
   classifyYtDlpError,
   effectiveYoutubeFormat,
   isMuxedOnlyYoutubeFormat,
+  isTransientYoutubeResolveError,
   parseYtDlpResolvedUrls,
   preferAdaptiveYoutubeFormat,
   shouldRefreshYoutubeTransport,
+  youtubeMpvFailureKind,
+  youtubeSocketTimeoutSec,
+  youtubeYtDlpResolveArgs,
+  ytDlpFormatCandidates,
   YOUTUBE_ADAPTIVE_FORMAT,
   YOUTUBE_COMPAT_ADAPTIVE_FORMAT,
   YOUTUBE_FORMAT_SORT,
   YOUTUBE_MID_ADAPTIVE_FORMAT,
-  youtubeYtDlpResolveArgs,
-  ytDlpFormatCandidates,
+  YOUTUBE_SOCKET_TIMEOUT_SEC,
 } from './playback.js';
+import { CatalogError } from '../catalog-errors.js';
 
 test('parseYtDlpResolvedUrls supports separate video and audio URLs', () => {
   assert.deepEqual(
@@ -119,6 +124,7 @@ test('yt-dlp resolve sorts by resolution, uses node EJS, and leaves player clien
   assert.equal(args[args.indexOf('-f') + 1], YOUTUBE_ADAPTIVE_FORMAT);
   assert.equal(args[args.indexOf('--format-sort') + 1], YOUTUBE_FORMAT_SORT);
   assert.equal(args[args.indexOf('--js-runtimes') + 1], 'node');
+  assert.equal(args[args.indexOf('--socket-timeout') + 1], String(YOUTUBE_SOCKET_TIMEOUT_SEC));
   assert.equal(args.includes('--extractor-args'), false);
   assert.ok(args.includes('-g'));
   assert.match(YOUTUBE_FORMAT_SORT, /vcodec:vp9:vp9\.2/);
@@ -160,9 +166,93 @@ test('classifyYtDlpError does not call requested format failure a removed video'
     classifyYtDlpError('ERROR: Requested format is not available. Use --list-formats for a list of available formats'),
     {
       status: 502,
+      kind: 'format_unavailable',
       message: 'YouTube playback format unavailable — try another YouTube video',
     },
   );
+});
+
+test('classifyYtDlpError treats stalls as timeouts, not digit-matching HTTP codes', () => {
+  const stalled = classifyYtDlpError(
+    'ERROR: [youtube] abc429def: Unable to download webpage: The read operation timed out https://rr5---sn-xxx.googlevideo.com/videoplayback?ei=n403token',
+  );
+  assert.equal(stalled.status, 502);
+  assert.equal(stalled.kind, 'timeout');
+
+  const rateLimited = classifyYtDlpError('ERROR: [youtube] dQw4w9WgXcQ: HTTP Error 429: Too Many Requests');
+  assert.equal(rateLimited.status, 429);
+  assert.equal(rateLimited.kind, 'bot_check');
+
+  const botCheck = classifyYtDlpError("ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm you’re not a bot");
+  assert.equal(botCheck.status, 429);
+  assert.equal(botCheck.kind, 'bot_check');
+
+  const ageGate = classifyYtDlpError('ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm your age');
+  assert.equal(ageGate.status, 403);
+  assert.equal(ageGate.kind, 'blocked');
+
+  const forbidden = classifyYtDlpError('ERROR: [youtube] dQw4w9WgXcQ: HTTP Error 403: Forbidden');
+  assert.equal(forbidden.status, 403);
+  assert.equal(forbidden.kind, 'blocked');
+
+  const digitsOnly = classifyYtDlpError(
+    'ERROR: [youtube] watch?v=abc429xyz: Unable to extract player response',
+  );
+  assert.equal(digitsOnly.status, 502);
+  assert.equal(digitsOnly.kind, 'other');
+});
+
+test('transient YouTube resolve errors retry; blocked and bot-check do not', () => {
+  const timeout = new CatalogError(502, 'YouTube playback could not be resolved', {
+    playback_stage: 'resolve',
+    failure_kind: 'timeout',
+    yt_dlp: 'The read operation timed out',
+  });
+  assert.equal(isTransientYoutubeResolveError(timeout), true);
+
+  const blocked = new CatalogError(403, 'YouTube blocked this video for this account or device', {
+    playback_stage: 'resolve',
+    failure_kind: 'blocked',
+  });
+  assert.equal(isTransientYoutubeResolveError(blocked), false);
+
+  const botCheck = new CatalogError(429, 'YouTube playback resolve is cooling down', {
+    playback_stage: 'resolve',
+    failure_kind: 'bot_check',
+  });
+  assert.equal(isTransientYoutubeResolveError(botCheck), false);
+
+  const format = new CatalogError(502, 'YouTube playback format unavailable — try another YouTube video', {
+    playback_stage: 'resolve',
+    failure_kind: 'format_unavailable',
+  });
+  assert.equal(isTransientYoutubeResolveError(format), false);
+});
+
+test('mpv start failures classify handoff separately from generic start errors', () => {
+  assert.equal(youtubeMpvFailureKind('FAIL: mpv vo not ready after display enable'), 'mpv_handoff');
+  assert.equal(youtubeMpvFailureKind('FAIL: mpv handoff failed'), 'mpv_handoff');
+  assert.equal(youtubeMpvFailureKind('FAIL: mpv did not start playback within 90000ms'), 'other');
+});
+
+test('socket-timeout env override is clamped to a sane range', () => {
+  const previous = process.env.MANGO_YTDLP_SOCKET_TIMEOUT;
+  try {
+    delete process.env.MANGO_YTDLP_SOCKET_TIMEOUT;
+    assert.equal(youtubeSocketTimeoutSec(), YOUTUBE_SOCKET_TIMEOUT_SEC);
+    process.env.MANGO_YTDLP_SOCKET_TIMEOUT = '8';
+    assert.equal(youtubeSocketTimeoutSec(), 8);
+    process.env.MANGO_YTDLP_SOCKET_TIMEOUT = '0';
+    assert.equal(youtubeSocketTimeoutSec(), YOUTUBE_SOCKET_TIMEOUT_SEC);
+    process.env.MANGO_YTDLP_SOCKET_TIMEOUT = 'nope';
+    assert.equal(youtubeSocketTimeoutSec(), YOUTUBE_SOCKET_TIMEOUT_SEC);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.MANGO_YTDLP_SOCKET_TIMEOUT;
+    } else {
+      process.env.MANGO_YTDLP_SOCKET_TIMEOUT = previous;
+    }
+  }
 });
 
 test('YouTube refreshes only expired direct transports, not policy failures', () => {

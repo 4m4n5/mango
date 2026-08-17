@@ -684,8 +684,8 @@ curl -sf "http://127.0.0.1:3020/series/<bareSeriesId>/episodes" | jq '.seasons'
 bash scripts/diag/playback-ladder-health.sh series <exactEpisodeId>
 curl -sf http://127.0.0.1:3020/health \
   | jq '.resolver | {stream_resolve_retries,stream_resolve_retry_recoveries,stream_resolve_retry_exhaustions,last_contributions}'
-journalctl --user -u mango-catalog.service --since '-10 min' --no-pager \
-  | grep -E '"event":"(provider_fanout|stream_resolve_retry|resolve_flight)"'
+journalctl _SYSTEMD_USER_UNIT=mango-catalog.service --since '-10 min' --no-pager \
+  | grep -E '"event":"(provider_fanout|stream_resolve_retry|resolve_flight|play_request_terminal)"'
 ```
 
 The repo patch proves the recovery state machine, not which nested provider

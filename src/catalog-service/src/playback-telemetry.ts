@@ -1,3 +1,5 @@
+import { CatalogError } from './catalog-errors.js';
+
 export type PlaybackTelemetryValue = string | number | boolean | null | undefined;
 
 const SENSITIVE_FIELD = /(?:url|token|credential|user_?data|secret)/i;
@@ -8,6 +10,7 @@ const TERMINAL_FIELDS = new Set([
   'outcome',
   'failure_class',
   'stage',
+  'failure_kind',
   'total_ms',
   'resolve_ms',
   'attempts',
@@ -15,6 +18,15 @@ const TERMINAL_FIELDS = new Set([
   'exact_main',
   'cached',
 ]);
+const PLAY_FAILURE_KINDS = [
+  'timeout',
+  'bot_check',
+  'blocked',
+  'format_unavailable',
+  'unavailable',
+  'mpv_handoff',
+  'other',
+] as const;
 const TERMINAL_WINDOW_LIMIT = 256;
 type TerminalAggregateEvent = {
   outcome: PlayRequestTerminalOutcome;
@@ -36,6 +48,7 @@ export type PlayRequestTerminalOutcome = 'playing' | 'failed_before_frame' | 'ca
 export type PlayRequestTerminalDetails = {
   failureClass?: unknown;
   stage?: unknown;
+  failureKind?: unknown;
   resolveMs?: unknown;
   attempts?: unknown;
   candidateCount?: unknown;
@@ -60,6 +73,50 @@ export function noPlayableStreamTerminalStage(details: unknown): 'resolve' | 'ca
     .find((value) => typeof value === 'number' && Number.isFinite(value));
   const attempts = Array.isArray(record.attempts) ? record.attempts : [];
   return candidates === 0 && attempts.length === 0 ? 'resolve' : 'candidate_ladder';
+}
+
+function detailsRecord(details: unknown): Record<string, unknown> {
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return {};
+  return details as Record<string, unknown>;
+}
+
+/**
+ * Map a play-session error onto the bounded terminal allowlist.
+ * Prefer explicit `playback_stage` / `failure_kind` on CatalogError details so
+ * YouTube mpv-start failures are not mislabelled as resolve.
+ */
+export function classifyPlaybackTerminalFailure(
+  error: unknown,
+  cancelled: boolean,
+): PlayRequestTerminalDetails {
+  if (cancelled) return { failureClass: 'cancelled', stage: 'session' };
+  if (error instanceof CatalogError) {
+    const details = detailsRecord(error.details);
+    const failureKind = typeof details.failure_kind === 'string' ? details.failure_kind : undefined;
+    const playbackStage = typeof details.playback_stage === 'string' ? details.playback_stage : undefined;
+    if (error.message === 'no_playable_stream') {
+      return {
+        failureClass: 'no_stream',
+        stage: noPlayableStreamTerminalStage(error.details),
+        failureKind,
+      };
+    }
+    if (error.status === 504 || /deadline/i.test(error.message)) {
+      return { failureClass: 'deadline', stage: playbackStage || 'play_start', failureKind };
+    }
+    if (error.status === 409) {
+      return { failureClass: 'ownership', stage: 'session', failureKind };
+    }
+    const hasYoutubeFailureFields = Boolean(playbackStage || failureKind);
+    if (error.status >= 500 || (hasYoutubeFailureFields && error.status >= 400)) {
+      return {
+        failureClass: 'provider',
+        stage: playbackStage || (typeof details.mpv === 'string' ? 'play_start' : 'resolve'),
+        failureKind,
+      };
+    }
+  }
+  return { failureClass: 'unknown', stage: 'play_start' };
 }
 
 function recordTerminalAggregate(
@@ -115,6 +172,7 @@ export function playRequestTerminalTelemetryFields(input: {
   outcome: PlayRequestTerminalOutcome;
   failureClass?: unknown;
   stage?: unknown;
+  failureKind?: unknown;
   totalMs: number;
   resolveMs?: unknown;
   attempts?: unknown;
@@ -143,6 +201,9 @@ export function playRequestTerminalTelemetryFields(input: {
       ['resolve', 'candidate_ladder', 'play_start', 'session', 'unknown'] as const,
       'unknown',
     ),
+    failure_kind: input.outcome === 'playing' || input.outcome === 'cancelled'
+      ? null
+      : boundedEnum(input.failureKind, PLAY_FAILURE_KINDS, 'other'),
     total_ms: boundedInteger(input.totalMs, 10 * 60_000),
     resolve_ms: boundedInteger(input.resolveMs, 10 * 60_000),
     attempts: boundedInteger(input.attempts, 1_000),

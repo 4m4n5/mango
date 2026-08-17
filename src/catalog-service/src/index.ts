@@ -10,10 +10,10 @@ import {
 } from './episode-playability-reconcile.js';
 import { createPlayDeadline, remainingPlayBudgetMs, type PlayDeadline } from './play-deadline.js';
 import {
+  classifyPlaybackTerminalFailure,
   createPlayRequestTerminalEmitter,
   emitPlaybackTelemetry,
   getRecentPlayRequestTerminalSummary,
-  noPlayableStreamTerminalStage,
   type PlayRequestTerminalDetails,
   type PlayRequestTerminalOutcome,
 } from './playback-telemetry.js';
@@ -1321,31 +1321,6 @@ function playbackSessionErrorMessage(error: unknown): string {
   return 'could not start playback — try again';
 }
 
-function playbackTerminalFailure(
-  error: unknown,
-  cancelled: boolean,
-): { failureClass: string; stage: string } {
-  if (cancelled) return { failureClass: 'cancelled', stage: 'session' };
-  if (error instanceof CatalogError) {
-    if (error.message === 'no_playable_stream') {
-      return {
-        failureClass: 'no_stream',
-        stage: noPlayableStreamTerminalStage(error.details),
-      };
-    }
-    if (error.status === 504 || /deadline/i.test(error.message)) {
-      return { failureClass: 'deadline', stage: 'play_start' };
-    }
-    if (error.status === 409) {
-      return { failureClass: 'ownership', stage: 'session' };
-    }
-    if (error.status >= 500) {
-      return { failureClass: 'provider', stage: 'resolve' };
-    }
-  }
-  return { failureClass: 'unknown', stage: 'play_start' };
-}
-
 function playbackTerminalResult(result: Record<string, unknown>): {
   resolveMs: unknown;
   attempts: unknown;
@@ -1463,7 +1438,7 @@ async function startPlaybackSession(
         title: body.title,
       });
     } catch (error) {
-      const failure = playbackTerminalFailure(error, false);
+      const failure = classifyPlaybackTerminalFailure(error, false);
       emitTerminal('failed_before_frame', failure);
       finishPlayRequest(requestId, playEpoch, false);
       throw error;
@@ -1519,7 +1494,7 @@ async function startPlaybackSession(
           || (error instanceof CatalogError && error.status === 499)
           || await isPlayEpochStale(playEpoch);
         terminalOutcome = cancelled ? 'cancelled' : 'failed_before_frame';
-        terminalFields = playbackTerminalFailure(error, cancelled);
+        terminalFields = classifyPlaybackTerminalFailure(error, cancelled);
         await transitionPlaybackSession(
           requestId,
           cancelled ? 'cancelled' : 'failed_before_frame',

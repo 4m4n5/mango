@@ -18,7 +18,7 @@ const CANCELLED_RE = /play cancelled|play epoch|PlayCancelledError/i;
 const GARBAGE_RE = /debrid_copyright_block|debrid_status_clip|debrid_nfo_sidecar/i;
 /** Message-only — never bare `429` (opaque debrid/MF URL tokens often contain those digits). */
 const RATE_LIMIT_RE =
-  /rate[-\s]*limit|too many requests|ratelimit_error|please wait|HTTP\s*429|\b429\b[^\n]{0,40}(?:too many|rate|request|limit)|(?:too many|rate[-\s]*limit)[^\n]{0,40}\b429\b/i;
+  /rate[-\s]*limit|too many requests|ratelimit_error|please wait|HTTP(?:\s+error)?\s*429|\b429\b[^\n]{0,40}(?:too many|rate|request|limit)|(?:too many|rate[-\s]*limit)[^\n]{0,40}\b429\b/i;
 /** Path markers on addon placeholder URLs — not digit substrings in tokens. */
 const RATE_LIMIT_URL_RE = /rate-limit-exceeded|public-rate-limit/i;
 const NO_STREAM_RE = /no_playable_stream|no streams|no http streams|no_stream/i;

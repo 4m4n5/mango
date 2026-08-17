@@ -22,6 +22,7 @@ test('classifyPlayError maps each class', () => {
 
   assert.equal(classifyPlayError('rate limit exceeded'), 'rate_limited');
   assert.equal(classifyPlayError('HTTP 429 Too Many Requests'), 'rate_limited');
+  assert.equal(classifyPlayError('HTTP Error 429: Too Many Requests'), 'rate_limited');
   assert.equal(classifyPlayError('429 Too Many Requests'), 'rate_limited');
   assert.equal(classifyPlayError('https://aio/rate-limit-exceeded'), 'rate_limited');
   // Opaque debrid/MF tokens often contain the digits 429 — must NOT trip rate_limited.

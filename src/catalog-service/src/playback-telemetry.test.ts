@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  classifyPlaybackTerminalFailure,
   createPlayRequestTerminalEmitter,
   emitPlaybackTelemetry,
   getRecentPlayRequestTerminalSummary,
@@ -10,6 +11,7 @@ import {
   playRequestTerminalTelemetryFields,
   resetPlayRequestTerminalSummaryForTests,
 } from './playback-telemetry.js';
+import { CatalogError } from './catalog-errors.js';
 
 test('S7: playback telemetry is structured and drops URL/credential fields', () => {
   assert.deepEqual(playbackTelemetryRecord('resolve', {
@@ -111,10 +113,82 @@ test('play terminal telemetry has a strict bounded allowlist', () => {
   assert.equal(record.total_ms, 600_000);
   assert.equal(record.resolve_ms, 31_250);
   assert.equal(record.candidate_count, 10_000);
+  assert.equal(record.failure_kind, 'other');
   assert.equal('title' in record, false);
   assert.equal('id' in record, false);
   assert.equal('raw_error' in record, false);
   assert.equal('signed_url' in record, false);
+});
+
+test('play terminal telemetry records a bounded failure kind and true stage', () => {
+  const youtubeTimeout = playRequestTerminalTelemetryFields({
+    requestId: 'yt-timeout',
+    epoch: 9,
+    contentType: 'youtube',
+    outcome: 'failed_before_frame',
+    failureClass: 'provider',
+    stage: 'resolve',
+    failureKind: 'timeout',
+    totalMs: 21300,
+  });
+  assert.equal(youtubeTimeout.failure_kind, 'timeout');
+  assert.equal(youtubeTimeout.stage, 'resolve');
+
+  const unknownKind = playRequestTerminalTelemetryFields({
+    requestId: 'yt-secret',
+    epoch: 9,
+    contentType: 'youtube',
+    outcome: 'failed_before_frame',
+    failureClass: 'provider',
+    stage: 'resolve',
+    failureKind: 'yt_dlp: https://googlevideo/secret',
+    totalMs: 100,
+  });
+  assert.equal(unknownKind.failure_kind, 'other');
+
+  const playing = playRequestTerminalTelemetryFields({
+    requestId: 'yt-ok',
+    epoch: 9,
+    contentType: 'youtube',
+    outcome: 'playing',
+    stage: 'play_start',
+    failureKind: 'timeout',
+    totalMs: 100,
+  });
+  assert.equal(playing.failure_kind, null);
+});
+
+test('classifyPlaybackTerminalFailure prefers explicit stage over status>=500', () => {
+  const mpv = new CatalogError(502, 'YouTube playback did not start', {
+    mpv: 'FAIL: mpv vo not ready after display enable',
+    playback_stage: 'play_start',
+    failure_kind: 'mpv_handoff',
+  });
+  assert.deepEqual(classifyPlaybackTerminalFailure(mpv, false), {
+    failureClass: 'provider',
+    stage: 'play_start',
+    failureKind: 'mpv_handoff',
+  });
+
+  const resolveTimeout = new CatalogError(502, 'YouTube playback could not be resolved', {
+    playback_stage: 'resolve',
+    failure_kind: 'timeout',
+  });
+  assert.deepEqual(classifyPlaybackTerminalFailure(resolveTimeout, false), {
+    failureClass: 'provider',
+    stage: 'resolve',
+    failureKind: 'timeout',
+  });
+
+  const blocked = new CatalogError(403, 'YouTube blocked this video for this account or device', {
+    playback_stage: 'resolve',
+    failure_kind: 'blocked',
+  });
+  assert.deepEqual(classifyPlaybackTerminalFailure(blocked, false), {
+    failureClass: 'provider',
+    stage: 'resolve',
+    failureKind: 'blocked',
+  });
 });
 
 test('terminal no-stream stage distinguishes resolver empty from ladder exhaustion', () => {

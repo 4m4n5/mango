@@ -45,9 +45,13 @@ import {
   type YoutubeV2RelationType,
 } from './db.js';
 import {
+  isTransientYoutubeResolveError,
   resolveYoutubePlayback,
   shouldRefreshYoutubeTransport,
+  youtubeFailureDetails,
+  youtubeMpvFailureKind,
   ytDlpFormatCandidates,
+  type YoutubeResolvedPlayback,
 } from './playback.js';
 import type {
   YoutubeItem,
@@ -2320,7 +2324,14 @@ export class YoutubeService {
     const started = nowMs();
     const playEpoch = options.playEpoch ?? await bumpPlayEpoch();
     const excludedFormats: string[] = [];
-    let resolved = await resolveYoutubePlayback(this.config, id);
+    let resolved: YoutubeResolvedPlayback;
+    try {
+      resolved = await resolveYoutubePlayback(this.config, id);
+    } catch (error) {
+      if (!isTransientYoutubeResolveError(error)) throw error;
+      await assertPlayEpoch(playEpoch);
+      resolved = await resolveYoutubePlayback(this.config, id);
+    }
     const live = item.live_status === 'live';
     const playResolved = () => playUrl(resolved.url, 90000, {
       live,
@@ -2360,9 +2371,11 @@ export class YoutubeService {
       const message = error instanceof Error ? error.message : String(error);
       throw new CatalogError(502, live
         ? 'YouTube live playback did not start'
-        : 'YouTube playback did not start', {
-        mpv: message,
-      }, {
+        : 'YouTube playback did not start', youtubeFailureDetails(
+        youtubeMpvFailureKind(message),
+        'play_start',
+        { mpv: message },
+      ), {
         couchMessage: live
           ? 'YouTube live playback did not start — try another live video'
           : 'YouTube playback did not start — try another video',

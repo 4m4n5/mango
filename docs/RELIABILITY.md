@@ -160,3 +160,22 @@ The deploy wrappers currently have branch/SHA and implicit AIOMetadata-mutation
 blockers; do not run them unattended.
 Select/read back the exact Pi SHA through the reviewed process in
 [DEPLOY.md](DEPLOY.md), then run these Pi-local gates.
+
+---
+
+## Playback terminal telemetry
+
+Asynchronous launcher plays emit one `play_request_terminal` JSON line on catalog
+stdout. On the Pi that line is in the **system** journal, keyed by the user unit
+name; the user journal is empty on this host:
+
+```bash
+journalctl _SYSTEMD_USER_UNIT=mango-catalog.service --since '-30 min' --no-pager \
+  | grep play_request_terminal
+```
+
+Do not use `journalctl --user -u mango-catalog.service` — it returns no entries
+here because user journal files are not persisted. Failure records include
+bounded `failure_class`, `stage`, and `failure_kind` (`timeout`, `bot_check`,
+`blocked`, `format_unavailable`, `unavailable`, `mpv_handoff`, `other`). They
+never include titles, content IDs, URLs, or raw provider errors.

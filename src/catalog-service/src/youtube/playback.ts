@@ -1,5 +1,6 @@
-import { execFile } from 'node:child_process';
+import { execFile, type ExecFileException } from 'node:child_process';
 import { CatalogError } from '../catalog-errors.js';
+import { classifyPlayError } from '../play-error-classify.js';
 import type { YoutubeConfig } from './config.js';
 import {
   YOUTUBE_FORMAT_SORT,
@@ -24,9 +25,26 @@ export type YoutubeResolvedPlayback = {
   format: string;
 };
 
+/** Bounded, identifier-free kind for terminal telemetry. */
+export const YOUTUBE_FAILURE_KINDS = [
+  'timeout',
+  'bot_check',
+  'blocked',
+  'format_unavailable',
+  'unavailable',
+  'mpv_handoff',
+  'other',
+] as const;
+export type YoutubeFailureKind = (typeof YOUTUBE_FAILURE_KINDS)[number];
+export type YoutubePlaybackStage = 'resolve' | 'play_start';
+
+export const YOUTUBE_SOCKET_TIMEOUT_SEC = 10;
+
 const youtubePlaybackInflight = new Map<string, Promise<YoutubeResolvedPlayback>>();
 let youtubeResolveCooldownUntil = 0;
 const YOUTUBE_RESOLVE_RATE_LIMIT_COOLDOWN_MS = 15 * 60 * 1000;
+const TRANSIENT_YOUTUBE_RESOLVE_RE =
+  /timeout|timed out|ETIMEDOUT|ECONN|ENOTFOUND|EAI_AGAIN|socket|fetch failed|network is unreachable|temporary failure in name resolution|did not get any data/i;
 
 function youtubeWatchUrl(videoId: string): string {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
@@ -43,6 +61,8 @@ export function youtubeYtDlpResolveArgs(
   const args = [
     '--no-playlist',
     '--no-warnings',
+    '--socket-timeout',
+    String(youtubeSocketTimeoutSec()),
     '-f',
     format,
     '--format-sort',
@@ -75,35 +95,127 @@ function requestedFormatUnavailable(text: string): boolean {
   return /requested format is not available/i.test(text);
 }
 
-export function classifyYtDlpError(text: string): { status: number; message: string } {
+export function youtubeSocketTimeoutSec(): number {
+  const raw = process.env.MANGO_YTDLP_SOCKET_TIMEOUT?.trim();
+  if (!raw) return YOUTUBE_SOCKET_TIMEOUT_SEC;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 60) {
+    return YOUTUBE_SOCKET_TIMEOUT_SEC;
+  }
+  return Math.round(parsed);
+}
+
+function isYoutubeBotCheck(text: string): boolean {
+  return classifyPlayError(text) === 'rate_limited'
+    || /captcha|not a bot|confirm you(?:'| a)?re not a bot/i.test(text);
+}
+
+function isYoutubeBlocked(text: string): boolean {
+  return /HTTP (?:error )?403\b|\bforbidden\b|private video|members-only|login required|\bsign in\b/i
+    .test(text);
+}
+
+export function classifyYtDlpError(text: string): {
+  status: number;
+  message: string;
+  kind: YoutubeFailureKind;
+} {
   if (requestedFormatUnavailable(text)) {
     return {
       status: 502,
+      kind: 'format_unavailable',
       message: 'YouTube playback format unavailable — try another YouTube video',
     };
   }
-  if (/429|too many requests|captcha|not a bot|sign in to confirm/i.test(text)) {
+  if (TRANSIENT_YOUTUBE_RESOLVE_RE.test(text)) {
+    return {
+      status: 502,
+      kind: 'timeout',
+      message: 'YouTube playback could not be resolved',
+    };
+  }
+  if (isYoutubeBotCheck(text)) {
     return {
       status: 429,
+      kind: 'bot_check',
       message: 'YouTube is asking for browser verification — reconnect cookies/account and try again',
     };
   }
-  if (/403|forbidden|private video|members-only|login required|sign in/i.test(text)) {
+  if (isYoutubeBlocked(text)) {
     return {
       status: 403,
+      kind: 'blocked',
       message: 'YouTube blocked this video for this account or device',
     };
   }
   if (/not available|unavailable|removed|copyright/i.test(text)) {
     return {
       status: 404,
+      kind: 'unavailable',
       message: 'this YouTube video is unavailable',
     };
   }
   return {
     status: 502,
+    kind: 'other',
     message: 'YouTube playback could not be resolved',
   };
+}
+
+export function youtubeFailureDetails(
+  kind: YoutubeFailureKind,
+  stage: YoutubePlaybackStage,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    ...extra,
+    playback_stage: stage,
+    failure_kind: kind,
+  };
+}
+
+export function youtubeMpvFailureKind(message: string): YoutubeFailureKind {
+  if (/\bmpv vo not ready\b|\bmpv handoff failed\b/i.test(message)) return 'mpv_handoff';
+  if (TRANSIENT_YOUTUBE_RESOLVE_RE.test(message)) return 'timeout';
+  return 'other';
+}
+
+export function isTransientYoutubeResolveError(error: unknown): boolean {
+  if (error instanceof CatalogError) {
+    if (error.status === 429 || error.status === 403 || error.status === 404 || error.status < 500) {
+      return false;
+    }
+    const kind = error.details?.failure_kind;
+    if (kind === 'timeout') return true;
+    if (kind === 'format_unavailable' || kind === 'blocked' || kind === 'bot_check' || kind === 'unavailable') {
+      return false;
+    }
+    const detail = typeof error.details?.yt_dlp === 'string' ? error.details.yt_dlp : error.message;
+    return TRANSIENT_YOUTUBE_RESOLVE_RE.test(detail);
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return TRANSIENT_YOUTUBE_RESOLVE_RE.test(message);
+}
+
+function ytDlpExecErrorMessage(error: ExecFileException, stdout: string, stderr: string): string {
+  const detail = `${stderr || stdout || error.message}`.trim();
+  if (error.killed || error.signal === 'SIGTERM' || error.code === 'ETIMEDOUT') {
+    return `yt-dlp timed out: ${detail}`;
+  }
+  return detail;
+}
+
+function throwYtDlpCatalogError(detail: string): never {
+  const classified = classifyYtDlpError(detail);
+  if (classified.status === 429) {
+    youtubeResolveCooldownUntil = Date.now() + YOUTUBE_RESOLVE_RATE_LIMIT_COOLDOWN_MS;
+  }
+  throw new CatalogError(
+    classified.status,
+    classified.message,
+    youtubeFailureDetails(classified.kind, 'resolve', { yt_dlp: detail }),
+    { couchMessage: classified.message },
+  );
 }
 
 export function parseYtDlpResolvedUrls(output: string): { url: string; audio_url?: string } | null {
@@ -133,7 +245,7 @@ export async function resolveYoutubePlayback(
     });
   }
   if (youtubeResolveCooldownUntil > Date.now()) {
-    throw new CatalogError(429, 'YouTube playback resolve is cooling down', undefined, {
+    throw new CatalogError(429, 'YouTube playback resolve is cooling down', youtubeFailureDetails('bot_check', 'resolve'), {
       couchMessage: 'YouTube is temporarily busy — try again in a few minutes',
     });
   }
@@ -172,7 +284,7 @@ async function resolveYoutubePlaybackFresh(
         maxBuffer: 1024 * 1024,
       }, (error, stdout, stderr) => {
         if (error) {
-          reject(new Error(`${stderr || stdout || error.message}`.trim()));
+          reject(new Error(ytDlpExecErrorMessage(error, stdout, stderr)));
           return;
         }
         resolve({ stdout, stderr });
@@ -183,13 +295,7 @@ async function resolveYoutubePlaybackFresh(
         lastFormatError = detail;
         return null;
       }
-      const classified = classifyYtDlpError(detail);
-      if (classified.status === 429) {
-        youtubeResolveCooldownUntil = Date.now() + YOUTUBE_RESOLVE_RATE_LIMIT_COOLDOWN_MS;
-      }
-      throw new CatalogError(classified.status, classified.message, { yt_dlp: detail }, {
-        couchMessage: classified.message,
-      });
+      throwYtDlpCatalogError(detail);
     });
     if (!result) {
       continue;
@@ -209,15 +315,15 @@ async function resolveYoutubePlaybackFresh(
       lastFormatError = detail;
       continue;
     }
-    const classified = classifyYtDlpError(detail);
-    throw new CatalogError(classified.status, classified.message, { yt_dlp: detail }, {
-      couchMessage: classified.message,
-    });
+    throwYtDlpCatalogError(detail);
   }
   const classified = classifyYtDlpError(lastFormatError || 'yt-dlp returned no playable URLs');
-  throw new CatalogError(classified.status, classified.message, { yt_dlp: lastFormatError }, {
-    couchMessage: classified.message,
-  });
+  throw new CatalogError(
+    classified.status,
+    classified.message,
+    youtubeFailureDetails(classified.kind, 'resolve', { yt_dlp: lastFormatError }),
+    { couchMessage: classified.message },
+  );
 }
 
 export function shouldRefreshYoutubeTransport(message: string): boolean {
