@@ -10,6 +10,7 @@ import {
   embeddingRelationFactor,
   hashEmbedText,
   maxTasteSimilarity,
+  ensureMiniLmNodeEnvironment,
   maybeRefreshYoutubeEmbeddings,
   youtubeEmbeddingBackend,
   youtubeEmbeddingModelId,
@@ -75,6 +76,25 @@ function withTempYoutube<T>(fn: () => T | Promise<T>): T | Promise<T> {
     throw error;
   }
 }
+
+test('MiniLM node env fills a missing navigator.userAgent', () => {
+  const previous = (globalThis as { navigator?: unknown }).navigator;
+  (globalThis as { navigator?: { language: string; userAgent?: string } }).navigator = {
+    language: 'en-US',
+  };
+  try {
+    ensureMiniLmNodeEnvironment();
+    const nav = (globalThis as { navigator?: { userAgent?: string } }).navigator;
+    assert.equal(typeof nav?.userAgent, 'string');
+    assert.ok((nav?.userAgent || '').length > 0);
+  } finally {
+    if (previous === undefined) {
+      delete (globalThis as { navigator?: unknown }).navigator;
+    } else {
+      (globalThis as { navigator?: unknown }).navigator = previous;
+    }
+  }
+});
 
 test('embeddings stay off by default and hashed vectors are deterministic', () => {
   delete process.env.MANGO_YOUTUBE_EMBEDDINGS;

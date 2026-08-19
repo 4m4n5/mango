@@ -917,7 +917,13 @@ function installCoreNodeShims(): void {
   const globals = globalThis as Record<string, unknown>;
   globals.self = globalThis;
   globals.document = { baseURI: 'file:///' };
-  globals.navigator ??= { language: 'en-US' };
+  // transformers.js reads navigator.userAgent at import for Safari detection.
+  // A language-only stub makes `userAgent.match` throw and fail MiniLM ranking.
+  globals.navigator ??= { language: 'en-US', userAgent: 'mango-catalog-service' };
+  const navigatorShim = globals.navigator as { language?: unknown; userAgent?: unknown };
+  if (typeof navigatorShim.userAgent !== 'string') {
+    navigatorShim.userAgent = 'mango-catalog-service';
+  }
   globals.WorkerGlobalScope ??= Object;
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;

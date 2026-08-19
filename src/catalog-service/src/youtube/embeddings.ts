@@ -151,6 +151,24 @@ function allowRemoteMiniLmDownload(): boolean {
   return raw === '1' || raw === 'true' || raw === 'on';
 }
 
+export function ensureMiniLmNodeEnvironment(): void {
+  const globals = globalThis as typeof globalThis & {
+    navigator?: { language?: unknown; userAgent?: unknown };
+  };
+  if (!globals.navigator || typeof globals.navigator !== 'object') return;
+  if (typeof globals.navigator.userAgent === 'string') return;
+  try {
+    Object.defineProperty(globals.navigator, 'userAgent', {
+      value: 'mango-catalog-service',
+      configurable: true,
+      enumerable: true,
+      writable: true,
+    });
+  } catch {
+    globals.navigator.userAgent = 'mango-catalog-service';
+  }
+}
+
 async function loadMiniLmExtractor(): Promise<MiniLmExtractor> {
   const cacheDir = embeddingsCacheDir();
   mkdirSync(cacheDir, { recursive: true });
@@ -160,6 +178,7 @@ async function loadMiniLmExtractor(): Promise<MiniLmExtractor> {
       `MiniLM model missing in ${cacheDir}; run scripts/m6-ship/ensure-youtube-embeddings.sh`,
     );
   }
+  ensureMiniLmNodeEnvironment();
   const transformers = await import('@huggingface/transformers');
   transformers.env.cacheDir = cacheDir;
   transformers.env.allowLocalModels = true;
