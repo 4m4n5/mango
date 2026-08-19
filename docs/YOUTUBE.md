@@ -99,9 +99,12 @@ burst. Resolve therefore prefers Mango-owned Deno
 closed if no supported JS runtime is present rather than handing mpv dead URLs.
 googlevideo also 403s ffmpeg/mpv's unscoped GET and open-ended
 `Range: bytes=0-` even after n-sig/POT/cookies; closed in-bounds ranges
-return 206. `mpv-play.sh` therefore wraps those URLs through a localhost
-Range proxy (`scripts/m2-catalog/service/youtube-http-proxy.py`) before mpv
-starts. Direct googlevideo URLs must not go back through `ytdl_hook`.
+return 206, but a single large range is truncated after ~1–6 MiB.
+`mpv-play.sh` wraps those URLs through a localhost Range proxy
+(`scripts/m2-catalog/service/youtube-http-proxy.py`) that fills the
+promised length with sequential 1 MiB closed ranges so split audio and
+video do not hit premature EOF. Direct googlevideo URLs must not go back
+through `ytdl_hook`.
 Do not pin `tv,android,ios` as the only clients: that historically left only
 muxed itag 18 (360p). YouTube 30 fps stays on 1080p60 HDMI
 (not 30 Hz); film 24 fps still matches 24 Hz. Many YouTube titles simply have

@@ -128,8 +128,11 @@ start_youtube_http_proxy() {
   }
   mkdir -p "$(dirname "$YOUTUBE_PROXY_PID_FILE")"
   out="$(mktemp)"
-  python3 "$SCRIPT_DIR/youtube-http-proxy.py" --video "$URL" ${AUDIO_URL:+--audio "$AUDIO_URL"} \
-    >"$out" 2>>"${HOME}/.cache/mango/youtube-http-proxy.log" &
+  proxy_cmd=(python3 "$SCRIPT_DIR/youtube-http-proxy.py" --video "$URL")
+  if [[ -n "$AUDIO_URL" ]]; then
+    proxy_cmd+=(--audio "$AUDIO_URL")
+  fi
+  "${proxy_cmd[@]}" >"$out" 2>>"${HOME}/.cache/mango/youtube-http-proxy.log" &
   YOUTUBE_PROXY_PID="$!"
   echo "$YOUTUBE_PROXY_PID" >"$YOUTUBE_PROXY_PID_FILE"
   export MANGO_YOUTUBE_PROXY_PID_FILE

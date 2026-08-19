@@ -14,15 +14,18 @@ import argparse
 import re
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 
 CHUNK_BYTES = 1024 * 1024
-UPSTREAM_TIMEOUT_SEC = 15
+UPSTREAM_TIMEOUT_SEC = 30
+CHUNK_ATTEMPTS = 3
 SIZE_PROBE_RANGE = "bytes=0-0"
 RANGE_RE = re.compile(r"bytes=(\d+)-(\d+)?$")
+UPSTREAM_UA = "Mozilla/5.0"
 
 VIDEO_URL = ""
 AUDIO_URL = ""
@@ -62,14 +65,39 @@ def upstream_for(path: str) -> str:
     return VIDEO_URL
 
 
+def _log(message: str) -> None:
+    sys.stderr.write(message + "\n")
+    sys.stderr.flush()
+
+
+class RangeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Keep Range across googlevideo redirects; urllib drops it by default."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is None:
+            return None
+        range_header = req.get_header("Range")
+        if range_header:
+            new.add_unredirected_header("Range", range_header)
+        return new
+
+
+UPSTREAM_OPENER = urllib.request.build_opener(RangeRedirectHandler)
+
+
 def fetch_size(url: str) -> int:
     with SIZE_LOCK:
         cached = SIZE_CACHE.get(url)
         if cached:
             return cached
-    request = urllib.request.Request(url, method="GET", headers={"Range": SIZE_PROBE_RANGE})
+    request = urllib.request.Request(
+        url,
+        method="GET",
+        headers={"Range": SIZE_PROBE_RANGE, "User-Agent": UPSTREAM_UA},
+    )
     try:
-        with urllib.request.urlopen(request, timeout=UPSTREAM_TIMEOUT_SEC) as response:
+        with UPSTREAM_OPENER.open(request, timeout=UPSTREAM_TIMEOUT_SEC) as response:
             content_range = response.headers.get("Content-Range") or ""
             match = re.search(r"/(\d+)\s*$", content_range)
             if match:
@@ -95,9 +123,12 @@ def open_upstream(url: str, start: int, end: int):
     request = urllib.request.Request(
         url,
         method="GET",
-        headers={"Range": f"bytes={start}-{end}"},
+        headers={
+            "Range": f"bytes={start}-{end}",
+            "User-Agent": UPSTREAM_UA,
+        },
     )
-    return urllib.request.urlopen(request, timeout=UPSTREAM_TIMEOUT_SEC)
+    return UPSTREAM_OPENER.open(request, timeout=UPSTREAM_TIMEOUT_SEC)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -150,29 +181,48 @@ class Handler(BaseHTTPRequestHandler):
             return
 
     def _copy_span(self, url: str, begin: int, finish: int) -> None:
-        try:
-            self._copy_single(url, begin, finish)
-            return
-        except urllib.error.HTTPError as error:
-            if error.code != 403:
-                raise
+        # googlevideo 403s or truncates large/open ranges. ffmpeg then sees
+        # "Stream ends prematurely at 1MiB, should be <full size>" and reconnects
+        # at the same offset; those reconnects also fail. Fill the promised
+        # Content-Length with sequential closed 1MiB ranges and never close early.
         cursor = begin
+        route = self.path.split("?", 1)[0]
         while cursor <= finish:
             chunk_end = min(cursor + CHUNK - 1, finish)
-            self._copy_single(url, cursor, chunk_end)
+            last_error: Optional[BaseException] = None
+            for attempt in range(1, CHUNK_ATTEMPTS + 1):
+                try:
+                    self._copy_single(url, cursor, chunk_end)
+                    last_error = None
+                    break
+                except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError, RuntimeError) as error:
+                    last_error = error
+                    code = getattr(error, "code", type(error).__name__)
+                    _log(
+                        f"chunk path={route} bytes={cursor}-{chunk_end} "
+                        f"attempt={attempt} error={code}"
+                    )
+                    time.sleep(0.25 * attempt)
+            if last_error is not None:
+                raise last_error
             cursor = chunk_end + 1
 
     def _copy_single(self, url: str, begin: int, finish: int) -> None:
-        remaining = finish - begin + 1
+        need = finish - begin + 1
+        pieces: list[bytes] = []
+        got = 0
         with open_upstream(url, begin, finish) as response:
-            while remaining > 0:
-                buf = response.read(min(256 * 1024, remaining))
+            while got < need:
+                buf = response.read(min(256 * 1024, need - got))
                 if not buf:
                     break
-                self.wfile.write(buf)
-                remaining -= len(buf)
-        if remaining > 0:
+                pieces.append(buf)
+                got += len(buf)
+        if got != need:
             raise RuntimeError("short upstream body")
+        for buf in pieces:
+            self.wfile.write(buf)
+        self.wfile.flush()
 
 
 def serve(video: str, audio: str, chunk_bytes: int) -> None:
@@ -202,6 +252,10 @@ def _self_test() -> int:
             header = self.headers.get("Range")
             start, end, open_ended = parse_range_header(header)
             if open_ended or start is None or end is None:
+                self.send_error(403)
+                return
+            span = end - start + 1
+            if span > 64 * 1024:
                 self.send_error(403)
                 return
             if end >= size + 50_000_000:
@@ -236,32 +290,36 @@ def _self_test() -> int:
 
     global VIDEO_URL, AUDIO_URL, CHUNK
     VIDEO_URL = mock_url
-    AUDIO_URL = ""
-    CHUNK = CHUNK_BYTES
+    AUDIO_URL = mock_url
+    CHUNK = 64 * 1024
     proxy = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=proxy.serve_forever, daemon=True).start()
     proxy_host, proxy_port = proxy.server_address[:2]
 
-    def proxy_get(range_header: Optional[str]) -> tuple[int, bytes]:
-        conn = http.client.HTTPConnection(proxy_host, proxy_port, timeout=5)
+    def proxy_get(path: str, range_header: Optional[str]) -> tuple[int, bytes]:
+        conn = http.client.HTTPConnection(proxy_host, proxy_port, timeout=8)
         headers = {"Range": range_header} if range_header else {}
-        conn.request("GET", "/v", headers=headers)
+        conn.request("GET", path, headers=headers)
         response = conn.getresponse()
         data = response.read()
         conn.close()
         return int(response.status), data
 
-    status, data = proxy_get("bytes=0-")
+    status, data = proxy_get("/v", "bytes=0-")
     if status != 206 or data != body:
         print(f"self-test: open range via proxy status={status} len={len(data)}", file=sys.stderr)
         return 1
-    status, data = proxy_get(None)
+    status, data = proxy_get("/v", None)
     if status != 200 or data != body:
         print(f"self-test: missing range via proxy status={status} len={len(data)}", file=sys.stderr)
         return 1
-    status, data = proxy_get("bytes=10-19")
+    status, data = proxy_get("/v", "bytes=10-19")
     if status != 206 or data != body[10:20]:
         print("self-test: closed subrange mismatch", file=sys.stderr)
+        return 1
+    status, data = proxy_get("/a", "bytes=0-")
+    if status != 206 or data != body:
+        print(f"self-test: audio open range status={status} len={len(data)}", file=sys.stderr)
         return 1
     mock.shutdown()
     proxy.shutdown()
