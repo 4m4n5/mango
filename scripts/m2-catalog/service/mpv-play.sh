@@ -816,16 +816,8 @@ append_mpv_buffer_args() {
     --hwdec="$HWDEC"
     --input-ipc-server="$SOCKET"
     --vo=null
+    --ao=null
   )
-  if is_youtube_stream; then
-    # Reopening HDMI ALSA after ao=null returns errno 524 and mpv deselects
-    # the audio track. YouTube HLS is 1080p; keep the real AO from t=0.
-    if (( ${#audio_args[@]} > 0 )); then
-      mpv_args+=("${audio_args[@]}")
-    fi
-  else
-    mpv_args+=(--ao=null)
-  fi
   append_mpv_gpu_startup_args
   append_mpv_vod_startup_policy_args
   if [[ -n "$AUDIO_URL" ]]; then
@@ -857,31 +849,44 @@ enable_mpv_display_once() {
     printf '{"command":["set_property","interpolation","%s"]}\n' "${MANGO_MPV_INTERPOLATION:-no}" | socat - "$SOCKET" >/dev/null 2>&1 || true
   fi
   printf '%s\n' '{"command":["set_property","fullscreen",true]}' | socat - "$SOCKET" >/dev/null 2>&1 || return 1
-  # Deferred VOD starts with ao=null. Explicitly restore mpv's automatic AO
-  # selection when no device override exists; otherwise audio remains muted.
-  # YouTube already opened the real AO at spawn (HDMI ALSA 524s on reopen).
-  if ! is_youtube_stream; then
-    local ao="${MANGO_MPV_AO:-auto}" device="" pending_device=false
-    if (( ${#audio_args[@]} > 0 )); then
-      for arg in "${audio_args[@]}"; do
-        if $pending_device; then
-          device="$arg"
-          pending_device=false
-          continue
-        fi
-        case "$arg" in
-          --ao=*) ao="${arg#--ao=}" ;;
-          --audio-device=*) device="${arg#--audio-device=}" ;;
-          --audio-device) pending_device=true ;;
-        esac
-      done
-    fi
+  restore_mpv_ao
+  apply_4k_video_sync
+  return 0
+}
+
+restore_mpv_ao() {
+  # Deferred VOD starts with ao=null so Chromium can release HDMI ALSA. Opening
+  # the device immediately often returns errno 524 and mpv then deselects aid.
+  local ao="${MANGO_MPV_AO:-auto}" device="" pending_device=false attempt current
+  if (( ${#audio_args[@]} > 0 )); then
+    for arg in "${audio_args[@]}"; do
+      if $pending_device; then
+        device="$arg"
+        pending_device=false
+        continue
+      fi
+      case "$arg" in
+        --ao=*) ao="${arg#--ao=}" ;;
+        --audio-device=*) device="${arg#--audio-device=}" ;;
+        --audio-device) pending_device=true ;;
+      esac
+    done
+  fi
+  sleep 0.4
+  for attempt in 1 2 3 4 5 6; do
     printf '{"command":["set_property","ao","%s"]}\n' "$ao" | socat - "$SOCKET" >/dev/null 2>&1 || true
     if [[ -n "$device" ]]; then
       printf '{"command":["set_property","audio-device","%s"]}\n' "$device" | socat - "$SOCKET" >/dev/null 2>&1 || true
     fi
-  fi
-  apply_4k_video_sync
+    sleep 0.25
+    current="$(mpv_property current-ao 2>/dev/null || true)"
+    if [[ -n "$current" && "$current" != "null" && "$current" != "false" && "$current" != "0" ]]; then
+      printf '%s\n' '{"command":["set_property","aid","auto"]}' | socat - "$SOCKET" >/dev/null 2>&1 || true
+      return 0
+    fi
+  done
+  echo "WARN: mpv audio device did not come up after handoff" >&2
+  printf '%s\n' '{"command":["set_property","aid","auto"]}' | socat - "$SOCKET" >/dev/null 2>&1 || true
   return 0
 }
 
