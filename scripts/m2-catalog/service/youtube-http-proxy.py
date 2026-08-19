@@ -161,16 +161,22 @@ class Handler(BaseHTTPRequestHandler):
             return
         start, end, _open = parse_range_header(self.headers.get("Range"))
         begin, finish = clamp_range(start, end, size)
-        length = finish - begin + 1
         client_ranged = self.headers.get("Range") is not None
         try:
+            # HTTP/1.0 + no Content-Length on GET: googlevideo often cannot fill
+            # the real object (offset Ranges 403). Promising 18MiB and closing at
+            # 1MiB makes ffmpeg reconnect at the same offset forever, which is
+            # silent audio and a random EOF. Stream until upstream ends instead.
+            self.protocol_version = "HTTP/1.0"
+            self.close_connection = True
             self.send_response(206 if client_ranged else 200)
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", str(length))
-            if client_ranged:
-                self.send_header("Content-Range", f"bytes {begin}-{finish}/{size}")
             self.send_header("Connection", "close")
+            if not body:
+                self.send_header("Content-Length", str(finish - begin + 1))
+                if client_ranged:
+                    self.send_header("Content-Range", f"bytes {begin}-{finish}/{size}")
             self.end_headers()
             if not body:
                 return
@@ -181,48 +187,54 @@ class Handler(BaseHTTPRequestHandler):
             return
 
     def _copy_span(self, url: str, begin: int, finish: int) -> None:
-        # googlevideo 403s or truncates large/open ranges. ffmpeg then sees
-        # "Stream ends prematurely at 1MiB, should be <full size>" and reconnects
-        # at the same offset; those reconnects also fail. Fill the promised
-        # Content-Length with sequential closed 1MiB ranges and never close early.
-        cursor = begin
+        # Prefer one from-zero (or exact) Range and drain it. Offset windows
+        # after the first megabyte 403 on current GVS; retrying them only
+        # delays EOF. When a later window 403s, end cleanly with whatever
+        # already reached mpv — do not advertise a longer body we cannot fill.
         route = self.path.split("?", 1)[0]
+        try:
+            self._copy_single(url, begin, finish, require_full=False)
+            return
+        except urllib.error.HTTPError as error:
+            if error.code != 403 or begin != 0:
+                raise
+            _log(f"chunk path={route} bytes={begin}-{finish} attempt=1 error=403 fallback=windows")
+        cursor = begin
         while cursor <= finish:
             chunk_end = min(cursor + CHUNK - 1, finish)
-            last_error: Optional[BaseException] = None
-            for attempt in range(1, CHUNK_ATTEMPTS + 1):
-                try:
-                    self._copy_single(url, cursor, chunk_end)
-                    last_error = None
-                    break
-                except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError, RuntimeError) as error:
-                    last_error = error
-                    code = getattr(error, "code", type(error).__name__)
-                    _log(
-                        f"chunk path={route} bytes={cursor}-{chunk_end} "
-                        f"attempt={attempt} error={code}"
-                    )
-                    time.sleep(0.25 * attempt)
-            if last_error is not None:
-                raise last_error
+            try:
+                self._copy_single(url, cursor, chunk_end, require_full=True)
+            except urllib.error.HTTPError as error:
+                if error.code == 403 and cursor > begin:
+                    _log(f"chunk path={route} bytes={cursor}-{chunk_end} error=403 stop")
+                    return
+                raise
+            except RuntimeError:
+                if cursor > begin:
+                    _log(f"chunk path={route} bytes={cursor}-{chunk_end} error=short stop")
+                    return
+                raise
             cursor = chunk_end + 1
 
-    def _copy_single(self, url: str, begin: int, finish: int) -> None:
+    def _copy_single(self, url: str, begin: int, finish: int, require_full: bool) -> None:
         need = finish - begin + 1
-        pieces: list[bytes] = []
         got = 0
         with open_upstream(url, begin, finish) as response:
-            while got < need:
-                buf = response.read(min(256 * 1024, need - got))
+            while True:
+                take = 256 * 1024
+                if require_full:
+                    remaining = need - got
+                    if remaining <= 0:
+                        break
+                    take = min(take, remaining)
+                buf = response.read(take)
                 if not buf:
                     break
-                pieces.append(buf)
+                self.wfile.write(buf)
                 got += len(buf)
-        if got != need:
-            raise RuntimeError("short upstream body")
-        for buf in pieces:
-            self.wfile.write(buf)
         self.wfile.flush()
+        if require_full and got != need:
+            raise RuntimeError("short upstream body")
 
 
 def serve(video: str, audio: str, chunk_bytes: int) -> None:
@@ -306,7 +318,7 @@ def _self_test() -> int:
         return int(response.status), data
 
     status, data = proxy_get("/v", "bytes=0-")
-    if status != 206 or data != body:
+    if status not in (200, 206) or data != body:
         print(f"self-test: open range via proxy status={status} len={len(data)}", file=sys.stderr)
         return 1
     status, data = proxy_get("/v", None)
@@ -318,7 +330,7 @@ def _self_test() -> int:
         print("self-test: closed subrange mismatch", file=sys.stderr)
         return 1
     status, data = proxy_get("/a", "bytes=0-")
-    if status != 206 or data != body:
+    if status not in (200, 206) or data != body:
         print(f"self-test: audio open range status={status} len={len(data)}", file=sys.stderr)
         return 1
     mock.shutdown()

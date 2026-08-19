@@ -162,6 +162,10 @@ start_stack() {
   bash "$REPO_DIR/scripts/mango-kill-strays.sh" 2>/dev/null || true
   bash "$REPO_DIR/scripts/lib/stop-input-remapper.sh" 2>/dev/null || true
   stop_idle_media
+  if [[ "${MANGO_CATALOG:-0}" == "1" ]]; then
+    bash "$REPO_DIR/scripts/m6-ship/youtube-pot-server.sh" start \
+      || echo "youtube-pot-server: not ready (yt-dlp will fall back to script POT)" >&2
+  fi
   start_catalog_service
   start_playability_topup
   bash scripts/m1-foundation/ui/start-mango-ui.sh
@@ -180,6 +184,7 @@ stop_stack() {
   stop_orphan_indexer
   bash "$REPO_DIR/scripts/mango-kill-strays.sh" 2>/dev/null || true
   stop_catalog_service
+  bash "$REPO_DIR/scripts/m6-ship/youtube-pot-server.sh" stop 2>/dev/null || true
   bash scripts/m2-catalog/service/mpv-stop.sh 2>/dev/null || true
   if systemctl --user is-enabled mango-orchestrator.service &>/dev/null 2>&1; then
     systemctl --user stop mango-companion.service mango-orchestrator.service 2>/dev/null || true
