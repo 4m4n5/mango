@@ -97,8 +97,9 @@ Mango-owned Deno (`~/.local/share/mango/deno/bin/deno`), downloads the EJS
 solver, and uses `bgutil-ytdlp-pot-provider` under `~/.local/share/mango/bgutil-pot`.
 It fails closed if no supported JS runtime is present rather than handing mpv
 dead URLs. Direct googlevideo / HLS URLs must not go back through `ytdl_hook`.
-mpv sends yt-dlp's Chrome user-agent and a `youtube.com` Referer; googlevideo
-403s libmpv's default UA. The bgutil **HTTP** POT server (`:4416`) is started
+mpv sends yt-dlp's Chrome user-agent, a `youtube.com` Referer and Origin, and
+the household Netscape cookie file when present; googlevideo 403s libmpv's
+default UA. The bgutil **HTTP** POT server (`:4416`) is started
 with the mango stack so yt-dlp does not fall back to a cold Deno script per
 resolve. `GET /youtube/state` `configured` reports `yt_dlp_version` and
 `pot_server` (boolean ping). Do not pin `tv,android,ios` as the only clients:

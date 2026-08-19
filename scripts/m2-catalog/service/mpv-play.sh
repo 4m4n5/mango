@@ -1231,12 +1231,18 @@ else
   fi
 fi
 if is_youtube_stream; then
-  # HLS (and leftover googlevideo URLs) must not go back through ytdl_hook.
+  # HLS and googlevideo DASH must not go back through ytdl_hook.
   # --no-terminal swallows ffmpeg errors unless --log-file is set. googlevideo
-  # HLS 403s libmpv's default UA; match yt-dlp's Chrome client.
+  # 403s libmpv's default UA; match yt-dlp's Chrome client and send the same
+  # Referer/Origin/cookies the resolver used.
   mpv_args+=(--ytdl=no --log-file="$MPV_LOG")
   mpv_args+=(--user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36")
-  mpv_args+=(--http-header-fields="Referer: https://www.youtube.com/")
+  mpv_args+=(--referrer="https://www.youtube.com/")
+  mpv_args+=(--http-header-fields="Origin: https://www.youtube.com")
+  cookies_file="${MANGO_YTDLP_COOKIES:-/etc/mango/youtube-cookies.txt}"
+  if [[ -n "$cookies_file" && -f "$cookies_file" ]]; then
+    mpv_args+=(--cookies=yes --cookies-file="$cookies_file")
+  fi
 fi
 if [[ "${MANGO_MPV_PRINT_ARGS:-0}" == "1" ]]; then
   printf '%s\n' "${mpv_args[@]}"

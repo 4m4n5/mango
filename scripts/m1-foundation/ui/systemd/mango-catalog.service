@@ -15,6 +15,9 @@ ExecStart=%h/mango/scripts/m2-catalog/service/run-catalog-service.sh
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=180
+# mpv is started with setsid but stays in this cgroup. control-group would
+# SIGTERM an in-progress movie/series whenever catalog restarts.
+KillMode=process
 # Resource guards. Memory enforces once the cgroup memory controller is enabled at
 # boot (cgroup_enable=memory in cmdline.txt); CPUWeight/TasksMax enforce already.
 # CPUWeight<100 lets the foreground launcher/pad win CPU under contention.
