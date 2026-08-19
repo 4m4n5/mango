@@ -3,18 +3,18 @@
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
 Latest recorded Pi deployment: **2026-08-19**,
-`f12892c1817b569fc86d6eb58a7e793f87fef78c`. Catalog remains the MiniLM/Regulars
+`cc40ffb01409d2798b4c53a1f7c605c97e8e12cb`. Catalog remains the MiniLM/Regulars
 line from `12dfaf2`; launcher poster re-arm is live. Operator refresh published
 YouTube generation **44** (last-good discovery retained; Live probes skipped
 because the background Search reserve was already exhausted). Rails are
-`ready`, not stale. YouTube resolve now uses safari HLS when present and mweb
-https DASH otherwise; a catalog-equivalent `-g` returned two googlevideo URLs
-with household cookies. POT server is up. Human couch play of a YouTube title
-after this transport change is still **DEFERRED**. For You and Beyond reserves
+`ready`, not stale. YouTube resolve uses safari HLS when present and
+`tv_simply` https DASH otherwise. Catalog `POST /youtube/play` of the
+previously failing id `mqjjVAtvd4s` returned `ok` with `ttff_ms=5884` and
+mpv advanced at 1920×1080. POT server is up. For You and Beyond reserves
 are 512; Regulars 95; More Like 458; From Subscriptions 231. Served cards
 remain `hqdefault`. Reliability remains usable-yellow. Pad health is ok.
 Human couch verdict remains **DEFERRED** for Regulars mix, MiniLM relevance,
-VOD poster fill, picture/audio, and YouTube play on the TV.
+VOD poster fill, picture/audio, and a human YouTube watch on the TV.
 Use `git status`, `git rev-parse HEAD`, and the Pi commands below before acting.
 
 ## How to read this page
@@ -42,7 +42,7 @@ prove only their exact revision and contract.
 | Mango library and Fire/Water input | Canonical Saved placement and tab-only library migration 18; ratings remain complete | Final Pi migration/readback passed: 12 misclassified tabs repaired to 0, user-state keys/counts preserved, Movies Saved 6 / Series Saved 8 / wrong-tab 0 | Human Dune-from-TV-Search placement and physical UI check |
 | VOD recommendations | `fb20baa` progressive profiles + Household Story Frontier + Browse v3 + StoryDNA Related; all historical data preserved | Pi serves complete 5,930/3,974 accounting with 720/675 rank reserves. Two active atomic browse reservoirs contain 19,950 candidate rows. Forty X presses per tab yielded 2,121/1,897 unique cards at p95 121.9/119.5 ms with global dedupe and zero provider/rank work | Human For You/category/Related verdict and physical focus/picture/audio checks |
 | Native YouTube base | Complete | Previously deployed/Pi-gated | Current exact-SHA revalidation and account-specific proof |
-| YouTube recommendations | `youtube-household-v3.0`: Takeout + local meaningful watches, channel affinity, decaying channel Not-for-me, Your regulars 2+2; MiniLM on (`Xenova/all-MiniLM-L6-v2`, blend). Nightly Live probes skip cleanly when background Search is exhausted instead of painting every rail stale | Pi generation 44 at `f12892c`: rails `ready`, 55 subscriptions, Live Now 0 (Search reserve spent). Playback resolve uses `web_safari,mweb` HLS-then-DASH | Human YouTube play on the TV after the DASH fallback; Regulars mix, MiniLM relevance, focus/Back, offline, picture/audio |
+| YouTube recommendations | `youtube-household-v3.0`: Takeout + local meaningful watches, channel affinity, decaying channel Not-for-me, Your regulars 2+2; MiniLM on (`Xenova/all-MiniLM-L6-v2`, blend). Nightly Live probes skip cleanly when background Search is exhausted instead of painting every rail stale | Pi generation 44 at `cc40ffb`: rails `ready`. Playback resolve uses `web_safari,tv_simply`. Catalog play of `mqjjVAtvd4s` reached 1080p with advancing playback-time | Human Regulars mix, MiniLM relevance, focus/Back, offline, picture/audio |
 | Voice/phone companion | Complete for trusted-LAN development contract | Automated corpus/memory/UX gates on earlier revisions; partial couch work | Full V1–V12/current coherence plus per-device client auth/pairing before appliance release |
 | Reliability Center/nightly proof | Implemented; sanitized launcher terminal outcomes and proof-version/type-conflict/episode counts added at `275ceb2` | Final Pi state is usable-yellow; terminal fixture recorded 2 playing and 2 `resolve/no_stream` failures, and the served-card sample found 16/32 legacy proof-v1 misses | Three clean nightly proofs, intentionally-disabled-Live policy, controller-action UI mismatch |
 | Controller reconnect | Source-complete | Automated gate exists; normal-wake behavior partially exercised | Five physical power-on reconnect cycles without pairing mode |
