@@ -70,6 +70,7 @@ import {
 } from './v2.js';
 import type { YoutubeItem, YoutubeRail } from './types.js';
 import { evaluateYoutubeVariants } from './eval-cli.js';
+import { maybeRefreshYoutubeEmbeddings } from './embeddings.js';
 
 function video(
   id: string,
@@ -134,6 +135,7 @@ function withTempState<T>(fn: () => T | Promise<T>): T | Promise<T> {
     delete process.env.MANGO_YOUTUBE_RECS_V2;
     delete process.env.MANGO_YOUTUBE_EMBEDDINGS;
     delete process.env.MANGO_YOUTUBE_SIM;
+    delete process.env.MANGO_YOUTUBE_EMBED_BACKEND;
     delete process.env.MANGO_YOUTUBE_SCORING;
     delete process.env.MANGO_YTDLP_COMMAND;
     rmSync(dir, { recursive: true, force: true });
@@ -1356,7 +1358,7 @@ test('v2 refresh runs only subscription/history acquisition and bounded publish 
   assert.equal(result.ok, true);
   assert.deepEqual(result.phases?.map((phase) => phase.phase), [
     'subscriptions', 'v2_subscription_acquisition', 'v2_history_metadata',
-    'v2_history_acquisition', 'v2_live_acquisition', 'v2_publish', 'v2_embeddings',
+    'v2_history_acquisition', 'v2_live_acquisition', 'v2_embeddings', 'v2_publish',
   ]);
   assert.ok(searchCalls <= 12);
   const acquisition = getYoutubeState<{
@@ -1421,7 +1423,7 @@ test('shadow refresh builds only the provenance-gated v2 phases', () => withTemp
   const phases = result.phases?.map((phase) => phase.phase) ?? [];
   assert.deepEqual(phases, [
     'subscriptions', 'v2_subscription_acquisition', 'v2_history_metadata',
-    'v2_history_acquisition', 'v2_live_acquisition', 'v2_publish', 'v2_embeddings',
+    'v2_history_acquisition', 'v2_live_acquisition', 'v2_embeddings', 'v2_publish',
   ]);
 }));
 
@@ -3073,10 +3075,31 @@ test('Your regulars mixes rewatch cooldown exemption with frequent-channel uploa
     source_generation: 'regulars-channel', acquired_at: now, expires_at: now + 1_000_000,
     relation_type: 'direct', source_rank: 0,
   }]);
+  const extra = video('OffHeadFresh', 'Off-head fermentation kitchen', 'off-head-channel');
+  const offHeadRepeat = video('OffHeadRepeat', 'Off-head repeat kitchen', 'off-head-channel');
+  upsertYoutubeItems([extra, offHeadRepeat]);
+  upsertYoutubeV2ImportedHistory([
+    {
+      video_id: offHeadRepeat.id, title: offHeadRepeat.title, title_url: null,
+      channel_id: offHeadRepeat.channel_id, channel_title: offHeadRepeat.channel_title,
+      watched_at: now - 40 * 24 * 60 * 60 * 1000,
+    },
+    {
+      video_id: offHeadRepeat.id, title: offHeadRepeat.title, title_url: null,
+      channel_id: offHeadRepeat.channel_id, channel_title: offHeadRepeat.channel_title,
+      watched_at: now - 50 * 24 * 60 * 60 * 1000,
+    },
+  ], { source_generation: 'regulars-off-head', imported_at: now });
+  upsertYoutubeV2CandidateProvenance([{
+    item: extra, provenance: 'history_channel', provenance_ref: offHeadRepeat.id,
+    source_generation: 'regulars-off-head-channel', acquired_at: now, expires_at: now + 1_000_000,
+    relation_type: 'direct', source_rank: 0,
+  }]);
   const generation = rebuildYoutubeV2Generation({ force: true, at: now })!;
   const regulars = generation.items.filter((item) => item.rail_id === 'frequently_watched');
   assert.ok(regulars.some((item) => item.id === repeat.id && item.provenance === 'rewatch'));
   assert.ok(regulars.some((item) => item.id === fresh.id && item.provenance === 'frequent_channel'));
+  assert.ok(regulars.some((item) => item.id === extra.id && item.provenance === 'frequent_channel'));
   assert.equal(generation.items.some((item) => item.rail_id !== 'frequently_watched' && item.id === repeat.id), false);
 }));
 
@@ -3138,14 +3161,79 @@ test('Your regulars shuffle deals from the full reserve instead of a frozen four
     if (epoch > 0 && key !== previous) changed += 1;
     previous = key;
     cards.forEach((item) => unique.add(item.id));
-    assert.ok(cards.some((item) => item.id.startsWith('rewatch-')));
-    assert.ok(cards.some((item) => item.id.startsWith('frequent-')));
+    assert.equal(cards.filter((item) => item.id.startsWith('rewatch-')).length, 2);
+    assert.equal(cards.filter((item) => item.id.startsWith('frequent-')).length, 2);
   }
-  assert.ok(unique.size > 4, `unique regulars ids=${unique.size}`);
+  assert.ok(unique.size >= 16, `unique regulars ids=${unique.size}`);
   assert.ok(changed >= 16, `slate changes=${changed}`);
   const stolen = slate(0).map((item) => item.id);
   const afterTheft = slate(0, new Set(stolen));
   assert.equal(afterTheft.some((item) => stolen.includes(item.id)), false);
+}));
+
+test('Your regulars does not pin a tiny rewatch head across shuffles', () => withTempState(() => {
+  const now = Date.now();
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  const items = [
+    ...Array.from({ length: 5 }, (_, index) => ({
+      rail_id: 'frequently_watched' as const,
+      item: video(`head-${index}`, `Head rewatch ${index}`, `head-channel-${index}`),
+      score: 1,
+      reason: 'youtube_v2:rewatch',
+      provenance: 'rewatch' as const,
+      provenance_ref: `head-${index}`,
+      source_expires_at: now + 1_000_000,
+      context_id: 'rewatch',
+    })),
+    ...Array.from({ length: 26 }, (_, index) => ({
+      rail_id: 'frequently_watched' as const,
+      item: video(`tail-${index}`, `Tail rewatch ${index}`, `tail-channel-${index}`),
+      score: 0.22 + (index % 10) * 0.01,
+      reason: 'youtube_v2:rewatch',
+      provenance: 'rewatch' as const,
+      provenance_ref: `tail-${index}`,
+      source_expires_at: now + 1_000_000,
+      context_id: 'rewatch',
+    })),
+    {
+      rail_id: 'frequently_watched' as const,
+      item: video('only-frequent', 'Only frequent upload', 'frequent-only-channel'),
+      score: 0.62,
+      reason: 'youtube_v2:frequent_channel',
+      provenance: 'frequent_channel' as const,
+      provenance_ref: 'frequent-only-channel',
+      source_expires_at: now + 1_000_000,
+      context_id: 'frequent_channel',
+    },
+  ];
+  publishYoutubeV2Generation({
+    model_version: YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION,
+    source_hash: 'regulars-head-diversity',
+    watch_count: 31,
+    subscription_count: 0,
+    generated_at: now,
+    items,
+  });
+  importOfficialHistory(
+    items.filter((entry) => entry.provenance === 'rewatch').map((entry) => entry.item),
+    now,
+    'regulars-head-history',
+  );
+  invalidateYoutubeV2ExactExclusions();
+  const uniqueRewatch = new Set<string>();
+  const pairCounts = new Map<string, number>();
+  for (let epoch = 0; epoch < 24; epoch += 1) {
+    const rail = youtubeV2RecommendationRails({ shuffle_epoch: epoch })
+      .find((entry) => entry.rail_id === 'frequently_watched');
+    assert.ok(rail);
+    const rewatch = rail.items.filter((item) => item.id.startsWith('head-') || item.id.startsWith('tail-'));
+    assert.ok(rewatch.length >= 2);
+    rewatch.forEach((item) => uniqueRewatch.add(item.id));
+    const key = rewatch.map((item) => item.id).sort().join(',');
+    pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
+  }
+  assert.ok(uniqueRewatch.size >= 10, `unique rewatch ids=${uniqueRewatch.size}`);
+  assert.equal([...pairCounts.values()].some((count) => count >= 12), false);
 }));
 
 test('Not-for-me applies a decaying channel penalty while exact video veto stays', () => withTempState(() => {
@@ -3199,6 +3287,37 @@ test('v3 diagnostics keep impression-free sampling and embeddings off by default
   assert.equal((diagnostics.sources as Record<string, unknown>).recommendation_history_policy, 'takeout_and_local_meaningful');
   assert.equal((diagnostics.embeddings as Record<string, unknown>).enabled, false);
   assert.ok('frequently_watched' in (diagnostics.reserve_depths as Record<string, unknown>));
+}));
+
+test('hash embedding backend stores vectors and reports blend diagnostics', () => withTempState(async () => {
+  process.env.MANGO_YOUTUBE_EMBEDDINGS = '1';
+  process.env.MANGO_YOUTUBE_SIM = 'blend';
+  process.env.MANGO_YOUTUBE_EMBED_BACKEND = 'hash';
+  const seeded = seedV2();
+  const result = await maybeRefreshYoutubeEmbeddings({
+    watches: seeded.history.map((item) => ({
+      id: item.id,
+      title: item.title,
+      channel_id: item.channel_id,
+      channel_title: item.channel_title,
+      watched_at: Date.now(),
+      base_strength: 0.55,
+      decayed_strength: 0.55,
+      event_count: 1,
+      event_times: [Date.now()],
+      source: 'takeout' as const,
+    })),
+    itemIds: seeded.history.map((item) => item.id),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.skipped, false);
+  assert.ok(result.embedded >= seeded.history.length);
+  rebuildYoutubeV2Generation({ force: true });
+  const diagnostics = youtubeV2Diagnostics().embeddings as Record<string, unknown>;
+  assert.equal(diagnostics.enabled, true);
+  assert.equal(diagnostics.similarity_mode, 'blend');
+  assert.equal(diagnostics.backend, 'hash');
+  assert.equal(diagnostics.model, 'mango-hash-minilm-64');
 }));
 
 test('offline holdout eval is deterministic across identical rebuilds', () => withTempState(() => {

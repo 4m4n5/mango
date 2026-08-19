@@ -1,5 +1,8 @@
 /** Couch-safe poster: show title initials when artwork 404s or is missing. */
 
+const YOUTUBE_VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+const FRAGILE_YTIMG = /^https:\/\/i\.ytimg\.com\/vi\/([A-Za-z0-9_-]{11})\/(maxresdefault|sddefault|mqdefault)(?:\.(?:jpg|webp))?(?:[?#].*)?$/i;
+
 /** Cinemeta CDN fallback when pool / voice payloads omit artwork. */
 export function metahubPosterUrl(
   id: string,
@@ -12,20 +15,43 @@ export function metahubPosterUrl(
   return `https://images.metahub.space/poster/${size}/${bare}/img`;
 }
 
+export function youtubeVideoThumbnailUrl(id: string): string | undefined {
+  const normalized = id.trim();
+  if (!YOUTUBE_VIDEO_ID.test(normalized)) {
+    return undefined;
+  }
+  return `https://i.ytimg.com/vi/${normalized}/hqdefault.jpg`;
+}
+
+export function rewriteFragileYoutubeThumbnail(url: string): string | undefined {
+  const match = url.trim().match(FRAGILE_YTIMG);
+  return match ? youtubeVideoThumbnailUrl(match[1]!) : undefined;
+}
+
 export function resolveCardPosterUrl(
-  card: { id: string; posterUrl?: string },
+  card: { id: string; posterUrl?: string; type?: string },
   size: "medium" | "large" = "medium",
 ): string {
   const explicit = card.posterUrl?.trim();
   if (explicit) {
-    return explicit;
+    return rewriteFragileYoutubeThumbnail(explicit) || explicit;
   }
-  return metahubPosterUrl(card.id, size) || "";
+  if (card.type === "youtube_video" || (!card.type && YOUTUBE_VIDEO_ID.test(card.id.trim()))) {
+    return youtubeVideoThumbnailUrl(card.id) || "";
+  }
+  return metahubPosterUrl(card.id, size) || youtubeVideoThumbnailUrl(card.id) || "";
 }
 
 export function bindPosterImage(img: HTMLImageElement, title: string): void {
   const applyFallback = (): void => {
     if (img.dataset.posterSrc) return;
+    const failed = img.getAttribute("src")?.trim() || "";
+    const retry = rewriteFragileYoutubeThumbnail(failed);
+    if (retry && retry !== failed && img.dataset.posterRetry !== "1") {
+      img.dataset.posterRetry = "1";
+      img.src = retry;
+      return;
+    }
     img.classList.add("poster-image--missing");
     img.removeAttribute("src");
     // Cards bind handlers before they are attached. Resolve the host only when
@@ -41,7 +67,7 @@ export function bindPosterImage(img: HTMLImageElement, title: string): void {
     host.append(fallback);
   };
 
-  img.addEventListener("error", applyFallback, { once: true });
+  img.addEventListener("error", applyFallback);
   if (!img.getAttribute("src")?.trim() && !img.dataset.posterSrc) {
     queueMicrotask(applyFallback);
   }

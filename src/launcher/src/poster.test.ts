@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   POSTER_SCROLLPORT_MARGIN_RATIO,
   posterIsNearScrollport,
+  resolveCardPosterUrl,
+  rewriteFragileYoutubeThumbnail,
 } from "./poster.js";
 
 const port = { top: 200, right: 1920, bottom: 1080, left: 0 };
@@ -29,4 +31,23 @@ test("a rail more than one extra screen away stays deferred", () => {
 test("a zero-size box is not near so a disconnected card does not eager-load", () => {
   const img = { top: 0, right: 0, bottom: 0, left: 0 };
   assert.equal(posterIsNearScrollport(img, port, margin), false);
+});
+
+test("YouTube cards rewrite maxres thumbnails and fill missing artwork", () => {
+  assert.equal(
+    rewriteFragileYoutubeThumbnail("https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg"),
+    "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+  );
+  assert.equal(
+    resolveCardPosterUrl({
+      id: "dQw4w9WgXcQ",
+      type: "youtube_video",
+      posterUrl: "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg",
+    }),
+    "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+  );
+  assert.equal(
+    resolveCardPosterUrl({ id: "dQw4w9WgXcQ", type: "youtube_video" }),
+    "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+  );
 });

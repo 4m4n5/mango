@@ -29,6 +29,7 @@ import {
   type YoutubeV2ScoreBreakdown,
   type YoutubeV2ServeProvenance,
 } from './db.js';
+import { youtubeCardThumbnailUrl, youtubeVideoThumbnailUrl } from '../poster.js';
 import { YOUTUBE_RAIL_LIMIT, YOUTUBE_V2_DISPLAY_ORDER } from './constants.js';
 import {
   embeddingRelationFactor,
@@ -73,6 +74,8 @@ export const YOUTUBE_V2_RESERVE_LIMIT = 512;
 export const YOUTUBE_V2_MORE_LIKE_TARGET = YOUTUBE_V2_RESERVE_LIMIT;
 export const YOUTUBE_V2_DISCOVERY_MAX_SEEDS = 32;
 export const YOUTUBE_V2_C_TIER_LIMIT = 64;
+export const YOUTUBE_V2_REGULARS_AFFINITY_CHANNELS = 24;
+export const YOUTUBE_V2_REGULARS_SUBPOOL_TARGET = 2;
 const V2_PROVENANCE_LIMIT = 50_000;
 const V2_WATCH_LIMIT = 5_000;
 const V2_EXCLUSION_PAGE_SIZE = 1_000;
@@ -375,7 +378,9 @@ function scoringContextFor(
     variant,
     affinity: channelAffinityMap(watches),
     penaltyEvents: variant === 'legacy' ? [] : householdChannelPenaltyEvents(at),
-    tasteEmbeddings: embeddingsOn ? tasteEmbeddingsFromAnchors(watches) : [],
+    tasteEmbeddings: embeddingsOn
+      ? tasteEmbeddingsFromAnchors(watches, 50, { allowHashFallback: variant === 'v3-embed' })
+      : [],
     simMode: variant === 'v3-embed'
       ? (youtubeSimilarityMode() === 'lexical' ? 'blend' : youtubeSimilarityMode())
       : youtubeSimilarityMode(),
@@ -539,13 +544,20 @@ function authoritativeSubscriptions(): ReturnType<typeof listYoutubeV2Subscripti
 }
 
 function cachedOrStub(anchor: WatchAnchor): YoutubeItem {
-  return getYoutubeItem('video', anchor.id) ?? {
+  const cached = getYoutubeItem('video', anchor.id);
+  if (cached) {
+    return {
+      ...cached,
+      thumbnail: youtubeCardThumbnailUrl(cached.id, cached.thumbnail, cached.kind),
+    };
+  }
+  return {
     id: anchor.id,
     kind: 'video',
     title: anchor.title,
     subtitle: anchor.channel_title || 'YouTube',
     description: null,
-    thumbnail: null,
+    thumbnail: youtubeVideoThumbnailUrl(anchor.id),
     channel_id: anchor.channel_id,
     channel_title: anchor.channel_title,
     published_at: null,
@@ -1109,9 +1121,9 @@ function provenanceRowQuality(
   const relation = provenanceRelationFactor(row);
   const embeddingSim = scoring.tasteEmbeddings.length > 0
     ? maxTasteSimilarity(row.item, scoring.tasteEmbeddings)
-    : 0;
+    : null;
   let relationFactor = relation;
-  if (scoring.tasteEmbeddings.length > 0 && scoring.simMode !== 'lexical') {
+  if (embeddingSim != null && scoring.simMode !== 'lexical') {
     const embedFactor = embeddingRelationFactor(embeddingSim);
     relationFactor = scoring.simMode === 'embedding'
       ? embedFactor
@@ -1127,7 +1139,7 @@ function provenanceRowQuality(
     affinity,
     freshness,
     penalty,
-    embedding_sim: embeddingSim,
+    embedding_sim: embeddingSim ?? 0,
     quality,
   };
 }
@@ -1488,7 +1500,15 @@ function generationInputs(
   addRail('for_you', forYou, ['history_channel', 'history_topic', 'subscription_upload']);
 
   const watchedLifetime = new Set(watches.map((watch) => watch.id));
-  const topChannels = new Set(topAffinityChannels(scoring.affinity, 8));
+  const topChannels = new Set(topAffinityChannels(
+    scoring.affinity,
+    YOUTUBE_V2_REGULARS_AFFINITY_CHANNELS,
+  ));
+  for (const watch of watches) {
+    if (watch.event_times.length < 2) continue;
+    const key = youtubeCreatorKey(cachedOrStub(watch));
+    if (key) topChannels.add(key);
+  }
   const rewatchItems: YoutubeV2GenerationItemInput[] = [];
   for (const watch of watches) {
     if (watch.event_times.length < 2) continue;
@@ -1649,20 +1669,29 @@ type WeightedCandidate<T> = {
   weight: number;
 };
 
-function weightedCandidates<T extends { id: string; score: number }>(items: readonly T[]): WeightedCandidate<T>[] {
+type YoutubeV2WeightCurve = 'standard' | 'gentle';
+
+function weightedCandidates<T extends { id: string; score: number }>(
+  items: readonly T[],
+  curve: YoutubeV2WeightCurve = 'standard',
+): WeightedCandidate<T>[] {
   const accepted = items.filter((item) => youtubeV2QualityTier(item.score) !== 'rejected');
   const output: WeightedCandidate<T>[] = [];
   for (const tier of ['A', 'B', 'C'] as const) {
     const members = accepted
       .filter((item) => youtubeV2QualityTier(item.score) === tier)
       .sort((left, right) => right.score - left.score || left.id.localeCompare(right.id));
-    const multiplier = tier === 'A' ? 1 : tier === 'B' ? 0.55 : 0.25;
+    const multiplier = curve === 'gentle'
+      ? 1
+      : tier === 'A' ? 1 : tier === 'B' ? 0.55 : 0.25;
     for (let start = 0; start < members.length;) {
       let end = start + 1;
       while (end < members.length && members[end]!.score === members[start]!.score) end += 1;
       const averageRank = (start + end - 1) / 2;
       const percentile = members.length === 1 ? 0.5 : 1 - averageRank / (members.length - 1);
-      const weight = multiplier * (0.75 + 0.5 * percentile);
+      const weight = curve === 'gentle'
+        ? 0.5 + 0.5 * percentile
+        : multiplier * (0.75 + 0.5 * percentile);
       for (let index = start; index < end; index += 1) {
         output.push({ item: members[index]!, tier, percentile, weight });
       }
@@ -1675,8 +1704,9 @@ function weightedCandidates<T extends { id: string; score: number }>(items: read
 function weightedOrder<T extends { id: string; score: number }>(
   items: readonly T[],
   seed: string,
+  curve: YoutubeV2WeightCurve = 'standard',
 ): T[] {
-  return weightedCandidates(items)
+  return weightedCandidates(items, curve)
     .map((candidate) => ({
       ...candidate,
       race: -Math.log(stableUniform(`${seed}:${candidate.item.id}`)) / candidate.weight,
@@ -1692,15 +1722,18 @@ export function youtubeV2WeightedShuffle<T extends { id: string; score: number }
     shuffle_epoch: number;
     rail_id: string;
     subpool?: string;
+    curve?: YoutubeV2WeightCurve;
   },
 ): T[] {
+  const curve = input.curve ?? 'standard';
   return weightedOrder(items, [
     YOUTUBE_V2_SERVING_POLICY_VERSION,
     input.generation,
     Math.max(0, Math.floor(input.shuffle_epoch)),
     input.rail_id,
     input.subpool ?? 'all',
-  ].join(':'));
+    curve,
+  ].join(':'), curve);
 }
 
 export function youtubeV2WeightedPoolDiagnostics<T extends { id: string; score: number }>(items: readonly T[]): {
@@ -1802,6 +1835,11 @@ function selectRegularsSlate(
   relaxCap: boolean,
 ): YoutubeRailItem[] {
   const eligible = pool.filter((item) => !seen.has(item.id));
+  const rewatch = eligible.filter((item) => item.provenance === 'rewatch');
+  const frequent = eligible.filter((item) => item.provenance === 'frequent_channel');
+  const rest = eligible.filter((item) => (
+    item.provenance !== 'rewatch' && item.provenance !== 'frequent_channel'
+  ));
   const select = (cap: number): YoutubeRailItem[] => {
     const selected: YoutubeRailItem[] = [];
     const selectedIds = new Set<string>();
@@ -1814,9 +1852,18 @@ function selectRegularsSlate(
       selectedIds.add(item.id);
       creators.set(creator, (creators.get(creator) ?? 0) + 1);
     };
-    add(eligible.find((item) => item.provenance === 'rewatch'));
-    add(eligible.find((item) => item.provenance === 'frequent_channel'));
-    for (const item of eligible) {
+    const take = (items: readonly PortfolioItem[], count: number): void => {
+      let added = 0;
+      for (const item of items) {
+        if (added >= count || selected.length >= limit) break;
+        const before = selected.length;
+        add(item);
+        if (selected.length > before) added += 1;
+      }
+    };
+    take(rewatch, YOUTUBE_V2_REGULARS_SUBPOOL_TARGET);
+    take(frequent, YOUTUBE_V2_REGULARS_SUBPOOL_TARGET);
+    for (const item of [...rewatch, ...frequent, ...rest]) {
       add(item);
       if (selected.length >= limit) break;
     }
@@ -1957,7 +2004,7 @@ export function youtubeV2RecommendationRailsFromSnapshot(input: {
   const allocationOrder = [
     { id: 'live_now', cap: 1, relax: true, live: true },
     { id: 'new_from_subscriptions', cap: 1, relax: true, live: false },
-    { id: 'frequently_watched', cap: 2, relax: true, live: false },
+    { id: 'frequently_watched', cap: 1, relax: true, live: false },
     { id: 'more_like', cap: 1, relax: true, live: false },
     { id: 'beyond', cap: 1, relax: false, live: false },
     { id: 'for_you', cap: 2, relax: false, live: false },
@@ -1981,12 +2028,17 @@ export function youtubeV2RecommendationRailsFromSnapshot(input: {
       ));
     let pool: PortfolioItem[] = entries
       .map((entry): PortfolioItem => ({ ...entry, score: entry.score, reason: entry.reason }));
-    const weightedShuffle = <T extends { id: string; score: number }>(items: readonly T[], subpool: string) => (
+    const weightedShuffle = <T extends { id: string; score: number }>(
+      items: readonly T[],
+      subpool: string,
+      curve: YoutubeV2WeightCurve = 'standard',
+    ) => (
       youtubeV2WeightedShuffle(items, {
         generation: generation.generation,
         shuffle_epoch: input.shuffle_epoch,
         rail_id: spec.id,
         subpool,
+        curve,
       })
     );
     if (spec.id === 'more_like') {
@@ -2003,6 +2055,18 @@ export function youtubeV2RecommendationRailsFromSnapshot(input: {
       pool = unreservedSameChannel.length > 0
         ? [unreservedSameChannel[0]!, ...thematic, ...unreservedSameChannel.slice(1)]
         : thematic;
+    } else if (spec.id === 'frequently_watched') {
+      const rewatch = weightedShuffle(
+        pool.filter((item) => item.provenance === 'rewatch'),
+        'rewatch',
+        'gentle',
+      );
+      const frequent = weightedShuffle(
+        pool.filter((item) => item.provenance === 'frequent_channel'),
+        'frequent_channel',
+        'gentle',
+      );
+      pool = [...rewatch, ...frequent];
     } else {
       pool = weightedShuffle(pool, 'all');
     }

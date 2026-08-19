@@ -21,6 +21,7 @@
     "state:prune": "npm run build && node dist/library/prune-cli.js"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@stremio/stremio-core-web": "0.59.0",
     "better-sqlite3": "^12.11.1",
     "yaml": "^2.9.0"

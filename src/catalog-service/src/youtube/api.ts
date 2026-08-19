@@ -111,7 +111,10 @@ function requireApiKey(config: YoutubeConfig): string {
 
 function thumbnail(snippet?: Snippet): string | null {
   const thumbs = snippet?.thumbnails || {};
-  return thumbs.maxres?.url || thumbs.high?.url || thumbs.medium?.url || thumbs.default?.url || null;
+  // Prefer `high` (hqdefault). `maxres` 404s for a large fraction of older
+  // videos and shows up as blank cards on the YouTube tab.
+  return thumbs.high?.url || thumbs.medium?.url || thumbs.standard?.url
+    || thumbs.maxres?.url || thumbs.default?.url || null;
 }
 
 function text(value: unknown, fallback = ''): string {

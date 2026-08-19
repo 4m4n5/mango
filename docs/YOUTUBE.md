@@ -130,6 +130,7 @@ All live credentials are operator-owned under `/etc/mango`; never commit them.
 | `~/.local/share/mango/ytdlp-venv/` | User-owned updatable `yt-dlp` venv for playback resolution |
 | `~/.local/share/mango/deno/` | User-owned Deno ≥2.3 for YouTube JS challenges (n-sig / PO token) |
 | `~/.local/share/mango/bgutil-pot/` | User-owned bgutil PO-token provider (script + Deno deps) |
+| `~/.local/share/mango/embeddings/` | Local `Xenova/all-MiniLM-L6-v2` q8 ONNX cache for optional ranking |
 
 Repo-safe examples:
 
@@ -151,6 +152,24 @@ extraction changes faster than Debian packages.
 The current full deploy wrapper itself is blocked for unattended agents by the
 branch/SHA and implicit AIOMetadata-mutation issues in [DEPLOY.md](DEPLOY.md).
 That blocker does not change the `yt-dlp` ownership contract.
+
+Optional embedding ranking uses a local MiniLM, not a hashed bag-of-tokens.
+Download the model once, then turn ranking on in `voice.env`:
+
+```bash
+bash scripts/m6-ship/ensure-youtube-embeddings.sh --enable
+# restart catalog so it sees the flags, then refresh so scoring can use vectors
+MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
+bash scripts/m6-ship/youtube-refresh-cache.sh
+```
+
+`MANGO_YOUTUBE_EMBEDDINGS=1` computes and stores 384-d vectors.
+`MANGO_YOUTUBE_SIM=blend` averages MiniLM cosine into the relation factor
+without dropping provenance. `embedding` replaces relation entirely.
+Refresh embeds active candidates **before** publication. Catalog will not
+download the model during a refresh unless `MANGO_YOUTUBE_EMBED_ALLOW_REMOTE=1`.
+Confirm `/youtube/state` → `recommendations_v2.embeddings`: `enabled: true`,
+`model: Xenova/all-MiniLM-L6-v2`, `model_ready: true`.
 
 ### Playback cookies (GVS)
 
@@ -444,7 +463,8 @@ source-tested at the target and remains a Pi rollback check.
   decayed channel strength; subscribed evidence rises from 0.75 to 1.00 rather
   than a flat 1.00 or a separate fixed 60/40 blend. It excludes videos meaningfully
   watched within the last 30 days, plus exact Saved, Short, and live items, and
-  caps creators. Your regulars may still show a repeated title.
+  caps creators. Your regulars mixes cooldown-exempt rewatches with unwatched
+  uploads from those regular channels and shuffles the two subpools separately.
 - Beyond Your Subscriptions uses bounded topics derived only from subscriptions
   and decayed history, excludes subscribed channels, and admits at most one card
   per creator.
@@ -490,6 +510,9 @@ source-tested at the target and remains a Pi rollback check.
 - An opaque server token binds immutable Household, rail, generation, and exact
   membership. Scores, provenance, internal context, and ranking internals stay
   private; cards use the same visual treatment and show no technical reasons.
+  YouTube video posters prefer `hqdefault` (maxres/sd/mq 404 on many older
+  videos). Regulars stubs with no stored artwork still get a ytimg URL from the
+  11-character video id; channel avatars are unchanged.
 - Companion account connect uses only the HTTPS same-origin
   `/api/catalog/youtube/companion/*` capabilities; broad operator state/auth
   paths are neither requested by the browser nor admitted by the proxy.
@@ -499,8 +522,10 @@ Generation quality combines relation (`direct`/`same_topic` 1.00,
 overlap at acquisition, source position (1.00 down
 to 0.55 across ranks 0–49; legacy 0.75), decayed Takeout+local channel affinity or
 subscription recency, a decaying Not-for-me channel penalty, and up to 0.12 of
-independent-provenance support. Optional embeddings (`MANGO_YOUTUBE_EMBEDDINGS=1`)
-can replace or blend the relation factor via `MANGO_YOUTUBE_SIM`. Scores
+independent-provenance support. Optional local MiniLM embeddings
+(`MANGO_YOUTUBE_EMBEDDINGS=1` plus `MANGO_YOUTUBE_SIM=blend` or `embedding`)
+can replace or blend the relation factor. Absent flags stay lexical with zero
+embedding compute. Scores
 form tier A at 0.65+, B at 0.38+, and C at 0.20+; lower candidates are rejected.
 Publication takes all A/B candidates up to 512, then at most 64 C candidates if
 capacity remains. Serving multiplies A/B/C by 1.00/0.55/0.25 and a 0.75–1.25
@@ -514,7 +539,7 @@ keeps a positive path to the eligible tail.
 |------|------|-----------------|------------|
 | For You | Core | Published rank from Takeout + local meaningful watches + subscriptions | Independent cached weighted draw |
 | From Your Subscriptions | Conditional | Newest unwatched uploads from the authoritative snapshot | Independent cached weighted draw |
-| Your regulars | Conditional | Repeated titles plus fresh uploads from top-affinity channels | Independent cached weighted draw |
+| Your regulars | Conditional | Repeated titles plus fresh uploads from top-affinity and rewatch channels; 2+2 independent subpool draws | Independent cached weighted draw |
 | More Like … | Conditional core position | Up to ten daily-stable official-history seeds, seek eight contributing topics, and continue bounded quality-gated fill toward cap 512; thematic four, sparse-history exact-channel four, or honest omission | Independent cached weighted draw |
 | Beyond Your Subscriptions | Core | Provenance-gated history/subscription topic acquisition; subscribed creators excluded | Independent cached weighted draw |
 | History | Core utility | Normalized Takeout + resolvable Mango-local launches, including bare starts, in `library.db` | Independent cached weighted draw |

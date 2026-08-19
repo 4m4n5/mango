@@ -13,11 +13,35 @@ export function metahubPosterUrl(id: string, size: 'medium' | 'large' = 'medium'
   return `https://images.metahub.space/poster/${size}/${bare}/img`;
 }
 
-/** Stable YouTube video thumbnail fallback that does not spend Data API quota. */
+/** Stable YouTube video thumbnail that does not spend Data API quota. */
 export function youtubeVideoThumbnailUrl(id: string): string | null {
   const normalized = id.trim();
-  if (!/^[A-Za-z0-9_-]{6,32}$/.test(normalized)) return null;
+  if (!/^[A-Za-z0-9_-]{11}$/.test(normalized)) return null;
   return `https://i.ytimg.com/vi/${normalized}/hqdefault.jpg`;
+}
+
+const FRAGILE_YTIMG = /^https:\/\/i\.ytimg\.com\/vi\/([A-Za-z0-9_-]{11})\/(maxresdefault|sddefault|mqdefault)(?:\.(?:jpg|webp))?(?:[?#].*)?$/i;
+
+/** maxres/sd/mq ytimg URLs 404 for many videos; hqdefault is the reliable couch size. */
+export function rewriteFragileYoutubeThumbnail(url: string): string | null {
+  const match = url.trim().match(FRAGILE_YTIMG);
+  return match ? youtubeVideoThumbnailUrl(match[1]!) : null;
+}
+
+/** Best launcher URL for a YouTube video card, including watch stubs with no API artwork. */
+export function youtubeCardThumbnailUrl(
+  id: string,
+  stored?: string | null,
+  kind?: string | null,
+): string | null {
+  if (kind && kind !== 'video') {
+    return normalizePosterUrl(stored);
+  }
+  const storedUrl = normalizePosterUrl(stored);
+  if (storedUrl) {
+    return rewriteFragileYoutubeThumbnail(storedUrl) ?? storedUrl;
+  }
+  return youtubeVideoThumbnailUrl(id);
 }
 
 /** Normalize poster/artwork URLs for launcher `<img src>`. */

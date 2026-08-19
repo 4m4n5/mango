@@ -6,6 +6,7 @@ import {
   normalizePosterUrl,
   resolvePosterFromMeta,
   stubMetaForLauncher,
+  youtubeCardThumbnailUrl,
   youtubeVideoThumbnailUrl,
 } from './poster.js';
 
@@ -30,6 +31,26 @@ test('youtubeVideoThumbnailUrl accepts video ids without permitting arbitrary pa
     'https://i.ytimg.com/vi/AbC_123-XyZ/hqdefault.jpg',
   );
   assert.equal(youtubeVideoThumbnailUrl('../not-a-video'), null);
+  assert.equal(youtubeVideoThumbnailUrl('UCxxxxxxxxxxxxxxxxxxxxxx'), null);
+});
+
+test('youtubeCardThumbnailUrl rewrites fragile ytimg sizes and fills missing artwork', () => {
+  assert.equal(
+    youtubeCardThumbnailUrl('AbC_123-XyZ', 'https://i.ytimg.com/vi/AbC_123-XyZ/maxresdefault.jpg'),
+    'https://i.ytimg.com/vi/AbC_123-XyZ/hqdefault.jpg',
+  );
+  assert.equal(
+    youtubeCardThumbnailUrl('AbC_123-XyZ', null),
+    'https://i.ytimg.com/vi/AbC_123-XyZ/hqdefault.jpg',
+  );
+  assert.equal(
+    youtubeCardThumbnailUrl('AbC_123-XyZ', 'https://private.example/watch?token=keep'),
+    'https://private.example/watch?token=keep',
+  );
+  assert.equal(
+    youtubeCardThumbnailUrl('UCchannelidxxxxxxxxxxxxxx', 'https://yt3.ggpht.com/avatar.jpg', 'channel'),
+    'https://yt3.ggpht.com/avatar.jpg',
+  );
 });
 
 test('resolvePosterFromMeta falls back through artwork fields', () => {

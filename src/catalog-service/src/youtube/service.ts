@@ -29,8 +29,8 @@ import {
   listYoutubeItems,
   listYoutubeV2ImportedHistory,
   listYoutubeV2Subscriptions,
-  latestYoutubeV2Generation,
   latestYoutubeV2GenerationRecord,
+  listYoutubeV2ActiveCandidateIds,
   replaceYoutubeV2Subscriptions,
   recordYoutubeImpressions,
   searchCachedYoutubeItems,
@@ -63,6 +63,7 @@ import type {
 } from './types.js';
 import { YOUTUBE_RAIL_LIMIT, YOUTUBE_V2_DISPLAY_ORDER } from './constants.js';
 import { maybeRefreshYoutubeEmbeddings } from './embeddings.js';
+import { youtubeCardThumbnailUrl } from '../poster.js';
 import {
   buildYoutubeIdfTable,
   idfWeightedOverlap,
@@ -466,7 +467,7 @@ export function youtubeItemToLibraryInput(
     type: identity.type,
     id: item.id,
     title: item.title,
-    poster: item.thumbnail,
+    poster: youtubeCardThumbnailUrl(item.id, item.thumbnail, item.kind),
     description: item.description,
     tab: YOUTUBE_TAB,
   };
@@ -796,7 +797,7 @@ function publicYoutubeRails(rails: YoutubeRail[]): PublicYoutubeRail[] {
       kind: item.kind,
       title: item.title,
       subtitle: item.subtitle,
-      thumbnail: item.thumbnail,
+      thumbnail: youtubeCardThumbnailUrl(item.id, item.thumbnail, item.kind),
       channel_id: item.channel_id,
       channel_title: item.channel_title,
       published_at: item.published_at,
@@ -1942,6 +1943,16 @@ export class YoutubeService {
           .filter((row) => row.source === 'oauth').length,
       });
     }
+    const embeddingsPhase = await this.runRefreshPhase('v2_embeddings', async () => {
+      const result = await maybeRefreshYoutubeEmbeddings({
+        watches: householdWatchAnchors(),
+        itemIds: listYoutubeV2ActiveCandidateIds(),
+      });
+      if (!result.ok && !result.skipped) {
+        throw new Error(result.error || 'embedding refresh failed');
+      }
+    });
+    phases.push(embeddingsPhase);
     const publishPhase = await this.runRefreshPhase('v2_publish', () => {
       if (subscriptionError) {
         throw new Error(`publication skipped because authoritative subscription acquisition was not complete: ${subscriptionError}`);
@@ -1962,17 +1973,6 @@ export class YoutubeService {
       });
     });
     phases.push(publishPhase);
-    const embeddingsPhase = await this.runRefreshPhase('v2_embeddings', async () => {
-      const published = latestYoutubeV2Generation();
-      const result = await maybeRefreshYoutubeEmbeddings({
-        watches: householdWatchAnchors(),
-        itemIds: published?.items.map((item) => item.id) ?? [],
-      });
-      if (!result.ok && !result.skipped) {
-        throw new Error(result.error || 'embedding refresh failed');
-      }
-    });
-    phases.push(embeddingsPhase);
     if (!publishPhase.ok && !subscriptionError && acquisitionPhase.ok && livePhase.ok) {
       setYoutubeState('youtube_v2_source_stale', {
         stale: true,

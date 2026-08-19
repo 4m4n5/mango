@@ -126,6 +126,11 @@ youtube:
     # Netscape cookies for yt-dlp GVS. If this file exists, catalog uses it
     # even when the key below stays commented.
     # cookies_file: /etc/mango/youtube-cookies.txt
+  # Optional MiniLM ranking. Default stays lexical/off. Enable on the Pi with
+  # scripts/m6-ship/ensure-youtube-embeddings.sh --enable (voice.env), not by
+  # copying this example.
+  # embeddings: false
+  # similarity_mode: lexical  # lexical | blend | embedding
 
 orchestrator:
   # Use 0.0.0.0 + TLS on Pi so the HTTPS phone companion can connect via WSS.

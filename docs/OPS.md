@@ -392,6 +392,7 @@ credentials, or raw provenance references.
 | Pad dead | Run `bash scripts/m1-foundation/pad/controller-link-diagnose.sh`; the backend/API has a `controller_repair` action, but the current launcher Settings surface does not render that button. Use pairing recovery only if diagnostics prove the pairing record is absent. |
 | Voice HUD missing | `MANGO_VOICE=1` in env · `bash scripts/m5-voice/stack/verify-voice-ready.sh` |
 | YouTube tab empty | `curl localhost:3020/youtube/state` · configure `/etc/mango/youtube-api.key` · run `bash scripts/m6-ship/gate-m6-youtube-smoke.sh` |
+| YouTube embeddings still lexical | `recommendations_v2.embeddings` in `/youtube/state`. Download + enable with `bash scripts/m6-ship/ensure-youtube-embeddings.sh --enable`, restart catalog, then `bash scripts/m6-ship/youtube-refresh-cache.sh`. Expect `model: Xenova/all-MiniLM-L6-v2` and `similarity_mode: blend`. |
 | YouTube account not connected | Companion → YouTube connect · verify `/etc/mango/youtube-oauth-client.json` and `/etc/mango/youtube-auth.json` permissions |
 | YouTube connected but not ready | Inspect sanitized Companion sync state, then localhost-only `.recommendations_v2.subscription_acquisition` and refresh phases. Never delete the token or cache merely to clear an error; repair the failing phase and preserve last-good state. |
 | YouTube playback 403/429/CAPTCHA | Update `yt-dlp`; reconnect account/cookies; pick another video; metadata cache should remain visible |

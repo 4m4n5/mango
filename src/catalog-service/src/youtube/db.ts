@@ -1836,6 +1836,16 @@ ORDER BY id
 `).all() as Array<{ id: string }>).map((row) => row.id);
 }
 
+export function listYoutubeV2ActiveCandidateIds(options: { at?: number } = {}): string[] {
+  const at = Math.floor(options.at ?? nowMs());
+  return (ensureDb().prepare(`
+SELECT DISTINCT id
+FROM youtube_v2_candidate_provenance
+WHERE kind = 'video' AND expires_at > ?
+ORDER BY id
+`).all(at) as Array<{ id: string }>).map((row) => row.id);
+}
+
 export function youtubeV2CandidateProvenanceSummary(at = nowMs()): {
   total: number;
   active: number;

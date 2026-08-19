@@ -16,6 +16,7 @@ import {
   cosineSimilarity,
   embeddingRelationFactor,
   hashEmbedText,
+  youtubeEmbeddingBackend,
   youtubeEmbeddingsEnabled,
   youtubeSimilarityMode,
 } from './embeddings.js';
@@ -101,6 +102,7 @@ test('embeddings stay off by default and hashed vectors are deterministic', () =
   delete process.env.MANGO_YOUTUBE_SIM;
   assert.equal(youtubeEmbeddingsEnabled(), false);
   assert.equal(youtubeSimilarityMode(), 'lexical');
+  assert.equal(youtubeEmbeddingBackend(), 'minilm');
   const left = hashEmbedText('fermentation science kitchen');
   const right = hashEmbedText('fermentation science kitchen');
   assert.equal(cosineSimilarity(left, right), 1);
