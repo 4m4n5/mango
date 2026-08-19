@@ -21,6 +21,7 @@ const TERMINAL_FIELDS = new Set([
 const PLAY_FAILURE_KINDS = [
   'timeout',
   'bot_check',
+  'cooldown',
   'blocked',
   'format_unavailable',
   'unavailable',
@@ -110,10 +111,12 @@ export function classifyPlaybackTerminalFailure(
     }
     const hasYoutubeFailureFields = Boolean(playbackStage || failureKind);
     if (error.status >= 500 || (hasYoutubeFailureFields && error.status >= 400)) {
+      const resolveMs = typeof details.resolve_ms === 'number' ? details.resolve_ms : undefined;
       return {
         failureClass: 'provider',
         stage: playbackStage || (typeof details.mpv === 'string' ? 'play_start' : 'resolve'),
         failureKind,
+        resolveMs,
       };
     }
   }

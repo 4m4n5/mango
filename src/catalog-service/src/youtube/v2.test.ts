@@ -2663,32 +2663,41 @@ test('rendered impression counters do not influence a weighted v2 slate', () => 
 
 test('YouTube state exposes only allowlisted yt-dlp command descriptors', () => withTempState(() => {
   process.env.MANGO_YTDLP_COMMAND = 'yt-dlp';
-  assert.deepEqual(new YoutubeService().state().configured, {
-    api_key: false,
-    oauth_client: false,
-    yt_dlp_command: 'yt-dlp',
-    yt_dlp_command_kind: 'yt_dlp',
-    playback_cookies: false,
-  });
+  const ytDlpState = new YoutubeService().state().configured as Record<string, unknown>;
+  assert.equal(ytDlpState.api_key, false);
+  assert.equal(ytDlpState.oauth_client, false);
+  assert.equal(ytDlpState.yt_dlp_command, 'yt-dlp');
+  assert.equal(ytDlpState.yt_dlp_command_kind, 'yt_dlp');
+  assert.equal(ytDlpState.playback_cookies, false);
+  assert.equal(typeof ytDlpState.yt_dlp_version === 'string' || ytDlpState.yt_dlp_version === null, true);
+  assert.equal(typeof ytDlpState.pot_server, 'boolean');
 
   process.env.MANGO_YTDLP_COMMAND = '/private/bin/scripts/m6-ship/youtube-yt-dlp.sh';
-  assert.deepEqual(new YoutubeService().state().configured, {
-    api_key: false,
-    oauth_client: false,
-    yt_dlp_command: 'mango_wrapper',
-    yt_dlp_command_kind: 'mango_wrapper',
-    playback_cookies: false,
-  });
+  const wrapperState = new YoutubeService().state().configured as Record<string, unknown>;
+  assert.equal(wrapperState.yt_dlp_command, 'mango_wrapper');
+  assert.equal(wrapperState.yt_dlp_command_kind, 'mango_wrapper');
+  assert.equal(wrapperState.yt_dlp_version, null);
+  assert.equal(typeof wrapperState.pot_server, 'boolean');
 
   process.env.MANGO_YTDLP_COMMAND = 'https://operator:custom-command-secret@private.example/runner';
   const customState = new YoutubeService().state();
-  assert.deepEqual(customState.configured, {
+  const customConfigured = customState.configured as Record<string, unknown>;
+  assert.deepEqual({
+    api_key: customConfigured.api_key,
+    oauth_client: customConfigured.oauth_client,
+    yt_dlp_command: customConfigured.yt_dlp_command,
+    yt_dlp_command_kind: customConfigured.yt_dlp_command_kind,
+    playback_cookies: customConfigured.playback_cookies,
+    yt_dlp_version: customConfigured.yt_dlp_version,
+  }, {
     api_key: false,
     oauth_client: false,
     yt_dlp_command: '',
     yt_dlp_command_kind: 'custom',
     playback_cookies: false,
+    yt_dlp_version: null,
   });
+  assert.equal(typeof customConfigured.pot_server, 'boolean');
   assert.equal(JSON.stringify(customState).includes('custom-command-secret'), false);
 }));
 
@@ -2880,13 +2889,22 @@ test('full YouTube state and rails sanitize config, refresh, import, acquisition
   assert.equal(rails.recommendations_status, 'stale');
   assert.equal(rails.stale_reason, null);
   assert.equal(JSON.stringify(rails).includes('source-stale-reason-secret-marker'), false);
-  assert.deepEqual(state.configured, {
+  assert.deepEqual({
+    api_key: (state.configured as Record<string, unknown>).api_key,
+    oauth_client: (state.configured as Record<string, unknown>).oauth_client,
+    yt_dlp_command: (state.configured as Record<string, unknown>).yt_dlp_command,
+    yt_dlp_command_kind: (state.configured as Record<string, unknown>).yt_dlp_command_kind,
+    playback_cookies: (state.configured as Record<string, unknown>).playback_cookies,
+    yt_dlp_version: (state.configured as Record<string, unknown>).yt_dlp_version,
+  }, {
     api_key: true,
     oauth_client: true,
     yt_dlp_command: '',
     yt_dlp_command_kind: 'custom',
     playback_cookies: false,
+    yt_dlp_version: null,
   });
+  assert.equal(typeof (state.configured as Record<string, unknown>).pot_server, 'boolean');
   assert.deepEqual(state.auth, {
     configured: true,
     authenticated: true,

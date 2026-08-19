@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { CatalogError } from '../catalog-errors.js';
 import { classifyPlayError } from '../play-error-classify.js';
+import { PlayCancelledError } from '../play-cancel.js';
 import type { YoutubeConfig } from './config.js';
 import {
   YOUTUBE_FORMAT_SORT,
@@ -11,6 +12,7 @@ import {
 
 export {
   effectiveYoutubeFormat,
+  isHlsYoutubeFormat,
   isMuxedOnlyYoutubeFormat,
   preferAdaptiveYoutubeFormat,
   YOUTUBE_ADAPTIVE_FORMAT,
@@ -19,6 +21,9 @@ export {
   YOUTUBE_MID_ADAPTIVE_FORMAT,
   ytDlpFormatCandidates,
 } from './format-policy.js';
+
+/** web_safari is the HLS client. tv/mweb https is SABR-truncated (~60s) and is not a fallback. */
+export const YOUTUBE_PLAYER_CLIENT = 'web_safari';
 
 export type YoutubeResolvedPlayback = {
   url: string;
@@ -31,6 +36,7 @@ export type YoutubeResolvedPlayback = {
 export const YOUTUBE_FAILURE_KINDS = [
   'timeout',
   'bot_check',
+  'cooldown',
   'blocked',
   'format_unavailable',
   'unavailable',
@@ -71,10 +77,9 @@ export function youtubeYtDlpResolveArgs(
     process.env.MANGO_YTDLP_FORMAT_SORT?.trim() || YOUTUBE_FORMAT_SORT,
   ];
   // yt-dlp 2026.07 solves YouTube n-sig only with Deno >=2.3 (or Node >=22)
-  // plus the EJS solver. GVS playback then needs a PO token on mweb. Debian
-  // Node 20 is ignored; without Deno/EJS/POT, yt-dlp falls back to android_vr
-  // URLs that ffmpeg/mpv HTTP 403. Do not pin tv/android/ios: that historically
-  // left only muxed 360p.
+  // plus the EJS solver. Playback is HLS from web_safari (no Range SABR window).
+  // Debian Node 20 is ignored. Do not pin tv/android/ios: that historically
+  // left only muxed 360p, and tv currently errors with cookies.
   args.push(...youtubeJsRuntimeArgs());
   args.push(...youtubeRemoteComponentArgs());
   args.push(...youtubeExtractorArgFlags());
@@ -117,7 +122,7 @@ export function youtubeExtractorArgFlags(): string[] {
   if (operator) {
     args.push('--extractor-args', operator);
   } else {
-    args.push('--extractor-args', 'youtube:player_client=mweb');
+    args.push('--extractor-args', `youtube:player_client=${YOUTUBE_PLAYER_CLIENT}`);
   }
   return args;
 }
@@ -281,6 +286,7 @@ export function isTransientYoutubeResolveError(error: unknown): boolean {
       kind === 'format_unavailable'
       || kind === 'blocked'
       || kind === 'bot_check'
+      || kind === 'cooldown'
       || kind === 'unavailable'
       || kind === 'js_runtime'
     ) {
@@ -305,7 +311,7 @@ function sanitizeYtDlpDetail(text: string): string {
   return text.replace(/https?:\/\/\S+/gi, '<url>').slice(0, 800);
 }
 
-function throwYtDlpCatalogError(detail: string): never {
+function throwYtDlpCatalogError(detail: string, extra: Record<string, unknown> = {}): never {
   const classified = classifyYtDlpError(detail);
   if (classified.status === 429) {
     youtubeResolveCooldownUntil = Date.now() + YOUTUBE_RESOLVE_RATE_LIMIT_COOLDOWN_MS;
@@ -313,7 +319,10 @@ function throwYtDlpCatalogError(detail: string): never {
   throw new CatalogError(
     classified.status,
     classified.message,
-    youtubeFailureDetails(classified.kind, 'resolve', { yt_dlp: sanitizeYtDlpDetail(detail) }),
+    youtubeFailureDetails(classified.kind, 'resolve', {
+      yt_dlp: sanitizeYtDlpDetail(detail),
+      ...extra,
+    }),
     { couchMessage: classified.message },
   );
 }
@@ -345,7 +354,9 @@ export async function resolveYoutubePlayback(
     });
   }
   if (youtubeResolveCooldownUntil > Date.now()) {
-    throw new CatalogError(429, 'YouTube playback resolve is cooling down', youtubeFailureDetails('bot_check', 'resolve'), {
+    throw new CatalogError(429, 'YouTube playback resolve is cooling down', youtubeFailureDetails('cooldown', 'resolve', {
+      resolve_ms: 0,
+    }), {
       couchMessage: 'YouTube is temporarily busy — try again in a few minutes',
     });
   }
@@ -398,39 +409,41 @@ async function resolveYoutubePlaybackFresh(
         lastFormatError = detail;
         return null;
       }
-      throwYtDlpCatalogError(detail);
+      throwYtDlpCatalogError(detail, { resolve_ms: Date.now() - started });
     });
     if (!result) {
       continue;
     }
     const { stdout, stderr } = result;
+    const resolved = parseYtDlpResolvedUrls(stdout);
+    if (resolved) {
+      return {
+        ...resolved,
+        resolve_ms: Date.now() - started,
+        format,
+      };
+    }
     if (
       /No supported JavaScript runtime|JS Challenge Providers:.*all unavailable/i.test(stderr)
       || /n challenge solving failed|Remote components challenge solver script/i.test(stderr)
     ) {
       throwMissingYoutubeJsRuntime();
     }
-    const resolved = parseYtDlpResolvedUrls(stdout);
-    if (resolved) {
-      const payload = {
-        ...resolved,
-        resolve_ms: Date.now() - started,
-        format,
-      };
-      return payload;
-    }
     const detail = stderr || stdout;
     if (requestedFormatUnavailable(detail)) {
       lastFormatError = detail;
       continue;
     }
-    throwYtDlpCatalogError(detail);
+    throwYtDlpCatalogError(detail, { resolve_ms: Date.now() - started });
   }
   const classified = classifyYtDlpError(lastFormatError || 'yt-dlp returned no playable URLs');
   throw new CatalogError(
     classified.status,
     classified.message,
-    youtubeFailureDetails(classified.kind, 'resolve', { yt_dlp: lastFormatError }),
+    youtubeFailureDetails(classified.kind, 'resolve', {
+      yt_dlp: sanitizeYtDlpDetail(lastFormatError || 'yt-dlp returned no playable URLs'),
+      resolve_ms: Date.now() - started,
+    }),
     { couchMessage: classified.message },
   );
 }
@@ -438,6 +451,18 @@ async function resolveYoutubePlaybackFresh(
 export function shouldRefreshYoutubeTransport(message: string): boolean {
   return /HTTP (?:error )?(?:401|403|404|410)\b|expired|signature|signed[\s_-]*url|ECONN|socket|fetch failed|did not start playback|partial file|cannot seek|invalid data/i
     .test(message);
+}
+
+/** Disposition after mpv-play fails on an already resolved YouTube URL. */
+export function youtubePlayStartDisposition(error: unknown): 'cancel' | 'refresh' | 'fail' {
+  if (error instanceof PlayCancelledError) {
+    return 'cancel';
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  if (shouldRefreshYoutubeTransport(message)) {
+    return 'refresh';
+  }
+  return 'fail';
 }
 
 export function resetYoutubePlaybackStateForTest(): void {

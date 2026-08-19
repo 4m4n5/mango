@@ -1,7 +1,8 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { CatalogError } from '../catalog-errors.js';
 import { playUrl } from '../mpv.js';
-import { assertPlayEpoch, bumpPlayEpoch } from '../play-cancel.js';
+import { assertPlayEpoch, bumpPlayEpoch, PlayCancelledError } from '../play-cancel.js';
 import { startWatchSessionFromPlay } from '../progress/watcher.js';
 import {
   activeViewerProfileId,
@@ -47,10 +48,9 @@ import {
 import {
   isTransientYoutubeResolveError,
   resolveYoutubePlayback,
-  shouldRefreshYoutubeTransport,
   youtubeFailureDetails,
   youtubeMpvFailureKind,
-  ytDlpFormatCandidates,
+  youtubePlayStartDisposition,
   type YoutubeResolvedPlayback,
 } from './playback.js';
 import type {
@@ -151,6 +151,56 @@ function youtubeYtDlpDiagnostic(command: string): {
     return { yt_dlp_command: 'mango_wrapper', yt_dlp_command_kind: 'mango_wrapper' };
   }
   return { yt_dlp_command: '', yt_dlp_command_kind: 'custom' };
+}
+
+let cachedYtDlpVersion: { command: string; version: string | null } | null = null;
+
+function youtubeYtDlpVersion(command: string): string | null {
+  const kind = youtubeYtDlpDiagnostic(command).yt_dlp_command_kind;
+  if (kind !== 'yt_dlp' && kind !== 'mango_wrapper') {
+    return null;
+  }
+  if (cachedYtDlpVersion?.command === command) {
+    return cachedYtDlpVersion.version;
+  }
+  const result = spawnSync(command, ['--version'], {
+    encoding: 'utf8',
+    timeout: 4000,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const version = result.status === 0
+    ? (result.stdout || '').trim().split(/\s+/)[0] || null
+    : null;
+  cachedYtDlpVersion = { command, version };
+  return version;
+}
+
+let cachedPotServer: { at: number; up: boolean } | null = null;
+
+function youtubePotServerUp(): boolean {
+  const now = Date.now();
+  if (cachedPotServer && now - cachedPotServer.at < 5000) {
+    return cachedPotServer.up;
+  }
+  const port = Number(process.env.MANGO_BGUTIL_HTTP_PORT || 4416);
+  if (!Number.isFinite(port) || port < 1 || port > 65535) {
+    cachedPotServer = { at: now, up: false };
+    return false;
+  }
+  const up = (() => {
+    try {
+      const result = spawnSync('curl', ['-sf', '--max-time', '1', `http://127.0.0.1:${port}/ping`], {
+        encoding: 'utf8',
+        timeout: 2000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      return result.status === 0;
+    } catch {
+      return false;
+    }
+  })();
+  cachedPotServer = { at: now, up };
+  return up;
 }
 
 function isNightlyYoutubeRefresh(reason: string): boolean {
@@ -802,6 +852,8 @@ export class YoutubeService {
         api_key: Boolean(this.config.api_key),
         oauth_client: auth.configured,
         ...youtubeYtDlpDiagnostic(this.config.yt_dlp_command),
+        yt_dlp_version: youtubeYtDlpVersion(this.config.yt_dlp_command),
+        pot_server: youtubePotServerUp(),
         playback_cookies: Boolean(this.config.yt_dlp_cookies),
       },
       auth: {
@@ -2324,7 +2376,6 @@ export class YoutubeService {
     }
     const started = nowMs();
     const playEpoch = options.playEpoch ?? await bumpPlayEpoch();
-    const excludedFormats: string[] = [];
     let resolved: YoutubeResolvedPlayback;
     try {
       resolved = await resolveYoutubePlayback(this.config, id);
@@ -2334,11 +2385,11 @@ export class YoutubeService {
       resolved = await resolveYoutubePlayback(this.config, id);
     }
     const live = item.live_status === 'live';
-    const playResolved = () => playUrl(resolved.url, 90000, {
+    const playResolved = (playbackResolved: YoutubeResolvedPlayback) => playUrl(playbackResolved.url, 90000, {
       live,
       playEpoch,
       minDurationSec: 1,
-      audioUrl: resolved.audio_url,
+      audioUrl: playbackResolved.audio_url,
       hud: {
         title: item.title === id ? 'YouTube' : item.title,
         context: item.channel_title,
@@ -2347,35 +2398,27 @@ export class YoutubeService {
     });
     let playback;
     try {
-      for (;;) {
-        try {
-          playback = await playResolved();
-          break;
-        } catch (startError) {
-          const startMessage = startError instanceof Error ? startError.message : String(startError);
-          if (!shouldRefreshYoutubeTransport(startMessage)) {
-            throw startError;
-          }
-          excludedFormats.push(resolved.format);
-          if (ytDlpFormatCandidates(this.config.yt_dlp_format, excludedFormats).length === 0) {
-            throw startError;
-          }
-          await assertPlayEpoch(playEpoch);
-          resolved = await resolveYoutubePlayback(this.config, id, 30000, {
-            excludeFormats: excludedFormats,
-          });
-          await assertPlayEpoch(playEpoch);
+      try {
+        playback = await playResolved(resolved);
+      } catch (startError) {
+        const disposition = youtubePlayStartDisposition(startError);
+        if (disposition === 'cancel' || disposition === 'fail') {
+          throw startError;
         }
+        await assertPlayEpoch(playEpoch);
+        resolved = await resolveYoutubePlayback(this.config, id);
+        await assertPlayEpoch(playEpoch);
+        playback = await playResolved(resolved);
       }
     } catch (error) {
-      if (error instanceof CatalogError) throw error;
+      if (error instanceof PlayCancelledError || error instanceof CatalogError) throw error;
       const message = error instanceof Error ? error.message : String(error);
       throw new CatalogError(502, live
         ? 'YouTube live playback did not start'
         : 'YouTube playback did not start', youtubeFailureDetails(
         youtubeMpvFailureKind(message),
         'play_start',
-        { mpv: message },
+        { mpv: message, resolve_ms: resolved.resolve_ms },
       ), {
         couchMessage: live
           ? 'YouTube live playback did not start — try another live video'

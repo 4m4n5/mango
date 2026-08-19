@@ -380,6 +380,57 @@ payload = json.load(open(sys.argv[1], encoding="utf-8"))
 assert payload.get("ok") is True
 assert int(payload.get("ttff_ms") or 0) > 0
 PY
+  python3 - "${MANGO_MPV_SOCKET:-$HOME/.cache/mango/mpv.sock}" <<'PY'
+import json
+import os
+import socket
+import sys
+import time
+
+sock_path = sys.argv[1]
+
+def ipc(cmd):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(2)
+    s.connect(sock_path)
+    s.sendall((json.dumps({"command": cmd}) + "\n").encode())
+    buf = b""
+    while b"\n" not in buf:
+        chunk = s.recv(4096)
+        if not chunk:
+            break
+        buf += chunk
+    s.close()
+    return json.loads(buf.decode())
+
+t0 = time.time()
+started = False
+for _ in range(40):
+    time.sleep(0.5)
+    if not os.path.exists(sock_path):
+        continue
+    try:
+        pt = ipc(["get_property", "playback-time"]).get("data")
+        if isinstance(pt, (int, float)) and pt >= 0.3:
+            started = True
+            break
+    except Exception:
+        continue
+assert started, "YouTube play did not start on mpv socket"
+last = None
+deadline = t0 + 150
+while time.time() < deadline:
+    time.sleep(10)
+    pt = ipc(["get_property", "playback-time"]).get("data")
+    aid = ipc(["get_property", "aid"]).get("data")
+    last = (pt, aid)
+    assert isinstance(pt, (int, float)) and pt >= 0, last
+assert last is not None, "YouTube play produced no samples"
+pt, aid = last
+assert pt >= 120, f"YouTube play died before 120s (playback-time={pt})"
+assert aid not in (None, False, "no"), f"YouTube play has no audio (aid={aid})"
+print(f"youtube sustained play ok playback_time={pt:.1f}s aid={aid}")
+PY
 fi
 
 echo "M6.2 YouTube smoke gate ok"

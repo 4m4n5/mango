@@ -80,45 +80,38 @@ and mood have zero acquisition/ranking effect, while their existing rows remain
 intact and recoverable. `off` disables recommendation work rather than
 activating a personal-profile ranker.
 
-Playback resolves with `yt-dlp -g` and starts mpv on those direct URLs. The
-selector is adaptive DASH only (`bv*+ba`, highest up to 4K), ranked by
-`--format-sort` (resolution, fps, then VP9 SDR before VP9.2 HDR). Pi 5 can
-hardware-decode HEVC (VOD 4K) but YouTube 4K is VP9/AV1 software; preferring
-HDR VP9.2 made mpv reject the stream and the only retry was 1080p H.264.
-If mpv rejects the first split stream, Mango retries 1440p DASH, then
-H.264+AAC 1080p DASH. Muxed progressive is never a candidate. Mango does not
-pin `player_client`: a forced `tv,android,ios` set replaced yt-dlp defaults
-and left only muxed itag 18 (360p). yt-dlp 2026.07+ solves YouTube n-sig / PO
-challenges only with **Deno ≥ 2.3** or **Node ≥ 22**, the EJS solver
-(`--remote-components ejs:github`), and a GVS PO token on **mweb**. Debian Node
-on the Pi is 20 and is ignored (`unsupported`). Without that stack, yt-dlp falls
-back to `android_vr` googlevideo URLs that ffmpeg/mpv HTTP 403 after a short
-burst. Resolve therefore prefers Mango-owned Deno
-(`~/.local/share/mango/deno/bin/deno`), downloads the EJS solver, and uses
-`bgutil-ytdlp-pot-provider` under `~/.local/share/mango/bgutil-pot`. It fails
-closed if no supported JS runtime is present rather than handing mpv dead URLs.
-googlevideo also 403s ffmpeg/mpv's unscoped GET and open-ended
-`Range: bytes=0-` even after n-sig/POT/cookies; closed in-bounds ranges
-return 206, but a single large range is truncated after ~1–6 MiB.
-`mpv-play.sh` wraps those URLs through a localhost Range proxy
-(`scripts/m2-catalog/service/youtube-http-proxy.py`). The proxy must not
-promise a `Content-Length` it cannot fill: googlevideo 403s HTTP Range
-windows after the first ~1–8 MiB, and ffmpeg then reconnects at the same
-offset forever (silent audio, then EOF). It drains a from-zero range and
-stops cleanly on a later 403. Direct googlevideo URLs must not go back
-through `ytdl_hook`. The bgutil **HTTP** POT server (`:4416`) is started
-with the mango stack so yt-dlp does not fall back to a cold Deno script
-per resolve.
-Do not pin `tv,android,ios` as the only clients: that historically left only
-muxed itag 18 (360p). YouTube 30 fps stays on 1080p60 HDMI
-(not 30 Hz); film 24 fps still matches 24 Hz. Many YouTube titles simply have
-no 4K encode — the cap is then YouTube's, not Mango's. Couch retries walk a
-short DASH ladder (4K adaptive → 1440 → 1080p H.264), not every itag. This
-path uses no YouTube Data API quota. Legacy
-`/etc/mango` selectors that slash-or to `best` are upgraded to the same
-adaptive policy. Operators may set `MANGO_YTDLP_EXTRACTOR_ARGS` or
+Playback resolves with `yt-dlp -g` and starts mpv on those URLs with
+`--ytdl=no`. The selector is **HLS first** (`bv*[protocol^=m3u8]+ba[protocol^=m3u8]/b[protocol^=m3u8]`,
+capped at 4K) from `player_client=web_safari`. web_safari HLS is typically
+muxed H.264+AAC up to 1080p; ffmpeg's HLS demuxer fetches each fragment as a
+small full GET, so it is immune to the SABR Range window that kills DASH
+https (~60s of media from byte 0, then HTTP 403 on every offset Range).
+Progressive muxed https and mweb/tv DASH https are never candidates: a
+60-second death is worse than a clean couch error. Titles with no HLS fail
+closed. yt-dlp 2026.07+ solves YouTube n-sig / PO challenges only with
+**Deno ≥ 2.3** or **Node ≥ 22**, the EJS solver (`--remote-components ejs:github`),
+and a GVS PO token (bgutil, used when a client requires one). Debian Node on
+the Pi is 20 and is ignored (`unsupported`). Resolve therefore prefers
+Mango-owned Deno (`~/.local/share/mango/deno/bin/deno`), downloads the EJS
+solver, and uses `bgutil-ytdlp-pot-provider` under `~/.local/share/mango/bgutil-pot`.
+It fails closed if no supported JS runtime is present rather than handing mpv
+dead URLs. Direct googlevideo / HLS URLs must not go back through `ytdl_hook`.
+mpv sends yt-dlp's Chrome user-agent and a `youtube.com` Referer; googlevideo
+403s libmpv's default UA. The bgutil **HTTP** POT server (`:4416`) is started
+with the mango stack so yt-dlp does not fall back to a cold Deno script per
+resolve. `GET /youtube/state` `configured` reports `yt_dlp_version` and
+`pot_server` (boolean ping). Do not pin `tv,android,ios` as the only clients:
+that historically left only muxed itag 18 (360p), and `tv` currently errors
+with household cookies. YouTube 30 fps stays on 1080p60 HDMI (not 30 Hz);
+film 24 fps still matches 24 Hz. This path uses no YouTube Data API quota.
+Legacy `/etc/mango` selectors that slash-or to `best` or the old DASH
+`bv*+ba` default are upgraded to the HLS policy. If mpv fails on a stale
+signed URL, catalog re-resolves **once** (same HLS selector) rather than
+walking a height ladder. Operators may set `MANGO_YTDLP_EXTRACTOR_ARGS` or
 `MANGO_YTDLP_JS_RUNTIMES` only as explicit overrides (`none` disables JS
-challenges and will 403 on current YouTube).
+challenges and will fail on current YouTube).
+A localhost Range proxy was removed: it could not fill SABR-truncated https
+bodies, and its EXIT trap killed the proxy while mpv was still playing.
 
 ---
 

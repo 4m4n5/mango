@@ -121,9 +121,8 @@ youtube:
   stale_after_hours: 24
   playback:
     yt_dlp_command: scripts/m6-ship/youtube-yt-dlp.sh
-    # Adaptive DASH only, highest up to 4K SDR VP9 when YouTube publishes it.
-    # Do not slash-or to `best`: muxed progressive is typically 360p (itag 18).
-    yt_dlp_format: bv*[height<=2160]+ba
+    # HLS first (web_safari). Do not slash-or to progressive `best`.
+    yt_dlp_format: bv*[height<=2160][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=2160][protocol^=m3u8]
     # Netscape cookies for yt-dlp GVS. If this file exists, catalog uses it
     # even when the key below stays commented.
     # cookies_file: /etc/mango/youtube-cookies.txt

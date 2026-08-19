@@ -1,10 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import {
   classifyYtDlpError,
   effectiveYoutubeFormat,
+  isHlsYoutubeFormat,
   isMuxedOnlyYoutubeFormat,
   isTransientYoutubeResolveError,
   parseYtDlpResolvedUrls,
@@ -13,16 +12,17 @@ import {
   youtubeJsRuntimeArgs,
   youtubeJsRuntimeAvailable,
   youtubeMpvFailureKind,
+  youtubePlayStartDisposition,
   youtubeSocketTimeoutSec,
   youtubeYtDlpResolveArgs,
   ytDlpFormatCandidates,
   YOUTUBE_ADAPTIVE_FORMAT,
-  YOUTUBE_COMPAT_ADAPTIVE_FORMAT,
   YOUTUBE_FORMAT_SORT,
-  YOUTUBE_MID_ADAPTIVE_FORMAT,
+  YOUTUBE_PLAYER_CLIENT,
   YOUTUBE_SOCKET_TIMEOUT_SEC,
 } from './playback.js';
 import { CatalogError } from '../catalog-errors.js';
+import { PlayCancelledError } from '../play-cancel.js';
 
 test('parseYtDlpResolvedUrls supports separate video and audio URLs', () => {
   assert.deepEqual(
@@ -52,15 +52,20 @@ test('preferAdaptiveYoutubeFormat strips muxed progressive from a DASH selector'
   assert.equal(preferAdaptiveYoutubeFormat('bv*+ba/b'), 'bv*+ba');
   assert.equal(isMuxedOnlyYoutubeFormat('best[height<=1080]'), true);
   assert.equal(isMuxedOnlyYoutubeFormat('bv*+ba'), false);
+  assert.equal(isMuxedOnlyYoutubeFormat('b[height<=2160][protocol^=m3u8]'), false);
 });
 
-test('legacy muxed-first config upgrades to highest adaptive DASH', () => {
+test('legacy muxed-first config upgrades to HLS adaptive', () => {
   assert.equal(
     effectiveYoutubeFormat('bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'),
     YOUTUBE_ADAPTIVE_FORMAT,
   );
   assert.equal(effectiveYoutubeFormat('best'), YOUTUBE_ADAPTIVE_FORMAT);
-  assert.equal(effectiveYoutubeFormat('bv*[height<=720]+ba/b'), 'bv*[height<=720]+ba');
+  assert.equal(effectiveYoutubeFormat('bv*[height<=2160]+ba'), YOUTUBE_ADAPTIVE_FORMAT);
+  assert.equal(
+    effectiveYoutubeFormat('bv*[height<=720]+ba/b'),
+    'bv*[height<=720][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=720][protocol^=m3u8]',
+  );
 });
 
 test('ytDlpFormatCandidates never admits muxed progressive', () => {
@@ -74,52 +79,35 @@ test('ytDlpFormatCandidates never admits muxed progressive', () => {
     const formats = ytDlpFormatCandidates(configured);
     assert.ok(formats.length > 0);
     assert.ok(formats.every((format) => !isMuxedOnlyYoutubeFormat(format)));
+    assert.ok(formats.every((format) => isHlsYoutubeFormat(format)));
     assert.ok((formats[0] || '').includes('+'));
   }
 });
 
-test('a tighter operator cap does not fall through to 1080p H.264', () => {
+test('a tighter operator cap stays on HLS at that height', () => {
   const formats = ytDlpFormatCandidates('bv*[height<=720]+ba/b');
-  assert.deepEqual(formats, ['bv*[height<=720]+ba']);
-});
-
-test('a 1080 operator cap retries H.264, not 1440', () => {
-  assert.deepEqual(
-    ytDlpFormatCandidates('bv*[height<=1080]+ba'),
-    ['bv*[height<=1080]+ba', YOUTUBE_COMPAT_ADAPTIVE_FORMAT],
-  );
-});
-
-test('a 1440 operator cap does not climb to 4K', () => {
-  assert.deepEqual(
-    ytDlpFormatCandidates(YOUTUBE_MID_ADAPTIVE_FORMAT),
-    [YOUTUBE_MID_ADAPTIVE_FORMAT, YOUTUBE_COMPAT_ADAPTIVE_FORMAT],
-  );
-});
-
-test('ytDlpFormatCandidates keeps configured format first and de-dupes fallbacks', () => {
-  const formats = ytDlpFormatCandidates('best');
-  assert.equal(formats[0], YOUTUBE_ADAPTIVE_FORMAT);
-  assert.equal(formats.filter((format) => format === YOUTUBE_ADAPTIVE_FORMAT).length, 1);
   assert.deepEqual(formats, [
-    YOUTUBE_ADAPTIVE_FORMAT,
-    YOUTUBE_MID_ADAPTIVE_FORMAT,
-    YOUTUBE_COMPAT_ADAPTIVE_FORMAT,
+    'bv*[height<=720][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=720][protocol^=m3u8]',
   ]);
 });
 
-test('ytDlpFormatCandidates advances past an already failed transport format', () => {
-  const formats = ytDlpFormatCandidates(YOUTUBE_ADAPTIVE_FORMAT, [YOUTUBE_ADAPTIVE_FORMAT]);
-  assert.deepEqual(formats, [YOUTUBE_MID_ADAPTIVE_FORMAT, YOUTUBE_COMPAT_ADAPTIVE_FORMAT]);
+test('a 1080 operator cap does not climb to 4K', () => {
+  assert.deepEqual(
+    ytDlpFormatCandidates('bv*[height<=1080]+ba'),
+    ['bv*[height<=1080][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=1080][protocol^=m3u8]'],
+  );
 });
 
-test('ytDlpFormatCandidates keeps 1080p H.264 after 4K and 1440 both fail', () => {
+test('ytDlpFormatCandidates is a single HLS selector, not a DASH height ladder', () => {
+  const formats = ytDlpFormatCandidates('best');
+  assert.deepEqual(formats, [YOUTUBE_ADAPTIVE_FORMAT]);
+  assert.match(formats[0] || '', /protocol\^=m3u8/);
+});
+
+test('ytDlpFormatCandidates drops an already failed transport format', () => {
   assert.deepEqual(
-    ytDlpFormatCandidates(YOUTUBE_ADAPTIVE_FORMAT, [
-      YOUTUBE_ADAPTIVE_FORMAT,
-      YOUTUBE_MID_ADAPTIVE_FORMAT,
-    ]),
-    [YOUTUBE_COMPAT_ADAPTIVE_FORMAT],
+    ytDlpFormatCandidates(YOUTUBE_ADAPTIVE_FORMAT, [YOUTUBE_ADAPTIVE_FORMAT]),
+    [],
   );
 });
 
@@ -150,7 +138,7 @@ test('yt-dlp resolve prefers Deno then Node for YouTube JS challenges', () => {
     assert.equal(runtimes[1], 'node');
     assert.equal(args[args.indexOf('--socket-timeout') + 1], String(YOUTUBE_SOCKET_TIMEOUT_SEC));
     assert.equal(args[args.indexOf('--remote-components') + 1], 'ejs:github');
-    assert.equal(args[args.indexOf('--extractor-args') + 1], 'youtube:player_client=mweb');
+    assert.equal(args[args.indexOf('--extractor-args') + 1], `youtube:player_client=${YOUTUBE_PLAYER_CLIENT}`);
     assert.ok(args.includes('-g'));
     assert.match(YOUTUBE_FORMAT_SORT, /vcodec:vp9:vp9\.2/);
     assert.doesNotMatch(YOUTUBE_FORMAT_SORT, /hdr:12/);
@@ -338,6 +326,14 @@ test('socket-timeout env override is clamped to a sane range', () => {
   }
 });
 
+test('YouTube play start refreshes expired transports once and propagates cancel', () => {
+  assert.equal(youtubePlayStartDisposition(new Error('mpv-play failed: HTTP error 403')), 'refresh');
+  assert.equal(youtubePlayStartDisposition(new Error('signed URL expired')), 'refresh');
+  assert.equal(youtubePlayStartDisposition(new PlayCancelledError()), 'cancel');
+  assert.equal(youtubePlayStartDisposition(new Error('FAIL: mpv vo not ready after display enable')), 'fail');
+  assert.equal(youtubePlayStartDisposition(new Error('YouTube is asking for browser verification')), 'fail');
+});
+
 test('YouTube refreshes only expired direct transports, not policy failures', () => {
   assert.equal(shouldRefreshYoutubeTransport('mpv-play failed: HTTP error 403'), true);
   assert.equal(shouldRefreshYoutubeTransport('signed URL expired'), true);
@@ -345,11 +341,4 @@ test('YouTube refreshes only expired direct transports, not policy failures', ()
   assert.equal(shouldRefreshYoutubeTransport('YouTube is asking for browser verification — 429'), false);
   assert.equal(shouldRefreshYoutubeTransport('this YouTube video is unavailable'), false);
   assert.equal(shouldRefreshYoutubeTransport('play cancelled'), false);
-});
-
-test('YouTube HTTP proxy rewrites open Range requests that googlevideo 403s', () => {
-  const script = fileURLToPath(new URL('../../../../scripts/m2-catalog/service/youtube-http-proxy.py', import.meta.url));
-  const result = spawnSync('python3', [script, '--self-test'], { encoding: 'utf8' });
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /self-test ok/);
 });

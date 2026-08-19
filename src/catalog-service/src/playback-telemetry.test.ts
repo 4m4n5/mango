@@ -175,21 +175,25 @@ test('classifyPlaybackTerminalFailure prefers explicit stage over status>=500', 
     mpv: 'FAIL: mpv vo not ready after display enable',
     playback_stage: 'play_start',
     failure_kind: 'mpv_handoff',
+    resolve_ms: 1840,
   });
   assert.deepEqual(classifyPlaybackTerminalFailure(mpv, false), {
     failureClass: 'provider',
     stage: 'play_start',
     failureKind: 'mpv_handoff',
+    resolveMs: 1840,
   });
 
   const resolveTimeout = new CatalogError(502, 'YouTube playback could not be resolved', {
     playback_stage: 'resolve',
     failure_kind: 'timeout',
+    resolve_ms: 21300,
   });
   assert.deepEqual(classifyPlaybackTerminalFailure(resolveTimeout, false), {
     failureClass: 'provider',
     stage: 'resolve',
     failureKind: 'timeout',
+    resolveMs: 21300,
   });
 
   const blocked = new CatalogError(403, 'YouTube blocked this video for this account or device', {
@@ -200,6 +204,7 @@ test('classifyPlaybackTerminalFailure prefers explicit stage over status>=500', 
     failureClass: 'provider',
     stage: 'resolve',
     failureKind: 'blocked',
+    resolveMs: undefined,
   });
 });
 

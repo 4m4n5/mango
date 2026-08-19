@@ -85,22 +85,6 @@ tracked_pid_is_mango_mpv() {
   [[ "$command_line" == *mpv* && "$command_line" == *"--input-ipc-server=$SOCKET"* ]]
 }
 
-stop_youtube_http_proxy() {
-  local pidfile="${MANGO_YOUTUBE_PROXY_PID_FILE:-${HOME}/.cache/mango/youtube-http-proxy.pid}"
-  local pid=""
-  local command_line=""
-  [[ -f "$pidfile" ]] || return 0
-  pid="$(tr -dc '0-9' <"$pidfile" 2>/dev/null || true)"
-  rm -f "$pidfile"
-  [[ -n "$pid" ]] || return 0
-  command_line="$(ps -ww -p "$pid" -o command= 2>/dev/null || true)"
-  if [[ "$command_line" == *youtube-http-proxy.py* ]]; then
-    kill "$pid" 2>/dev/null || true
-    sleep 0.05
-    kill -9 "$pid" 2>/dev/null || true
-  fi
-}
-
 signal_tracked_mpv() {
   local pid="$1"
   local signal="$2"
@@ -141,7 +125,6 @@ teardown_mpv() {
     fi
   fi
   stop_playback_osd
-  stop_youtube_http_proxy
   rm -f "$MPV_PID_FILE" "$SOCKET" \
     "$LEGACY_VLC_PID_FILE" "$LEGACY_PLAYER_STATE" "$LEGACY_VLC_PLAYLIST" \
     "$PLAYBACK_DISPLAY_MATCHED_FILE"
