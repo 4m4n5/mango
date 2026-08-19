@@ -874,11 +874,13 @@ restore_mpv_ao() {
   fi
   sleep 0.4
   for attempt in 1 2 3 4 5 6; do
-    printf '{"command":["set_property","ao","%s"]}\n' "$ao" | socat - "$SOCKET" >/dev/null 2>&1 || true
+    printf '%s\n' '{"command":["set_property","ao","null"]}' | socat - "$SOCKET" >/dev/null 2>&1 || true
+    sleep 0.1
     if [[ -n "$device" ]]; then
       printf '{"command":["set_property","audio-device","%s"]}\n' "$device" | socat - "$SOCKET" >/dev/null 2>&1 || true
     fi
-    sleep 0.25
+    printf '{"command":["set_property","ao","%s"]}\n' "$ao" | socat - "$SOCKET" >/dev/null 2>&1 || true
+    sleep 0.3
     current="$(mpv_property current-ao 2>/dev/null || true)"
     if [[ -n "$current" && "$current" != "null" && "$current" != "false" && "$current" != "0" ]]; then
       printf '%s\n' '{"command":["set_property","aid","auto"]}' | socat - "$SOCKET" >/dev/null 2>&1 || true
