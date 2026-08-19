@@ -3,16 +3,15 @@
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
 Latest recorded Pi deployment: **2026-08-19**,
-`12dfaf296d08f9e80f4a3839080703ae4c7bb239`. Catalog and launcher rebuilt from
-that SHA (YouTube household v3.0: MiniLM blend ranking on, Regulars 2+2 from a
-deeper channel pool, hqdefault thumbnails). gate-lite, UX, YouTube, reliability,
-playback, 4K-profile, and stream-picker **PASS** at `12dfaf2`. YouTube generation
-42 served with `embeddings.enabled=true`, `model=Xenova/all-MiniLM-L6-v2`,
-2704 stored vectors, Regulars reserve 95, and zero missing/maxres rail
-thumbnails. Reliability remains usable-yellow (nightly proof stale; rail growth
-yellow). Pad health is ok. Human couch verdict remains **DEFERRED** for Regulars
-mix, MiniLM relevance, and picture/audio. Prior 2026-08-14 line `caa0215`
-records the previous pre-couch PASS.
+`9d11953dd42cfcb5c9d77de2ed9610479091d390`. Catalog remains the MiniLM/Regulars
+line from `12dfaf2`; launcher was rebuilt for scrollport poster re-arm so VOD
+art no longer waits on D-pad `scrollIntoView`. UX smoke **PASS** at `9d11953`.
+YouTube generation 42 served with `embeddings.enabled=true`,
+`model=Xenova/all-MiniLM-L6-v2`, 2704 stored vectors, Regulars reserve 95, and
+zero missing/maxres rail thumbnails. Reliability remains usable-yellow (nightly
+proof stale; rail growth yellow). Pad health is ok. Human couch verdict remains
+**DEFERRED** for Regulars mix, MiniLM relevance, VOD poster fill, and
+picture/audio.
 Use `git status`, `git rev-parse HEAD`, and the Pi commands below before acting.
 
 ## How to read this page
