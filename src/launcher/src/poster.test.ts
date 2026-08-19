@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   POSTER_SCROLLPORT_MARGIN_RATIO,
   posterIsNearScrollport,
+  posterScrollportHasBox,
   resolveCardPosterUrl,
   rewriteFragileYoutubeThumbnail,
 } from "./poster.js";
@@ -31,6 +32,15 @@ test("a rail more than one extra screen away stays deferred", () => {
 test("a zero-size box is not near so a disconnected card does not eager-load", () => {
   const img = { top: 0, right: 0, bottom: 0, left: 0 };
   assert.equal(posterIsNearScrollport(img, port, margin), false);
+  assert.equal(posterScrollportHasBox(img), false);
+  assert.equal(posterScrollportHasBox(port), true);
+});
+
+test("a zero-size scrollport is not near even when the card already has a box", () => {
+  const img = { top: 240, right: 400, bottom: 520, left: 40 };
+  const emptyPort = { top: 200, right: 200, bottom: 200, left: 200 };
+  assert.equal(posterScrollportHasBox(emptyPort), false);
+  assert.equal(posterIsNearScrollport(img, emptyPort, { x: 0, y: 0 }), false);
 });
 
 test("YouTube cards rewrite maxres thumbnails and fill missing artwork", () => {

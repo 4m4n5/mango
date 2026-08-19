@@ -228,6 +228,10 @@ if 'poster.loading = "lazy"' in home or 'poster.loading = "lazy"' in detail:
     raise SystemExit("library posters must not use native loading=lazy")
 if "posterIsNearScrollport" not in poster or "IntersectionObserver" not in poster:
     raise SystemExit("poster.ts missing scrollport-rooted deferred artwork loader")
+if "ResizeObserver" not in poster or "watchPosterScrollport" not in poster:
+    raise SystemExit("poster.ts must re-arm artwork when the rails scrollport resizes or scrolls")
+if "posterScrollportHasBox" not in poster:
+    raise SystemExit("poster.ts must wait for a non-zero rails box before observing artwork")
 home_mount = main.split("function finishHomeRender", 1)[1].split(
     "function ensureAppsSection", 1,
 )[0]

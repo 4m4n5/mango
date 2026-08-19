@@ -80,21 +80,25 @@ type Box = { top: number; right: number; bottom: number; left: number };
 
 /**
  * True when `img` overlaps the scrollport expanded by `marginPx`.
- * A zero-size box is not near — layout has not happened yet, so callers
- * should observe instead of assigning `src`.
+ * A zero-size image or scroller is not near — layout has not happened yet.
  */
 export function posterIsNearScrollport(
   img: Box,
   root: Box,
   marginPx: { x: number; y: number },
 ): boolean {
-  if (img.right - img.left <= 0 || img.bottom - img.top <= 0) {
+  if (!posterScrollportHasBox(img) || !posterScrollportHasBox(root)) {
     return false;
   }
   return img.bottom >= root.top - marginPx.y
     && img.top <= root.bottom + marginPx.y
     && img.right >= root.left - marginPx.x
     && img.left <= root.right + marginPx.x;
+}
+
+/** False until the scroller (or card) has a real layout box. */
+export function posterScrollportHasBox(box: Box): boolean {
+  return box.right - box.left > 0 && box.bottom - box.top > 0;
 }
 
 function revealDeferredPoster(img: HTMLImageElement): void {
@@ -104,6 +108,16 @@ function revealDeferredPoster(img: HTMLImageElement): void {
 }
 
 const posterObservers = new WeakMap<Element, IntersectionObserver>();
+const posterArmRootByScrollport = new WeakMap<Element, ParentNode>();
+const watchedPosterScrollports = new WeakSet<Element>();
+const posterArmFrameByScrollport = new WeakMap<Element, number>();
+
+function posterLayoutBox(img: HTMLImageElement): DOMRect {
+  const rect = img.getBoundingClientRect();
+  if (posterScrollportHasBox(rect)) return rect;
+  const host = img.closest(".poster-frame, .card--poster");
+  return host instanceof Element ? host.getBoundingClientRect() : rect;
+}
 
 function posterObserverFor(root: Element): IntersectionObserver {
   const existing = posterObservers.get(root);
@@ -129,6 +143,28 @@ function posterObserverFor(root: Element): IntersectionObserver {
   return observer;
 }
 
+function schedulePosterArm(scrollport: Element): void {
+  if (posterArmFrameByScrollport.has(scrollport)) return;
+  const frame = requestAnimationFrame(() => {
+    posterArmFrameByScrollport.delete(scrollport);
+    const root = posterArmRootByScrollport.get(scrollport);
+    if (root) armDeferredPosterSourcesNow(root, scrollport);
+  });
+  posterArmFrameByScrollport.set(scrollport, frame);
+}
+
+function watchPosterScrollport(scrollport: Element): void {
+  if (watchedPosterScrollports.has(scrollport)) return;
+  watchedPosterScrollports.add(scrollport);
+  // Pi Chromium often skips the IntersectionObserver initial callback on an
+  // overflow root until that root scrolls. D-pad scrollIntoView was making
+  // in-view VOD art appear only after moving across rails.
+  scrollport.addEventListener("scroll", () => schedulePosterArm(scrollport), { passive: true });
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(() => schedulePosterArm(scrollport)).observe(scrollport);
+  }
+}
+
 function armDeferredPosterSourcesNow(
   root: ParentNode,
   scrollport: Element | null | undefined,
@@ -142,17 +178,20 @@ function armDeferredPosterSourcesNow(
     return;
   }
 
-  // Reading layout here is the point: native loading=lazy skipped fetch when
-  // src was assigned on a disconnected node, then often never re-checked
-  // after attach or programmatic D-pad scroll inside .rails.
   const rootRect = port.getBoundingClientRect();
+  if (!posterScrollportHasBox(rootRect)) {
+    // Flex `.rails` can still be 0-height on the first attach frame. Observing
+    // against a zero box never intersects; wait for resize/scroll instead.
+    return;
+  }
+
   const marginPx = {
     x: rootRect.width * POSTER_SCROLLPORT_MARGIN_RATIO,
     y: rootRect.height * POSTER_SCROLLPORT_MARGIN_RATIO,
   };
   const observer = posterObserverFor(port);
   for (const img of images) {
-    if (posterIsNearScrollport(img.getBoundingClientRect(), rootRect, marginPx)) {
+    if (posterIsNearScrollport(posterLayoutBox(img), rootRect, marginPx)) {
       observer.unobserve(img);
       revealDeferredPoster(img);
     } else {
@@ -168,17 +207,24 @@ function armDeferredPosterSourcesNow(
  * (Detail related: a handful of already-attached cards). With `scrollport`,
  * only posters near that box fetch now; the rest wait on an observer rooted
  * at the actual scroller, not the layout viewport.
+ *
+ * IntersectionObserver is not enough on its own: a zero-size overflow root
+ * and Chromium's missing initial callback both leave in-view cards blank
+ * until a later D-pad `scrollIntoView`. Resize and scroll re-run the
+ * layout-near check so first paint does not depend on focus movement.
  */
 export function armDeferredPosterSources(
   root: ParentNode,
   scrollport?: Element | null,
 ): void {
+  if (scrollport instanceof Element) {
+    posterArmRootByScrollport.set(scrollport, root);
+    watchPosterScrollport(scrollport);
+  }
   armDeferredPosterSourcesNow(root, scrollport);
   if (!(scrollport instanceof Element)) return;
   if (root.querySelector("img[data-poster-src]") === null) return;
-  requestAnimationFrame(() => {
-    armDeferredPosterSourcesNow(root, scrollport);
-  });
+  schedulePosterArm(scrollport);
 }
 
 function posterInitials(title: string): string {
