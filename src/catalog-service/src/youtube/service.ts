@@ -190,12 +190,15 @@ function youtubePotServerUp(): boolean {
   }
   const up = (() => {
     try {
-      const result = spawnSync('curl', ['-sf', '--max-time', '1', `http://127.0.0.1:${port}/ping`], {
-        encoding: 'utf8',
-        timeout: 2000,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      return result.status === 0;
+      const ping = (url: string): boolean => {
+        const result = spawnSync('curl', ['-sf', '--max-time', '1', url], {
+          encoding: 'utf8',
+          timeout: 2000,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        return result.status === 0;
+      };
+      return ping(`http://127.0.0.1:${port}/ping`) || ping(`http://[::1]:${port}/ping`);
     } catch {
       return false;
     }
@@ -206,6 +209,11 @@ function youtubePotServerUp(): boolean {
 
 function isNightlyYoutubeRefresh(reason: string): boolean {
   return /(?:nightly|scheduled|maintenance)/i.test(reason);
+}
+
+function isYoutubeBackgroundSearchBudgetError(error: string | null | undefined): boolean {
+  if (!error) return false;
+  return /background search paused|search-call quota exhausted|quota unavailable/i.test(error);
 }
 
 function isDeepYoutubeDiscoveryRefresh(reason: string): boolean {
@@ -1512,11 +1520,16 @@ export class YoutubeService {
 
   private async refreshV2SubscribedLiveFromApi(reason: string): Promise<void> {
     const nightly = isNightlyYoutubeRefresh(reason);
-    if (!nightly || !this.config.api_key) {
+    const remainingSearchCalls = youtubeRefreshStatus().background_search_calls_remaining;
+    if (!nightly || !this.config.api_key || remainingSearchCalls <= 0) {
       setYoutubeState('youtube_v2_live_acquisition', {
         channels_probed: 0,
         candidates_acquired: 0,
-        skipped: nightly ? 'api_key_not_configured' : 'not_nightly',
+        skipped: !nightly
+          ? 'not_nightly'
+          : !this.config.api_key
+            ? 'api_key_not_configured'
+            : 'search_budget',
         acquired_at: nowMs(),
       });
       return;
@@ -1528,7 +1541,7 @@ export class YoutubeService {
       ? Math.max(0, getYoutubeState<number>('youtube_v2_live_probe_cursor', 0)) % allChannels.length
       : 0;
     const rotated = [...allChannels.slice(cursor), ...allChannels.slice(0, cursor)];
-    const channels = rotated.slice(0, YOUTUBE_V2_LIVE_QUERY_CAP);
+    const channels = rotated.slice(0, Math.min(YOUTUBE_V2_LIVE_QUERY_CAP, remainingSearchCalls));
     setYoutubeState(
       'youtube_v2_live_probe_cursor',
       allChannels.length > 0 ? (cursor + channels.length) % allChannels.length : 0,
@@ -1574,6 +1587,7 @@ export class YoutubeService {
       }));
     upsertYoutubeV2CandidateProvenance(provenance);
     const failures = results.filter((row) => row.error);
+    const hardFailures = failures.filter((row) => !isYoutubeBackgroundSearchBudgetError(row.error));
     setYoutubeState('youtube_v2_live_acquisition', {
       channels_probed: channels.length,
       query_cap: YOUTUBE_V2_LIVE_QUERY_CAP,
@@ -1581,10 +1595,11 @@ export class YoutubeService {
       candidates_acquired: provenance.length,
       acquired_at: acquiredAt,
       expires_at: acquiredAt + YOUTUBE_V2_LIVE_TTL_MS,
+      ...(hardFailures.length === 0 && failures.length > 0 ? { skipped: 'search_budget' } : {}),
     });
-    if (failures.length > 0) {
+    if (hardFailures.length > 0) {
       throw new Error(
-        `YouTube v2 subscribed-live acquisition was partial: ${failures.length}/${channels.length} probes failed; ${failures[0]?.error || 'source request failed'}`,
+        `YouTube v2 subscribed-live acquisition was partial: ${hardFailures.length}/${channels.length} probes failed; ${hardFailures[0]?.error || 'source request failed'}`,
       );
     }
   }

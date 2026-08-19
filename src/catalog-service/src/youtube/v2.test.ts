@@ -1860,6 +1860,64 @@ test('one failed Live probe retains the complete last-good generation', () => wi
   assert.equal(retained.stale_reason, 'live_acquisition_failed');
 }));
 
+test('nightly skips subscribed-live probes when background search is exhausted and still publishes', () => withTempState(async () => {
+  const now = Date.now();
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  writeFileSync(process.env.MANGO_YOUTUBE_AUTH_TOKEN_FILE!, JSON.stringify({
+    access_token: 'test-access-token', expires_at: now + 60 * 60 * 1_000,
+  }));
+  const seeded = seedV2();
+  const published = rebuildYoutubeV2Generation({ force: true, at: now })!;
+  const quota = youtubeRefreshStatus();
+  setYoutubeState('quota', {
+    day: quota.quota_reset_day,
+    units: 0,
+    search_calls: quota.search_call_budget - quota.interactive_search_call_reserve,
+    api_calls: 0,
+    accounting_version: 2,
+  });
+  const service = new YoutubeService();
+  let liveProbes = 0;
+  const api = (service as unknown as { api: {
+    authorizedChannel: () => Promise<{ id: string; title: string; thumbnail: string | null }>;
+    subscriptions: () => Promise<YoutubeItem[]>;
+    channelUploadPlaylists: () => Promise<Map<string, string>>;
+    searchRecommendationVideos: (
+      query: string, options: { eventType?: string; channelId?: string },
+    ) => Promise<ReturnType<typeof rankedVideos>>;
+    videos: () => Promise<YoutubeItem[]>;
+  } }).api;
+  api.authorizedChannel = async () => ({ id: 'owner', title: 'Owner', thumbnail: null });
+  api.subscriptions = async () => [...seeded.subscriptionChannels].map((channel) => ({
+    ...video(channel, `Channel ${channel}`, channel), kind: 'channel',
+  }));
+  api.channelUploadPlaylists = async () => new Map();
+  api.videos = async () => [];
+  api.searchRecommendationVideos = async (_query, options) => {
+    if (options.eventType === 'live') {
+      liveProbes += 1;
+      throw new Error('YouTube background search paused to preserve couch search');
+    }
+    return [];
+  };
+
+  const result = await service.refresh('nightly');
+  assert.equal(result.ok, true);
+  assert.equal(liveProbes, 0);
+  assert.equal(result.phases?.find((phase) => phase.phase === 'v2_live_acquisition')?.ok, true);
+  assert.equal(result.phases?.find((phase) => phase.phase === 'v2_publish')?.ok, true);
+  assert.ok((latestYoutubeV2GenerationRecord()?.generation ?? 0) >= published.generation);
+  const liveState = getYoutubeState<{ skipped?: string; channels_probed: number }>(
+    'youtube_v2_live_acquisition', { channels_probed: 0 },
+  );
+  assert.equal(liveState.skipped, 'search_budget');
+  assert.equal(liveState.channels_probed, 0);
+  const rails = await service.rails();
+  assert.equal(rails.recommendations_status, 'ready');
+  assert.equal(rails.stale_reason ?? null, null);
+}));
+
 test('nightly probes at most eight authoritative subscribed channels for live streams just before publish', () => withTempState(async () => {
   const now = Date.now();
   process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';

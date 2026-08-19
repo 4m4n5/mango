@@ -16,7 +16,8 @@ usage() {
 }
 
 ping_ok() {
-  curl -sf --max-time 1 "http://127.0.0.1:${PORT}/ping" >/dev/null 2>&1
+  curl -sf --max-time 1 "http://127.0.0.1:${PORT}/ping" >/dev/null 2>&1 \
+    || curl -sf --max-time 1 "http://[::1]:${PORT}/ping" >/dev/null 2>&1
 }
 
 cmd="${1:-}"

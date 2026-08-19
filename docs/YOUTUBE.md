@@ -358,7 +358,11 @@ currently live streams from the authoritative subscription snapshot; it never
 runs a generic live search. OAuth loss serves an explicitly stale last-good
 snapshot. A partial authoritative subscription, discovery, or Live source pass
 or a publication failure cannot advance the generation; a clean zero-result
-source and the clean 90-second bounded stop may. Publication failure is exposed
+source, a Live skip that protects the Search reserve, and the clean
+90-second bounded stop may. Nightly Live probes spend at most eight
+background `search.list` calls and do not run at all when that reserve is
+already exhausted, so a later timer cannot paint every recommendation rail
+stale after a deep discovery night. Publication failure is exposed
 as the fixed `publication_failed` stale reason. Bounded repair
 of already-imported history metadata is best-effort, while recommendation
 Search enrichment itself fails closed before persistence. Nightly upload acquisition rotates through every authoritative
