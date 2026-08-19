@@ -816,8 +816,16 @@ append_mpv_buffer_args() {
     --hwdec="$HWDEC"
     --input-ipc-server="$SOCKET"
     --vo=null
-    --ao=null
   )
+  if is_youtube_stream; then
+    # Reopening HDMI ALSA after ao=null returns errno 524 and mpv deselects
+    # the audio track. YouTube HLS is 1080p; keep the real AO from t=0.
+    if (( ${#audio_args[@]} > 0 )); then
+      mpv_args+=("${audio_args[@]}")
+    fi
+  else
+    mpv_args+=(--ao=null)
+  fi
   append_mpv_gpu_startup_args
   append_mpv_vod_startup_policy_args
   if [[ -n "$AUDIO_URL" ]]; then
@@ -851,24 +859,27 @@ enable_mpv_display_once() {
   printf '%s\n' '{"command":["set_property","fullscreen",true]}' | socat - "$SOCKET" >/dev/null 2>&1 || return 1
   # Deferred VOD starts with ao=null. Explicitly restore mpv's automatic AO
   # selection when no device override exists; otherwise audio remains muted.
-  local ao="${MANGO_MPV_AO:-auto}" device="" pending_device=false
-  if (( ${#audio_args[@]} > 0 )); then
-    for arg in "${audio_args[@]}"; do
-      if $pending_device; then
-        device="$arg"
-        pending_device=false
-        continue
-      fi
-      case "$arg" in
-        --ao=*) ao="${arg#--ao=}" ;;
-        --audio-device=*) device="${arg#--audio-device=}" ;;
-        --audio-device) pending_device=true ;;
-      esac
-    done
-  fi
-  printf '{"command":["set_property","ao","%s"]}\n' "$ao" | socat - "$SOCKET" >/dev/null 2>&1 || true
-  if [[ -n "$device" ]]; then
-    printf '{"command":["set_property","audio-device","%s"]}\n' "$device" | socat - "$SOCKET" >/dev/null 2>&1 || true
+  # YouTube already opened the real AO at spawn (HDMI ALSA 524s on reopen).
+  if ! is_youtube_stream; then
+    local ao="${MANGO_MPV_AO:-auto}" device="" pending_device=false
+    if (( ${#audio_args[@]} > 0 )); then
+      for arg in "${audio_args[@]}"; do
+        if $pending_device; then
+          device="$arg"
+          pending_device=false
+          continue
+        fi
+        case "$arg" in
+          --ao=*) ao="${arg#--ao=}" ;;
+          --audio-device=*) device="${arg#--audio-device=}" ;;
+          --audio-device) pending_device=true ;;
+        esac
+      done
+    fi
+    printf '{"command":["set_property","ao","%s"]}\n' "$ao" | socat - "$SOCKET" >/dev/null 2>&1 || true
+    if [[ -n "$device" ]]; then
+      printf '{"command":["set_property","audio-device","%s"]}\n' "$device" | socat - "$SOCKET" >/dev/null 2>&1 || true
+    fi
   fi
   apply_4k_video_sync
   return 0
