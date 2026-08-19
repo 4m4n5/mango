@@ -260,8 +260,10 @@ else
 fi
 
 if awk '/^enable_mpv_display_once\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh \
+    | grep -q 'restore_mpv_ao' \
+  && awk '/^restore_mpv_ao\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh \
     | grep -q 'MANGO_MPV_AO:-auto' \
-  && awk '/^enable_mpv_display_once\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh \
+  && awk '/^restore_mpv_ao\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh \
     | grep -q '"set_property","ao"'; then
   gate_pass "deferred VOD handoff restores audio output"
 else
