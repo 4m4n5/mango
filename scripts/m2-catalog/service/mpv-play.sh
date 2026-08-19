@@ -309,6 +309,18 @@ raise SystemExit(0)
 PY
 }
 
+mpv_fail_known_error() {
+  if tail -80 "$MPV_LOG" 2>/dev/null | grep -qiE 'copyright infringement|removed from.*debrid|file was removed'; then
+    echo "FAIL: debrid_copyright_block" >&2
+    return 0
+  fi
+  if is_youtube_stream && tail -80 "$MPV_LOG" 2>/dev/null | grep -qiE 'HTTP error 403|403 Forbidden'; then
+    echo "FAIL: HTTP error 403" >&2
+    return 0
+  fi
+  return 1
+}
+
 play_cancelled() {
   [[ -n "${MANGO_PLAY_EPOCH:-}" ]] || return 1
   [[ -f "$PLAY_CANCEL_FILE" ]] || return 1
@@ -1142,7 +1154,9 @@ if ! $PROBE; then
   if [[ -n "$video_width" && -n "$video_height" && -n "$video_fps" ]]; then
     video_label="${video_width}x${video_height}@${video_fps}"
   fi
-  if [[ "${MANGO_MPV_SKIP_FFPROBE:-0}" != "1" ]] \
+  if is_youtube_stream; then
+    : # googlevideo rejects unscoped GET; ffprobe 403s and burns the start budget
+  elif [[ "${MANGO_MPV_SKIP_FFPROBE:-0}" != "1" ]] \
     && [[ -z "$video_width" || -z "$video_height" || -z "$video_fps" ]]; then
     if profile="$(detect_video_profile 2>/dev/null || true)" && [[ -n "$profile" ]]; then
       read -r video_width video_height video_fps video_duration <<<"$profile"
@@ -1191,6 +1205,12 @@ else
   if ! $PROBE && [[ "$DEFER_FOREGROUND" != "1" ]]; then
     foreground_handoff
   fi
+fi
+if is_youtube_stream; then
+  # Direct googlevideo URLs must not go back through ytdl_hook (it re-fetches
+  # the CDN URL as a webpage and 403s). --no-terminal swallows ffmpeg errors
+  # unless --log-file is set.
+  mpv_args+=(--ytdl=no --log-file="$MPV_LOG")
 fi
 if [[ "${MANGO_MPV_PRINT_ARGS:-0}" == "1" ]]; then
   printf '%s\n' "${mpv_args[@]}"
@@ -1274,8 +1294,7 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
     fi
   fi
   if ! kill -0 "$MPV_PID" 2>/dev/null; then
-    if tail -40 "$MPV_LOG" 2>/dev/null | grep -qiE 'copyright infringement|removed from.*debrid|file was removed'; then
-      echo "FAIL: debrid_copyright_block" >&2
+    if mpv_fail_known_error; then
       MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
       exit 1
     fi
@@ -1284,8 +1303,7 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
   sleep 0.2
 done
 
-if tail -40 "$MPV_LOG" 2>/dev/null | grep -qiE 'copyright infringement|removed from.*debrid|file was removed'; then
-  echo "FAIL: debrid_copyright_block" >&2
+if mpv_fail_known_error; then
   MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
   exit 1
 fi

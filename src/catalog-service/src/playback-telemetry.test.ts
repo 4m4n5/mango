@@ -134,6 +134,18 @@ test('play terminal telemetry records a bounded failure kind and true stage', ()
   assert.equal(youtubeTimeout.failure_kind, 'timeout');
   assert.equal(youtubeTimeout.stage, 'resolve');
 
+  const missingJs = playRequestTerminalTelemetryFields({
+    requestId: 'yt-js',
+    epoch: 9,
+    contentType: 'youtube',
+    outcome: 'failed_before_frame',
+    failureClass: 'provider',
+    stage: 'resolve',
+    failureKind: 'js_runtime',
+    totalMs: 50,
+  });
+  assert.equal(missingJs.failure_kind, 'js_runtime');
+
   const unknownKind = playRequestTerminalTelemetryFields({
     requestId: 'yt-secret',
     epoch: 9,

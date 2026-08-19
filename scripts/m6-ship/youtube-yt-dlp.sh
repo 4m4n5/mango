@@ -7,6 +7,11 @@ set -euo pipefail
 
 VENV="${MANGO_YTDLP_VENV:-$HOME/.local/share/mango/ytdlp-venv}"
 BIN="$VENV/bin/yt-dlp"
+DENO_BIN="${MANGO_DENO:-$HOME/.local/share/mango/deno/bin/deno}"
+
+if [[ -x "$DENO_BIN" ]]; then
+  export PATH="$(dirname "$DENO_BIN"):$PATH"
+fi
 
 if [[ -x "$BIN" ]]; then
   exec "$BIN" "$@"

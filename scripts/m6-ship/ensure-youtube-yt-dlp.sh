@@ -11,6 +11,11 @@ VENV="${MANGO_YTDLP_VENV:-$HOME/.local/share/mango/ytdlp-venv}"
 BIN="$VENV/bin/yt-dlp"
 STAMP="$VENV/.mango-last-update"
 INTERVAL_SEC="${MANGO_YTDLP_UPDATE_INTERVAL_SEC:-86400}"
+# yt-dlp 2026.07+ refuses Node <22 and Deno <2.3 for YouTube JS challenges.
+# Debian Node on the Pi is 20, so playback URLs 403 in ffmpeg/mpv without Deno.
+DENO_DIR="${MANGO_DENO_DIR:-$HOME/.local/share/mango/deno}"
+DENO_BIN="$DENO_DIR/bin/deno"
+DENO_VERSION="${MANGO_DENO_VERSION:-2.9.5}"
 
 mkdir -p "$(dirname "$VENV")"
 
@@ -61,6 +66,76 @@ if [[ "$needs_update" == "1" ]]; then
     echo "youtube yt-dlp: install failed and no fallback yt-dlp exists" >&2
     exit 1
   fi
+fi
+
+deno_target() {
+  local arch
+  arch="$(uname -m)"
+  case "$arch" in
+    aarch64 | arm64) printf '%s\n' "aarch64-unknown-linux-gnu" ;;
+    x86_64 | amd64) printf '%s\n' "x86_64-unknown-linux-gnu" ;;
+    *)
+      echo "youtube deno: unsupported arch $arch" >&2
+      return 1
+      ;;
+  esac
+}
+
+deno_needs_install() {
+  [[ "${MANGO_DENO_UPDATE:-auto}" == "0" ]] && return 1
+  if [[ ! -x "$DENO_BIN" ]]; then
+    return 0
+  fi
+  local current
+  current="$("$DENO_BIN" --version 2>/dev/null | awk '/^deno / { print $2; exit }')"
+  [[ "$current" != "$DENO_VERSION" ]]
+}
+
+install_deno() {
+  local target zip tmp sha_file
+  target="$(deno_target)" || return 1
+  command -v unzip >/dev/null 2>&1 || {
+    echo "youtube deno: unzip is required to install Deno" >&2
+    return 1
+  }
+  mkdir -p "$DENO_DIR/bin"
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/mango-deno.XXXXXX")"
+  zip="$tmp/deno.zip"
+  sha_file="$tmp/deno.zip.sha256"
+  if ! curl -fsSL --retry 3 --retry-delay 2 --max-time 180 \
+    "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-${target}.zip" \
+    -o "$zip"; then
+    rm -rf "$tmp"
+    echo "youtube deno: download failed for v${DENO_VERSION} ${target}" >&2
+    return 1
+  fi
+  if curl -fsSL --max-time 30 \
+    "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-${target}.zip.sha256sum" \
+    -o "$sha_file"; then
+    # GitHub checksum file is "<hash>  <filename>". Hash the downloaded zip.
+    local expected actual
+    expected="$(awk '{ print $1 }' "$sha_file")"
+    actual="$(sha256sum "$zip" | awk '{ print $1 }')"
+    if [[ -n "$expected" && "$expected" != "$actual" ]]; then
+      rm -rf "$tmp"
+      echo "youtube deno: checksum mismatch for v${DENO_VERSION}" >&2
+      return 1
+    fi
+  fi
+  unzip -qo "$zip" -d "$tmp" || {
+    rm -rf "$tmp"
+    echo "youtube deno: unzip failed" >&2
+    return 1
+  }
+  install -m 0755 "$tmp/deno" "$DENO_BIN"
+  rm -rf "$tmp"
+  echo "youtube deno: $("$DENO_BIN" --version | awk '/^deno / { print $2; exit }') ($DENO_BIN)"
+}
+
+if deno_needs_install; then
+  install_deno || echo "youtube deno: install failed; YouTube playback needs deno>=2.3 or node>=22" >&2
+elif [[ -x "$DENO_BIN" ]]; then
+  echo "youtube deno: $("$DENO_BIN" --version | awk '/^deno / { print $2; exit }') ($DENO_BIN)"
 fi
 
 if [[ -x "$BIN" ]]; then

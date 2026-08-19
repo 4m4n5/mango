@@ -61,6 +61,15 @@ case "$yt_dlp_kind" in
     ;;
   mango_wrapper)
     timeout 15 "$REPO_ROOT/scripts/m6-ship/youtube-yt-dlp.sh" --version >/dev/null
+    deno_bin="${MANGO_DENO:-$HOME/.local/share/mango/deno/bin/deno}"
+    if [[ -x "$deno_bin" ]]; then
+      timeout 10 "$deno_bin" --version >/dev/null
+    elif command -v deno >/dev/null 2>&1; then
+      timeout 10 deno --version >/dev/null
+    else
+      echo "FAIL: YouTube JS runtime missing (Deno >=2.3). Run scripts/m6-ship/ensure-youtube-yt-dlp.sh" >&2
+      exit 1
+    fi
     ;;
   missing)
     ;;

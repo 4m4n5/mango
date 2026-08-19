@@ -1,4 +1,6 @@
-import { execFile, type ExecFileException } from 'node:child_process';
+import { execFile, spawnSync, type ExecFileException } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { CatalogError } from '../catalog-errors.js';
 import { classifyPlayError } from '../play-error-classify.js';
 import type { YoutubeConfig } from './config.js';
@@ -32,6 +34,7 @@ export const YOUTUBE_FAILURE_KINDS = [
   'blocked',
   'format_unavailable',
   'unavailable',
+  'js_runtime',
   'mpv_handoff',
   'other',
 ] as const;
@@ -68,14 +71,12 @@ export function youtubeYtDlpResolveArgs(
     '--format-sort',
     process.env.MANGO_YTDLP_FORMAT_SORT?.trim() || YOUTUBE_FORMAT_SORT,
   ];
-  // yt-dlp 2026.07 enables only deno by default. The Pi has node, not deno;
-  // without an explicit runtime, web/web_safari formats are skipped and some
-  // 4K DASH never appears. Do not pin player_client: tv/android/ios replaced
-  // defaults and left only 360p muxed.
-  const jsRuntimes = process.env.MANGO_YTDLP_JS_RUNTIMES?.trim();
-  if (jsRuntimes !== 'none' && jsRuntimes !== '0') {
-    args.push('--js-runtimes', jsRuntimes || 'node');
-  }
+  // yt-dlp 2026.07 solves YouTube n-sig/PO challenges only with a supported
+  // JS runtime (Deno >=2.3 or Node >=22). Debian Node 20 is detected and
+  // ignored, which yields googlevideo URLs ffmpeg/mpv immediately 403. Prefer
+  // Mango-owned Deno, then Deno/Node on PATH. Do not pin player_client:
+  // tv/android/ios replaced defaults and left only 360p muxed.
+  args.push(...youtubeJsRuntimeArgs());
   const extractorArgs = process.env.MANGO_YTDLP_EXTRACTOR_ARGS?.trim();
   if (extractorArgs) {
     args.push('--extractor-args', extractorArgs);
@@ -93,6 +94,56 @@ export function youtubeYtDlpResolveArgs(
 
 function requestedFormatUnavailable(text: string): boolean {
   return /requested format is not available/i.test(text);
+}
+
+export function mangoDenoPath(): string {
+  return process.env.MANGO_DENO?.trim()
+    || `${homedir()}/.local/share/mango/deno/bin/deno`;
+}
+
+function denoOnPath(): boolean {
+  const result = spawnSync('deno', ['--version'], {
+    encoding: 'utf8',
+    timeout: 4000,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  return result.status === 0;
+}
+
+/** yt-dlp 2026.07+ can solve YouTube n-sig only with Deno >=2.3 or Node >=22. */
+export function youtubeJsRuntimeAvailable(): boolean {
+  const raw = process.env.MANGO_YTDLP_JS_RUNTIMES?.trim();
+  if (raw === 'none' || raw === '0') {
+    return true;
+  }
+  return existsSync(mangoDenoPath()) || denoOnPath();
+}
+
+function throwMissingYoutubeJsRuntime(): never {
+  throw new CatalogError(
+    503,
+    'YouTube playback is missing a JavaScript runtime',
+    youtubeFailureDetails('js_runtime', 'resolve'),
+    {
+      couchMessage: 'YouTube playback is unavailable right now — try another video',
+    },
+  );
+}
+
+/** yt-dlp --js-runtimes values. Empty when the operator disables JS challenges. */
+export function youtubeJsRuntimeArgs(): string[] {
+  const raw = process.env.MANGO_YTDLP_JS_RUNTIMES?.trim();
+  if (raw === 'none' || raw === '0') {
+    return [];
+  }
+  if (raw) {
+    return ['--js-runtimes', raw];
+  }
+  const deno = mangoDenoPath();
+  if (existsSync(deno)) {
+    return ['--js-runtimes', `deno:${deno}`, '--js-runtimes', 'node'];
+  }
+  return ['--js-runtimes', 'deno', '--js-runtimes', 'node'];
 }
 
 export function youtubeSocketTimeoutSec(): number {
@@ -120,6 +171,13 @@ export function classifyYtDlpError(text: string): {
   message: string;
   kind: YoutubeFailureKind;
 } {
+  if (/No supported JavaScript runtime|JS Challenge Providers:.*all unavailable/i.test(text)) {
+    return {
+      status: 503,
+      kind: 'js_runtime',
+      message: 'YouTube playback is missing a JavaScript runtime',
+    };
+  }
   if (requestedFormatUnavailable(text)) {
     return {
       status: 502,
@@ -176,7 +234,10 @@ export function youtubeFailureDetails(
 
 export function youtubeMpvFailureKind(message: string): YoutubeFailureKind {
   if (/\bmpv vo not ready\b|\bmpv handoff failed\b/i.test(message)) return 'mpv_handoff';
-  if (TRANSIENT_YOUTUBE_RESOLVE_RE.test(message)) return 'timeout';
+  if (/HTTP (?:error )?403\b|\bforbidden\b/i.test(message)) return 'blocked';
+  if (TRANSIENT_YOUTUBE_RESOLVE_RE.test(message) || /did not start playback/i.test(message)) {
+    return 'timeout';
+  }
   return 'other';
 }
 
@@ -187,7 +248,13 @@ export function isTransientYoutubeResolveError(error: unknown): boolean {
     }
     const kind = error.details?.failure_kind;
     if (kind === 'timeout') return true;
-    if (kind === 'format_unavailable' || kind === 'blocked' || kind === 'bot_check' || kind === 'unavailable') {
+    if (
+      kind === 'format_unavailable'
+      || kind === 'blocked'
+      || kind === 'bot_check'
+      || kind === 'unavailable'
+      || kind === 'js_runtime'
+    ) {
       return false;
     }
     const detail = typeof error.details?.yt_dlp === 'string' ? error.details.yt_dlp : error.message;
@@ -274,6 +341,9 @@ async function resolveYoutubePlaybackFresh(
   timeoutMs = 30000,
   excludedFormats: string[] = [],
 ): Promise<YoutubeResolvedPlayback> {
+  if (!youtubeJsRuntimeAvailable()) {
+    throwMissingYoutubeJsRuntime();
+  }
   const started = Date.now();
   let lastFormatError = '';
   for (const format of ytDlpFormatCandidates(config.yt_dlp_format, excludedFormats)) {
@@ -301,6 +371,9 @@ async function resolveYoutubePlaybackFresh(
       continue;
     }
     const { stdout, stderr } = result;
+    if (/No supported JavaScript runtime|JS Challenge Providers:.*all unavailable/i.test(stderr)) {
+      throwMissingYoutubeJsRuntime();
+    }
     const resolved = parseYtDlpResolvedUrls(stdout);
     if (resolved) {
       const payload = {

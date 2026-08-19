@@ -177,5 +177,5 @@ journalctl _SYSTEMD_USER_UNIT=mango-catalog.service --since '-30 min' --no-pager
 Do not use `journalctl --user -u mango-catalog.service` — it returns no entries
 here because user journal files are not persisted. Failure records include
 bounded `failure_class`, `stage`, and `failure_kind` (`timeout`, `bot_check`,
-`blocked`, `format_unavailable`, `unavailable`, `mpv_handoff`, `other`). They
-never include titles, content IDs, URLs, or raw provider errors.
+`blocked`, `format_unavailable`, `unavailable`, `js_runtime`, `mpv_handoff`,
+`other`). They never include titles, content IDs, URLs, or raw provider errors.

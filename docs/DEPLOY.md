@@ -203,7 +203,8 @@ If `git pull --ff-only` fails on Pi:
 | API/OAuth/debrid/cookie files | Provision locally through their operator workflow; never copy from Git |
 
 YouTube playback resolver: `bash scripts/m6-ship/ensure-youtube-yt-dlp.sh`
-installs/updates an isolated user venv under `~/.local/share/mango/ytdlp-venv`.
+installs/updates an isolated user venv under `~/.local/share/mango/ytdlp-venv`
+and a Mango-owned Deno runtime under `~/.local/share/mango/deno` (YouTube n-sig).
 This is allowed operator-owned runtime state; do not commit or copy it.
 
 ---

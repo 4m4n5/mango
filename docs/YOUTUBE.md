@@ -88,16 +88,21 @@ HDR VP9.2 made mpv reject the stream and the only retry was 1080p H.264.
 If mpv rejects the first split stream, Mango retries 1440p DASH, then
 H.264+AAC 1080p DASH. Muxed progressive is never a candidate. Mango does not
 pin `player_client`: a forced `tv,android,ios` set replaced yt-dlp defaults
-and left only muxed itag 18 (360p). Resolve passes `--js-runtimes node`
-because this yt-dlp enables only deno by default and the Pi has node; without
-a JS runtime, web formats are skipped. YouTube 30 fps stays on 1080p60 HDMI
+and left only muxed itag 18 (360p). yt-dlp 2026.07+ solves YouTube n-sig / PO
+challenges only with **Deno ≥ 2.3** or **Node ≥ 22**. Debian Node on the Pi is
+20 and is ignored (`unsupported`), which still emits googlevideo URLs that
+ffmpeg/mpv immediately HTTP 403. Resolve therefore prefers Mango-owned Deno
+(`~/.local/share/mango/deno/bin/deno`) via `--js-runtimes deno[:path]`, with
+Node as a secondary runtime, and fails closed if no supported JS runtime is
+present rather than handing mpv dead URLs. YouTube 30 fps stays on 1080p60 HDMI
 (not 30 Hz); film 24 fps still matches 24 Hz. Many YouTube titles simply have
 no 4K encode — the cap is then YouTube's, not Mango's. Couch retries walk a
 short DASH ladder (4K adaptive → 1440 → 1080p H.264), not every itag. This
 path uses no YouTube Data API quota. Legacy
 `/etc/mango` selectors that slash-or to `best` are upgraded to the same
 adaptive policy. Operators may set `MANGO_YTDLP_EXTRACTOR_ARGS` or
-`MANGO_YTDLP_JS_RUNTIMES` only as explicit overrides.
+`MANGO_YTDLP_JS_RUNTIMES` only as explicit overrides (`none` disables JS
+challenges and will 403 on current YouTube).
 
 ---
 
@@ -114,6 +119,7 @@ All live credentials are operator-owned under `/etc/mango`; never commit them.
 | `/etc/mango/library.db` | Durable Saved/history/feedback |
 | `/etc/mango/youtube-cookies.txt` | Optional `yt-dlp` cookies file |
 | `~/.local/share/mango/ytdlp-venv/` | User-owned updatable `yt-dlp` venv for playback resolution |
+| `~/.local/share/mango/deno/` | User-owned Deno ≥2.3 for YouTube JS challenges (n-sig / PO token) |
 
 Repo-safe examples:
 
@@ -554,7 +560,9 @@ MANGO_YOUTUBE_PLAY=1 bash scripts/m6-ship/gate-m6-youtube-smoke.sh
 
 The smoke gate executes only a recognized system `yt-dlp` binary or Mango
 wrapper descriptor, skips a genuinely missing command, and fails closed on a
-redacted custom-command descriptor that it cannot safely execute. It skips API
+redacted custom-command descriptor that it cannot safely execute. The Mango
+wrapper path also requires Deno ≥2.3 (or `deno` on PATH); without it yt-dlp
+still returns googlevideo URLs that ffmpeg/mpv HTTP 403. It skips API
 search when no API key is configured and skips playback unless
 `MANGO_YOUTUBE_PLAY=1`. Focused
 source tests cover mode/identity combinations, utility ownership, refresh

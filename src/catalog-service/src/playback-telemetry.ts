@@ -24,6 +24,7 @@ const PLAY_FAILURE_KINDS = [
   'blocked',
   'format_unavailable',
   'unavailable',
+  'js_runtime',
   'mpv_handoff',
   'other',
 ] as const;

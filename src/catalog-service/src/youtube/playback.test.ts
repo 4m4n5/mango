@@ -8,6 +8,8 @@ import {
   parseYtDlpResolvedUrls,
   preferAdaptiveYoutubeFormat,
   shouldRefreshYoutubeTransport,
+  youtubeJsRuntimeArgs,
+  youtubeJsRuntimeAvailable,
   youtubeMpvFailureKind,
   youtubeSocketTimeoutSec,
   youtubeYtDlpResolveArgs,
@@ -119,16 +121,65 @@ test('ytDlpFormatCandidates keeps 1080p H.264 after 4K and 1440 both fail', () =
   );
 });
 
-test('yt-dlp resolve sorts by resolution, uses node EJS, and leaves player clients to yt-dlp', () => {
-  const args = youtubeYtDlpResolveArgs({}, YOUTUBE_ADAPTIVE_FORMAT, 'dQw4w9WgXcQ');
-  assert.equal(args[args.indexOf('-f') + 1], YOUTUBE_ADAPTIVE_FORMAT);
-  assert.equal(args[args.indexOf('--format-sort') + 1], YOUTUBE_FORMAT_SORT);
-  assert.equal(args[args.indexOf('--js-runtimes') + 1], 'node');
-  assert.equal(args[args.indexOf('--socket-timeout') + 1], String(YOUTUBE_SOCKET_TIMEOUT_SEC));
-  assert.equal(args.includes('--extractor-args'), false);
-  assert.ok(args.includes('-g'));
-  assert.match(YOUTUBE_FORMAT_SORT, /vcodec:vp9:vp9\.2/);
-  assert.doesNotMatch(YOUTUBE_FORMAT_SORT, /hdr:12/);
+test('yt-dlp resolve prefers Deno then Node for YouTube JS challenges', () => {
+  const previousDeno = process.env.MANGO_DENO;
+  const previousRuntimes = process.env.MANGO_YTDLP_JS_RUNTIMES;
+  delete process.env.MANGO_DENO;
+  delete process.env.MANGO_YTDLP_JS_RUNTIMES;
+  try {
+    const args = youtubeYtDlpResolveArgs({}, YOUTUBE_ADAPTIVE_FORMAT, 'dQw4w9WgXcQ');
+    const runtimes: string[] = [];
+    for (let i = 0; i < args.length; i += 1) {
+      if (args[i] === '--js-runtimes' && args[i + 1]) {
+        runtimes.push(args[i + 1]);
+        i += 1;
+      }
+    }
+    assert.equal(args[args.indexOf('-f') + 1], YOUTUBE_ADAPTIVE_FORMAT);
+    assert.equal(args[args.indexOf('--format-sort') + 1], YOUTUBE_FORMAT_SORT);
+    assert.equal(runtimes.length, 2);
+    assert.match(runtimes[0], /^deno(?::.+)?$/);
+    assert.equal(runtimes[1], 'node');
+    assert.equal(args[args.indexOf('--socket-timeout') + 1], String(YOUTUBE_SOCKET_TIMEOUT_SEC));
+    assert.equal(args.includes('--extractor-args'), false);
+    assert.ok(args.includes('-g'));
+    assert.match(YOUTUBE_FORMAT_SORT, /vcodec:vp9:vp9\.2/);
+    assert.doesNotMatch(YOUTUBE_FORMAT_SORT, /hdr:12/);
+  } finally {
+    if (previousDeno === undefined) {
+      delete process.env.MANGO_DENO;
+    } else {
+      process.env.MANGO_DENO = previousDeno;
+    }
+    if (previousRuntimes === undefined) {
+      delete process.env.MANGO_YTDLP_JS_RUNTIMES;
+    } else {
+      process.env.MANGO_YTDLP_JS_RUNTIMES = previousRuntimes;
+    }
+  }
+});
+
+test('yt-dlp resolve pins an existing Mango Deno binary', () => {
+  const previousDeno = process.env.MANGO_DENO;
+  const previousRuntimes = process.env.MANGO_YTDLP_JS_RUNTIMES;
+  delete process.env.MANGO_YTDLP_JS_RUNTIMES;
+  process.env.MANGO_DENO = process.execPath;
+  try {
+    const args = youtubeJsRuntimeArgs();
+    assert.deepEqual(args, ['--js-runtimes', `deno:${process.execPath}`, '--js-runtimes', 'node']);
+    assert.equal(youtubeJsRuntimeAvailable(), true);
+  } finally {
+    if (previousDeno === undefined) {
+      delete process.env.MANGO_DENO;
+    } else {
+      process.env.MANGO_DENO = previousDeno;
+    }
+    if (previousRuntimes === undefined) {
+      delete process.env.MANGO_YTDLP_JS_RUNTIMES;
+    } else {
+      process.env.MANGO_YTDLP_JS_RUNTIMES = previousRuntimes;
+    }
+  }
 });
 
 test('yt-dlp resolve omits JS runtime when the operator disables it', () => {
@@ -195,6 +246,10 @@ test('classifyYtDlpError treats stalls as timeouts, not digit-matching HTTP code
   assert.equal(forbidden.status, 403);
   assert.equal(forbidden.kind, 'blocked');
 
+  const missingJs = classifyYtDlpError('WARNING: No supported JavaScript runtime could be found. Only deno is enabled by default');
+  assert.equal(missingJs.status, 503);
+  assert.equal(missingJs.kind, 'js_runtime');
+
   const digitsOnly = classifyYtDlpError(
     'ERROR: [youtube] watch?v=abc429xyz: Unable to extract player response',
   );
@@ -227,12 +282,19 @@ test('transient YouTube resolve errors retry; blocked and bot-check do not', () 
     failure_kind: 'format_unavailable',
   });
   assert.equal(isTransientYoutubeResolveError(format), false);
+
+  const missingJs = new CatalogError(503, 'YouTube playback is missing a JavaScript runtime', {
+    playback_stage: 'resolve',
+    failure_kind: 'js_runtime',
+  });
+  assert.equal(isTransientYoutubeResolveError(missingJs), false);
 });
 
 test('mpv start failures classify handoff separately from generic start errors', () => {
   assert.equal(youtubeMpvFailureKind('FAIL: mpv vo not ready after display enable'), 'mpv_handoff');
   assert.equal(youtubeMpvFailureKind('FAIL: mpv handoff failed'), 'mpv_handoff');
-  assert.equal(youtubeMpvFailureKind('FAIL: mpv did not start playback within 90000ms'), 'other');
+  assert.equal(youtubeMpvFailureKind('FAIL: HTTP error 403'), 'blocked');
+  assert.equal(youtubeMpvFailureKind('FAIL: mpv did not start playback within 90000ms'), 'timeout');
 });
 
 test('socket-timeout env override is clamped to a sane range', () => {
