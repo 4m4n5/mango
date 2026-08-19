@@ -270,6 +270,15 @@ else
   gate_fail "deferred vo=null VOD must switch ao from null to configured/auto output"
 fi
 
+if grep -q 'is_youtube_stream' scripts/m2-catalog/service/mpv-play.sh \
+  && grep -q -- '--ytdl=no' scripts/m2-catalog/service/mpv-play.sh \
+  && grep -q -- '--cookies-file=' scripts/m2-catalog/service/mpv-play.sh \
+  && grep -q 'Origin: https://www.youtube.com' scripts/m2-catalog/service/mpv-play.sh; then
+  gate_pass "YouTube mpv uses ytdl=no, Origin, and household cookies"
+else
+  gate_fail "YouTube mpv must send Chrome Origin/cookies and never re-enter ytdl_hook"
+fi
+
 # ↑ sole subtitle control; X/• must not route playback subs.
 grep -q 'route_playback_up' scripts/m1-foundation/pad/mango-tv-pad.py \
   && gate_pass "pad ↑ owns show-first subtitle control" \
