@@ -121,7 +121,7 @@ All live credentials are operator-owned under `/etc/mango`; never commit them.
 | `/etc/mango/youtube-auth.json` | Stored OAuth token, written `0600` |
 | `/etc/mango/youtube.db` | Rebuildable YouTube cache |
 | `/etc/mango/library.db` | Durable Saved/history/feedback |
-| `/etc/mango/youtube-cookies.txt` | Optional `yt-dlp` cookies file |
+| `/etc/mango/youtube-cookies.txt` | Optional Netscape cookies for yt-dlp GVS playback. If this file exists, catalog uses it automatically. |
 | `~/.local/share/mango/ytdlp-venv/` | User-owned updatable `yt-dlp` venv for playback resolution |
 | `~/.local/share/mango/deno/` | User-owned Deno ≥2.3 for YouTube JS challenges (n-sig / PO token) |
 | `~/.local/share/mango/bgutil-pot/` | User-owned bgutil PO-token provider (script + Deno deps) |
@@ -146,6 +146,33 @@ extraction changes faster than Debian packages.
 The current full deploy wrapper itself is blocked for unattended agents by the
 branch/SHA and implicit AIOMetadata-mutation issues in [DEPLOY.md](DEPLOY.md).
 That blocker does not change the `yt-dlp` ownership contract.
+
+### Playback cookies (GVS)
+
+OAuth `youtube-auth.json` is the Data API only. googlevideo playback needs a
+Netscape cookie jar from a logged-in YouTube/Google session on the **Pi's**
+extractor (`/etc/mango/youtube-cookies.txt`, mode `0600`). Catalog uses that
+path automatically when the file exists.
+
+Export on the Mac (Chrome or Safari, household Google account), then copy to
+the Pi. Do not commit the file. Do not paste cookie values into chat.
+
+```bash
+# Mac — writes a local jar; does not print cookie values
+yt-dlp --cookies-from-browser chrome --cookies /tmp/youtube-cookies.txt \
+  --skip-download 'https://www.youtube.com/watch?v=jNQXAC9IVRw'
+# Safari instead: --cookies-from-browser safari
+
+# Mac → Pi (credential file, not a repo copy)
+scp -p /tmp/youtube-cookies.txt mango:/tmp/youtube-cookies.txt
+rm -f /tmp/youtube-cookies.txt
+
+# Pi
+bash scripts/pi-exec.sh 'install -m 0600 /tmp/youtube-cookies.txt /etc/mango/youtube-cookies.txt && rm -f /tmp/youtube-cookies.txt && bash ~/mango/scripts/m6-ship/verify-youtube-cookies.sh && systemctl --user restart mango-catalog.service'
+```
+
+`GET /youtube/state` `configured.playback_cookies` is true when the catalog will
+pass `--cookies` to yt-dlp.
 
 ---
 

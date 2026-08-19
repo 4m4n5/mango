@@ -114,7 +114,8 @@ export function loadYoutubeConfig(): YoutubeConfig {
       || optionalString(playback.yt_dlp_format)
       || YOUTUBE_ADAPTIVE_FORMAT,
     yt_dlp_cookies: process.env.MANGO_YTDLP_COOKIES
-      || optionalString(playback.cookies_file),
+      || optionalString(playback.cookies_file)
+      || (existsSync('/etc/mango/youtube-cookies.txt') ? '/etc/mango/youtube-cookies.txt' : null),
     yt_dlp_cookies_from_browser: process.env.MANGO_YTDLP_COOKIES_FROM_BROWSER
       || optionalString(playback.cookies_from_browser),
   };

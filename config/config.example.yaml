@@ -124,9 +124,9 @@ youtube:
     # Adaptive DASH only, highest up to 4K SDR VP9 when YouTube publishes it.
     # Do not slash-or to `best`: muxed progressive is typically 360p (itag 18).
     yt_dlp_format: bv*[height<=2160]+ba
-    # Optional when the operator wants Premium/account cookies available to yt-dlp.
+    # Netscape cookies for yt-dlp GVS. If this file exists, catalog uses it
+    # even when the key below stays commented.
     # cookies_file: /etc/mango/youtube-cookies.txt
-    # cookies_from_browser: chromium
 
 orchestrator:
   # Use 0.0.0.0 + TLS on Pi so the HTTPS phone companion can connect via WSS.

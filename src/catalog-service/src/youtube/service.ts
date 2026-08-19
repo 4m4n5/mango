@@ -802,6 +802,7 @@ export class YoutubeService {
         api_key: Boolean(this.config.api_key),
         oauth_client: auth.configured,
         ...youtubeYtDlpDiagnostic(this.config.yt_dlp_command),
+        playback_cookies: Boolean(this.config.yt_dlp_cookies),
       },
       auth: {
         configured: auth.configured,

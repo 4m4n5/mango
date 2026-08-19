@@ -2668,6 +2668,7 @@ test('YouTube state exposes only allowlisted yt-dlp command descriptors', () => 
     oauth_client: false,
     yt_dlp_command: 'yt-dlp',
     yt_dlp_command_kind: 'yt_dlp',
+    playback_cookies: false,
   });
 
   process.env.MANGO_YTDLP_COMMAND = '/private/bin/scripts/m6-ship/youtube-yt-dlp.sh';
@@ -2676,6 +2677,7 @@ test('YouTube state exposes only allowlisted yt-dlp command descriptors', () => 
     oauth_client: false,
     yt_dlp_command: 'mango_wrapper',
     yt_dlp_command_kind: 'mango_wrapper',
+    playback_cookies: false,
   });
 
   process.env.MANGO_YTDLP_COMMAND = 'https://operator:custom-command-secret@private.example/runner';
@@ -2685,6 +2687,7 @@ test('YouTube state exposes only allowlisted yt-dlp command descriptors', () => 
     oauth_client: false,
     yt_dlp_command: '',
     yt_dlp_command_kind: 'custom',
+    playback_cookies: false,
   });
   assert.equal(JSON.stringify(customState).includes('custom-command-secret'), false);
 }));
@@ -2882,6 +2885,7 @@ test('full YouTube state and rails sanitize config, refresh, import, acquisition
     oauth_client: true,
     yt_dlp_command: '',
     yt_dlp_command_kind: 'custom',
+    playback_cookies: false,
   });
   assert.deepEqual(state.auth, {
     configured: true,
