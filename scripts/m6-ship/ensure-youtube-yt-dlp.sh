@@ -139,6 +139,38 @@ elif [[ -x "$DENO_BIN" ]]; then
 fi
 
 if [[ -x "$BIN" ]]; then
+  "$VENV/bin/python" -m pip install --quiet --upgrade bgutil-ytdlp-pot-provider \
+    || echo "youtube pot: plugin install failed; mweb GVS URLs will 403 without a PO token" >&2
+fi
+
+install_bgutil_server() {
+  local dest version
+  dest="${MANGO_BGUTIL_DIR:-$HOME/.local/share/mango/bgutil-pot}"
+  version="${MANGO_BGUTIL_VERSION:-1.3.1}"
+  [[ "${MANGO_BGUTIL_UPDATE:-auto}" == "0" ]] && return 0
+  command -v git >/dev/null 2>&1 || {
+    echo "youtube pot: git is required to install bgutil" >&2
+    return 1
+  }
+  if [[ ! -d "$dest/.git" ]]; then
+    git clone --depth 1 --branch "$version" \
+      https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git "$dest" || return 1
+  fi
+  if [[ -x "$DENO_BIN" && ! -d "$dest/server/node_modules" ]]; then
+    (
+      cd "$dest/server"
+      PATH="$(dirname "$DENO_BIN"):$PATH" deno install --frozen --allow-scripts=npm:canvas
+    ) || {
+      echo "youtube pot: deno install failed in $dest/server" >&2
+      return 1
+    }
+  fi
+  echo "youtube pot: bgutil $version ($dest)"
+}
+
+install_bgutil_server || true
+
+if [[ -x "$BIN" ]]; then
   echo "youtube yt-dlp: $("$BIN" --version) ($BIN)"
 elif command -v yt-dlp >/dev/null 2>&1; then
   echo "youtube yt-dlp: system $(yt-dlp --version) ($(command -v yt-dlp))"

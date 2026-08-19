@@ -63,7 +63,6 @@ export function youtubeYtDlpResolveArgs(
 ): string[] {
   const args = [
     '--no-playlist',
-    '--no-warnings',
     '--socket-timeout',
     String(youtubeSocketTimeoutSec()),
     '-f',
@@ -71,16 +70,14 @@ export function youtubeYtDlpResolveArgs(
     '--format-sort',
     process.env.MANGO_YTDLP_FORMAT_SORT?.trim() || YOUTUBE_FORMAT_SORT,
   ];
-  // yt-dlp 2026.07 solves YouTube n-sig/PO challenges only with a supported
-  // JS runtime (Deno >=2.3 or Node >=22). Debian Node 20 is detected and
-  // ignored, which yields googlevideo URLs ffmpeg/mpv immediately 403. Prefer
-  // Mango-owned Deno, then Deno/Node on PATH. Do not pin player_client:
-  // tv/android/ios replaced defaults and left only 360p muxed.
+  // yt-dlp 2026.07 solves YouTube n-sig only with Deno >=2.3 (or Node >=22)
+  // plus the EJS solver. GVS playback then needs a PO token on mweb. Debian
+  // Node 20 is ignored; without Deno/EJS/POT, yt-dlp falls back to android_vr
+  // URLs that ffmpeg/mpv HTTP 403. Do not pin tv/android/ios: that historically
+  // left only muxed 360p.
   args.push(...youtubeJsRuntimeArgs());
-  const extractorArgs = process.env.MANGO_YTDLP_EXTRACTOR_ARGS?.trim();
-  if (extractorArgs) {
-    args.push('--extractor-args', extractorArgs);
-  }
+  args.push(...youtubeRemoteComponentArgs());
+  args.push(...youtubeExtractorArgFlags());
   args.push('-g');
   if (config.yt_dlp_cookies) {
     args.push('--cookies', config.yt_dlp_cookies);
@@ -94,6 +91,35 @@ export function youtubeYtDlpResolveArgs(
 
 function requestedFormatUnavailable(text: string): boolean {
   return /requested format is not available/i.test(text);
+}
+
+export function mangoBgutilServerHome(): string {
+  return process.env.MANGO_BGUTIL_POT?.trim()
+    || `${homedir()}/.local/share/mango/bgutil-pot/server`;
+}
+
+export function youtubeRemoteComponentArgs(): string[] {
+  const raw = process.env.MANGO_YTDLP_REMOTE_COMPONENTS?.trim();
+  if (raw === 'none' || raw === '0') {
+    return [];
+  }
+  return ['--remote-components', raw || 'ejs:github'];
+}
+
+/** Separate --extractor-args flags; yt-dlp does not split namespaces on ';' here. */
+export function youtubeExtractorArgFlags(): string[] {
+  const args: string[] = [];
+  const potHome = mangoBgutilServerHome();
+  if (existsSync(potHome)) {
+    args.push('--extractor-args', `youtubepot-bgutilscript:server_home=${potHome}`);
+  }
+  const operator = process.env.MANGO_YTDLP_EXTRACTOR_ARGS?.trim();
+  if (operator) {
+    args.push('--extractor-args', operator);
+  } else {
+    args.push('--extractor-args', 'youtube:player_client=mweb');
+  }
+  return args;
 }
 
 export function mangoDenoPath(): string {
@@ -171,7 +197,10 @@ export function classifyYtDlpError(text: string): {
   message: string;
   kind: YoutubeFailureKind;
 } {
-  if (/No supported JavaScript runtime|JS Challenge Providers:.*all unavailable/i.test(text)) {
+  if (
+    /n challenge solving failed|Remote components challenge solver script/i.test(text)
+    || /No supported JavaScript runtime|JS Challenge Providers:.*all unavailable/i.test(text)
+  ) {
     return {
       status: 503,
       kind: 'js_runtime',
@@ -272,6 +301,10 @@ function ytDlpExecErrorMessage(error: ExecFileException, stdout: string, stderr:
   return detail;
 }
 
+function sanitizeYtDlpDetail(text: string): string {
+  return text.replace(/https?:\/\/\S+/gi, '<url>').slice(0, 800);
+}
+
 function throwYtDlpCatalogError(detail: string): never {
   const classified = classifyYtDlpError(detail);
   if (classified.status === 429) {
@@ -280,7 +313,7 @@ function throwYtDlpCatalogError(detail: string): never {
   throw new CatalogError(
     classified.status,
     classified.message,
-    youtubeFailureDetails(classified.kind, 'resolve', { yt_dlp: detail }),
+    youtubeFailureDetails(classified.kind, 'resolve', { yt_dlp: sanitizeYtDlpDetail(detail) }),
     { couchMessage: classified.message },
   );
 }
@@ -371,7 +404,10 @@ async function resolveYoutubePlaybackFresh(
       continue;
     }
     const { stdout, stderr } = result;
-    if (/No supported JavaScript runtime|JS Challenge Providers:.*all unavailable/i.test(stderr)) {
+    if (
+      /No supported JavaScript runtime|JS Challenge Providers:.*all unavailable/i.test(stderr)
+      || /n challenge solving failed|Remote components challenge solver script/i.test(stderr)
+    ) {
       throwMissingYoutubeJsRuntime();
     }
     const resolved = parseYtDlpResolvedUrls(stdout);

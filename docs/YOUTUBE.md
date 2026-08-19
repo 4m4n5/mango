@@ -89,12 +89,16 @@ If mpv rejects the first split stream, Mango retries 1440p DASH, then
 H.264+AAC 1080p DASH. Muxed progressive is never a candidate. Mango does not
 pin `player_client`: a forced `tv,android,ios` set replaced yt-dlp defaults
 and left only muxed itag 18 (360p). yt-dlp 2026.07+ solves YouTube n-sig / PO
-challenges only with **Deno ≥ 2.3** or **Node ≥ 22**. Debian Node on the Pi is
-20 and is ignored (`unsupported`), which still emits googlevideo URLs that
-ffmpeg/mpv immediately HTTP 403. Resolve therefore prefers Mango-owned Deno
-(`~/.local/share/mango/deno/bin/deno`) via `--js-runtimes deno[:path]`, with
-Node as a secondary runtime, and fails closed if no supported JS runtime is
-present rather than handing mpv dead URLs. YouTube 30 fps stays on 1080p60 HDMI
+challenges only with **Deno ≥ 2.3** or **Node ≥ 22**, the EJS solver
+(`--remote-components ejs:github`), and a GVS PO token on **mweb**. Debian Node
+on the Pi is 20 and is ignored (`unsupported`). Without that stack, yt-dlp falls
+back to `android_vr` googlevideo URLs that ffmpeg/mpv HTTP 403 after a short
+burst. Resolve therefore prefers Mango-owned Deno
+(`~/.local/share/mango/deno/bin/deno`), downloads the EJS solver, and uses
+`bgutil-ytdlp-pot-provider` under `~/.local/share/mango/bgutil-pot`. It fails
+closed if no supported JS runtime is present rather than handing mpv dead URLs.
+Do not pin `tv,android,ios` as the only clients: that historically left only
+muxed itag 18 (360p). YouTube 30 fps stays on 1080p60 HDMI
 (not 30 Hz); film 24 fps still matches 24 Hz. Many YouTube titles simply have
 no 4K encode — the cap is then YouTube's, not Mango's. Couch retries walk a
 short DASH ladder (4K adaptive → 1440 → 1080p H.264), not every itag. This
@@ -120,6 +124,7 @@ All live credentials are operator-owned under `/etc/mango`; never commit them.
 | `/etc/mango/youtube-cookies.txt` | Optional `yt-dlp` cookies file |
 | `~/.local/share/mango/ytdlp-venv/` | User-owned updatable `yt-dlp` venv for playback resolution |
 | `~/.local/share/mango/deno/` | User-owned Deno ≥2.3 for YouTube JS challenges (n-sig / PO token) |
+| `~/.local/share/mango/bgutil-pot/` | User-owned bgutil PO-token provider (script + Deno deps) |
 
 Repo-safe examples:
 

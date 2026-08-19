@@ -124,8 +124,14 @@ test('ytDlpFormatCandidates keeps 1080p H.264 after 4K and 1440 both fail', () =
 test('yt-dlp resolve prefers Deno then Node for YouTube JS challenges', () => {
   const previousDeno = process.env.MANGO_DENO;
   const previousRuntimes = process.env.MANGO_YTDLP_JS_RUNTIMES;
+  const previousPot = process.env.MANGO_BGUTIL_POT;
+  const previousRemote = process.env.MANGO_YTDLP_REMOTE_COMPONENTS;
+  const previousExtractor = process.env.MANGO_YTDLP_EXTRACTOR_ARGS;
   delete process.env.MANGO_DENO;
   delete process.env.MANGO_YTDLP_JS_RUNTIMES;
+  delete process.env.MANGO_YTDLP_REMOTE_COMPONENTS;
+  delete process.env.MANGO_YTDLP_EXTRACTOR_ARGS;
+  process.env.MANGO_BGUTIL_POT = '/no/such/mango-bgutil';
   try {
     const args = youtubeYtDlpResolveArgs({}, YOUTUBE_ADAPTIVE_FORMAT, 'dQw4w9WgXcQ');
     const runtimes: string[] = [];
@@ -141,21 +147,22 @@ test('yt-dlp resolve prefers Deno then Node for YouTube JS challenges', () => {
     assert.match(runtimes[0], /^deno(?::.+)?$/);
     assert.equal(runtimes[1], 'node');
     assert.equal(args[args.indexOf('--socket-timeout') + 1], String(YOUTUBE_SOCKET_TIMEOUT_SEC));
-    assert.equal(args.includes('--extractor-args'), false);
+    assert.equal(args[args.indexOf('--remote-components') + 1], 'ejs:github');
+    assert.equal(args[args.indexOf('--extractor-args') + 1], 'youtube:player_client=mweb');
     assert.ok(args.includes('-g'));
     assert.match(YOUTUBE_FORMAT_SORT, /vcodec:vp9:vp9\.2/);
     assert.doesNotMatch(YOUTUBE_FORMAT_SORT, /hdr:12/);
   } finally {
-    if (previousDeno === undefined) {
-      delete process.env.MANGO_DENO;
-    } else {
-      process.env.MANGO_DENO = previousDeno;
-    }
-    if (previousRuntimes === undefined) {
-      delete process.env.MANGO_YTDLP_JS_RUNTIMES;
-    } else {
-      process.env.MANGO_YTDLP_JS_RUNTIMES = previousRuntimes;
-    }
+    if (previousDeno === undefined) delete process.env.MANGO_DENO;
+    else process.env.MANGO_DENO = previousDeno;
+    if (previousRuntimes === undefined) delete process.env.MANGO_YTDLP_JS_RUNTIMES;
+    else process.env.MANGO_YTDLP_JS_RUNTIMES = previousRuntimes;
+    if (previousPot === undefined) delete process.env.MANGO_BGUTIL_POT;
+    else process.env.MANGO_BGUTIL_POT = previousPot;
+    if (previousRemote === undefined) delete process.env.MANGO_YTDLP_REMOTE_COMPONENTS;
+    else process.env.MANGO_YTDLP_REMOTE_COMPONENTS = previousRemote;
+    if (previousExtractor === undefined) delete process.env.MANGO_YTDLP_EXTRACTOR_ARGS;
+    else process.env.MANGO_YTDLP_EXTRACTOR_ARGS = previousExtractor;
   }
 });
 
@@ -199,16 +206,24 @@ test('yt-dlp resolve omits JS runtime when the operator disables it', () => {
 
 test('yt-dlp resolve passes operator extractor-args only when set', () => {
   const previous = process.env.MANGO_YTDLP_EXTRACTOR_ARGS;
+  const previousPot = process.env.MANGO_BGUTIL_POT;
   process.env.MANGO_YTDLP_EXTRACTOR_ARGS = 'youtube:player_client=android_vr';
+  process.env.MANGO_BGUTIL_POT = '/no/such/mango-bgutil';
   try {
     const args = youtubeYtDlpResolveArgs({}, YOUTUBE_ADAPTIVE_FORMAT, 'dQw4w9wgGcQ');
-    assert.equal(args[args.indexOf('--extractor-args') + 1], 'youtube:player_client=android_vr');
-  } finally {
-    if (previous === undefined) {
-      delete process.env.MANGO_YTDLP_EXTRACTOR_ARGS;
-    } else {
-      process.env.MANGO_YTDLP_EXTRACTOR_ARGS = previous;
+    const extractorArgs: string[] = [];
+    for (let i = 0; i < args.length; i += 1) {
+      if (args[i] === '--extractor-args' && args[i + 1]) {
+        extractorArgs.push(args[i + 1]);
+        i += 1;
+      }
     }
+    assert.deepEqual(extractorArgs, ['youtube:player_client=android_vr']);
+  } finally {
+    if (previous === undefined) delete process.env.MANGO_YTDLP_EXTRACTOR_ARGS;
+    else process.env.MANGO_YTDLP_EXTRACTOR_ARGS = previous;
+    if (previousPot === undefined) delete process.env.MANGO_BGUTIL_POT;
+    else process.env.MANGO_BGUTIL_POT = previousPot;
   }
 });
 
@@ -249,6 +264,10 @@ test('classifyYtDlpError treats stalls as timeouts, not digit-matching HTTP code
   const missingJs = classifyYtDlpError('WARNING: No supported JavaScript runtime could be found. Only deno is enabled by default');
   assert.equal(missingJs.status, 503);
   assert.equal(missingJs.kind, 'js_runtime');
+
+  const nsig = classifyYtDlpError('WARNING: [youtube] dQw4w9WgXcQ: n challenge solving failed: Some formats may be missing');
+  assert.equal(nsig.status, 503);
+  assert.equal(nsig.kind, 'js_runtime');
 
   const digitsOnly = classifyYtDlpError(
     'ERROR: [youtube] watch?v=abc429xyz: Unable to extract player response',
