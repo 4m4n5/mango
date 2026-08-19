@@ -95,7 +95,7 @@ deadline=$((SECONDS + TIMEOUT_SEC))
 job_status="queued"
 job_error=""
 while (( SECONDS < deadline )); do
-  if ! curl -sS --fail --max-time 5 "$CATALOG/recommendations/jobs/$job_id" >"$state_out"; then
+  if ! curl -sS --fail --max-time 30 "$CATALOG/recommendations/jobs/$job_id" >"$state_out"; then
     echo "youtube refresh: exact job lookup failed for $job_id" >&2
     exit 1
   fi
