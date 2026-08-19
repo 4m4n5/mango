@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import {
   classifyYtDlpError,
   effectiveYoutubeFormat,
@@ -343,4 +345,11 @@ test('YouTube refreshes only expired direct transports, not policy failures', ()
   assert.equal(shouldRefreshYoutubeTransport('YouTube is asking for browser verification — 429'), false);
   assert.equal(shouldRefreshYoutubeTransport('this YouTube video is unavailable'), false);
   assert.equal(shouldRefreshYoutubeTransport('play cancelled'), false);
+});
+
+test('YouTube HTTP proxy rewrites open Range requests that googlevideo 403s', () => {
+  const script = fileURLToPath(new URL('../../../../scripts/m2-catalog/service/youtube-http-proxy.py', import.meta.url));
+  const result = spawnSync('python3', [script, '--self-test'], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /self-test ok/);
 });

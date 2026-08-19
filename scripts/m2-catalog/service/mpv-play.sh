@@ -66,6 +66,7 @@ if $PROBE && [[ "${MANGO_MPV_ISOLATED_PROBE:-0}" == "1" ]]; then
   export MANGO_PLAYBACK_DISPLAY_MATCHED_FILE="$PLAYBACK_DISPLAY_MATCHED_FILE"
   export MANGO_PLAYBACK_OWNERSHIP_LOCK="$PLAYBACK_OWNERSHIP_LOCK"
   export MANGO_PLAYBACK_OSD_PID_FILE="$PLAYBACK_OSD_PID_FILE"
+  export MANGO_YOUTUBE_PROXY_PID_FILE="${ISOLATED_DIR}/probe-$$-ytproxy.pid"
   export MANGO_MPV_STOP_NO_DISPLAY=1
 fi
 
@@ -78,6 +79,86 @@ if [[ -f "$AUDIO_ENV" ]]; then
   # shellcheck disable=SC1090
   source "$AUDIO_ENV"
 fi
+
+YOUTUBE_HTTP_PROXY=0
+YOUTUBE_PROXY_PID=""
+YOUTUBE_PROXY_PID_FILE="${MANGO_YOUTUBE_PROXY_PID_FILE:-${HOME}/.cache/mango/youtube-http-proxy.pid}"
+
+is_youtube_stream() {
+  [[ "${YOUTUBE_HTTP_PROXY:-0}" == "1" ]] && return 0
+  [[ "$URL" == *"googlevideo.com"* ]] && return 0
+  [[ "$URL" == *"youtube.com"* ]] && return 0
+  [[ -n "${AUDIO_URL:-}" && "$AUDIO_URL" == *"googlevideo.com"* ]] && return 0
+  return 1
+}
+
+stop_youtube_http_proxy() {
+  local pid="$YOUTUBE_PROXY_PID"
+  if [[ -z "$pid" && -f "$YOUTUBE_PROXY_PID_FILE" ]]; then
+    pid="$(tr -dc '0-9' <"$YOUTUBE_PROXY_PID_FILE" 2>/dev/null || true)"
+  fi
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    local command_line=""
+    command_line="$(ps -ww -p "$pid" -o command= 2>/dev/null || true)"
+    if [[ "$command_line" == *youtube-http-proxy.py* ]]; then
+      kill "$pid" 2>/dev/null || true
+      sleep 0.05
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+  fi
+  rm -f "$YOUTUBE_PROXY_PID_FILE"
+  YOUTUBE_PROXY_PID=""
+}
+
+on_mpv_play_exit() {
+  stop_youtube_http_proxy
+  release_playback_ownership
+}
+
+start_youtube_http_proxy() {
+  local line host port i out
+  [[ "${MANGO_YOUTUBE_HTTP_PROXY:-1}" != "0" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || {
+    echo "FAIL: YouTube HTTP proxy needs python3" >&2
+    return 1
+  }
+  [[ -f "$SCRIPT_DIR/youtube-http-proxy.py" ]] || {
+    echo "FAIL: YouTube HTTP proxy script missing" >&2
+    return 1
+  }
+  mkdir -p "$(dirname "$YOUTUBE_PROXY_PID_FILE")"
+  out="$(mktemp)"
+  python3 "$SCRIPT_DIR/youtube-http-proxy.py" --video "$URL" ${AUDIO_URL:+--audio "$AUDIO_URL"} \
+    >"$out" 2>>"${HOME}/.cache/mango/youtube-http-proxy.log" &
+  YOUTUBE_PROXY_PID="$!"
+  echo "$YOUTUBE_PROXY_PID" >"$YOUTUBE_PROXY_PID_FILE"
+  export MANGO_YOUTUBE_PROXY_PID_FILE
+  for i in $(seq 1 50); do
+    if grep -q '^READY ' "$out" 2>/dev/null; then
+      break
+    fi
+    if ! kill -0 "$YOUTUBE_PROXY_PID" 2>/dev/null; then
+      rm -f "$out"
+      echo "FAIL: YouTube HTTP proxy exited" >&2
+      return 1
+    fi
+    sleep 0.05
+  done
+  line="$(grep '^READY ' "$out" | head -n 1 || true)"
+  rm -f "$out"
+  host="$(awk '{print $2}' <<<"$line")"
+  port="$(awk '{print $3}' <<<"$line")"
+  if [[ -z "$host" || -z "$port" ]]; then
+    stop_youtube_http_proxy
+    echo "FAIL: YouTube HTTP proxy did not become ready" >&2
+    return 1
+  fi
+  URL="http://${host}:${port}/v"
+  if [[ -n "$AUDIO_URL" ]]; then
+    AUDIO_URL="http://${host}:${port}/a"
+  fi
+  YOUTUBE_HTTP_PROXY=1
+}
 
 if $STOP; then
   exec bash "$SCRIPT_DIR/mpv-stop.sh"
@@ -175,7 +256,7 @@ acquire_playback_ownership() {
   for ((attempt = 1; attempt <= attempts; attempt++)); do
     if mkdir "$PLAYBACK_OWNERSHIP_LOCK" 2>/dev/null; then
       printf '%s\n' "$$" >"$PLAYBACK_OWNERSHIP_LOCK/owner"
-      trap release_playback_ownership EXIT
+      trap on_mpv_play_exit EXIT
       return 0
     fi
     owner="$(cat "$PLAYBACK_OWNERSHIP_LOCK/owner" 2>/dev/null || true)"
@@ -325,13 +406,6 @@ play_cancelled() {
   [[ -n "${MANGO_PLAY_EPOCH:-}" ]] || return 1
   [[ -f "$PLAY_CANCEL_FILE" ]] || return 1
   [[ "$(tr -d '[:space:]' <"$PLAY_CANCEL_FILE" 2>/dev/null || true)" != "$MANGO_PLAY_EPOCH" ]]
-}
-
-is_youtube_stream() {
-  [[ "$URL" == *"googlevideo.com"* ]] && return 0
-  [[ "$URL" == *"youtube.com"* ]] && return 0
-  [[ -n "${AUDIO_URL:-}" && "$AUDIO_URL" == *"googlevideo.com"* ]] && return 0
-  return 1
 }
 
 is_4k_ladder_step() {
@@ -1119,6 +1193,9 @@ if [[ "$REQUEST_CLASS" == "user" ]] && ! $PROBE && ! $ISOLATED_PROBE; then
 fi
 
 URL_LABEL="$(python3 -c 'from urllib.parse import urlparse; import sys; u=urlparse(sys.argv[1]); print(f"{u.scheme}://{u.netloc}/<redacted>")' "$URL" 2>/dev/null || echo "http(s)://<redacted>")"
+if is_youtube_stream; then
+  start_youtube_http_proxy || exit 1
+fi
 HWDEC="$(detect_hwdec)"
 MODE="play"
 if $PROBE; then
