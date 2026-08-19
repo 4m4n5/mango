@@ -10,7 +10,7 @@ export const YOUTUBE_MID_ADAPTIVE_FORMAT = youtubeAdaptiveSelector('1440');
 /** Operator helper for a 1080 cap. Not an automatic play ladder. */
 export const YOUTUBE_COMPAT_ADAPTIVE_FORMAT = youtubeAdaptiveSelector('1080');
 // Pi 5 has HEVC HW only. YouTube HLS from web_safari is H.264+AAC when it
-// still exists; mweb https DASH is H.264/VP9 + AAC/Opus. Keep VP9-first sort.
+// still exists; tv_simply https DASH is H.264/VP9 + AAC/Opus. Keep VP9-first sort.
 export const YOUTUBE_FORMAT_SORT =
   'res:2160,fps,vcodec:vp9:vp9.2:av01:h264,acodec:opus:mp4a';
 
@@ -75,9 +75,9 @@ export function effectiveYoutubeFormat(configured: string): string {
 
 /**
  * One selector: HLS split, then https DASH split, then muxed HLS.
- * web_safari HLS is preferred when present; mweb https DASH is the living
- * transport after YouTube stopped returning safari m3u8. Bare muxed
- * progressive (`best` / itag 18) is still never a candidate.
+ * web_safari HLS is preferred when present; tv_simply https DASH is the
+ * living transport after safari m3u8 disappeared and mweb GVS 403s. Bare
+ * muxed progressive (`best` / itag 18) is still never a candidate.
  */
 export function ytDlpFormatCandidates(configured: string, excludedFormats: string[] = []): string[] {
   const excluded = new Set(excludedFormats.map((format) => format.trim()).filter(Boolean));

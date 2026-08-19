@@ -140,6 +140,7 @@ test('yt-dlp resolve prefers Deno then Node for YouTube JS challenges', () => {
     assert.equal(args[args.indexOf('--socket-timeout') + 1], String(YOUTUBE_SOCKET_TIMEOUT_SEC));
     assert.equal(args[args.indexOf('--remote-components') + 1], 'ejs:github');
     assert.equal(args[args.indexOf('--extractor-args') + 1], `youtube:player_client=${YOUTUBE_PLAYER_CLIENT}`);
+    assert.equal(YOUTUBE_PLAYER_CLIENT, 'web_safari,tv_simply');
     assert.ok(args.includes('-g'));
     assert.match(YOUTUBE_FORMAT_SORT, /vcodec:vp9:vp9\.2/);
     assert.doesNotMatch(YOUTUBE_FORMAT_SORT, /hdr:12/);

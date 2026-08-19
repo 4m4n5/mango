@@ -22,8 +22,17 @@ export {
   ytDlpFormatCandidates,
 } from './format-policy.js';
 
-/** web_safari still requested for HLS when YouTube offers it; mweb supplies https DASH after safari m3u8 disappeared. */
-export const YOUTUBE_PLAYER_CLIENT = 'web_safari,mweb';
+/**
+ * web_safari still requested for HLS when YouTube offers hlsManifestUrl.
+ * After mid-2026 many titles have no safari m3u8. mweb https DASH then
+ * returns googlevideo URLs (`c=MWEB`, n+pot) that 403 for curl and mpv on
+ * this household path. tv_simply (`c=TVHTML5_SIMPLY`) is the living DASH
+ * client: same adaptive itags, household cookies, and mpv split A/V succeed.
+ * Do not put mweb after tv_simply as a "fallback" — those URLs are not
+ * playable here. Do not pin tv/android/ios alone: that historically left
+ * only muxed 360p, and `tv`/`tv_downgraded` still error with cookies.
+ */
+export const YOUTUBE_PLAYER_CLIENT = 'web_safari,tv_simply';
 
 export type YoutubeResolvedPlayback = {
   url: string;
@@ -77,10 +86,9 @@ export function youtubeYtDlpResolveArgs(
     process.env.MANGO_YTDLP_FORMAT_SORT?.trim() || YOUTUBE_FORMAT_SORT,
   ];
   // yt-dlp 2026.07 solves YouTube n-sig only with Deno >=2.3 (or Node >=22)
-  // plus the EJS solver. Prefer web_safari HLS when present; mweb https DASH
-  // is the living transport after safari stopped returning m3u8. Debian Node
-  // 20 is ignored. Do not pin tv/android/ios as the only clients: that
-  // historically left only muxed 360p, and tv currently errors with cookies.
+  // plus the EJS solver. Prefer web_safari HLS when present; tv_simply https
+  // DASH is the living transport after safari m3u8 disappeared and mweb GVS
+  // URLs started 403ing for both curl and mpv. Debian Node 20 is ignored.
   args.push(...youtubeJsRuntimeArgs());
   args.push(...youtubeRemoteComponentArgs());
   args.push(...youtubeExtractorArgFlags());
