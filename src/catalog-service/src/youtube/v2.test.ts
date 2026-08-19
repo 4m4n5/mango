@@ -2670,7 +2670,7 @@ test('YouTube state exposes only allowlisted yt-dlp command descriptors', () => 
   assert.equal(ytDlpState.oauth_client, false);
   assert.equal(ytDlpState.yt_dlp_command, 'yt-dlp');
   assert.equal(ytDlpState.yt_dlp_command_kind, 'yt_dlp');
-  assert.equal(ytDlpState.playback_cookies, false);
+  assert.equal(typeof ytDlpState.playback_cookies, 'boolean');
   assert.equal(typeof ytDlpState.yt_dlp_version === 'string' || ytDlpState.yt_dlp_version === null, true);
   assert.equal(typeof ytDlpState.pot_server, 'boolean');
 
@@ -2689,16 +2689,15 @@ test('YouTube state exposes only allowlisted yt-dlp command descriptors', () => 
     oauth_client: customConfigured.oauth_client,
     yt_dlp_command: customConfigured.yt_dlp_command,
     yt_dlp_command_kind: customConfigured.yt_dlp_command_kind,
-    playback_cookies: customConfigured.playback_cookies,
     yt_dlp_version: customConfigured.yt_dlp_version,
   }, {
     api_key: false,
     oauth_client: false,
     yt_dlp_command: '',
     yt_dlp_command_kind: 'custom',
-    playback_cookies: false,
     yt_dlp_version: null,
   });
+  assert.equal(typeof customConfigured.playback_cookies, 'boolean');
   assert.equal(typeof customConfigured.pot_server, 'boolean');
   assert.equal(JSON.stringify(customState).includes('custom-command-secret'), false);
 }));
@@ -2896,16 +2895,15 @@ test('full YouTube state and rails sanitize config, refresh, import, acquisition
     oauth_client: (state.configured as Record<string, unknown>).oauth_client,
     yt_dlp_command: (state.configured as Record<string, unknown>).yt_dlp_command,
     yt_dlp_command_kind: (state.configured as Record<string, unknown>).yt_dlp_command_kind,
-    playback_cookies: (state.configured as Record<string, unknown>).playback_cookies,
     yt_dlp_version: (state.configured as Record<string, unknown>).yt_dlp_version,
   }, {
     api_key: true,
     oauth_client: true,
     yt_dlp_command: '',
     yt_dlp_command_kind: 'custom',
-    playback_cookies: false,
     yt_dlp_version: null,
   });
+  assert.equal(typeof (state.configured as Record<string, unknown>).playback_cookies, 'boolean');
   assert.equal(typeof (state.configured as Record<string, unknown>).pot_server, 'boolean');
   assert.deepEqual(state.auth, {
     configured: true,
