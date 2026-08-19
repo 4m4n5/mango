@@ -1,14 +1,16 @@
-/** HLS split A/V up to 4K, then muxed HLS at the same cap. Progressive https is never a candidate. */
-export const YOUTUBE_ADAPTIVE_FORMAT =
-  'bv*[height<=2160][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=2160][protocol^=m3u8]';
-/** Operator helper for a 1440 HLS cap. Not an automatic play ladder. */
-export const YOUTUBE_MID_ADAPTIVE_FORMAT =
-  'bv*[height<=1440][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=1440][protocol^=m3u8]';
-/** Operator helper for a 1080 HLS cap. Not an automatic play ladder. */
-export const YOUTUBE_COMPAT_ADAPTIVE_FORMAT =
-  'bv*[height<=1080][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=1080][protocol^=m3u8]';
-// Pi 5 has HEVC HW only. YouTube HLS from web_safari is H.264+AAC, typically
-// 1080p muxed. Keep VP9-first sort for the rare split-HLS title.
+export function youtubeAdaptiveSelector(height: string): string {
+  const cap = `[height<=${height}]`;
+  return `bv*${cap}[protocol^=m3u8]+ba[protocol^=m3u8]/bv*${cap}+ba/b${cap}[protocol^=m3u8]`;
+}
+
+/** HLS first when YouTube still offers it, then https DASH, then muxed HLS. */
+export const YOUTUBE_ADAPTIVE_FORMAT = youtubeAdaptiveSelector('2160');
+/** Operator helper for a 1440 cap. Not an automatic play ladder. */
+export const YOUTUBE_MID_ADAPTIVE_FORMAT = youtubeAdaptiveSelector('1440');
+/** Operator helper for a 1080 cap. Not an automatic play ladder. */
+export const YOUTUBE_COMPAT_ADAPTIVE_FORMAT = youtubeAdaptiveSelector('1080');
+// Pi 5 has HEVC HW only. YouTube HLS from web_safari is H.264+AAC when it
+// still exists; mweb https DASH is H.264/VP9 + AAC/Opus. Keep VP9-first sort.
 export const YOUTUBE_FORMAT_SORT =
   'res:2160,fps,vcodec:vp9:vp9.2:av01:h264,acodec:opus:mp4a';
 
@@ -41,7 +43,7 @@ export function isMuxedOnlyYoutubeFormat(format: string): boolean {
 /**
  * Drop slash-ored muxed progressive fallbacks. `bestvideo+bestaudio/best`
  * succeeds at 360p as soon as DASH is missing. HLS muxed (`b[protocol^=m3u8]`)
- * is kept: it is the working web_safari transport.
+ * is kept when YouTube still offers it.
  */
 export function preferAdaptiveYoutubeFormat(format: string): string {
   return format
@@ -51,32 +53,9 @@ export function preferAdaptiveYoutubeFormat(format: string): string {
     .join('/');
 }
 
-function ensureHlsProtocol(part: string): string {
-  const trimmed = part.trim();
-  if (!trimmed || isHlsYoutubeFormat(trimmed)) {
-    return trimmed;
-  }
-  return trimmed
-    .split('+')
-    .map((arm) => {
-      const value = arm.trim();
-      if (!value || isHlsYoutubeFormat(value)) {
-        return value;
-      }
-      return `${value}[protocol^=m3u8]`;
-    })
-    .filter(Boolean)
-    .join('+');
-}
-
 function heightCap(format: string): string | null {
   const match = format.match(/height\s*<=\s*(\d+)/i);
   return match?.[1] ?? null;
-}
-
-function muxedHlsFallback(format: string): string {
-  const cap = heightCap(format);
-  return cap ? `b[height<=${cap}][protocol^=m3u8]` : 'b[protocol^=m3u8]';
 }
 
 export function effectiveYoutubeFormat(configured: string): string {
@@ -85,21 +64,20 @@ export function effectiveYoutubeFormat(configured: string): string {
     return YOUTUBE_ADAPTIVE_FORMAT;
   }
   const adaptive = preferAdaptiveYoutubeFormat(trimmed);
-  const primary = ensureHlsProtocol(adaptive || YOUTUBE_ADAPTIVE_FORMAT.split('/')[0] || '');
-  if (!primary) {
+  if (!adaptive) {
     return YOUTUBE_ADAPTIVE_FORMAT;
   }
-  const muxed = muxedHlsFallback(primary);
-  const arms = primary.split('/').map((part) => part.trim()).filter(Boolean);
-  if (arms.includes(muxed) || !primary.includes('+')) {
-    return primary;
+  if (adaptive.includes('/bv*') && isHlsYoutubeFormat(adaptive)) {
+    return adaptive;
   }
-  return `${primary}/${muxed}`;
+  return youtubeAdaptiveSelector(heightCap(adaptive) || '2160');
 }
 
 /**
- * One HLS selector (split A/V, then muxed HLS). SABR-truncated https/DASH is
- * never a candidate: a 60-second death is worse than a clean couch error.
+ * One selector: HLS split, then https DASH split, then muxed HLS.
+ * web_safari HLS is preferred when present; mweb https DASH is the living
+ * transport after YouTube stopped returning safari m3u8. Bare muxed
+ * progressive (`best` / itag 18) is still never a candidate.
  */
 export function ytDlpFormatCandidates(configured: string, excludedFormats: string[] = []): string[] {
   const excluded = new Set(excludedFormats.map((format) => format.trim()).filter(Boolean));

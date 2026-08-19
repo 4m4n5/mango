@@ -22,8 +22,8 @@ export {
   ytDlpFormatCandidates,
 } from './format-policy.js';
 
-/** web_safari is the HLS client. tv/mweb https is SABR-truncated (~60s) and is not a fallback. */
-export const YOUTUBE_PLAYER_CLIENT = 'web_safari';
+/** web_safari still requested for HLS when YouTube offers it; mweb supplies https DASH after safari m3u8 disappeared. */
+export const YOUTUBE_PLAYER_CLIENT = 'web_safari,mweb';
 
 export type YoutubeResolvedPlayback = {
   url: string;
@@ -77,9 +77,10 @@ export function youtubeYtDlpResolveArgs(
     process.env.MANGO_YTDLP_FORMAT_SORT?.trim() || YOUTUBE_FORMAT_SORT,
   ];
   // yt-dlp 2026.07 solves YouTube n-sig only with Deno >=2.3 (or Node >=22)
-  // plus the EJS solver. Playback is HLS from web_safari (no Range SABR window).
-  // Debian Node 20 is ignored. Do not pin tv/android/ios: that historically
-  // left only muxed 360p, and tv currently errors with cookies.
+  // plus the EJS solver. Prefer web_safari HLS when present; mweb https DASH
+  // is the living transport after safari stopped returning m3u8. Debian Node
+  // 20 is ignored. Do not pin tv/android/ios as the only clients: that
+  // historically left only muxed 360p, and tv currently errors with cookies.
   args.push(...youtubeJsRuntimeArgs());
   args.push(...youtubeRemoteComponentArgs());
   args.push(...youtubeExtractorArgFlags());

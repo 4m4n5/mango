@@ -55,7 +55,7 @@ test('preferAdaptiveYoutubeFormat strips muxed progressive from a DASH selector'
   assert.equal(isMuxedOnlyYoutubeFormat('b[height<=2160][protocol^=m3u8]'), false);
 });
 
-test('legacy muxed-first config upgrades to HLS adaptive', () => {
+test('legacy muxed-first config upgrades to HLS-then-DASH adaptive', () => {
   assert.equal(
     effectiveYoutubeFormat('bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'),
     YOUTUBE_ADAPTIVE_FORMAT,
@@ -64,7 +64,7 @@ test('legacy muxed-first config upgrades to HLS adaptive', () => {
   assert.equal(effectiveYoutubeFormat('bv*[height<=2160]+ba'), YOUTUBE_ADAPTIVE_FORMAT);
   assert.equal(
     effectiveYoutubeFormat('bv*[height<=720]+ba/b'),
-    'bv*[height<=720][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=720][protocol^=m3u8]',
+    'bv*[height<=720][protocol^=m3u8]+ba[protocol^=m3u8]/bv*[height<=720]+ba/b[height<=720][protocol^=m3u8]',
   );
 });
 
@@ -84,24 +84,25 @@ test('ytDlpFormatCandidates never admits muxed progressive', () => {
   }
 });
 
-test('a tighter operator cap stays on HLS at that height', () => {
+test('a tighter operator cap stays at that height with HLS then https DASH', () => {
   const formats = ytDlpFormatCandidates('bv*[height<=720]+ba/b');
   assert.deepEqual(formats, [
-    'bv*[height<=720][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=720][protocol^=m3u8]',
+    'bv*[height<=720][protocol^=m3u8]+ba[protocol^=m3u8]/bv*[height<=720]+ba/b[height<=720][protocol^=m3u8]',
   ]);
 });
 
 test('a 1080 operator cap does not climb to 4K', () => {
   assert.deepEqual(
     ytDlpFormatCandidates('bv*[height<=1080]+ba'),
-    ['bv*[height<=1080][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=1080][protocol^=m3u8]'],
+    ['bv*[height<=1080][protocol^=m3u8]+ba[protocol^=m3u8]/bv*[height<=1080]+ba/b[height<=1080][protocol^=m3u8]'],
   );
 });
 
-test('ytDlpFormatCandidates is a single HLS selector, not a DASH height ladder', () => {
+test('ytDlpFormatCandidates is a single HLS-then-DASH selector, not a height ladder', () => {
   const formats = ytDlpFormatCandidates('best');
   assert.deepEqual(formats, [YOUTUBE_ADAPTIVE_FORMAT]);
   assert.match(formats[0] || '', /protocol\^=m3u8/);
+  assert.match(formats[0] || '', /\/bv\*\[height<=2160\]\+ba\//);
 });
 
 test('ytDlpFormatCandidates drops an already failed transport format', () => {

@@ -81,14 +81,15 @@ intact and recoverable. `off` disables recommendation work rather than
 activating a personal-profile ranker.
 
 Playback resolves with `yt-dlp -g` and starts mpv on those URLs with
-`--ytdl=no`. The selector is **HLS first** (`bv*[protocol^=m3u8]+ba[protocol^=m3u8]/b[protocol^=m3u8]`,
-capped at 4K) from `player_client=web_safari`. web_safari HLS is typically
-muxed H.264+AAC up to 1080p; ffmpeg's HLS demuxer fetches each fragment as a
-small full GET, so it is immune to the SABR Range window that kills DASH
-https (~60s of media from byte 0, then HTTP 403 on every offset Range).
-Progressive muxed https and mweb/tv DASH https are never candidates: a
-60-second death is worse than a clean couch error. Titles with no HLS fail
-closed. yt-dlp 2026.07+ solves YouTube n-sig / PO challenges only with
+`--ytdl=no`. The selector is **HLS first, then https DASH**
+(`bv*[protocol^=m3u8]+ba[protocol^=m3u8]/bv*+ba/b[protocol^=m3u8]`, capped at
+4K) from `player_client=web_safari,mweb`. web_safari HLS is used when YouTube
+still returns `hlsManifestUrl`; after mid-2026 many titles no longer do, and
+pinning safari alone then fails closed with no formats. mweb https DASH is the
+living fallback. ffmpeg's HLS demuxer fetches each fragment as a small full
+GET, so it is immune to the SABR Range window that historically killed some
+DASH https (~60s of media from byte 0, then HTTP 403 on every offset Range).
+Progressive muxed https (`best` / itag 18) is never a candidate. yt-dlp 2026.07+ solves YouTube n-sig / PO challenges only with
 **Deno ≥ 2.3** or **Node ≥ 22**, the EJS solver (`--remote-components ejs:github`),
 and a GVS PO token (bgutil, used when a client requires one). Debian Node on
 the Pi is 20 and is ignored (`unsupported`). Resolve therefore prefers
@@ -105,7 +106,7 @@ that historically left only muxed itag 18 (360p), and `tv` currently errors
 with household cookies. YouTube 30 fps stays on 1080p60 HDMI (not 30 Hz);
 film 24 fps still matches 24 Hz. This path uses no YouTube Data API quota.
 Legacy `/etc/mango` selectors that slash-or to `best` or the old DASH
-`bv*+ba` default are upgraded to the HLS policy. If mpv fails on a stale
+`bv*+ba` default are upgraded to the HLS-then-DASH policy. If mpv fails on a stale
 signed URL, catalog re-resolves **once** (same HLS selector) rather than
 walking a height ladder. Operators may set `MANGO_YTDLP_EXTRACTOR_ARGS` or
 `MANGO_YTDLP_JS_RUNTIMES` only as explicit overrides (`none` disables JS
