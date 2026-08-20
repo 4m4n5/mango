@@ -193,7 +193,7 @@ except Exception:
 PY
 )"
     case "$state" in
-      cancelled|stopped|failed_before_frame|playing) break ;;
+      cancelled|stopped|failed_before_frame) break ;;
     esac
   done
   python3 - "$out" "$state" <<'PY'
@@ -201,7 +201,7 @@ import json, sys
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
 blob = json.dumps(payload)
 assert "http://" not in blob.lower()
-state = sys.argv[1]
+state = sys.argv[2]
 print(f"youtube-matrix: route=interrupt state={state}")
 if state not in ("cancelled", "stopped", "failed_before_frame"):
     raise SystemExit(f"youtube-matrix FAIL route=interrupt state={state}")
