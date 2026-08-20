@@ -58,7 +58,7 @@ python3 - "$CORPUS" "$YTDLP" <<'PY'
 import json, subprocess, sys, time
 corpus = json.load(open(sys.argv[1], encoding="utf-8"))
 ytdlp = sys.argv[2]
-clients = ["visionos", "web_safari", "web", "web_embedded"]
+clients = ["web_safari", "tv_simply"]
 for item in corpus.get("items", []):
     video_id = item["video_id"]
     kind = item["id"]

@@ -6,8 +6,11 @@ import {
   isHlsYoutubeFormat,
   isMuxedOnlyYoutubeFormat,
   isTransientYoutubeResolveError,
+  isYoutubeLiveStatus,
+  parseYoutubeResolveMeta,
   parseYtDlpResolvedUrls,
   preferAdaptiveYoutubeFormat,
+  publicYoutubePlayFailureDetails,
   shouldRefreshYoutubeTransport,
   youtubeJsRuntimeArgs,
   youtubeJsRuntimeAvailable,
@@ -142,6 +145,7 @@ test('yt-dlp resolve prefers Deno then Node for YouTube JS challenges', () => {
     assert.equal(args[args.indexOf('--extractor-args') + 1], `youtube:player_client=${YOUTUBE_PLAYER_CLIENT}`);
     assert.equal(YOUTUBE_PLAYER_CLIENT, 'web_safari,tv_simply');
     assert.ok(args.includes('-g'));
+    assert.equal(args[args.indexOf('--print') + 1], 'MANGO_META:%(live_status)s|%(duration)s|%(protocol)s');
     assert.match(YOUTUBE_FORMAT_SORT, /vcodec:vp9:vp9\.2/);
     assert.doesNotMatch(YOUTUBE_FORMAT_SORT, /hdr:12/);
   } finally {
@@ -343,4 +347,37 @@ test('YouTube refreshes only expired direct transports, not policy failures', ()
   assert.equal(shouldRefreshYoutubeTransport('YouTube is asking for browser verification — 429'), false);
   assert.equal(shouldRefreshYoutubeTransport('this YouTube video is unavailable'), false);
   assert.equal(shouldRefreshYoutubeTransport('play cancelled'), false);
+});
+
+test('resolver meta marks live independently of a stub cache row', () => {
+  assert.deepEqual(
+    parseYoutubeResolveMeta('MANGO_META:live|0|m3u8\nhttps://video.example/live.m3u8\n'),
+    { live: true, live_status: 'live', duration_sec: null },
+  );
+  assert.deepEqual(
+    parseYoutubeResolveMeta('MANGO_META:not_live|600|https\nhttps://video.example/vod.mp4\n'),
+    { live: false, live_status: 'not_live', duration_sec: 600 },
+  );
+  assert.equal(isYoutubeLiveStatus('is_live'), true);
+  assert.equal(isYoutubeLiveStatus('was_live'), false);
+});
+
+test('public YouTube play failures drop URLs and stderr', () => {
+  const details = publicYoutubePlayFailureDetails({
+    playback_stage: 'play_start',
+    failure_kind: 'blocked',
+    category: 'player_failure',
+    attempt_count: 1,
+    resolve_ms: 12,
+    mpv: 'mpv-play failed: googlevideo.com/videoplayback?expire=secret',
+    yt_dlp: 'ERROR: https://youtube.com/watch?v=secret',
+  });
+  assert.deepEqual(details, {
+    failure_kind: 'blocked',
+    playback_stage: 'play_start',
+    category: 'player_failure',
+    attempt_count: 1,
+    resolve_ms: 12,
+  });
+  assert.equal(JSON.stringify(details).includes('secret'), false);
 });

@@ -39,7 +39,22 @@ export type YoutubeResolvedPlayback = {
   audio_url?: string;
   resolve_ms: number;
   format: string;
+  live: boolean;
+  live_status: string;
+  duration_sec: number | null;
 };
+
+export type YoutubeCommandRunner = (
+  command: string,
+  args: string[],
+  options: { timeout: number; maxBuffer: number },
+) => Promise<{ stdout: string; stderr: string }>;
+
+let youtubeCommandRunnerForTest: YoutubeCommandRunner | null = null;
+
+export function setYoutubeCommandRunnerForTest(runner: YoutubeCommandRunner | null): void {
+  youtubeCommandRunnerForTest = runner;
+}
 
 /** Bounded, identifier-free kind for terminal telemetry. */
 export const YOUTUBE_FAILURE_KINDS = [
@@ -92,6 +107,7 @@ export function youtubeYtDlpResolveArgs(
   args.push(...youtubeJsRuntimeArgs());
   args.push(...youtubeRemoteComponentArgs());
   args.push(...youtubeExtractorArgFlags());
+  args.push('--print', 'MANGO_META:%(live_status)s|%(duration)s|%(protocol)s');
   args.push('-g');
   if (config.yt_dlp_cookies) {
     args.push('--cookies', config.yt_dlp_cookies);
@@ -275,6 +291,41 @@ export function youtubeFailureDetails(
   };
 }
 
+function youtubePublicFailureCategory(
+  kind: YoutubeFailureKind,
+  stage: YoutubePlaybackStage,
+): 'player_failure' | 'resolve_failure' | 'unavailable' | 'blocked' {
+  if (stage === 'play_start') return 'player_failure';
+  if (kind === 'unavailable' || kind === 'format_unavailable') return 'unavailable';
+  if (kind === 'blocked' || kind === 'bot_check' || kind === 'cooldown') return 'blocked';
+  return 'resolve_failure';
+}
+
+/** HTTP-safe YouTube failure evidence: kinds and counts, never URLs or stderr. */
+export function publicYoutubePlayFailureDetails(details: unknown): Record<string, unknown> | undefined {
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return undefined;
+  const record = details as Record<string, unknown>;
+  const kind = YOUTUBE_FAILURE_KINDS.includes(record.failure_kind as YoutubeFailureKind)
+    ? record.failure_kind as YoutubeFailureKind
+    : 'other';
+  const stage: YoutubePlaybackStage = record.playback_stage === 'play_start' ? 'play_start' : 'resolve';
+  const category = typeof record.category === 'string' && record.category.trim()
+    ? record.category.trim().slice(0, 64)
+    : youtubePublicFailureCategory(kind, stage);
+  const out: Record<string, unknown> = {
+    failure_kind: kind,
+    playback_stage: stage,
+    category,
+    attempt_count: typeof record.attempt_count === 'number' && Number.isFinite(record.attempt_count)
+      ? record.attempt_count
+      : 1,
+  };
+  if (typeof record.resolve_ms === 'number' && Number.isFinite(record.resolve_ms)) {
+    out.resolve_ms = record.resolve_ms;
+  }
+  return out;
+}
+
 export function youtubeMpvFailureKind(message: string): YoutubeFailureKind {
   if (/\bmpv vo not ready\b|\bmpv handoff failed\b/i.test(message)) return 'mpv_handoff';
   if (/HTTP (?:error )?403\b|\bforbidden\b/i.test(message)) return 'blocked';
@@ -285,6 +336,7 @@ export function youtubeMpvFailureKind(message: string): YoutubeFailureKind {
 }
 
 export function isTransientYoutubeResolveError(error: unknown): boolean {
+  if (error instanceof PlayCancelledError) return false;
   if (error instanceof CatalogError) {
     if (error.status === 429 || error.status === 403 || error.status === 404 || error.status < 500) {
       return false;
@@ -350,6 +402,27 @@ export function parseYtDlpResolvedUrls(output: string): { url: string; audio_url
   };
 }
 
+export function isYoutubeLiveStatus(value: string | null | undefined): boolean {
+  const normalized = (value || '').trim().toLowerCase();
+  return normalized === 'live' || normalized === 'is_live';
+}
+
+export function parseYoutubeResolveMeta(output: string): {
+  live: boolean;
+  live_status: string;
+  duration_sec: number | null;
+} {
+  const match = output.match(/^MANGO_META:([^\s|]+)\|([^|\s]*)\|(\S+)/im);
+  const liveStatus = match?.[1]?.trim() || 'none';
+  const durationRaw = match?.[2]?.trim() || '';
+  const duration = Number(durationRaw);
+  return {
+    live: isYoutubeLiveStatus(liveStatus),
+    live_status: liveStatus,
+    duration_sec: Number.isFinite(duration) && duration > 0 ? duration : null,
+  };
+}
+
 export async function resolveYoutubePlayback(
   config: YoutubeConfig,
   videoId: string,
@@ -388,31 +461,46 @@ export async function resolveYoutubePlayback(
   return resolvePromise;
 }
 
+async function runYoutubeYtDlp(
+  command: string,
+  args: string[],
+  timeoutMs: number,
+): Promise<{ stdout: string; stderr: string }> {
+  if (youtubeCommandRunnerForTest) {
+    return youtubeCommandRunnerForTest(command, args, {
+      timeout: timeoutMs,
+      maxBuffer: 1024 * 1024,
+    });
+  }
+  return new Promise((resolve, reject) => {
+    execFile(command, args, {
+      timeout: timeoutMs,
+      maxBuffer: 1024 * 1024,
+    }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(ytDlpExecErrorMessage(error, stdout, stderr)));
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
 async function resolveYoutubePlaybackFresh(
   config: YoutubeConfig,
   normalizedVideoId: string,
   timeoutMs = 30000,
   excludedFormats: string[] = [],
 ): Promise<YoutubeResolvedPlayback> {
-  if (!youtubeJsRuntimeAvailable()) {
+  if (!youtubeCommandRunnerForTest && !youtubeJsRuntimeAvailable()) {
     throwMissingYoutubeJsRuntime();
   }
   const started = Date.now();
   let lastFormatError = '';
   for (const format of ytDlpFormatCandidates(config.yt_dlp_format, excludedFormats)) {
     const args = youtubeYtDlpResolveArgs(config, format, normalizedVideoId);
-    const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-      execFile(config.yt_dlp_command, args, {
-        timeout: timeoutMs,
-        maxBuffer: 1024 * 1024,
-      }, (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(ytDlpExecErrorMessage(error, stdout, stderr)));
-          return;
-        }
-        resolve({ stdout, stderr });
-      });
-    }).catch((error: unknown) => {
+    const result = await runYoutubeYtDlp(config.yt_dlp_command, args, timeoutMs).catch((error: unknown) => {
+      if (error instanceof PlayCancelledError) throw error;
       const detail = error instanceof Error ? error.message : String(error);
       if (requestedFormatUnavailable(detail)) {
         lastFormatError = detail;
@@ -426,8 +514,10 @@ async function resolveYoutubePlaybackFresh(
     const { stdout, stderr } = result;
     const resolved = parseYtDlpResolvedUrls(stdout);
     if (resolved) {
+      const meta = parseYoutubeResolveMeta(stdout);
       return {
         ...resolved,
+        ...meta,
         resolve_ms: Date.now() - started,
         format,
       };
@@ -477,4 +567,5 @@ export function youtubePlayStartDisposition(error: unknown): 'cancel' | 'refresh
 export function resetYoutubePlaybackStateForTest(): void {
   youtubePlaybackInflight.clear();
   youtubeResolveCooldownUntil = 0;
+  youtubeCommandRunnerForTest = null;
 }

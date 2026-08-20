@@ -105,8 +105,8 @@ import json, sys
 payload = json.loads(sys.argv[1])
 rails = payload.get("rails") or []
 wanted = [
-    "for_you", "beyond", "more_like", "new_from_subscriptions",
-    "live_now", "history", "saved",
+    "for_you", "new_from_subscriptions", "frequently_watched",
+    "more_like", "beyond", "history", "saved", "live_now",
 ]
 found = {rail.get("rail_id"): rail for rail in rails}
 for rail_id in wanted:
@@ -126,8 +126,8 @@ import json, sys
 payload = json.loads(sys.argv[1])
 rails = payload.get("rails") or []
 wanted = [
-    "for_you", "beyond", "more_like", "new_from_subscriptions",
-    "live_now", "history", "saved",
+    "for_you", "new_from_subscriptions", "frequently_watched",
+    "more_like", "beyond", "history", "saved", "live_now",
 ]
 found = {rail.get("rail_id"): rail for rail in rails}
 for rail_id in wanted:

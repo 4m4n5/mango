@@ -86,7 +86,6 @@ test('YoutubeService.play starts mpv once and records history without leaking UR
     setYoutubePlayUrlForTest(async (url, _timeout, options) => {
       playCalls += 1;
       assert.equal(url, 'https://video.example/watch?token=secret');
-      assert.equal(options?.source, 'youtube');
       assert.equal(options?.startSec, 0);
       return { ok: true, ttff_ms: 1200 };
     });

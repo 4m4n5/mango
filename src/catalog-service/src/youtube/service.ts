@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { CatalogError } from '../catalog-errors.js';
 import { playUrl } from '../mpv.js';
 import { assertPlayEpoch, bumpPlayEpoch, PlayCancelledError } from '../play-cancel.js';
+import { getWatchProgressForTitle } from '../progress/db.js';
 import { startWatchSessionFromPlay } from '../progress/watcher.js';
 import {
   activeViewerProfileId,
@@ -47,15 +48,18 @@ import {
 } from './db.js';
 import {
   isTransientYoutubeResolveError,
+  isYoutubeLiveStatus,
   resolveYoutubePlayback,
   youtubeFailureDetails,
   youtubeMpvFailureKind,
   youtubePlayStartDisposition,
   type YoutubeResolvedPlayback,
 } from './playback.js';
+import { readYoutubeRuntimeSnapshot, youtubeRuntimeDiagnostics } from './runtime.js';
 import type {
   YoutubeItem,
   YoutubeItemKind,
+  YoutubeLiveStatus,
   YoutubeRail,
   YoutubeRailItem,
   YoutubeRefreshPhaseResult,
@@ -819,6 +823,26 @@ function publicYoutubeRails(rails: YoutubeRail[]): PublicYoutubeRail[] {
 }
 
 
+function youtubeResolvedLiveStatus(resolved: YoutubeResolvedPlayback): YoutubeLiveStatus {
+  if (resolved.live || isYoutubeLiveStatus(resolved.live_status)) return 'live';
+  const status = resolved.live_status.trim().toLowerCase();
+  if (status === 'upcoming' || status === 'is_upcoming') return 'upcoming';
+  if (status === 'completed' || status === 'was_live' || status === 'post_live') return 'completed';
+  return 'none';
+}
+
+type YoutubePlayUrlFn = (
+  url: string,
+  timeoutMs?: number,
+  options?: Parameters<typeof playUrl>[2] & { source?: string },
+) => ReturnType<typeof playUrl>;
+
+let youtubePlayUrlForTest: YoutubePlayUrlFn | null = null;
+
+export function setYoutubePlayUrlForTest(fn: YoutubePlayUrlFn | null): void {
+  youtubePlayUrlForTest = fn;
+}
+
 export class YoutubeService {
   private readonly config: YoutubeConfig;
   private readonly api: YoutubeApiClient;
@@ -865,6 +889,10 @@ export class YoutubeService {
         pot_server: youtubePotServerUp(),
         playback_cookies: Boolean(this.config.yt_dlp_cookies),
       },
+      playback: youtubeRuntimeDiagnostics(readYoutubeRuntimeSnapshot({
+        cookiesConfigured: Boolean(this.config.yt_dlp_cookies),
+        potReady: youtubePotServerUp(),
+      })),
       auth: {
         configured: auth.configured,
         authenticated: auth.authenticated,
@@ -2348,6 +2376,7 @@ export class YoutubeService {
       title?: string;
       poster?: string;
       library_source?: string;
+      start_sec?: number;
       recommendation?: {
         profile_id: string;
         domain: 'youtube';
@@ -2370,23 +2399,23 @@ export class YoutubeService {
       input.library_source?.trim() || YOUTUBE_SOURCE,
       YOUTUBE_VIDEO_TYPE,
     ).source;
-    let item = getYoutubeItem('video', id);
-    if (!item) {
-      item = {
-        id,
-        kind: 'video',
-        title: input.title || id,
-        subtitle: 'YouTube',
-        description: null,
-        thumbnail: input.poster || null,
-        channel_id: null,
-        channel_title: null,
-        published_at: null,
-        duration_sec: null,
-        live_status: 'none',
-        playlist_id: null,
-        updated_at: nowMs(),
-      };
+    const cached = getYoutubeItem('video', id);
+    const item: YoutubeItem = cached ?? {
+      id,
+      kind: 'video',
+      title: input.title || id,
+      subtitle: 'YouTube',
+      description: null,
+      thumbnail: input.poster || null,
+      channel_id: null,
+      channel_title: null,
+      published_at: null,
+      duration_sec: null,
+      live_status: 'none',
+      playlist_id: null,
+      updated_at: nowMs(),
+    };
+    if (!cached) {
       upsertYoutubeItems([item]);
     }
     const started = nowMs();
@@ -2399,18 +2428,42 @@ export class YoutubeService {
       await assertPlayEpoch(playEpoch);
       resolved = await resolveYoutubePlayback(this.config, id);
     }
-    const live = item.live_status === 'live';
-    const playResolved = (playbackResolved: YoutubeResolvedPlayback) => playUrl(playbackResolved.url, 90000, {
-      live,
-      playEpoch,
-      minDurationSec: 1,
-      audioUrl: playbackResolved.audio_url,
-      hud: {
-        title: item.title === id ? 'YouTube' : item.title,
-        context: item.channel_title,
-        kind: 'youtube_video',
+    const resolvedLiveStatus = youtubeResolvedLiveStatus(resolved);
+    const live = resolved.live || item.live_status === 'live' || resolvedLiveStatus === 'live';
+    const playItem: YoutubeItem = {
+      ...item,
+      live_status: item.live_status === 'none' ? resolvedLiveStatus : item.live_status,
+      duration_sec: item.duration_sec ?? resolved.duration_sec,
+    };
+    const savedProgress = live
+      ? null
+      : getWatchProgressForTitle(YOUTUBE_VIDEO_TYPE, id, { profile_id: profileId });
+    const startSec = live
+      ? 0
+      : Math.max(
+        0,
+        Math.floor(
+          typeof input.start_sec === 'number' && input.start_sec > 0
+            ? input.start_sec
+            : savedProgress?.position_sec ?? 0,
+        ),
+      );
+    const playResolved = (playbackResolved: YoutubeResolvedPlayback) => (youtubePlayUrlForTest ?? playUrl)(
+      playbackResolved.url,
+      90000,
+      {
+        live,
+        playEpoch,
+        minDurationSec: 1,
+        startSec,
+        audioUrl: playbackResolved.audio_url,
+        hud: {
+          title: playItem.title === id ? 'YouTube' : playItem.title,
+          context: playItem.channel_title,
+          kind: 'youtube_video',
+        },
       },
-    });
+    );
     let playback;
     try {
       try {
@@ -2433,7 +2486,11 @@ export class YoutubeService {
         : 'YouTube playback did not start', youtubeFailureDetails(
         youtubeMpvFailureKind(message),
         'play_start',
-        { mpv: message, resolve_ms: resolved.resolve_ms },
+        {
+          category: 'player_failure',
+          resolve_ms: resolved.resolve_ms,
+          attempt_count: 1,
+        },
       ), {
         couchMessage: live
           ? 'YouTube live playback did not start — try another live video'
@@ -2443,9 +2500,9 @@ export class YoutubeService {
     await assertPlayEpoch(playEpoch);
     recordLibraryWatch({
       profile_id: profileId,
-      ...youtubeItemToLibraryInput(item, librarySource),
+      ...youtubeItemToLibraryInput(playItem, librarySource),
       play_id: id,
-      duration_sec: item.duration_sec ?? 0,
+      duration_sec: playItem.duration_sec ?? 0,
       position_sec: 0,
       event: 'play',
       watched_at: nowMs(),
@@ -2455,8 +2512,8 @@ export class YoutubeService {
       source: librarySource,
       type: YOUTUBE_VIDEO_TYPE,
       id,
-      title: item.title,
-      poster: item.thumbnail,
+      title: playItem.title,
+      poster: playItem.thumbnail,
       tab: YOUTUBE_TAB,
       recommendation: input.recommendation,
     });

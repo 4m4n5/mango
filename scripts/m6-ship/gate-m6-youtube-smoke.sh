@@ -372,13 +372,30 @@ PY
 if [[ "${MANGO_YOUTUBE_PLAY:-0}" == "1" ]]; then
   out="$(mktemp)"
   trap 'rm -f "$out"; bash scripts/m2-catalog/service/mpv-stop.sh >/dev/null 2>&1 || true' EXIT
-  post_json "/youtube/play" "{\"id\":\"$video_id\"}" 120 >"$out"
-  python3 - "$out" <<'PY'
-import json
-import sys
+  request_id="yt-smoke-$(date +%s%N)"
+  post_json "/play-session" "{\"request_id\":\"$request_id\",\"source\":\"youtube\",\"type\":\"youtube_video\",\"id\":\"$video_id\"}" 20 >"$out"
+  python3 - "$out" "$CATALOG" <<'PY'
+import json, sys, time, urllib.request
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
 assert payload.get("ok") is True
-assert int(payload.get("ttff_ms") or 0) > 0
+session = payload.get("session") or {}
+session_id = session.get("session_id") or ""
+assert session_id, payload
+base = sys.argv[2].rstrip("/")
+deadline = time.time() + 90
+state = session.get("state") or "unknown"
+while time.time() < deadline and state not in ("playing", "failed_before_frame", "cancelled", "stopped"):
+    req = urllib.request.Request(f"{base}/play-session/{session_id}?wait_ms=2000")
+    with urllib.request.urlopen(req, timeout=8) as response:
+        payload = json.load(response)
+    session = payload.get("session") or {}
+    state = session.get("state") or "unknown"
+blob = json.dumps(payload)
+assert "http://" not in blob.lower()
+assert "googlevideo" not in blob.lower()
+assert state == "playing", state
+result = session.get("result") or {}
+assert int(result.get("ttff_ms") or 0) > 0
 PY
   python3 - "${MANGO_MPV_SOCKET:-$HOME/.cache/mango/mpv.sock}" <<'PY'
 import json

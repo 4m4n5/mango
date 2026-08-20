@@ -158,8 +158,9 @@ omit it.
 
 The full deploy helper runs `scripts/m6-ship/ensure-youtube-yt-dlp.sh` to
 install or update the isolated yt-dlp venv and Mango-owned Deno runtime.
-The catalog calls `scripts/m6-ship/youtube-yt-dlp.sh`, which prefers that
-venv and does not treat a stale system binary as release-ready. Deno is
+The catalog calls `scripts/m6-ship/youtube-yt-dlp.sh`, which prefers an
+optional active slot, then that venv, and does not treat a stale system
+binary as release-ready. Deno is
 required for current YouTube n-sig. The bgutil POT HTTP server binds
 `127.0.0.1:4416` only; install with
 `bash scripts/m6-ship/ensure-youtube-pot.sh install`.

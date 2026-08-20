@@ -883,6 +883,7 @@ export async function playCard(
     ? crypto.randomUUID()
     : `play-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   if (card.source === "youtube" || card.type === "youtube_video") {
+    const startSec = options.startSec ?? card.resumeSec;
     return startPlaybackSession({
       request_id: requestId,
       source: "youtube",
@@ -891,6 +892,7 @@ export async function playCard(
       id: card.id,
       title: card.title,
       poster: card.posterUrl,
+      ...(typeof startSec === "number" && startSec > 0 ? { start_sec: startSec } : {}),
       ...playbackRecommendationFields(card),
       ...personalizationExpectationBody(options.expectedOwner),
     }, requestId, options.expectedOwner, options.signal);
