@@ -44,7 +44,7 @@ print("youtube-matrix: js=" + str(playback.get("js_runtime")))
 print("youtube-matrix: pot=" + str(playback.get("pot_ready")))
 PY
 
-# Returns 0 playing, 2 classified-unplayable, 1 unexpected failure.
+# Sets PLAY_OUTCOME to playing, classified, or fail. Returns 0 unless fail.
 play_one() {
   local route="$1"
   local video_id="$2"
@@ -118,11 +118,15 @@ if state == "failed_before_frame" and any(token in error_text.lower() for token 
     raise SystemExit(2)
 raise SystemExit(f"youtube-matrix FAIL route={sys.argv[2]} state={state}")
 PY
-  rc=$?
+  local rc=$?
   set -e
   stop_playback "$request_id"
   rm -f "$accepted" "$out"
-  return "$rc"
+  case "$rc" in
+    0) PLAY_OUTCOME=playing; return 0 ;;
+    2) PLAY_OUTCOME=classified; return 0 ;;
+    *) PLAY_OUTCOME=fail; return 1 ;;
+  esac
 }
 
 play_rail() {
@@ -142,21 +146,14 @@ PY
     return 0
   fi
   local classified=0
-  local id rc
+  local id
   for id in "${ids[@]}"; do
-    set +e
     play_one "rail:${rail_id}" "$id"
-    rc=$?
-    set -e
-    if [[ "$rc" -eq 0 ]]; then
+    if [[ "$PLAY_OUTCOME" == "playing" ]]; then
       echo "youtube-matrix: route=rail:${rail_id} PASS"
       return 0
     fi
-    if [[ "$rc" -eq 2 ]]; then
-      classified=$((classified + 1))
-      continue
-    fi
-    return "$rc"
+    classified=$((classified + 1))
   done
   echo "youtube-matrix: route=rail:${rail_id} PASS classified_unplayable=${classified}"
 }
@@ -254,17 +251,12 @@ for item in items:
 PY
 )"
 if [[ -n "$corpus_id" ]]; then
-  set +e
   play_one "corpus:ordinary_vod" "$corpus_id"
-  corpus_rc=$?
-  set -e
-  if [[ "$corpus_rc" -eq 0 ]]; then
+  if [[ "$PLAY_OUTCOME" == "playing" ]]; then
     echo "youtube-matrix: route=corpus:ordinary_vod PASS"
     play_interrupt "$corpus_id"
-  elif [[ "$corpus_rc" -eq 2 ]]; then
-    echo "youtube-matrix: route=corpus:ordinary_vod PASS classified_unplayable"
   else
-    exit "$corpus_rc"
+    echo "youtube-matrix: route=corpus:ordinary_vod PASS classified_unplayable"
   fi
 fi
 
