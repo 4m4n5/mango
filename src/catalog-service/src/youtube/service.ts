@@ -2528,6 +2528,8 @@ export class YoutubeService {
         display_label: live ? 'YouTube live' : 'YouTube',
         resolve_ms: resolved.resolve_ms,
         format: resolved.format,
+        height: resolved.height,
+        fps: resolved.fps,
       },
     };
   }

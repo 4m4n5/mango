@@ -21,6 +21,7 @@ import {
   ytDlpFormatCandidates,
   YOUTUBE_ADAPTIVE_FORMAT,
   YOUTUBE_FORMAT_SORT,
+  YOUTUBE_MAX_HEIGHT,
   YOUTUBE_PLAYER_CLIENT,
   YOUTUBE_SOCKET_TIMEOUT_SEC,
 } from './playback.js';
@@ -94,18 +95,27 @@ test('a tighter operator cap stays at that height with HLS then https DASH', () 
   ]);
 });
 
-test('a 1080 operator cap does not climb to 4K', () => {
+test('YouTube format policy enforces a hard 1080p ceiling', () => {
   assert.deepEqual(
     ytDlpFormatCandidates('bv*[height<=1080]+ba'),
     ['bv*[height<=1080][protocol^=m3u8]+ba[protocol^=m3u8]/bv*[height<=1080]+ba/b[height<=1080][protocol^=m3u8]'],
   );
+  assert.deepEqual(
+    ytDlpFormatCandidates(
+      'bv*[height<=2160][protocol^=m3u8]+ba[protocol^=m3u8]/bv*[height<=2160]+ba/b[height<=2160][protocol^=m3u8]',
+    ),
+    [YOUTUBE_ADAPTIVE_FORMAT],
+  );
+  assert.equal(YOUTUBE_MAX_HEIGHT, 1080);
+  assert.match(YOUTUBE_FORMAT_SORT, /^res:1080,/);
+  assert.doesNotMatch(YOUTUBE_ADAPTIVE_FORMAT, /height<=1(?:440|[5-9]\d{2})|height<=[2-9]\d{3}/);
 });
 
 test('ytDlpFormatCandidates is a single HLS-then-DASH selector, not a height ladder', () => {
   const formats = ytDlpFormatCandidates('best');
   assert.deepEqual(formats, [YOUTUBE_ADAPTIVE_FORMAT]);
   assert.match(formats[0] || '', /protocol\^=m3u8/);
-  assert.match(formats[0] || '', /\/bv\*\[height<=2160\]\+ba\//);
+  assert.match(formats[0] || '', /\/bv\*\[height<=1080\]\+ba\//);
 });
 
 test('ytDlpFormatCandidates drops an already failed transport format', () => {
@@ -145,8 +155,12 @@ test('yt-dlp resolve prefers Deno then Node for YouTube JS challenges', () => {
     assert.equal(args[args.indexOf('--extractor-args') + 1], `youtube:player_client=${YOUTUBE_PLAYER_CLIENT}`);
     assert.equal(YOUTUBE_PLAYER_CLIENT, 'web_safari,tv_simply');
     assert.ok(args.includes('-g'));
-    assert.equal(args[args.indexOf('--print') + 1], 'MANGO_META:%(live_status)s|%(duration)s|%(protocol)s');
+    assert.equal(
+      args[args.indexOf('--print') + 1],
+      'MANGO_META:%(live_status)s|%(duration)s|%(protocol)s|%(height)s|%(fps)s',
+    );
     assert.match(YOUTUBE_FORMAT_SORT, /vcodec:vp9:vp9\.2/);
+    assert.match(YOUTUBE_FORMAT_SORT, /^res:1080,/);
     assert.doesNotMatch(YOUTUBE_FORMAT_SORT, /hdr:12/);
   } finally {
     if (previousDeno === undefined) delete process.env.MANGO_DENO;
@@ -352,11 +366,23 @@ test('YouTube refreshes only expired direct transports, not policy failures', ()
 test('resolver meta marks live independently of a stub cache row', () => {
   assert.deepEqual(
     parseYoutubeResolveMeta('MANGO_META:live|0|m3u8\nhttps://video.example/live.m3u8\n'),
-    { live: true, live_status: 'live', duration_sec: null },
+    {
+      live: true,
+      live_status: 'live',
+      duration_sec: null,
+      height: null,
+      fps: null,
+    },
   );
   assert.deepEqual(
-    parseYoutubeResolveMeta('MANGO_META:not_live|600|https\nhttps://video.example/vod.mp4\n'),
-    { live: false, live_status: 'not_live', duration_sec: 600 },
+    parseYoutubeResolveMeta('MANGO_META:not_live|600|https|1080|60\nhttps://video.example/vod.mp4\n'),
+    {
+      live: false,
+      live_status: 'not_live',
+      duration_sec: 600,
+      height: 1080,
+      fps: 60,
+    },
   );
   assert.equal(isYoutubeLiveStatus('is_live'), true);
   assert.equal(isYoutubeLiveStatus('was_live'), false);

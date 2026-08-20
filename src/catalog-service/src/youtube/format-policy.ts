@@ -1,18 +1,28 @@
+/** Product-wide YouTube ceiling. This is a hard cap, not a preference. */
+export const YOUTUBE_MAX_HEIGHT = 1080;
+
+function cappedYoutubeHeight(height: string): string {
+  const parsed = Number.parseInt(height, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return String(YOUTUBE_MAX_HEIGHT);
+  }
+  return String(Math.min(parsed, YOUTUBE_MAX_HEIGHT));
+}
+
 export function youtubeAdaptiveSelector(height: string): string {
-  const cap = `[height<=${height}]`;
+  const cap = `[height<=${cappedYoutubeHeight(height)}]`;
   return `bv*${cap}[protocol^=m3u8]+ba[protocol^=m3u8]/bv*${cap}+ba/b${cap}[protocol^=m3u8]`;
 }
 
 /** HLS first when YouTube still offers it, then https DASH, then muxed HLS. */
-export const YOUTUBE_ADAPTIVE_FORMAT = youtubeAdaptiveSelector('2160');
-/** Operator helper for a 1440 cap. Not an automatic play ladder. */
-export const YOUTUBE_MID_ADAPTIVE_FORMAT = youtubeAdaptiveSelector('1440');
-/** Operator helper for a 1080 cap. Not an automatic play ladder. */
-export const YOUTUBE_COMPAT_ADAPTIVE_FORMAT = youtubeAdaptiveSelector('1080');
+export const YOUTUBE_ADAPTIVE_FORMAT = youtubeAdaptiveSelector(String(YOUTUBE_MAX_HEIGHT));
+/** Compatibility aliases retained for callers; both obey the hard 1080p ceiling. */
+export const YOUTUBE_MID_ADAPTIVE_FORMAT = YOUTUBE_ADAPTIVE_FORMAT;
+export const YOUTUBE_COMPAT_ADAPTIVE_FORMAT = YOUTUBE_ADAPTIVE_FORMAT;
 // Pi 5 has HEVC HW only. YouTube HLS from web_safari is H.264+AAC when it
 // still exists; tv_simply https DASH is H.264/VP9 + AAC/Opus. Keep VP9-first sort.
 export const YOUTUBE_FORMAT_SORT =
-  'res:2160,fps,vcodec:vp9:vp9.2:av01:h264,acodec:opus:mp4a';
+  `res:${YOUTUBE_MAX_HEIGHT},fps,vcodec:vp9:vp9.2:av01:h264,acodec:opus:mp4a`;
 
 const LEGACY_YOUTUBE_FORMATS = new Set([
   'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
@@ -67,10 +77,10 @@ export function effectiveYoutubeFormat(configured: string): string {
   if (!adaptive) {
     return YOUTUBE_ADAPTIVE_FORMAT;
   }
-  if (adaptive.includes('/bv*') && isHlsYoutubeFormat(adaptive)) {
-    return adaptive;
-  }
-  return youtubeAdaptiveSelector(heightCap(adaptive) || '2160');
+  // Rebuild the selector from the operator's requested height so no custom or
+  // stale config can bypass the product-wide 1080p ceiling. Lower caps remain
+  // valid; progressive muxed formats remain excluded.
+  return youtubeAdaptiveSelector(heightCap(adaptive) || String(YOUTUBE_MAX_HEIGHT));
 }
 
 /**

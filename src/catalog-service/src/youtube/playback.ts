@@ -18,6 +18,7 @@ export {
   YOUTUBE_ADAPTIVE_FORMAT,
   YOUTUBE_COMPAT_ADAPTIVE_FORMAT,
   YOUTUBE_FORMAT_SORT,
+  YOUTUBE_MAX_HEIGHT,
   YOUTUBE_MID_ADAPTIVE_FORMAT,
   ytDlpFormatCandidates,
 } from './format-policy.js';
@@ -42,6 +43,8 @@ export type YoutubeResolvedPlayback = {
   live: boolean;
   live_status: string;
   duration_sec: number | null;
+  height: number | null;
+  fps: number | null;
 };
 
 export type YoutubeCommandRunner = (
@@ -107,7 +110,10 @@ export function youtubeYtDlpResolveArgs(
   args.push(...youtubeJsRuntimeArgs());
   args.push(...youtubeRemoteComponentArgs());
   args.push(...youtubeExtractorArgFlags());
-  args.push('--print', 'MANGO_META:%(live_status)s|%(duration)s|%(protocol)s');
+  args.push(
+    '--print',
+    'MANGO_META:%(live_status)s|%(duration)s|%(protocol)s|%(height)s|%(fps)s',
+  );
   args.push('-g');
   if (config.yt_dlp_cookies) {
     args.push('--cookies', config.yt_dlp_cookies);
@@ -411,15 +417,23 @@ export function parseYoutubeResolveMeta(output: string): {
   live: boolean;
   live_status: string;
   duration_sec: number | null;
+  height: number | null;
+  fps: number | null;
 } {
-  const match = output.match(/^MANGO_META:([^\s|]+)\|([^|\s]*)\|(\S+)/im);
+  const match = output.match(
+    /^MANGO_META:([^\s|]+)\|([^|\s]*)\|([^|\s]+)(?:\|([^|\s]*)(?:\|([^|\s]*))?)?/im,
+  );
   const liveStatus = match?.[1]?.trim() || 'none';
   const durationRaw = match?.[2]?.trim() || '';
   const duration = Number(durationRaw);
+  const height = Number(match?.[4]?.trim() || '');
+  const fps = Number(match?.[5]?.trim() || '');
   return {
     live: isYoutubeLiveStatus(liveStatus),
     live_status: liveStatus,
     duration_sec: Number.isFinite(duration) && duration > 0 ? duration : null,
+    height: Number.isFinite(height) && height > 0 ? height : null,
+    fps: Number.isFinite(fps) && fps > 0 ? fps : null,
   };
 }
 

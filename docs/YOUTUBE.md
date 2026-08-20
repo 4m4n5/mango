@@ -82,9 +82,14 @@ activating a personal-profile ranker.
 
 Playback resolves with `yt-dlp -g` and starts mpv on those URLs with
 `--ytdl=no`. The selector is **HLS first, then https DASH**
-(`bv*[protocol^=m3u8]+ba[protocol^=m3u8]/bv*+ba/b[protocol^=m3u8]`, capped at
-4K) from `player_client=web_safari,tv_simply`. web_safari HLS is used when YouTube
-still returns `hlsManifestUrl`; after mid-2026 many titles no longer do, and
+(`bv*[height<=1080][protocol^=m3u8]+ba[protocol^=m3u8]/
+bv*[height<=1080]+ba/b[height<=1080][protocol^=m3u8]`) from
+`player_client=web_safari,tv_simply`. The **1080p ceiling is enforced in source**:
+stale or custom configuration may request a lower cap but cannot raise it.
+This retains one resolver call and the proven transport choice while reducing
+startup bandwidth, decode work, and handoff buffering versus 1440p/4K; it does
+not add a sequential quality ladder. web_safari HLS is used when YouTube still
+returns `hlsManifestUrl`; after mid-2026 many titles no longer do, and
 pinning safari alone then fails closed with no formats. mweb https DASH is not
 the living fallback on this household path: those googlevideo URLs (`c=MWEB`)
 403 for both curl and mpv even with PO tokens, Chrome UA, Origin, and cookies.

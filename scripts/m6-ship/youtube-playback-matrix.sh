@@ -95,14 +95,21 @@ import json, sys
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
 session = payload.get("session") or {}
 result = session.get("result") or {}
+stream = result.get("stream") or {}
 error = session.get("error")
 error_text = error if isinstance(error, str) else json.dumps(error or "")
 blob = json.dumps(payload)
 assert "http://" not in blob.lower()
 assert "googlevideo" not in blob.lower()
+height = stream.get("height")
+if sys.argv[3] == "playing":
+    assert isinstance(height, (int, float)) and 0 < height <= 1080, (
+        f"youtube-matrix FAIL route={sys.argv[2]} invalid_height={height}"
+    )
 print(
     f"youtube-matrix: route={sys.argv[2]} state={sys.argv[3]} "
-    f"error={error is not None} ttff={result.get('ttff_ms')}"
+    f"error={error is not None} resolve={stream.get('resolve_ms')} "
+    f"ttff={result.get('ttff_ms')} height={height} fps={stream.get('fps')}"
 )
 state = sys.argv[3]
 if state == "playing":

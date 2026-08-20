@@ -146,6 +146,7 @@ explicit product approval.
 | Topic | Locked choice |
 |-------|---------------|
 | Source | First-class native tab; official Data API for metadata/search/subscriptions and `yt-dlp` → mpv for playback |
+| Playback quality | Hard 1080p ceiling in resolver policy; one HLS-first then https-DASH adaptive selector, lower operator caps allowed, no progressive or sequential height ladder |
 | Auth/secrets | Operator-owned `/etc/mango/*`, never repository secrets |
 | Inputs | Authoritative complete subscriptions plus official Google Takeout and Mango-local meaningful watches (equal decayed strength) influence recommendation acquisition/ranking; exact Not-for-me remains a video veto and also applies a decaying channel penalty |
 | Isolation | Search, Saved, profiles, mood, VOD, companion memory, AI catalogs, charts, and generic cache do not influence YouTube v3 |

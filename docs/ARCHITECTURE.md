@@ -390,8 +390,10 @@ The YouTube Data API is used for exact authorized-channel identity, metadata,
 search, authoritative subscription refresh, and official channel upload
 playlists only.
 Playback resolves with `yt-dlp -g` (`player_client=web_safari,tv_simply`),
-HLS first then https DASH, then mpv `--ytdl=no`. API quota does not govern
-cached playback. Classified outcomes include unavailable, geo, DRM,
+one hard-capped `height<=1080` HLS-first/https-DASH selector, then mpv
+`--ytdl=no`. Lower operator caps remain valid; configuration cannot raise the
+ceiling or add a sequential quality ladder. API quota does not govern cached
+playback. Classified outcomes include unavailable, geo, DRM,
 entitlement, rate-limit, and player failure. Channels and playlists open
 detail lists; only videos can be Saved in M6.2.
 
