@@ -113,6 +113,9 @@ classified = (
     "asking for browser verification",
     "temporarily busy",
 )
+if state == "cancelled":
+    print(f"youtube-matrix: route={sys.argv[2]} cancelled")
+    raise SystemExit(3)
 if state == "failed_before_frame" and any(token in error_text.lower() for token in classified):
     print(f"youtube-matrix: route={sys.argv[2]} classified_unplayable")
     raise SystemExit(2)
@@ -125,6 +128,7 @@ PY
   case "$rc" in
     0) PLAY_OUTCOME=playing; return 0 ;;
     2) PLAY_OUTCOME=classified; return 0 ;;
+    3) PLAY_OUTCOME=cancelled; return 0 ;;
     *) PLAY_OUTCOME=fail; return 1 ;;
   esac
 }
@@ -148,12 +152,25 @@ PY
   local classified=0
   local id
   for id in "${ids[@]}"; do
-    play_one "rail:${rail_id}" "$id"
-    if [[ "$PLAY_OUTCOME" == "playing" ]]; then
-      echo "youtube-matrix: route=rail:${rail_id} PASS"
-      return 0
+    local attempts=0
+    while (( attempts < 2 )); do
+      attempts=$((attempts + 1))
+      play_one "rail:${rail_id}" "$id"
+      if [[ "$PLAY_OUTCOME" == "playing" ]]; then
+        echo "youtube-matrix: route=rail:${rail_id} PASS"
+        return 0
+      fi
+      if [[ "$PLAY_OUTCOME" != "cancelled" ]]; then
+        break
+      fi
+      echo "youtube-matrix: route=rail:${rail_id} retry after cancel"
+      stop_playback
+    done
+    if [[ "$PLAY_OUTCOME" == "classified" || "$PLAY_OUTCOME" == "cancelled" ]]; then
+      classified=$((classified + 1))
+      continue
     fi
-    classified=$((classified + 1))
+    return 1
   done
   echo "youtube-matrix: route=rail:${rail_id} PASS classified_unplayable=${classified}"
 }
