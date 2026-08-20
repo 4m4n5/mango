@@ -240,7 +240,7 @@ source-tested at the target and must be re-proven on the Pi.
 | YT1 | Base tab | Cached metadata remains usable; Search groups Videos/Channels/Playlists | |
 | YT2 | Connect | Companion device flow succeeds; token stays `/etc/mango`, 0600; LAN status DTO stays sanitized | |
 | YT3 | Takeout | Bounded ZIP/JSON/HTML import is path-safe/idempotent; normalized events remain; raw upload is discarded | |
-| YT4 | Playback | Video B → play-session → `yt-dlp` (`web_safari,tv_simply`) → mpv; one selector fallback at most; resume from progress; classified couch-safe 403/429/CAPTCHA error; no leaked URLs | |
+| YT4 | Playback | Video B → play-session → `yt-dlp` (`web_safari,tv_simply`) → mpv; one selector fallback at most; resume from progress; classified couch-safe 403/429/CAPTCHA error; no leaked URLs | Automated: `youtube-playback-matrix.sh` PASS at `7ce86f6` (populated rails + corpus VOD + cancel-interrupt; no leaked URLs). Human still owns picture, audio, lip-sync, and perceived latency. |
 | YT5 | Input isolation | Authoritative OAuth subscriptions, official Takeout history, and Mango-local meaningful watches influence v3; Search/Saved/mood/VOD/companion stay isolated | |
 | YT6 | Logical order | For You, From Your Subscriptions, Your regulars, More Like, Beyond, History, then Saved, then Live | |
 | YT7 | Supply honesty | Normal rows render only at exactly four cards and can be absent; Live renders 1–4; no unrelated filler | |

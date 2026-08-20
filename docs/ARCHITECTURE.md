@@ -389,11 +389,11 @@ recommendation rails; neither invokes a deleted allocator.
 The YouTube Data API is used for exact authorized-channel identity, metadata,
 search, authoritative subscription refresh, and official channel upload
 playlists only.
-Playback resolves through a bounded YouTube transport broker (`yt-dlp` clients
-then mpv). API quota does not govern cached playback. Classified outcomes
-include unavailable, geo, DRM, entitlement, rate-limit, SABR-only, and
-player failure. Channels and playlists open detail lists; only
-videos can be Saved in M6.2.
+Playback resolves with `yt-dlp -g` (`player_client=web_safari,tv_simply`),
+HLS first then https DASH, then mpv `--ytdl=no`. API quota does not govern
+cached playback. Classified outcomes include unavailable, geo, DRM,
+entitlement, rate-limit, and player failure. Channels and playlists open
+detail lists; only videos can be Saved in M6.2.
 
 In `serve`, YouTube v2 display order is **For You → From Your Subscriptions → Your regulars → More Like … → Beyond Your
 Subscriptions → History**. **Saved** follows as a stable utility when it has four

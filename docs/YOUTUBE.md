@@ -178,6 +178,11 @@ MANGO_YOUTUBE_PLAY=1 bash scripts/m6-ship/gate-m6-youtube-smoke.sh
 bash scripts/m6-ship/youtube-playback-matrix.sh
 ```
 
+Automated play-session matrix PASS at Pi `7ce86f6`: For You, From Your
+Subscriptions, Your regulars, More Like, Beyond, History, corpus VOD, and
+cancel-interrupt. Saved and Live Now were empty that run and were deferred.
+That is not a human picture/audio/lip-sync verdict.
+
 Deploy uses the fail-closed helpers in [DEPLOY.md](DEPLOY.md).
 
 Optional embedding ranking uses a local MiniLM, not a hashed bag-of-tokens.
