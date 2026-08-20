@@ -59,6 +59,7 @@ const SEARCH_RESULT_LIMIT = 50;
 const TOP_GROUP_LIMIT = 8;
 const PHASE_TIMEOUT_MS = 2_500;
 const AI_TIMEOUT_MS = 4_000;
+const SEARCH_INDEX_ROWS_PER_TURN = 256;
 
 function validatedQuery(value: string): { display: string; normalized: string } {
   try {
@@ -96,6 +97,10 @@ function scopeAllows(scope: SearchScope, result: SearchResult): boolean {
   if (scope === 'series') return result.tab === 'series';
   if (scope === 'live') return result.tab === 'live';
   return result.tab === 'youtube';
+}
+
+async function yieldSearchIndexTurn(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
 function resultKey(result: Pick<SearchResult, 'source' | 'type' | 'id'>): string {
@@ -279,7 +284,9 @@ export class UnifiedSearchService {
     this.indexFlight = (async () => {
       const next: IndexedResult[] = [];
       const seen = new Set<string>();
+      let processed = 0;
       for (const row of await listVerifiedLibraryCatalogRows(20_000)) {
+        if (++processed % SEARCH_INDEX_ROWS_PER_TURN === 0) await yieldSearchIndexTurn();
         const key = `mango:${row.type}:${row.id}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -304,6 +311,7 @@ export class UnifiedSearchService {
         });
       }
       for (const item of listYoutubeItems(null, 20_000)) {
+        if (++processed % SEARCH_INDEX_ROWS_PER_TURN === 0) await yieldSearchIndexTurn();
         const result = youtubeResult(item, item.title);
         if (!result || seen.has(result.key)) continue;
         seen.add(result.key);
@@ -317,6 +325,7 @@ export class UnifiedSearchService {
         });
       }
       for (const entry of collectLiveSearchEntriesFromCache()) {
+        if (++processed % SEARCH_INDEX_ROWS_PER_TURN === 0) await yieldSearchIndexTurn();
         const title = entry.meta.name || entry.meta.title || entry.meta.id;
         const key = `mango:tv:${entry.meta.id}`;
         if (seen.has(key)) continue;
