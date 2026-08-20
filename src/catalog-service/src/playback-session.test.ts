@@ -107,6 +107,8 @@ test('playback session result keeps only the launcher-needed subset', () => with
         display_label: '1080p',
         cached: true,
         resolve_ms: 80,
+        height: 1080,
+        fps: 60,
         url: 'https://secret.invalid/signed',
         extra: 'nope',
       },
@@ -129,6 +131,8 @@ test('playback session result keeps only the launcher-needed subset', () => with
       display_label: '1080p',
       resolve_ms: 80,
       format: '1080p',
+      height: 1080,
+      fps: 60,
       cached: true,
     },
     filters: {

@@ -103,6 +103,8 @@ function slimPlaybackResult(result: Record<string, unknown>): Record<string, unk
       'display_label',
       'resolve_ms',
       'format',
+      'height',
+      'fps',
       'cached',
     ] as const) {
       if (stream[key] !== undefined) slimStream[key] = stream[key];
