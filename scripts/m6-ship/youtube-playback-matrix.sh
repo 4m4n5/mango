@@ -21,11 +21,11 @@ post_json() {
 }
 
 stop_playback() {
-  local request_id="$1"
   if [[ "$STOP" == "1" ]]; then
-    post_json /play-cancel "{\"request_id\":\"$request_id\"}" 10 >/dev/null 2>&1 || true
+    # Do not POST /play-cancel between rails: that bumps the global play epoch
+    # and can cancel the next route's in-flight resolve.
     bash "$REPO_ROOT/scripts/m2-catalog/service/mpv-stop.sh" >/dev/null 2>&1 || true
-    sleep 1
+    sleep 2
   fi
 }
 
