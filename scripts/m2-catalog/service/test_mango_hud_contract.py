@@ -84,6 +84,9 @@ class MangoHudContractTest(unittest.TestCase):
         self.assertIn("overlay.hidden = false", HUD)
         self.assertIn("Keep the overlay id alive", HUD)
         self.assertNotIn("overlay:remove()", HUD)
+        self.assertNotIn('overlay.data = ""', HUD)
+        self.assertIn('mp.register_script_message("mango-hud-display-ready"', HUD)
+        self.assertIn("local overlay = nil", HUD)
         self.assertIn("write_visible_state(true, overlay_mode, seconds)", HUD)
         self.assertIn("is_visible and \"true\" or \"false\"", HUD)
 

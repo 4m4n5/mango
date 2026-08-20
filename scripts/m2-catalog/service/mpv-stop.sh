@@ -9,6 +9,7 @@ GO_HOME="${MANGO_MPV_STOP_HOME:-0}"
 PLAY_CANCEL_FILE="${MANGO_PLAY_CANCEL_PATH:-${HOME}/.cache/mango/play-cancel.epoch}"
 PLAYBACK_OSD_PID_FILE="${MANGO_PLAYBACK_OSD_PID_FILE:-${HOME}/.cache/mango/playback-osd.pid}"
 PLAYBACK_OSD_TRIGGER="${MANGO_PLAYBACK_OSD_TRIGGER:-${HOME}/.cache/mango/playback-osd.show}"
+PLAYBACK_OSD_VISIBLE_FILE="${MANGO_PLAYBACK_OSD_VISIBLE_FILE:-${HOME}/.cache/mango/playback-osd.visible}"
 PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
 PLAYBACK_DISPLAY_MATCHED_FILE="${MANGO_PLAYBACK_DISPLAY_MATCHED_FILE:-${HOME}/.cache/mango/playback-display-matched}"
 MPV_PID_FILE="${MANGO_MPV_PID_FILE:-${HOME}/.cache/mango/mpv.pid}"
@@ -76,6 +77,16 @@ stop_playback_osd() {
     sleep 0.1
   fi
   rm -f "$PLAYBACK_OSD_PID_FILE" "$PLAYBACK_OSD_TRIGGER"
+  if [[ "${MANGO_MPV_STOP_NO_DISPLAY:-0}" != "1" ]]; then
+    local temporary="${PLAYBACK_OSD_VISIBLE_FILE}.stop.$$"
+    mkdir -p "$(dirname "$PLAYBACK_OSD_VISIBLE_FILE")"
+    (
+      umask 077
+      printf '{"visible":false,"mode":"hidden","ts":%s,"visible_sec":0.0}\n' \
+        "$(date +%s)" >"$temporary"
+    )
+    mv -f "$temporary" "$PLAYBACK_OSD_VISIBLE_FILE"
+  fi
 }
 
 tracked_pid_is_mango_mpv() {

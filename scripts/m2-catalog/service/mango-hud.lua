@@ -861,7 +861,9 @@ render = function()
   -- Keep the overlay id alive. Calling remove() can leave later update()
   -- unable to put chrome back, so A/↑ keep working while the HUD stays gone.
   if overlay_mode == "hidden" then
-    overlay.data = ""
+    -- Preserve the last valid ASS payload while hidden. Repeatedly replacing it
+    -- with an empty payload can reproduce the same sticky libass lifecycle
+    -- failure as removing the overlay: IPC continues, but later chrome is gone.
     overlay.hidden = true
     overlay:update()
     return

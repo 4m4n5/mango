@@ -213,10 +213,18 @@ fi
 
 if grep -q 'mango-hud-display-ready' scripts/m2-catalog/service/mpv-play.sh \
   && grep -q 'mp.register_script_message("mango-hud-display-ready"' scripts/m2-catalog/service/mango-hud.lua \
-  && grep -q 'local overlay = nil' scripts/m2-catalog/service/mango-hud.lua; then
-  gate_pass "HUD overlay is created only after the real display VO is ready"
+  && grep -q 'local overlay = nil' scripts/m2-catalog/service/mango-hud.lua \
+  && ! grep -q 'overlay\.data = ""' scripts/m2-catalog/service/mango-hud.lua; then
+  gate_pass "HUD binds after real VO and preserves its payload across hide/show"
 else
-  gate_fail "HUD overlay must not bind to the null buffering VO"
+  gate_fail "HUD overlay lifecycle can bind to null VO or lose its payload"
+fi
+
+if grep -q 'PLAYBACK_OSD_VISIBLE_FILE' scripts/m2-catalog/service/mpv-stop.sh \
+  && grep -q '"visible":false,"mode":"hidden"' scripts/m2-catalog/service/mpv-stop.sh; then
+  gate_pass "foreground mpv stop normalizes pad-visible HUD state"
+else
+  gate_fail "mpv stop can leave stale Streams/HUD routing state"
 fi
 
 if grep -q 'append_mpv_volume_scale_args' scripts/m2-catalog/service/mpv-play.sh \
