@@ -182,6 +182,23 @@ else
 fi
 unset _ff_match_line _ff_enable_line
 
+# The hidden null-output proof may advance, but the viewer must not join it in
+# progress. Pause before display takeover, then seek both tracks back to the
+# requested start after real VO/AO are ready and release only after the window
+# is raised.
+_hold_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /hold_null_buffer_at_handoff/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
+_hide_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /mango-window\.sh.*hide/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
+_rewind_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /rewind_null_buffer_to_intended_start/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
+_raise_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /raise_mpv_window/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
+_release_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /release_null_buffer_start/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
+if [[ -n "$_hold_line" && -n "$_hide_line" && -n "$_rewind_line" && -n "$_raise_line" && -n "$_release_line" ]] \
+  && (( _hold_line < _hide_line && _rewind_line < _raise_line && _raise_line < _release_line )); then
+  gate_pass "buffer handoff pauses, rewinds A/V, raises, then releases at intended start"
+else
+  gate_fail "buffer handoff first-frame ordering invalid (hold=${_hold_line:-?} hide=${_hide_line:-?} rewind=${_rewind_line:-?} raise=${_raise_line:-?} release=${_release_line:-?})"
+fi
+unset _hold_line _hide_line _rewind_line _raise_line _release_line
+
 # Playback HUD must render inside mpv (libass overlay), not as a separate X11
 # window over fullscreen mpv. On the Pi (Openbox, no compositor) an overlay
 # window breaks mpv's unredirected page-flip path and stutters 4K present while
@@ -192,6 +209,14 @@ if [[ -f scripts/m2-catalog/service/mango-hud.lua ]] \
   gate_pass "playback HUD rendered in-mpv (no overlay window over fullscreen)"
 else
   gate_fail "playback HUD must render in-mpv via mango-hud.lua (--script), not a separate window"
+fi
+
+if grep -q 'mango-hud-display-ready' scripts/m2-catalog/service/mpv-play.sh \
+  && grep -q 'mp.register_script_message("mango-hud-display-ready"' scripts/m2-catalog/service/mango-hud.lua \
+  && grep -q 'local overlay = nil' scripts/m2-catalog/service/mango-hud.lua; then
+  gate_pass "HUD overlay is created only after the real display VO is ready"
+else
+  gate_fail "HUD overlay must not bind to the null buffering VO"
 fi
 
 if grep -q 'append_mpv_volume_scale_args' scripts/m2-catalog/service/mpv-play.sh \

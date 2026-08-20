@@ -946,6 +946,60 @@ wait_mpv_vo_ready() {
   return 1
 }
 
+hold_null_buffer_at_handoff() {
+  $NULL_BUFFER || return 0
+  bash "$SCRIPT_DIR/mpv-ipc.sh" set_property pause yes >/dev/null 2>&1 || return 1
+  local started
+  started="$(now_ms)"
+  while (( $(now_ms) - started < 1200 )); do
+    case "$(mpv_property pause 2>/dev/null || true)" in
+      true|yes|1) return 0 ;;
+    esac
+    sleep 0.05
+  done
+  return 1
+}
+
+rewind_null_buffer_to_intended_start() {
+  $NULL_BUFFER || return 0
+  local target="${START_SEC:-0}"
+  local timeout_ms="${MANGO_MPV_START_REWIND_TIMEOUT_MS:-2500}"
+  [[ "$target" =~ ^[0-9]+$ ]] || target=0
+  [[ "$timeout_ms" =~ ^[0-9]+$ ]] || timeout_ms=2500
+  bash "$SCRIPT_DIR/mpv-ipc.sh" seek "$target" absolute+exact >/dev/null 2>&1 || return 1
+  local started position seeking
+  started="$(now_ms)"
+  while (( $(now_ms) - started < timeout_ms )); do
+    seeking="$(mpv_property seeking 2>/dev/null || true)"
+    position="$(mpv_property playback-time 2>/dev/null || true)"
+    if [[ "$seeking" != "true" && "$seeking" != "yes" && "$seeking" != "1" ]] \
+      && awk -v p="${position:-0}" -v t="$target" \
+        'BEGIN { d=(p+0)-(t+0); if (d<0) d=-d; exit !(d<=0.75) }'; then
+      return 0
+    fi
+    sleep 0.05
+  done
+  return 1
+}
+
+release_null_buffer_start() {
+  $NULL_BUFFER || return 0
+  if play_cancelled; then
+    return 1
+  fi
+  notify_mpv_hud_display_ready
+  bash "$SCRIPT_DIR/mpv-ipc.sh" set_property pause no >/dev/null 2>&1 || return 1
+  return 0
+}
+
+notify_mpv_hud_display_ready() {
+  $PROBE && return 0
+  $HUD_DISPLAY_NOTIFIED && return 0
+  [[ -S "$SOCKET" ]] || return 1
+  bash "$SCRIPT_DIR/mpv-ipc.sh" script-message mango-hud-display-ready >/dev/null 2>&1 || return 1
+  HUD_DISPLAY_NOTIFIED=true
+}
+
 append_mpv_play_args() {
   mpv_args+=(
     --idle=no
@@ -1018,6 +1072,13 @@ PY
 
 foreground_handoff() {
   $HANDOFF_DONE && return 0
+  # The null VO/AO buffer proves the transport while Chromium remains visible.
+  # Freeze it before taking the display so mode matching and real AO startup do
+  # not consume the opening seconds behind a black screen.
+  if ! hold_null_buffer_at_handoff; then
+    echo "FAIL: mpv could not hold buffered playback for handoff" >&2
+    return 1
+  fi
   mark_playback_active
   # Black-screen-first BEFORE HDMI match: never switch to 4K while the
   # launcher is still mapped (that caused the 4K-scaled Chromium flash).
@@ -1080,6 +1141,13 @@ foreground_handoff() {
       echo "FAIL: mpv display enable failed" >&2
       return 1
     fi
+    # VO/AO replacement seeks to the old, already-advanced null-output
+    # position. Rewind both tracks together while still paused so the first
+    # visible/audible frame is the requested start (zero or durable resume).
+    if ! rewind_null_buffer_to_intended_start; then
+      echo "FAIL: mpv could not restore the intended start position" >&2
+      return 1
+    fi
   fi
   raise_mpv_window
   apply_4k_video_sync || true
@@ -1088,6 +1156,10 @@ foreground_handoff() {
   fi
   if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" && -n "${MPV_PID:-}" ]]; then
     start_mpv_exit_monitor "$MPV_PID"
+  fi
+  if ! release_null_buffer_start; then
+    echo "FAIL: mpv could not release synchronized playback" >&2
+    return 1
   fi
   HANDOFF_DONE=true
   if ! $PROBE; then
@@ -1207,6 +1279,7 @@ HANDOFF_DONE=false
 DISPLAY_ENABLED=false
 NULL_BUFFER=false
 GPU_DEFER=false
+HUD_DISPLAY_NOTIFIED=false
 
 mpv_args=()
 if ! $PROBE && [[ "$DEFER_FOREGROUND" == "1" ]]; then
@@ -1293,6 +1366,7 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
         if ! $PROBE && ! $HANDOFF_DONE; then
           :
         else
+          notify_mpv_hud_display_ready || true
           if play_cancelled; then
             echo "FAIL: play cancelled" >&2
             MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true

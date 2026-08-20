@@ -66,11 +66,14 @@ local A_TICK_OFF = "&HC8&"
 local A_FOCUS = "&HEB&"
 local A_SCRIM = { "&HD8&", "&HB8&", "&H90&" }
 
-local overlay = mp.create_osd_overlay("ass-events")
-overlay.res_x = CANVAS_W
-overlay.res_y = CANVAS_H
-overlay.z = 10
-overlay.hidden = true
+-- Deferred VOD starts under vo=null. Creating/updating an ASS overlay there can
+-- bind its id to the null VO; after the GPU VO replaces it, later updates are
+-- accepted but never rendered. Create the overlay only after mpv-play confirms
+-- that the real display VO is configured.
+local overlay = nil
+local display_ready = FIXTURES
+local startup_confirmation_pending = START_CONFIRMATION ~= ""
+local startup_streams_pending = START_REOPEN_STREAMS
 
 local overlay_mode = "hidden"
 local hud_reason = "show"
@@ -843,7 +846,18 @@ local function build_ass()
   return ""
 end
 
+local function ensure_overlay()
+  if overlay then return end
+  overlay = mp.create_osd_overlay("ass-events")
+  overlay.res_x = CANVAS_W
+  overlay.res_y = CANVAS_H
+  overlay.z = 10
+  overlay.hidden = true
+end
+
 render = function()
+  if not display_ready then return end
+  ensure_overlay()
   -- Keep the overlay id alive. Calling remove() can leave later update()
   -- unable to put chrome back, so A/↑ keep working while the HUD stays gone.
   if overlay_mode == "hidden" then
@@ -883,7 +897,7 @@ local function show_hud(reason, forced_seconds)
   local seconds = forced_seconds or dwell_seconds(hud_reason)
   overlay_mode = hud_reason == "confirmation" and "confirmation" or "hud"
   visible = true
-  overlay.hidden = false
+  if not display_ready then return end
   write_visible_state(true, overlay_mode, seconds)
   render()
   stop_hud_timers()
@@ -918,7 +932,7 @@ local function refresh_stream_state()
 end
 
 local function open_streams()
-  if not x_supported() then return end
+  if not display_ready or not x_supported() then return end
   stream_state = read_stream_state()
   if not stream_state then return end
   stop_hud_timers()
@@ -982,6 +996,28 @@ local function try_confirmation_undo()
   return true
 end
 
+local function activate_display_overlay()
+  if display_ready then return end
+  display_ready = true
+  -- A previous VO must never donate an overlay id to the newly configured VO.
+  overlay = nil
+  if startup_confirmation_pending then
+    startup_confirmation_pending = false
+    confirmation_copy = START_CONFIRMATION
+    confirmation_until = mp.get_time() + LONG_SEC
+    show_hud("confirmation", LONG_SEC)
+  elseif startup_streams_pending then
+    startup_streams_pending = false
+    open_streams()
+  elseif visible then
+    show_hud(hud_reason)
+  else
+    render()
+  end
+end
+
+mp.register_script_message("mango-hud-display-ready", activate_display_overlay)
+
 mp.register_script_message("mango-hud-show", function(reason)
   show_hud(reason or "show")
 end)
@@ -1030,6 +1066,7 @@ mp.register_script_message("mango-streams-select", function()
 end)
 
 mp.observe_property("paused-for-cache", "bool", function(_, paused_for_cache)
+  if not display_ready then return end
   buffering_timer = stop_timer(buffering_timer)
   if paused_for_cache == true then
     buffering_timer = mp.add_timeout(1.0, function()
@@ -1055,6 +1092,7 @@ mp.observe_property("paused-for-cache", "bool", function(_, paused_for_cache)
 end)
 
 mp.observe_property("pause", "bool", function(_, paused)
+  if not display_ready then return end
   if overlay_mode == "streams" or overlay_mode == "hud" or overlay_mode == "confirmation"
     or overlay_mode == "buffering" then return end
   overlay_mode = paused == true and "pause_badge" or "hidden"
@@ -1107,11 +1145,13 @@ if START_CONFIRMATION ~= "" then
   hud_reason = "confirmation"
   overlay_mode = "confirmation"
   visible = true
-  confirmation_until = mp.get_time() + LONG_SEC
-  write_visible_state(true, "confirmation", LONG_SEC)
-  render()
-  hide_timer = mp.add_timeout(LONG_SEC, settle_after_hud)
-elseif START_REOPEN_STREAMS then
+  if display_ready then
+    startup_confirmation_pending = false
+    confirmation_until = mp.get_time() + LONG_SEC
+    show_hud("confirmation", LONG_SEC)
+  end
+elseif START_REOPEN_STREAMS and display_ready then
+  startup_streams_pending = false
   mp.add_timeout(1.0, open_streams)
 end
 
