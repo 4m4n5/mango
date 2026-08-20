@@ -963,9 +963,12 @@ hold_null_buffer_at_handoff() {
 rewind_null_buffer_to_intended_start() {
   $NULL_BUFFER || return 0
   local target="${START_SEC:-0}"
-  local timeout_ms="${MANGO_MPV_START_REWIND_TIMEOUT_MS:-2500}"
+  # An exact seek can need a fresh split-stream range fetch after real VO/AO
+  # replace the null outputs. Keep the fast path event-driven, but allow slow
+  # YouTube/VOD transports enough wall time to reach the intended start.
+  local timeout_ms="${MANGO_MPV_START_REWIND_TIMEOUT_MS:-8000}"
   [[ "$target" =~ ^[0-9]+$ ]] || target=0
-  [[ "$timeout_ms" =~ ^[0-9]+$ ]] || timeout_ms=2500
+  [[ "$timeout_ms" =~ ^[0-9]+$ ]] || timeout_ms=8000
   bash "$SCRIPT_DIR/mpv-ipc.sh" seek "$target" absolute+exact >/dev/null 2>&1 || return 1
   local started position seeking
   started="$(now_ms)"

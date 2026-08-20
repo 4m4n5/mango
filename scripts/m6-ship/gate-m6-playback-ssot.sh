@@ -199,6 +199,12 @@ else
 fi
 unset _hold_line _hide_line _rewind_line _raise_line _release_line
 
+if grep -q 'MANGO_MPV_START_REWIND_TIMEOUT_MS:-8000' scripts/m2-catalog/service/mpv-play.sh; then
+  gate_pass "exact A/V rewind tolerates slow split-stream range fetches"
+else
+  gate_fail "exact A/V rewind timeout is too short for slow split-stream starts"
+fi
+
 # Playback HUD must render inside mpv (libass overlay), not as a separate X11
 # window over fullscreen mpv. On the Pi (Openbox, no compositor) an overlay
 # window breaks mpv's unredirected page-flip path and stutters 4K present while
