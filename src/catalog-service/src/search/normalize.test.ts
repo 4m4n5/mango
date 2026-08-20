@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   isDescriptiveSearchQuery,
   normalizeSearchQuery,
+  scoreNormalizedSearchMatch,
   scoreSearchMatch,
   validateSearchQuery,
 } from './normalize.js';
@@ -28,6 +29,25 @@ test('literal ranking keeps exact prefix and complete-token classes ordered', ()
   assert.equal(prefix?.match, 'prefix');
   assert.ok((exact?.score || 0) > (prefix?.score || 0));
   assert.ok((prefix?.score || 0) > (tokens?.score || 0));
+});
+
+test('pre-normalized index scoring preserves literal ranking exactly', () => {
+  const cases = [
+    ['Dune', 'dune', 'Dune'],
+    ['Dune Part Two', 'dune', 'Dune Part Two'],
+    ['Part Two: A Dune Story', 'dune part', 'Part Two: A Dune Story'],
+    ['Amélie', 'amelie', 'Amélie Audrey Tautou'],
+  ] as const;
+  for (const [title, query, searchable] of cases) {
+    assert.deepEqual(
+      scoreNormalizedSearchMatch(
+        normalizeSearchQuery(title),
+        normalizeSearchQuery(query),
+        normalizeSearchQuery(searchable),
+      ),
+      scoreSearchMatch(title, query, searchable),
+    );
+  }
 });
 
 test('romanized and descriptive Hinglish queries are retained for optional expansion', () => {

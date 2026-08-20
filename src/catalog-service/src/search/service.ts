@@ -37,6 +37,7 @@ import { liveRailsCacheGeneration } from '../live-rails-cache.js';
 import {
   isDescriptiveSearchQuery,
   normalizeSearchQuery,
+  scoreNormalizedSearchMatch,
   scoreSearchMatch,
   validateSearchQuery,
 } from './normalize.js';
@@ -84,7 +85,10 @@ type SearchJob = {
   };
 };
 
-type IndexedResult = SearchResult & { searchable: string };
+type IndexedResult = SearchResult & {
+  normalizedTitle: string;
+  normalizedSearchable: string;
+};
 
 function scopeAllows(scope: SearchScope, result: SearchResult): boolean {
   if (scope === 'all') return result.kind !== 'channel' && result.kind !== 'playlist';
@@ -275,6 +279,7 @@ export class UnifiedSearchService {
         if (seen.has(key)) continue;
         seen.add(key);
         const type = row.type;
+        const normalizedTitle = normalizeSearchQuery(row.title);
         next.push({
           key,
           source: 'mango',
@@ -289,18 +294,21 @@ export class UnifiedSearchService {
           queued_for_verify: false,
           score: 0,
           match: 'tokens',
-          searchable: row.title,
+          normalizedTitle,
+          normalizedSearchable: normalizedTitle,
         });
       }
       for (const item of listYoutubeItems(null, 20_000)) {
         const result = youtubeResult(item, item.title);
         if (!result || seen.has(result.key)) continue;
         seen.add(result.key);
+        const searchable = `${item.title} ${item.channel_title || ''} ${item.description || ''}`;
         next.push({
           ...result,
           score: 0,
           match: 'tokens',
-          searchable: `${item.title} ${item.channel_title || ''} ${item.description || ''}`,
+          normalizedTitle: normalizeSearchQuery(item.title),
+          normalizedSearchable: normalizeSearchQuery(searchable),
         });
       }
       for (const entry of collectLiveSearchEntriesFromCache()) {
@@ -308,6 +316,7 @@ export class UnifiedSearchService {
         const key = `mango:tv:${entry.meta.id}`;
         if (seen.has(key)) continue;
         seen.add(key);
+        const searchable = `${title} ${entry.context || ''} ${entry.meta.description || ''}`;
         next.push({
           key,
           source: 'mango',
@@ -322,7 +331,8 @@ export class UnifiedSearchService {
           queued_for_verify: false,
           score: 0,
           match: 'tokens',
-          searchable: `${title} ${entry.context || ''} ${entry.meta.description || ''}`,
+          normalizedTitle: normalizeSearchQuery(title),
+          normalizedSearchable: normalizeSearchQuery(searchable),
         });
       }
       this.index = next;
@@ -358,13 +368,22 @@ export class UnifiedSearchService {
     });
     for (const candidate of this.index) {
       if (!scopeAllows(scope, candidate)) continue;
-      const scored = scoreSearchMatch(candidate.title, query, candidate.searchable);
+      const scored = scoreNormalizedSearchMatch(
+        candidate.normalizedTitle,
+        query,
+        candidate.normalizedSearchable,
+      );
       if (!scored) continue;
       const librarySource = candidate.type === 'youtube_video'
         ? youtubeSavedSources.get(candidate.id)
         : undefined;
+      const {
+        normalizedTitle: _normalizedTitle,
+        normalizedSearchable: _normalizedSearchable,
+        ...result
+      } = candidate;
       results.push({
-        ...candidate,
+        ...result,
         ...(librarySource ? { library_source: librarySource } : {}),
         ...scored,
       });

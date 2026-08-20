@@ -296,6 +296,9 @@ test('launcher Search snapshots omit synopsis text', () => withSearchServiceTest
   const items = snapshot.groups.flatMap((group) => group.items);
   assert.ok(items.some((item) => item.id === 'verbose-video'));
   assert.equal(items.some((item) => item.description), false);
+  const serialized = JSON.stringify(snapshot);
+  assert.doesNotMatch(serialized, /normalizedTitle|normalizedSearchable|searchable/);
+  assert.ok(serialized.length < 5_000);
 }));
 
 test('unchanged Search revision returns the cached clone, never the live snapshot', () => withSearchServiceTest(async (service) => {

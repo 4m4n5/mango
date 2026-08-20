@@ -276,6 +276,15 @@ if "requestAnimationFrame" not in yield_fn or "SEARCH_YIELD_FALLBACK_MS" not in 
     raise SystemExit("Search pad yield is not a real input turn")
 if "setTimeout(resolve, 0)" not in yield_fn:
     raise SystemExit("Search pad yield does not drain pad-nav macrotasks before the next rail")
+fill_results = search.split("private async fillResultsView", 1)[1].split(
+    "private collectRowsForRailSection", 1,
+)[0]
+prebuild_yield = fill_results.find("await yieldToPadInput()")
+build_rail = fill_results.find("buildCatalogRails(staging")
+focus_rows = fill_results.find("this.applyFocusRows()", build_rail)
+postbuild_yield = fill_results.find("await yieldToPadInput()", focus_rows)
+if not (0 <= prebuild_yield < build_rail < focus_rows < postbuild_yield):
+    raise SystemExit("Search rails must yield before DOM work and after becoming navigable")
 schedule_refresh = search.split("private scheduleResultsRefresh", 1)[1].split(
     "private refreshResults", 1,
 )[0]

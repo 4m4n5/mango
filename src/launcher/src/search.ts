@@ -162,6 +162,8 @@ type SearchCallbacks = {
 };
 
 const STORAGE_KEY = "mango.search-session.v1";
+const STORAGE_NAV_KEY = "mango.search-session.v2.navigation";
+const STORAGE_SNAPSHOT_KEY = "mango.search-session.v2.snapshot";
 const MAX_AGE_MS = 6 * 60 * 60 * 1000;
 /** Delay before swapping suggestion preview or results atmosphere artwork. */
 export const ARTWORK_DWELL_MS = 180;
@@ -189,7 +191,9 @@ export function nextPendingSearchRowDelta(input: {
   if (!input.submitted || input.moved) return 0;
   if (input.resultsComplete && input.resultRowCount === 0) return 0;
   if (input.delta <= 0) return input.pending;
-  return input.pending + input.delta;
+  // The intent is "enter results when they exist", not a replay queue. A held
+  // D-pad while the first rail is mounting must never jump several rows later.
+  return 1;
 }
 
 const QUERY_PLACEHOLDER = "search mango";
@@ -379,6 +383,12 @@ export function readPersistedSearchState(
   storage: Pick<Storage, "getItem"> = localStorage,
 ): SearchRestoreState | null {
   try {
+    const navigation = storage.getItem(STORAGE_NAV_KEY);
+    if (navigation) {
+      const parsed = JSON.parse(navigation) as Record<string, unknown>;
+      const snapshot = JSON.parse(storage.getItem(STORAGE_SNAPSHOT_KEY) || "null");
+      return validRestoreState({ ...parsed, snapshot });
+    }
     return validRestoreState(JSON.parse(storage.getItem(STORAGE_KEY) || "null"));
   } catch {
     return null;
@@ -397,6 +407,8 @@ export class SearchController {
   private pollToken = 0;
   private suggestTimer: number | undefined;
   private persistTimer: number | undefined;
+  private persistSnapshotRequested = false;
+  private persistedSnapshotIdentity: string | null = null;
   private focusedKey: string | undefined;
   private preferredPosition: { row: number; col: number } | undefined;
   private focusedElement: HTMLElement | null = null;
@@ -649,7 +661,26 @@ export class SearchController {
       this.callbacks.onStatus("type at least 2 characters", "warning");
       return;
     }
-    await this.cancelActive();
+    if (this.persistTimer !== undefined) {
+      window.clearTimeout(this.persistTimer);
+      this.persistTimer = undefined;
+    }
+    this.persistSnapshotRequested = false;
+    try {
+      this.persistNavigation({
+        ...this.navigationState(),
+        submitted: false,
+        pages: {},
+        focusedKey: "search:key:q",
+        position: undefined,
+      });
+    } catch {
+      // A restart can still reopen Search without durable browser storage.
+    }
+    // Ownership is fenced synchronously inside cancelActive (id/token/paint).
+    // Sending the best-effort backend cancellation must not serialize the next
+    // explicit Search behind another localhost round trip.
+    void this.cancelActive();
     const priorSnapshot = this.submitted ? this.snapshot : null;
     const response = await fetchJson<SearchSnapshot>("/api/catalog/search/query", {
       method: "POST",
@@ -713,6 +744,7 @@ export class SearchController {
       }
       if (snapshot.complete) {
         this.activeSearchId = null;
+        this.persistSoon(true);
         return;
       }
     }
@@ -1187,8 +1219,6 @@ export class SearchController {
     let cursor: ChildNode | null = chrome ? chrome.nextSibling : results.firstChild;
 
     try {
-      await yieldToPadInput();
-      if (generation !== this.resultsPaintGeneration) return;
       for (const group of visibleGroups) {
         if (generation !== this.resultsPaintGeneration) return;
         const window = windows.get(group.id);
@@ -1202,6 +1232,11 @@ export class SearchController {
         let section = existingRails.get(group.id);
         let built = false;
         if (!section || section.dataset.searchSignature !== signature) {
+          // Pad polling and rail construction share Chromium's main thread.
+          // Drain one input turn before each synchronous DOM burst: scope moves
+          // apply immediately, while Down remains one pending enter-results intent.
+          await yieldToPadInput();
+          if (generation !== this.resultsPaintGeneration) return;
           const staging = document.createElement("div");
           const rail: ContentRail = {
             id: group.id,
@@ -1241,6 +1276,9 @@ export class SearchController {
             this.resultRowsByRail,
           );
           this.applyFocusRows();
+          // Mount the first useful row in the same task as the submitted view.
+          // Yield only after it is navigable; otherwise the active scope chip
+          // paints alone and Down appears frozen while results already exist.
           await yieldToPadInput();
           armDeferredPosterSources(section, results);
         }
@@ -1530,13 +1568,51 @@ export class SearchController {
     return button;
   }
 
+  private navigationState(restartSafeDuringSearch = false): Omit<SearchRestoreState, "snapshot"> {
+    const state: Omit<SearchRestoreState, "snapshot"> = {
+      version: 1,
+      savedAt: Date.now(),
+      query: this.query,
+      scope: this.scope,
+      submitted: this.submitted,
+      pages: { ...this.pages },
+      focusedKey: this.focusedKey,
+      position: this.preferredPosition,
+      homeTab: this.homeTab,
+      homeFocusKey: this.homeFocusKey,
+      homePosition: this.homePosition,
+    };
+    if (restartSafeDuringSearch && this.activeSearchId) {
+      state.submitted = false;
+      state.pages = {};
+      state.focusedKey = "search:key:q";
+      state.position = undefined;
+    }
+    return state;
+  }
+
+  private persistNavigation(state: Omit<SearchRestoreState, "snapshot">): void {
+    localStorage.setItem(STORAGE_NAV_KEY, JSON.stringify(state));
+  }
+
+  private persistSnapshot(snapshot: SearchSnapshot | null): void {
+    const identity = snapshot ? `${snapshot.search_id}:${snapshot.revision}` : "none";
+    if (identity === this.persistedSnapshotIdentity) return;
+    localStorage.setItem(STORAGE_SNAPSHOT_KEY, JSON.stringify(snapshot));
+    this.persistedSnapshotIdentity = identity;
+  }
+
   private persist(state = this.playbackState()): void {
     if (this.persistTimer !== undefined) {
       window.clearTimeout(this.persistTimer);
       this.persistTimer = undefined;
     }
+    this.persistSnapshotRequested = false;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      const { snapshot, ...navigation } = state;
+      this.persistNavigation(navigation);
+      this.persistSnapshot(snapshot);
+      localStorage.removeItem(STORAGE_KEY);
     } catch {
       // Search remains functional when browser storage is unavailable.
     }
@@ -1550,13 +1626,26 @@ export class SearchController {
    * navigation hitch. Detail entry and surface exit still call persist() directly;
    * ordinary focus/query movement is coalesced into one write after it settles.
    */
-  private persistSoon(): void {
+  private persistSoon(includeSnapshot = false): void {
+    this.persistSnapshotRequested = this.persistSnapshotRequested || includeSnapshot;
     if (this.persistTimer !== undefined) {
       window.clearTimeout(this.persistTimer);
     }
     this.persistTimer = window.setTimeout(() => {
       this.persistTimer = undefined;
-      this.persist();
+      const shouldPersistSnapshot = this.persistSnapshotRequested;
+      this.persistSnapshotRequested = false;
+      try {
+        this.persistNavigation(this.navigationState(!shouldPersistSnapshot));
+        // Progressive revisions can be large. Persist them once after completion,
+        // never as repeated synchronous work in every D-pad focus callback.
+        if (shouldPersistSnapshot) {
+          this.persistSnapshot(slimSearchSnapshot(this.snapshot));
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      } catch {
+        // Search remains functional when browser storage is unavailable.
+      }
     }, 250);
   }
 
@@ -1569,8 +1658,12 @@ export class SearchController {
       window.clearTimeout(this.persistTimer);
       this.persistTimer = undefined;
     }
+    this.persistSnapshotRequested = false;
     try {
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(STORAGE_NAV_KEY);
+      localStorage.removeItem(STORAGE_SNAPSHOT_KEY);
+      this.persistedSnapshotIdentity = null;
     } catch {
       // ignore
     }

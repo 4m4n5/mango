@@ -12,15 +12,15 @@ import {
   readPersistedSearchState,
   SEARCH_KEYBOARD,
   SEARCH_KEYBOARD_COLUMNS,
-    SEARCH_RESULTS_PAINT_MS,
-    SEARCH_YIELD_FALLBACK_MS,
-    searchEmptyResultsFocusKey,
-    searchGroupPageWindow,
-    searchQueryCaretLeading,
-    searchQueryDisplayText,
-    shouldClearSuggestions,
-    slimSearchSnapshot,
-    validRestoreState,
+  SEARCH_RESULTS_PAINT_MS,
+  SEARCH_YIELD_FALLBACK_MS,
+  searchEmptyResultsFocusKey,
+  searchGroupPageWindow,
+  searchQueryCaretLeading,
+  searchQueryDisplayText,
+  shouldClearSuggestions,
+  slimSearchSnapshot,
+  validRestoreState,
 } from "./search";
 
 test("Search compose focus rows connect keyboard and right-side suggestions", () => {
@@ -124,6 +124,40 @@ test("Search boot recovery reads the durable state after Chromium restarts", () 
   assert.equal(restored?.scope, "series");
   assert.equal(restored?.submitted, true);
   assert.equal(restored?.focusedKey, "search:edit");
+});
+
+test("Search boot recovery joins split navigation and result snapshot storage", () => {
+  const navigation = {
+    version: 1,
+    savedAt: Date.now(),
+    query: "Dune",
+    scope: "all",
+    submitted: true,
+    pages: { movies: 1 },
+    focusedKey: "rail:movies:movie:tt1160419",
+  };
+  const snapshot = {
+    ok: true,
+    search_id: "s1",
+    query: "Dune",
+    normalized_query: "dune",
+    scope: "all",
+    revision: 4,
+    complete: true,
+    groups: [],
+    phases: {},
+    created_at: 1,
+    updated_at: 2,
+  };
+  const restored = readPersistedSearchState({
+    getItem: (key) => {
+      if (key === "mango.search-session.v2.navigation") return JSON.stringify(navigation);
+      if (key === "mango.search-session.v2.snapshot") return JSON.stringify(snapshot);
+      return null;
+    },
+  });
+  assert.equal(restored?.focusedKey, navigation.focusedKey);
+  assert.equal(restored?.snapshot?.revision, snapshot.revision);
 });
 
 test("A Search result page fills whole rows of the live grid, More in the final slot", () => {
@@ -230,7 +264,7 @@ test("Search keeps leftover Down until result rows exist, then drops it on empty
   assert.equal(nextPendingSearchRowDelta({
     submitted: true, delta: 1, moved: false, pending: 1,
     resultsComplete: false, resultRowCount: 0,
-  }), 2);
+  }), 1);
   assert.equal(nextPendingSearchRowDelta({
     submitted: true, delta: 1, moved: true, pending: 2,
     resultsComplete: false, resultRowCount: 3,

@@ -30,9 +30,23 @@ export function scoreSearchMatch(
   query: string,
   searchableText = title,
 ): Pick<SearchResult, 'score' | 'match'> | null {
-  const normalizedTitle = normalizeSearchQuery(title);
-  const normalizedQuery = normalizeSearchQuery(query);
-  const normalizedText = normalizeSearchQuery(searchableText);
+  return scoreNormalizedSearchMatch(
+    normalizeSearchQuery(title),
+    normalizeSearchQuery(query),
+    normalizeSearchQuery(searchableText),
+  );
+}
+
+/**
+ * Score strings that were normalized when the immutable Search index was built.
+ * Couch queries scan tens of thousands of rows, so repeating Unicode
+ * normalization and three regex pipelines per candidate is not interactive work.
+ */
+export function scoreNormalizedSearchMatch(
+  normalizedTitle: string,
+  normalizedQuery: string,
+  normalizedText = normalizedTitle,
+): Pick<SearchResult, 'score' | 'match'> | null {
   if (!normalizedTitle || !normalizedQuery) {
     return null;
   }
