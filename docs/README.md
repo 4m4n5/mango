@@ -38,11 +38,11 @@ probe performed by this documentation audit.
 | Resolver topology | The full addon graph also contains catalog/metadata and optional Live addons; AIOStreams is the intended sole stream-capable VOD aggregate. An optional legacy direct MediaFusion thin-pool supplement remains in catalog-service and is a current hardening gap; its Pi-local trigger state is not proven by Git config |
 | Library | Mango-owned Continue, Saved, history, finished state, Fire/Water ratings, feedback, attribution, and normalized YouTube history. Pi migration 18 repaired 12 misclassified tabs to zero while preserving user-state keys/counts; runtime purity was Movies 6 / Series 8 / wrong-tab 0. The physical Dune-from-TV-Search couch check remains deferred |
 | Voice/phone | Text/PTT librarian that searches and opens Detail; **B** still starts playback; no TTS in the current couch contract |
-| Operations | Reliability Center, nightly proof ledger, safe repair, controller link/router split, and a Git-only deploy contract; the current wrappers are blocked for unattended agents because branch pinning and an implicit AIOMetadata mutation are not fail-closed |
+| Operations | Reliability Center, nightly proof ledger, safe repair, controller link/router split, and a Git-only deploy contract; `pi-deploy.sh` / `pi-exec-gate.sh` fail closed on branch, SHA, and fetch, and AIOMetadata rail sync is opt-in |
 | VOD recommendations | `fb20baa` is Pi-served: precise Household Story Frontier `For You`, full-corpus positive-weight Explore, trusted weighted category/AI rails, atomic all-rail tab deals, and StoryDNA-first Detail Related. Complete 5,930/3,974 accounting and 720/675 rank reserves pass. Forty X presses per tab exposed 2,121/1,897 unique cards at p95 121.9/119.5 ms with no provider/rank work. Human thematic judgment remains open |
 | YouTube recommendations | Pi `04171bb` serves v2.7 generation 22 with 1,441 candidates: For You 512, Subscriptions 405, Beyond 274, More Like 250, and Live 0, from 55 authoritative subscriptions. Fifty independent cache-only X draws held generation/quota and History fixed at p50 58.83 ms / p95 174.66 ms; cross-shuffle repeats remain valid, Saved was absent in this snapshot, and the 25-call interactive Search reserve stayed protected. Human relevance and physical-TV behavior remain deferred |
 | Display sleep | The intentional Settings-driven policy is locked but not implemented/proven. A recorded Pi inspection still found accidental Xorg 600-second DPMS values |
-| Stateful addon helpers | AIO diff/apply and AIOMetadata import/sync currently leave or expose secret-bearing state; `pi-deploy.sh` can invoke the AIOMetadata sync implicitly, so the wrapper and direct mutation helpers are blocked for unattended agents until secure-temp/redaction/explicit-opt-in hardening |
+| Stateful addon helpers | AIO diff/apply and AIOMetadata import/sync currently leave or expose secret-bearing state when invoked directly; deploy no longer runs AIOMetadata sync unless `MANGO_SYNC_AIOMETADATA=1` |
 | 4K/HDR | 1080p is the safe fallback; compatible 4K SDR HEVC is integrated and older-proven but needs the current exact-TV matrix; native HDR is unsupported on the current X11/mpv path |
 | First boot | M6.4 installer/wizard remains planned; the box is not yet no-SSH household setup |
 
@@ -63,6 +63,7 @@ probe performed by this documentation audit.
 | Use the phone/voice librarian | [VOICE.md](VOICE.md) · [AI_LAYER.md](AI_LAYER.md) |
 | Operate optional Live TV | [LIVE_TV.md](LIVE_TV.md) |
 | Check controller/display hardware contracts | [HARDWARE.md](HARDWARE.md) · [DECISIONS.md](DECISIONS.md) |
+| Write public copy, screenshots, or launch posts | [MARKETING.md](MARKETING.md) · [INSTAGRAM_LAUNCH_CAROUSEL.md](INSTAGRAM_LAUNCH_CAROUSEL.md) · [`../assets/brand/BRAND.md`](../assets/brand/BRAND.md) |
 
 Task specs and reports under [`tasks/`](tasks/) are implementation and
 acceptance records. They can contain superseded card counts, SHAs, modes, or
@@ -122,6 +123,9 @@ Live IPTV is intentionally opt-in. See [LIVE_TV.md](LIVE_TV.md).
 | [ROADMAP.md](ROADMAP.md) | Remaining sequence and exit criteria |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Runtime topology, state, interfaces, and ownership |
 | [DECISIONS.md](DECISIONS.md) | Locked implementation and UX choices |
+| [MARKETING.md](MARKETING.md) | Public copy, capture plan, contact landing, launch posts |
+| [INSTAGRAM_LAUNCH_CAROUSEL.md](INSTAGRAM_LAUNCH_CAROUSEL.md) | Eight-card launch copy, caption, visual system, alt text, and capture requirements |
+| [`../assets/brand/BRAND.md`](../assets/brand/BRAND.md) | Voice, anti-positioning, tagline and palette lock |
 | Subsystem docs | Detailed behavior, operation, and subsystem-specific proof |
 | Task reports | Exact historical evidence for a named revision/acceptance run |
 

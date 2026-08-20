@@ -121,6 +121,11 @@ challenges and will fail on current YouTube).
 A localhost Range proxy was removed: it could not fill SABR-truncated https
 bodies, and its EXIT trap killed the proxy while mpv was still playing.
 
+`POST /play-session` is the production path for both the YouTube tab and
+unified Search. Resume uses durable progress. Voice still never autoplays.
+`POST /youtube/play` remains compatibility-only and returns sanitized details:
+category and attempt counts, never raw `yt-dlp` stderr or signed URLs.
+
 ---
 
 ## Operator config
@@ -151,15 +156,28 @@ discovery context, while `MANGO_YOUTUBE_LANGUAGE` changes query relevance. The
 account country is not inferred from OAuth because the authorized channel may
 omit it.
 
-The full deploy helper runs `scripts/m6-ship/ensure-youtube-yt-dlp.sh` to keep
-`yt-dlp` fresh in the user venv. The catalog calls
-`scripts/m6-ship/youtube-yt-dlp.sh`, which prefers that venv and only falls back
-to system `yt-dlp` if the venv is absent. This is intentional: YouTube playback
-extraction changes faster than Debian packages.
+The full deploy helper runs `scripts/m6-ship/ensure-youtube-yt-dlp.sh` to
+install or update the isolated yt-dlp venv and Mango-owned Deno runtime.
+The catalog calls `scripts/m6-ship/youtube-yt-dlp.sh`, which prefers that
+venv and does not treat a stale system binary as release-ready. Deno is
+required for current YouTube n-sig. The bgutil POT HTTP server binds
+`127.0.0.1:4416` only; install with
+`bash scripts/m6-ship/ensure-youtube-pot.sh install`.
 
-The current full deploy wrapper itself is blocked for unattended agents by the
-branch/SHA and implicit AIOMetadata-mutation issues in [DEPLOY.md](DEPLOY.md).
-That blocker does not change the `yt-dlp` ownership contract.
+Read-only resolver inventory:
+
+```bash
+MANGO_YOUTUBE_BASELINE_PROBES=1 bash scripts/m6-ship/youtube-playback-baseline.sh
+```
+
+Production play-session route matrix (takes the TV):
+
+```bash
+MANGO_YOUTUBE_PLAY=1 bash scripts/m6-ship/gate-m6-youtube-smoke.sh
+bash scripts/m6-ship/youtube-playback-matrix.sh
+```
+
+Deploy uses the fail-closed helpers in [DEPLOY.md](DEPLOY.md).
 
 Optional embedding ranking uses a local MiniLM, not a hashed bag-of-tokens.
 Download the model once, then turn ranking on in `voice.env`:
@@ -212,7 +230,7 @@ pass `--cookies` to yt-dlp.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/youtube/state` | Localhost-only, privacy-safe aggregate config/auth/cache/refresh/recommendation diagnostics |
+| `GET` | `/youtube/state` | Localhost-only, privacy-safe aggregate config/auth/cache/refresh/recommendation/playback-runtime diagnostics |
 | `POST` | `/youtube/auth/start` | Localhost-only operator device-code OAuth |
 | `GET` | `/youtube/auth/poll?session_id=` | Localhost-only operator OAuth poll |
 | `POST` | `/youtube/auth/disconnect` | Localhost-only operator token removal |

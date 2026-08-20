@@ -41,7 +41,7 @@ prove only their exact revision and contract.
 | HUD and Streams drawer | Complete | Local fixture/source gates; home-agent deployment work recorded | Current exact-SHA screenshots and 4K dropped-frame/no-regression couch pass |
 | Mango library and Fire/Water input | Canonical Saved placement and tab-only library migration 18; ratings remain complete | Final Pi migration/readback passed: 12 misclassified tabs repaired to 0, user-state keys/counts preserved, Movies Saved 6 / Series Saved 8 / wrong-tab 0 | Human Dune-from-TV-Search placement and physical UI check |
 | VOD recommendations | `fb20baa` progressive profiles + Household Story Frontier + Browse v3 + StoryDNA Related; all historical data preserved | Pi serves complete 5,930/3,974 accounting with 720/675 rank reserves. Two active atomic browse reservoirs contain 19,950 candidate rows. Forty X presses per tab yielded 2,121/1,897 unique cards at p95 121.9/119.5 ms with global dedupe and zero provider/rank work | Human For You/category/Related verdict and physical focus/picture/audio checks |
-| Native YouTube base | Complete | Previously deployed/Pi-gated | Current exact-SHA revalidation and account-specific proof |
+| Native YouTube base | Complete | Previously deployed/Pi-gated | Current exact-SHA revalidation, play-session route matrix, and account-specific proof |
 | YouTube recommendations | `youtube-household-v3.0`: Takeout + local meaningful watches, channel affinity, decaying channel Not-for-me, Your regulars 2+2; MiniLM on (`Xenova/all-MiniLM-L6-v2`, blend). Nightly Live probes skip cleanly when background Search is exhausted instead of painting every rail stale | Pi generation 44 at `cc40ffb`: rails `ready`. Playback resolve uses `web_safari,tv_simply`. Catalog play of `mqjjVAtvd4s` reached 1080p with advancing playback-time | Human Regulars mix, MiniLM relevance, focus/Back, offline, picture/audio |
 | Voice/phone companion | Complete for trusted-LAN development contract | Automated corpus/memory/UX gates on earlier revisions; partial couch work | Full V1–V12/current coherence plus per-device client auth/pairing before appliance release |
 | Reliability Center/nightly proof | Implemented; sanitized launcher terminal outcomes and proof-version/type-conflict/episode counts added at `275ceb2` | Final Pi state is usable-yellow; terminal fixture recorded 2 playing and 2 `resolve/no_stream` failures, and the served-card sample found 16/32 legacy proof-v1 misses | Three clean nightly proofs, intentionally-disabled-Live policy, controller-action UI mismatch |
@@ -49,7 +49,7 @@ prove only their exact revision and contract.
 | Display sleep | **Not implemented** | Recorded Pi still exposed accidental Xorg 600-second DPMS values | Implement locked Settings/idle/mpv/DPMS/CEC contract and prove on TV |
 | Library grow | Complete, hardening | Ordinary nightly timer no longer enables the non-causal source-hitrate benchmark; schema 19 and the fixed 30-second user resolve budget were read back on Pi | Three clean unattended nights, causal thin-rail yield, then evidence-backed source expansion |
 | 4K SDR / HDR | 4K SDR path implemented; native HDR unsupported | Older experiment proved smooth source-matched 4K SDR HEVC; HDR/X11 was not usable | Final-TV SDR/audio matrix; either credible HDR integration or explicit no-HDR ship boundary |
-| Deployment | Git-only contract; current wrappers unsafe for unattended agents | Older deployments exist | Enforce/pin branch+SHA, fail closed on fetch, remove/default-disable and harden implicit AIOMetadata mutation |
+| Deployment | Git-only; wrappers fail closed on branch/SHA/fetch; AIOMetadata sync opt-in | Local regression `test-pi-deploy-hardening.sh` | Exact-SHA Pi proof of this YouTube playback overhaul |
 | First boot | Not implemented | Operator-installed system | M6.4 no-SSH installer/wizard |
 
 ## Recorded source and Pi baseline
@@ -118,15 +118,12 @@ prove only their exact revision and contract.
 
 ### Confirmed source inconsistencies and blockers
 
-- **Deploy is not fail-closed.** `pi-deploy.sh` and `pi-exec-gate.sh` derive the
-  Pi branch from the Mac checkout rather than enforcing
-  `feat/native-experience`; the deploy prefetch may fail open, and both helpers
-  pull an unpinned branch. `pi-deploy.sh` also unconditionally invokes
-  `sync-aiometadata-rail-catalogs.sh || true`. With a live service and private
-  import that can POST configuration, rewrite AIOMetadata credentials/export,
-  print a secret install URL, leave `/tmp/aiometadata-save.json`, and mask a
-  failure. The local skip variable is not forwarded. Both wrappers are blocked
-  for unattended agents until fixed and regression-tested.
+- **Deploy wrappers fail closed.** `pi-deploy.sh` and `pi-exec-gate.sh`
+  require `feat/native-experience`, a successful fetch, matching expected SHA,
+  and a clean tree unless `MANGO_DEPLOY_ALLOW_DIRTY=1`. AIOMetadata rail sync
+  is off unless `MANGO_SYNC_AIOMETADATA=1`, and the skip is forwarded.
+  Source proof: `scripts/m6-ship/test-pi-deploy-hardening.sh`. Pi proof of this
+  YouTube playback overhaul remains a later exact-SHA deploy.
 - **Playability schema diagnostics remain reconciled at `c8cfe72`.** Current source
   inserts migration `14`, reports `schema_version=14`, and has a focused test
   tying the public status value to the latest applied migration. Pi readback is
@@ -403,10 +400,9 @@ secret-bearing export and must not be logged. AIOMetadata's headless import has 
 class of unresolved issue: it leaves fixed `/tmp/aiometadata-save.json` and
 prints the secret manifest URL. Keep that mutation helper out of agent and
 unattended flows until hardened; the AIO half is closed but AIOMetadata remains
-an operations-security blocker. The
-current `pi-deploy.sh` nevertheless calls the AIOMetadata rail sync implicitly,
-so the deploy wrapper itself is also blocked for unattended agents; Git-only is
-the intended transport contract, not proof that this implementation is safe.
+an operations-security blocker for **direct** mutation helpers. Deploy no longer
+invokes the rail sync unless `MANGO_SYNC_AIOMETADATA=1`. Git-only remains the
+transport contract.
 
 Before the current MediaFusion repair, the home snapshot had Torrentio and
 Comet contributing, RD/TorBox/Easynews configured, and an expired secret
@@ -694,11 +690,10 @@ blanking must not be documented as the happy path.
   couch and inventory dirty Pi files before pulling; preserve operator-owned
   changes and stop for direction rather than stash/reset them by default.
 - Repository deploy does not overwrite AIOStreams `userData`, seed imports, or
-  runtime databases. However, the current wrapper can implicitly mutate
-  AIOMetadata config/credentials/export and is blocked for unattended agents.
-- `pi-deploy.sh`/`pi-exec-gate.sh` do not enforce or pin the required branch/SHA.
-  Freshly fetch and compare branch, origin, Mac and post-deploy Pi hashes; fix the
-  helpers before agent automation.
+  runtime databases. AIOMetadata rail sync runs only with
+  `MANGO_SYNC_AIOMETADATA=1`.
+- `pi-deploy.sh`/`pi-exec-gate.sh` require `feat/native-experience`, a successful
+  fetch, and matching expected SHA on Mac and Pi.
 - Root controller policy changes only when explicitly installed with
   `MANGO_CONTROLLER_LINK_INSTALL=1`.
 

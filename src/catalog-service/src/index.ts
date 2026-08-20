@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { CatalogCore, CatalogError, normalizeResourceId } from './core.js';
 import { couchPlayFailureMessage, publicPlayFailureDetails } from './catalog-errors.js';
+import { publicYoutubePlayFailureDetails } from './youtube/playback.js';
 import { isMpvActive, playUrl } from './mpv.js';
 import { playWithLadder } from './play-orchestrator.js';
 import { assertPlayEpoch, bumpPlayEpoch, isPlayEpochStale, PlayCancelledError } from './play-cancel.js';
@@ -1467,6 +1468,7 @@ async function startPlaybackSession(
             title: body.title,
             poster: body.poster,
             library_source: body.library_source,
+            start_sec: typeof body.start_sec === 'number' ? body.start_sec : undefined,
             recommendation: acceptedYoutubeAttribution ?? undefined,
           }, { playEpoch })
           : await handlePlay(
@@ -3069,17 +3071,30 @@ async function main(): Promise<void> {
           const body = await readBody(req);
           const attribution = playbackRecommendationAttributionFromBody(body, 'youtube');
           touchCouchActivity('catalog', 'youtube_play');
-          sendJson(res, 200, await youtube.play({
-            profile_id: attribution?.profile_id
-              ?? recommendationOwnerForRollout('youtube', activeViewerProfileId()),
-            id: typeof body.id === 'string' ? body.id : undefined,
-            title: typeof body.title === 'string' ? body.title : undefined,
-            poster: typeof body.poster === 'string' ? body.poster : undefined,
-            library_source: typeof body.library_source === 'string'
-              ? body.library_source
-              : undefined,
-            recommendation: attribution ?? undefined,
-          }));
+          try {
+            sendJson(res, 200, await youtube.play({
+              profile_id: attribution?.profile_id
+                ?? recommendationOwnerForRollout('youtube', activeViewerProfileId()),
+              id: typeof body.id === 'string' ? body.id : undefined,
+              title: typeof body.title === 'string' ? body.title : undefined,
+              poster: typeof body.poster === 'string' ? body.poster : undefined,
+              library_source: typeof body.library_source === 'string'
+                ? body.library_source
+                : undefined,
+              start_sec: typeof body.start_sec === 'number' ? body.start_sec : undefined,
+              recommendation: attribution ?? undefined,
+            }));
+          } catch (error) {
+            if (error instanceof CatalogError) {
+              throw new CatalogError(
+                error.status,
+                error.message,
+                publicYoutubePlayFailureDetails(error.details),
+                { couchMessage: error.couchMessage },
+              );
+            }
+            throw error;
+          }
           return;
         }
       }

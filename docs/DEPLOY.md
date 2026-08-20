@@ -30,20 +30,13 @@ and runtime databases are never copied from a work tree as deployment.
 
 ## Agent loop (diagnose → fix → deploy → verify)
 
-> **Unattended-deploy blocker at the audited source revision.**
-> `pi-deploy.sh` and `pi-exec-gate.sh` do not enforce
-> `feat/native-experience`: both derive a branch from the Mac checkout and pull
-> that branch unpinned. `pi-deploy.sh` also ignores a local fetch failure and
-> unconditionally runs `sync-aiometadata-rail-catalogs.sh || true`; when the Pi
-> has a running AIOMetadata service and private import, that step may POST new
-> configuration, rewrite its credential/export files, print the secret install
-> URL, and leave `/tmp/aiometadata-save.json`. A local
-> `MANGO_SKIP_AIOMETADATA_SYNC=1` is not forwarded into the remote step. Until
-> the scripts default-skip/require explicit opt-in, use private secure temp files
-> with redacted output, fail closed on fetch/branch/SHA, and have regression
-> coverage, **agents must not invoke either wrapper unattended**. A human-reviewed
-> exception must explicitly accept the state mutation and complete every hash
-> check below; otherwise fix the helpers before deploying.
+> **Deploy wrappers fail closed.** `pi-deploy.sh` and `pi-exec-gate.sh`
+> require `feat/native-experience`, a successful fetch, matching expected SHA
+> on Mac and Pi, and a clean tree unless `MANGO_DEPLOY_ALLOW_DIRTY=1`.
+> AIOMetadata rail catalog sync is off by default; set
+> `MANGO_SYNC_AIOMETADATA=1` to opt in. The skip is forwarded as
+> `MANGO_SKIP_AIOMETADATA_SYNC=1`. Local proof:
+> `bash scripts/m6-ship/test-pi-deploy-hardening.sh`.
 
 ### 1. Diagnose the Pi (run from the home Mac)
 
@@ -103,7 +96,7 @@ bash scripts/pi-deploy.sh --full --gate   # full + gate (release handoff)
 ```
 
 If the primary `mango` alias times out but mDNS resolves the Pi, validate the
-fallback alias first. Do not use that as a reason to bypass the deploy blocker:
+fallback alias first:
 
 ```bash
 MANGO_SSH_HOST=mango-mdns bash scripts/pi-exec.sh 'cd ~/mango && git rev-parse --short HEAD'
@@ -119,9 +112,9 @@ The following are **non-addon-mutation build/restart diagnostics for an already 
 Pi revision**, not equivalent deployment paths. They intentionally omit the
 repository-owned config sync, addon export checks, systemd installation,
 `yt-dlp` maintenance, and playback-aware launcher restart performed by
-`pi-deploy.sh`. Until the wrapper blocker is fixed, select and read back the Pi
-revision through a separately reviewed Git-only step, then use these only as an
-explicit manual recovery path; do not silently claim parity with a full deploy.
+`pi-deploy.sh`. Use these only as an explicit manual recovery path after the
+Pi SHA is already selected and read back; they are not equivalent to a full
+deploy.
 
 Manual dependency-aware rebuild:
 
@@ -198,7 +191,7 @@ If `git pull --ff-only` fails on Pi:
 | `src/launcher/node_modules` | `npm ci` on Pi after pull |
 | Whole `~/mango` | `git pull` |
 | AIOStreams `userData` | Preserve during Git deploy; authorized policy changes use the credential-safe `aiostreams-config.sh` private-temp/readback/rollback path, while `get` remains secret-bearing and must not be logged |
-| AIOMetadata import/config/export | Preserve; direct mutation and the implicit deploy sync are blocked for unattended agents because they may rewrite private state, print a secret URL, leave fixed `/tmp` output, and mask failure |
+| AIOMetadata import/config/export | Preserve; deploy skips rail sync unless `MANGO_SYNC_AIOMETADATA=1`. Direct mutation helper remains operator-reviewed |
 | `/etc/mango/*.db`, `~/.cache/mango/*`, history | Preserve in place; use documented migrations/diagnostics |
 | API/OAuth/debrid/cookie files | Provision locally through their operator workflow; never copy from Git |
 
@@ -214,7 +207,7 @@ This is allowed operator-owned runtime state; do not commit or copy it.
 | Action | Command |
 |--------|---------|
 | Mac → Pi command | `bash scripts/pi-exec.sh '…'` |
-| Mac deploy | Current wrapper blocked for unattended agents; see blocker and reviewed manual path above |
+| Mac deploy | `bash scripts/pi-deploy.sh --fast` after push; SHA and branch are fail-closed |
 | Pi gate | Run `pi-pre-couch-gate.sh` on the already selected/read-back exact Pi SHA |
 | Pre-push check | `bash scripts/lib/pi-sync-check.sh <paths>` |
 

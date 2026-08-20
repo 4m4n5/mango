@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "privacy": "ids titles queries cookies tokens and signed URLs must never be written to evidence",
+  "items": [
+    { "id": "ordinary_vod", "video_id": "jNQXAC9IVRw", "kind": "vod" },
+    { "id": "long_vod", "video_id": "dQw4w9WgXcQ", "kind": "vod" },
+    { "id": "music", "video_id": "kJQP7kiw5Fk", "kind": "vod" },
+    { "id": "made_for_kids", "video_id": "XqZsoesa55w", "kind": "kids" },
+    { "id": "hls_live", "video_id": "jfKfPfyJRdk", "kind": "live" }
+  ]
+}

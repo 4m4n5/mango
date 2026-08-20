@@ -14,11 +14,9 @@ through the configured SSH aliases and inventory the actual Pi before acting.
 
 **Deploy:** [DEPLOY.md](DEPLOY.md) (git only — never rsync) · **Pad:** [HARDWARE.md](HARDWARE.md)
 
-> **Current deploy blocker:** `pi-deploy.sh`/`pi-exec-gate.sh` do not enforce or
-> pin `feat/native-experience`, and deploy can implicitly run a mutating
-> AIOMetadata sync that emits sensitive output and leaves a fixed `/tmp` file.
-> They are blocked for unattended agents until hardened. See the evidence and
-> reviewed exception/manual path in [DEPLOY.md](DEPLOY.md).
+> **Deploy:** `pi-deploy.sh` / `pi-exec-gate.sh` require `feat/native-experience`,
+> a successful fetch, and matching SHAs. AIOMetadata rail sync is opt-in
+> (`MANGO_SYNC_AIOMETADATA=1`). See [DEPLOY.md](DEPLOY.md).
 
 ---
 
@@ -395,7 +393,7 @@ credentials, or raw provenance references.
 | YouTube embeddings still lexical | `recommendations_v2.embeddings` in `/youtube/state`. Download + enable with `bash scripts/m6-ship/ensure-youtube-embeddings.sh --enable`, restart catalog, then `bash scripts/m6-ship/youtube-refresh-cache.sh`. Expect `model: Xenova/all-MiniLM-L6-v2` and `similarity_mode: blend`. |
 | YouTube account not connected | Companion → YouTube connect · verify `/etc/mango/youtube-oauth-client.json` and `/etc/mango/youtube-auth.json` permissions |
 | YouTube connected but not ready | Inspect sanitized Companion sync state, then localhost-only `.recommendations_v2.subscription_acquisition` and refresh phases. Never delete the token or cache merely to clear an error; repair the failing phase and preserve last-good state. |
-| YouTube playback 403/429/CAPTCHA | Update `yt-dlp`; reconnect account/cookies; pick another video; metadata cache should remain visible |
+| YouTube playback 403/429/CAPTCHA | Inspect `/youtube/state` playback slot/canary; run `bash scripts/m6-ship/ensure-youtube-yt-dlp.sh`; reconnect cookies only for entitlement-gated videos; pick another video; metadata cache should remain visible |
 | Catalog error appears after exiting a successful play | Inspect `~/.cache/mango/playback-session.json`; `ever_ready=true` means the launcher must treat the play as successful. Check catalog logs for a pre-frame failure only; do not invalidate title metadata from a late HTTP timeout. |
 | Same title will not immediately replay | `curl localhost:3020/play-session/<request_id>` when the request ID is known; inspect `~/.cache/mango/play-cancel.epoch` and `~/.cache/mango/mpv.pid`. A stale prior exit monitor is generation-gated and must not stop the new PID. |
 | YouTube recommendations stale | Full refresh: `bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly`; YouTube-only: `bash scripts/m6-ship/youtube-refresh-cache.sh --reason operator` (waits for its HTTP 202 job to finish); then inspect `curl localhost:3020/youtube/state` and `refresh.phase_results` |

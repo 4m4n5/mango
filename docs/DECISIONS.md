@@ -59,7 +59,7 @@ explicit product approval.
 | Resolver topology | Target: AIOStreams is the sole stream-capable Mango VOD aggregate/path; catalog/metadata and optional Live addons may coexist, while Torrentio/Comet/optional MediaFusion and RD/TorBox/Easynews live behind AIO |
 | Known topology divergence | Source still contains an optional Pi-state-triggered direct MediaFusion thin-pool supplement; remove it or approve an explicit feature flag, deadline/security contract, diagnostics, and couch gate before treating it as supported |
 | AIO state | Pi `userData` is operator-owned state; Git deploy does not overwrite it; current `diff/apply` helper leaks sensitive output/temp state and is blocked for agents until hardened; fixed-field `verify` remains diagnostic |
-| AIOMetadata state | Import/config/export is Pi-owned and explicit; current mutation helper and deploy-triggered rail sync print/leave sensitive state, so both direct unattended mutation and the deploy wrapper are blocked until secure-temp, cleanup, redaction, explicit opt-in and fail-closed behavior are tested |
+| AIOMetadata state | Import/config/export is Pi-owned and explicit; deploy no longer syncs rails unless `MANGO_SYNC_AIOMETADATA=1`. Direct mutation helper still needs secure-temp/redaction hardening |
 | User library | `/etc/mango/library.db` owns Saved/history/finished/ratings/feedback/attribution; no Stremio write-back |
 | Saved placement | Normalized source/media type owns the tab: YouTube → YouTube, series → TV Shows, tv/live/channel → Live, movie/film/blank → Movies. A navigation-origin hint applies only to unknown types and can never move known content |
 | Resume | `/etc/mango/progress.db` owns exact Continue/resume |
@@ -186,8 +186,8 @@ explicit product approval.
 | Safe repair | Idle-only allowlist: stale locks, safe strays, controller, catalog, launcher |
 | Deploy | Git push/pull only; never rsync/scp/hand-copy repository files |
 | Pi precondition | Couch idle and dirty state inventoried/preserved before deploy; do not stash/reset operator changes by default |
-| Revision identity | Required branch is `feat/native-experience`; freshly fetched origin, Mac HEAD, and post-deploy Pi HEAD must match. Current wrappers do not enforce/pin this and are blocked for unattended agents |
-| Stateful config | AIO `userData`, AIOMetadata config, credentials, seeds, and runtime DBs use explicit separate workflows; current AIO/AIOMetadata mutation helpers and implicit deploy sync need explicit opt-in, secure-temp/cleanup, redacted output and fail-closed hardening before unattended or agent use |
+| Revision identity | Required branch is `feat/native-experience`; freshly fetched origin, Mac HEAD, and post-deploy Pi HEAD must match. `pi-deploy.sh` / `pi-exec-gate.sh` fail closed on that contract |
+| Stateful config | AIO `userData`, AIOMetadata config, credentials, seeds, and runtime DBs use explicit separate workflows; deploy AIOMetadata rail sync is opt-in via `MANGO_SYNC_AIOMETADATA=1`. Direct mutation helpers still need secure-temp/redaction hardening |
 | First boot | `install.sh`/wizard with no SSH is a target, not current functionality |
 
 See [OPS.md](OPS.md). Never commit API keys, OAuth material, debrid secrets,

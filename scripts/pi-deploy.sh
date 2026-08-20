@@ -9,18 +9,23 @@
 #   --full   always npm ci both apps (deps change, first boot, handoff)
 #   --gate   run gate-lite after deploy (MANGO_GATE_FULL=1 for per-rail play sweep)
 #   MANGO_CONTROLLER_LINK_INSTALL=1 installs controller BlueZ policy before restart
+#   MANGO_SYNC_AIOMETADATA=1 opts into the AIOMetadata rail catalog sync
+#   MANGO_DEPLOY_SHA=<full sha> pins the exact commit on Mac and Pi
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/pi-deploy-preflight.sh
+source "$SCRIPT_DIR/lib/pi-deploy-preflight.sh"
+
 HOST="${MANGO_SSH_HOST:-mango}"
-BRANCH="${MANGO_BRANCH:-$(git -C "$REPO_DIR" branch --show-current 2>/dev/null || echo feat/native-experience)}"
+BRANCH="${MANGO_BRANCH:-$(git -C "$REPO_DIR" branch --show-current 2>/dev/null || true)}"
 RUN_GATE=0
 FAST=1
 
 usage() {
-  sed -n '2,12p' "$0" >&2
+  sed -n '2,16p' "$0" >&2
   exit 2
 }
 
@@ -43,31 +48,47 @@ elif [[ "${MANGO_PI_DEPLOY_FAST:-}" == "1" ]]; then
   FAST=1
 fi
 
-LOCAL="$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || echo "")"
-git -C "$REPO_DIR" fetch origin "$BRANCH" 2>/dev/null || true
-REMOTE="$(git -C "$REPO_DIR" rev-parse "origin/${BRANCH}" 2>/dev/null || echo "")"
-if [[ -n "$LOCAL" && -n "$REMOTE" && "$LOCAL" != "$REMOTE" ]]; then
-  echo "Mac is behind origin/${BRANCH} — pull or push from Mac first" >&2
-  exit 1
-fi
-if git -C "$REPO_DIR" status --porcelain | grep -q .; then
-  echo "Mac has uncommitted changes — commit and push before Pi deploy" >&2
-  exit 1
+mango_require_deploy_branch "$BRANCH"
+mango_refuse_unexpected_dirty "$REPO_DIR" "Mac"
+mango_fetch_origin_branch "$REPO_DIR" "$BRANCH"
+LOCAL="$(git -C "$REPO_DIR" rev-parse HEAD)"
+EXPECTED="$(mango_expected_deploy_sha "$REPO_DIR" "$BRANCH")"
+mango_require_sha "Mac HEAD" "$LOCAL" "$EXPECTED"
+
+SYNC_AIOMETADATA="${MANGO_SYNC_AIOMETADATA:-0}"
+SKIP_AIOMETADATA=1
+if [[ "$SYNC_AIOMETADATA" == "1" ]]; then
+  SKIP_AIOMETADATA=0
 fi
 
 DEPLOY_MODE="fast"
 [[ "$FAST" == "0" ]] && DEPLOY_MODE="full"
-echo "pi-deploy: mode=${DEPLOY_MODE} gate=${RUN_GATE} branch=${BRANCH}"
+echo "pi-deploy: mode=${DEPLOY_MODE} gate=${RUN_GATE} branch=${BRANCH} sha=${EXPECTED} aiometadata=${SYNC_AIOMETADATA}"
 
 REMOTE_SCRIPT="$(cat <<EOF
 set -euo pipefail
 cd ~/mango
-git fetch origin
+git fetch origin "$(printf '%q' "$BRANCH")"
+mango_status="\$(git status --porcelain)"
+if [[ -n "\$mango_status" && "${MANGO_DEPLOY_ALLOW_DIRTY:-0}" != "1" ]]; then
+  echo "Pi has uncommitted changes — refuse deploy" >&2
+  echo "\$mango_status" >&2
+  exit 1
+fi
 git checkout $(printf '%q' "$BRANCH")
-git pull --ff-only
-echo "Pi at \$(git rev-parse --short HEAD)"
+git merge --ff-only $(printf '%q' "$EXPECTED")
+actual="\$(git rev-parse HEAD)"
+if [[ "\$actual" != $(printf '%q' "$EXPECTED") ]]; then
+  echo "Pi SHA \$actual does not match expected $(printf '%q' "$EXPECTED")" >&2
+  exit 1
+fi
+echo "Pi at \$actual"
 bash scripts/lib/sync-etc-mango-config.sh || true
-bash scripts/m4-addons/sync-aiometadata-rail-catalogs.sh || true
+if [[ "${SKIP_AIOMETADATA}" == "0" ]]; then
+  MANGO_SKIP_AIOMETADATA_SYNC=0 bash scripts/m4-addons/sync-aiometadata-rail-catalogs.sh
+else
+  MANGO_SKIP_AIOMETADATA_SYNC=1 bash scripts/m4-addons/sync-aiometadata-rail-catalogs.sh
+fi
 bash scripts/m5-voice/ai/sync-companion-example.sh || true
 bash scripts/m4-addons/ensure-bharat-binge-export.sh || true
 bash scripts/m6-ship/ensure-youtube-yt-dlp.sh || true
@@ -110,11 +131,16 @@ if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
   bash scripts/m5-voice/stack/start-voice-stack.sh || true
 fi
 bash scripts/mango-stack.sh status
+readback="\$(git rev-parse HEAD)"
+if [[ "\$readback" != $(printf '%q' "$EXPECTED") ]]; then
+  echo "Pi readback SHA \$readback does not match expected $(printf '%q' "$EXPECTED")" >&2
+  exit 1
+fi
 EOF
 )"
 
 ssh -o ConnectTimeout=12 "$HOST" "bash -lc $(printf '%q' "$REMOTE_SCRIPT")"
 
 if [[ "$RUN_GATE" == "1" ]]; then
-  bash "$SCRIPT_DIR/pi-exec-gate.sh"
+  MANGO_DEPLOY_SHA="$EXPECTED" bash "$SCRIPT_DIR/pi-exec-gate.sh"
 fi

@@ -47,10 +47,10 @@ visible picture, audio/lip sync, perceived latency, and recommendation quality.
 - Never expose API keys, OAuth/debrid tokens, cookies, signed URLs, raw AIO
   `userData`, private companion state, or IPTV credentials in screenshots/logs.
 - AIOStreams `userData` is Pi-owned state; Git deployment does not apply it.
-- Current deploy wrappers are blocked for unattended agents: branch/SHA is not
-  enforced/pinned and `pi-deploy.sh` can implicitly mutate AIOMetadata private
-  state. Follow [DEPLOY.md](DEPLOY.md) and do not begin couch acceptance until
-  that blocker is fixed or a human explicitly reviews the exception.
+- Current deploy wrappers fail closed on `feat/native-experience`, fetch, and
+  SHA. AIOMetadata rail sync is off unless `MANGO_SYNC_AIOMETADATA=1`. Follow
+  [DEPLOY.md](DEPLOY.md). Do not begin couch acceptance until the exact Pi SHA
+  is read back.
 - Pairing mode is recovery only. Ordinary controller power-on is the happy path.
 - Live is optional and its provider probes/gates are opt-in.
 
@@ -240,7 +240,7 @@ source-tested at the target and must be re-proven on the Pi.
 | YT1 | Base tab | Cached metadata remains usable; Search groups Videos/Channels/Playlists | |
 | YT2 | Connect | Companion device flow succeeds; token stays `/etc/mango`, 0600; LAN status DTO stays sanitized | |
 | YT3 | Takeout | Bounded ZIP/JSON/HTML import is path-safe/idempotent; normalized events remain; raw upload is discarded | |
-| YT4 | Playback | Video B → `yt-dlp` → mpv; one selector fallback at most; couch-safe 403/429/CAPTCHA error | |
+| YT4 | Playback | Video B → play-session → `yt-dlp` (`web_safari,tv_simply`) → mpv; one selector fallback at most; resume from progress; classified couch-safe 403/429/CAPTCHA error; no leaked URLs | |
 | YT5 | Input isolation | Authoritative OAuth subscriptions, official Takeout history, and Mango-local meaningful watches influence v3; Search/Saved/mood/VOD/companion stay isolated | |
 | YT6 | Logical order | For You, From Your Subscriptions, Your regulars, More Like, Beyond, History, then Saved, then Live | |
 | YT7 | Supply honesty | Normal rows render only at exactly four cards and can be absent; Live renders 1–4; no unrelated filler | |

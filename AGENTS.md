@@ -23,9 +23,12 @@
 | [`docs/HARDWARE.md`](docs/HARDWARE.md) | Pad diagram |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Locked choices |
 | [`docs/COUCH_TEST.md`](docs/COUCH_TEST.md) | Couch handoff checklist |
+| [`docs/MARKETING.md`](docs/MARKETING.md) | Public copy · capture plan · launch posts |
+| [`docs/INSTAGRAM_LAUNCH_CAROUSEL.md`](docs/INSTAGRAM_LAUNCH_CAROUSEL.md) | Eight-card launch carousel · caption · capture brief |
+| [`assets/brand/BRAND.md`](assets/brand/BRAND.md) | Voice · anti-positioning · tagline lock |
 | [`scripts/MILESTONES.md`](scripts/MILESTONES.md) | Script dirs M1–M6 + Live · milestone layout only |
 
-**TV box systems:** `$mango-tv-box-expert` · **Launcher visuals:** `$ux-design-expert`
+**TV box systems:** `$mango-tv-box-expert` · **Launcher visuals:** `$ux-design-expert` · **Public copy:** `$app-marketing-studio`
 
 ## Cursor performance
 
@@ -45,14 +48,12 @@ SSH `mango` primary, `mango-mdns` fallback via `mango.local` · `~/mango` · num
 
 **Never `rsync`, `scp`, or hand-copy repo files to the Pi.** Mac is source of truth via git push; Pi updates via git pull only.
 
-> **Current deploy-helper blocker:** do not run `pi-deploy.sh` or
-> `pi-exec-gate.sh` unattended. They derive the Pi branch from the Mac checkout
-> instead of enforcing `feat/native-experience`, pull an unpinned branch, and
-> `pi-deploy.sh` can invoke a mutating AIOMetadata rail sync that emits sensitive
-> output and leaves a fixed `/tmp` response. The local skip variable is not
-> forwarded into that remote step. Use the human-reviewed exception/manual path
-> in [`docs/DEPLOY.md`](docs/DEPLOY.md) only after exact branch/SHA checks, or fix
-> and test the helpers first.
+> **Deploy helpers are fail-closed.** `pi-deploy.sh` and `pi-exec-gate.sh`
+> require `feat/native-experience`, a successful `git fetch`, matching Mac and
+> expected SHAs, and a clean tree unless `MANGO_DEPLOY_ALLOW_DIRTY=1`.
+> AIOMetadata rail sync is off unless `MANGO_SYNC_AIOMETADATA=1`; the skip is
+> forwarded into the remote step. Regression coverage:
+> `scripts/m6-ship/test-pi-deploy-hardening.sh`. Never rsync or scp.
 
 **Split machine:** if this Mac cannot SSH to the Pi (e.g. work laptop), commit + push here; deploy from the home Mac on the Pi LAN — [`docs/DEPLOY-SPLIT-MACHINE.md`](docs/DEPLOY-SPLIT-MACHINE.md).
 
@@ -63,18 +64,16 @@ SSH `mango` primary, `mango-mdns` fallback via `mango.local` · `~/mango` · num
 | 1. Diagnose | Pi | `pi-exec.sh`, gates, service logs |
 | 2. Fix | Mac | Edit repo; local `npm run test` when touching catalog-service |
 | 3. Ship | Mac | Commit (when asked) + `git push origin feat/native-experience` |
-| 4. Deploy | Pi | Currently blocked for unattended agents; follow the reviewed path in `docs/DEPLOY.md` |
+| 4. Deploy | Pi | `bash scripts/pi-deploy.sh --fast` after push; pin `MANGO_DEPLOY_SHA` when needed |
 | 5. Verify | Pi | Run Pi-local gates against the read-back exact SHA — **never hand off after Mac-only checks** |
 
 ```bash
-# Mac — after push; preflight only (the wrappers below remain blocked until hardened)
+# Mac — after push
 bash scripts/lib/pi-sync-check.sh path/to/changed…   # optional
 git fetch origin feat/native-experience
 test "$(git branch --show-current)" = feat/native-experience
 test "$(git rev-parse HEAD)" = "$(git rev-parse origin/feat/native-experience)"
-
-# Mac — read-only Pi preflight; do not pull or select a revision implicitly
-bash scripts/pi-exec.sh 'cd ~/mango && git branch --show-current && git rev-parse HEAD && git status --short'
+bash scripts/pi-deploy.sh --fast
 ```
 
 Voice after deploy (`MANGO_VOICE=1`):

@@ -389,9 +389,10 @@ recommendation rails; neither invokes a deleted allocator.
 The YouTube Data API is used for exact authorized-channel identity, metadata,
 search, authoritative subscription refresh, and official channel upload
 playlists only.
-Playback resolves through `yt-dlp -> mpv`; API quota does not govern cached
-playback, but `yt-dlp` failures such as 403/429/CAPTCHA are surfaced as
-couch-safe playback errors. Channels and playlists open detail lists; only
+Playback resolves through a bounded YouTube transport broker (`yt-dlp` clients
+then mpv). API quota does not govern cached playback. Classified outcomes
+include unavailable, geo, DRM, entitlement, rate-limit, SABR-only, and
+player failure. Channels and playlists open detail lists; only
 videos can be Saved in M6.2.
 
 In `serve`, YouTube v2 display order is **For You → From Your Subscriptions → Your regulars → More Like … → Beyond Your
@@ -783,7 +784,7 @@ See [PLAYABILITY.md](PLAYABILITY.md) for play-first policy.
 | `GET` | `/youtube/search?q=` | Grouped videos/channels/playlists |
 | `GET` | `/youtube/detail?kind=&id=` | Video detail or channel/playlist video list |
 | `POST` | `/youtube/not-interested` | Reversible Household exact-video Not-for-me; no creator/topic propagation |
-| `POST` | `/youtube/play` | Compatibility synchronous `yt-dlp -> mpv` route; launcher uses `/play-session` |
+| `POST` | `/youtube/play` | Compatibility synchronous play; sanitizes like `/play-session`; launcher uses `/play-session` |
 
 ## Search API
 

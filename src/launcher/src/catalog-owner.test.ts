@@ -257,6 +257,49 @@ test("legacy-source YouTube cards preserve their durable key on Saved and normal
   assert.equal(playbackBody?.library_source, "mango");
 });
 
+test("YouTube tab and Search play the same session payload including resume", async () => {
+  const card = {
+    id: "VideoCase",
+    type: "youtube_video" as const,
+    source: "youtube" as const,
+    title: "Video",
+    subtitle: "Channel",
+    resumeSec: 42,
+    railId: "for_you",
+    attributionToken: "token-one",
+  };
+  const bodies: Record<string, unknown>[] = [];
+  await withMockFetch(async (_input, init) => {
+    if (init?.body) {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+    }
+    return jsonResponse({
+      ok: true,
+      profile_id: "alice",
+      personalization_updated_at: 17,
+      session: {
+        session_id: "youtube-parity",
+        version: 1,
+        state: "playing",
+        ever_ready: true,
+        error: null,
+        result: { ok: true },
+      },
+    }, 202);
+  }, async () => {
+    await playCard(card, { expectedOwner: owner });
+    await playCard({ ...card, railId: "search" }, { expectedOwner: owner, startSec: 42 });
+  });
+  assert.equal(bodies.length, 2);
+  for (const body of bodies) {
+    assert.equal(body.source, "youtube");
+    assert.equal(body.type, "youtube_video");
+    assert.equal(body.id, "VideoCase");
+    assert.equal(body.start_sec, 42);
+    assert.equal(body.recommendation_item_id, "VideoCase");
+  }
+});
+
 test("Saved IDs on every personalized tab use the same owner handshake", async () => {
   const calls: string[] = [];
   await withMockFetch(async (input) => {
