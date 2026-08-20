@@ -70,6 +70,19 @@ test('diagnostic Search completes cache-only without recording activity', () => 
   assert.deepEqual((await service.state()).recents, []);
 }));
 
+test('cold Search state returns chrome immediately while the index warms', () => withSearchServiceTest(async (service) => {
+  let release: (() => void) | undefined;
+  const stalled = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  (service as unknown as { warm: () => Promise<void> }).warm = () => stalled;
+  const started = performance.now();
+  const state = await service.state() as { index: { rebuilding: boolean } };
+  assert.equal(state.index.rebuilding, true);
+  assert.ok(performance.now() - started < 100);
+  release?.();
+}));
+
 test('cancel marks pending phases skipped and ignores late source completion', () => {
   let resolveSearch: ((value: Record<string, unknown>) => void) | undefined;
   const pendingSearch = () => new Promise<Record<string, unknown>>((resolve) => {
@@ -92,6 +105,9 @@ test('cancel marks pending phases skipped and ignores late source completion', (
 });
 
 test('index invalidation swaps in newly cached YouTube metadata atomically', () => withSearchServiceTest(async (service) => {
+  const coldState = await service.state() as { index: { rebuilding: boolean } };
+  assert.equal(coldState.index.rebuilding, true);
+  await service.warm();
   const emptyState = await service.state() as { index: { items: number } };
   assert.equal(emptyState.index.items, 0);
   upsertYoutubeItems([{

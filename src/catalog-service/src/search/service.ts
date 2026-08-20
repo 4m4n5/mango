@@ -246,6 +246,11 @@ export class UnifiedSearchService {
     private readonly youtube: YoutubeService,
   ) {}
 
+  /** Start the immutable local index before a viewer opens Search. */
+  warm(): Promise<void> {
+    return this.ensureIndex();
+  }
+
   private async ensureIndex(force = false): Promise<void> {
     const hasBuiltIndex = this.indexBuiltAt > 0;
     const now = Date.now();
@@ -392,7 +397,16 @@ export class UnifiedSearchService {
   }
 
   async state(): Promise<Record<string, unknown>> {
-    await this.ensureIndex();
+    // Search chrome, recents and starters do not depend on the large local
+    // index. Never make opening Search wait for a cold 40k-row rebuild; the
+    // startup warmup continues in parallel and suggestions/query join it.
+    if (this.indexBuiltAt > 0) {
+      await this.ensureIndex();
+    } else {
+      void this.warm().catch((error: unknown) => {
+        console.warn(`Search index warmup failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
     return {
       ok: true,
       recents: listSearchHistory(),
@@ -404,7 +418,11 @@ export class UnifiedSearchService {
         youtube: this.index.some((entry) => entry.source === 'youtube'),
         ai: Boolean(process.env.MANGO_SEARCH_AI_URL || process.env.MANGO_VOICE),
       },
-      index: { items: this.index.length, built_at: this.indexBuiltAt },
+      index: {
+        items: this.index.length,
+        built_at: this.indexBuiltAt,
+        rebuilding: this.indexBuiltAt === 0 || this.indexFlight !== null,
+      },
       youtube: {
         refresh: youtubeRefreshStatus(),
         query_cache: youtubeSearchCacheSummary(),

@@ -1752,6 +1752,13 @@ async function main(): Promise<void> {
     }`));
   });
   const search = new UnifiedSearchService(core, youtube);
+  // Build the immutable local Search index as soon as catalog startup settles,
+  // not on the viewer's first Search open or query.
+  void search.warm().catch((error: unknown) => {
+    console.warn(`Search index startup warmup failed: ${
+      error instanceof Error ? error.message : String(error)
+    }`);
+  });
   const reliability = new ReliabilityService({
     catalogHealth: () => core.health(),
     playabilityStatus: () => core.playabilityStatus(),
