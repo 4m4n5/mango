@@ -116,7 +116,7 @@ import {
   recommendationRefreshJobById,
   reconcileInterruptedRecommendationRefreshJobs,
   updateRecommendationRefreshJobs,
-  updateRecommendationRefreshJobRuntime,
+  updateRecommendationRefreshJobRuntimeBestEffort,
   type RecommendationRefreshJob,
 } from './recommendations/jobs.js';
 import {
@@ -1607,13 +1607,20 @@ async function main(): Promise<void> {
       core.invalidateRecommendationTab(work.tab);
       core.scheduleVodBrowseReservoirRefresh(work.tab);
     },
+    onBookkeepingFault: (work, error) => {
+      console.warn(`recommendation refresh bookkeeping failed${work ? ` for ${work.tab}` : ''}: ${
+        error instanceof Error ? error.message : String(error)}`);
+    },
     onRetainedLastGood: (work, error, willRetry) => {
       if (error instanceof CouchPreemptedRecommendationRefreshError) {
         const key = recommendationWorkKey(work.profile_id, work.tab);
         const jobIds = activeRecommendationJobs.get(key) ?? [];
-        updateRecommendationRefreshJobs(jobIds, 'coalesced', error);
+        // Release in-memory ownership before the durable write. A write that
+        // throws under contention must not leave this key permanently "active",
+        // which would make every later refresh fail as already-active.
         activeRecommendationJobs.delete(key);
         activeRecommendationReasons.delete(key);
+        updateRecommendationRefreshJobs(jobIds, 'coalesced', error);
         const delay = Math.max(10_000, Math.min(
           10 * 60_000,
           Number.parseInt(process.env.MANGO_RECOMMENDATION_COUCH_RETRY_MS ?? '', 10) || 60_000,
@@ -1624,10 +1631,15 @@ async function main(): Promise<void> {
             work.profile_id,
             ['couch_preempted_resume'],
           ).then((successors) => {
-            updateRecommendationRefreshJobRuntime(jobIds, {
+            updateRecommendationRefreshJobRuntimeBestEffort(jobIds, {
               successor_job_id: successors[0]?.job_id ?? null,
               error_code: 'couch_preempted',
             });
+          }).catch((resumeError: unknown) => {
+            // This runs from a timer, so an unhandled rejection would kill the
+            // catalog. Last-good stays served and the next signal re-queues.
+            console.warn(`recommendation couch-preempt resume failed for ${work.tab}: ${
+              resumeError instanceof Error ? resumeError.message : String(resumeError)}`);
           });
         }, delay);
         timer.unref?.();
@@ -1636,9 +1648,10 @@ async function main(): Promise<void> {
       }
       if (!willRetry) {
         const key = recommendationWorkKey(work.profile_id, work.tab);
-        updateRecommendationRefreshJobs(activeRecommendationJobs.get(key) ?? [], 'failed', error);
+        const jobIds = activeRecommendationJobs.get(key) ?? [];
         activeRecommendationJobs.delete(key);
         activeRecommendationReasons.delete(key);
+        updateRecommendationRefreshJobs(jobIds, 'failed', error);
       }
       console.warn(`recommendation background refresh retained last-good ${work.tab} snapshot for ${work.profile_id}${
         willRetry ? ' and will retry' : ''}: ${error instanceof Error ? error.message : String(error)}`);
@@ -1670,10 +1683,10 @@ async function main(): Promise<void> {
     }));
     jobs.forEach((job, index) => {
       const key = recommendationWorkKey(profileId, tabs[index]!);
-      pendingRecommendationJobs.set(key, [
-        ...(pendingRecommendationJobs.get(key) ?? []),
-        job.job_id,
-      ]);
+      // createRecommendationRefreshJob atomically supersedes older queued rows
+      // for this domain/type. Mirror that durable latest-only ownership in the
+      // in-memory batch so a coalesced ID cannot consume the completion slot.
+      pendingRecommendationJobs.set(key, [job.job_id]);
       pendingRecommendationReasons.set(key, [...new Set([
         ...(pendingRecommendationReasons.get(key) ?? []),
         ...job.trigger_reasons,
@@ -2853,15 +2866,21 @@ async function main(): Promise<void> {
             },
           });
           setImmediate(() => {
-            updateRecommendationRefreshJobs([job.job_id], 'running');
+            // Runs outside the request scope: a throwing job write here would be
+            // an uncaught exception rather than a failed response.
+            const markJob = (status: 'running' | 'complete' | 'failed', error?: unknown): void => {
+              try {
+                updateRecommendationRefreshJobs([job.job_id], status, error);
+              } catch (writeError) {
+                console.warn(`youtube refresh job bookkeeping failed (${status}): ${
+                  writeError instanceof Error ? writeError.message : String(writeError)}`);
+              }
+            };
+            markJob('running');
             void youtube.refresh(reason).then((result) => {
-              if (result.ok) updateRecommendationRefreshJobs([job.job_id], 'complete');
-              else updateRecommendationRefreshJobs(
-                [job.job_id],
-                'failed',
-                result.error ?? 'YouTube refresh failed',
-              );
-            }).catch((error) => updateRecommendationRefreshJobs([job.job_id], 'failed', error));
+              if (result.ok) markJob('complete');
+              else markJob('failed', result.error ?? 'YouTube refresh failed');
+            }).catch((error: unknown) => markJob('failed', error));
           });
           sendJson(res, 202, {
             ok: true,

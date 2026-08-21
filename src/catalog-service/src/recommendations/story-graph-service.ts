@@ -87,7 +87,7 @@ import {
   recommendationMemorySnapshot,
   type RecommendationMemorySnapshot,
 } from './maintenance.js';
-import { updateRecommendationRefreshJobRuntime } from './jobs.js';
+import { updateRecommendationRefreshJobRuntimeBestEffort } from './jobs.js';
 import {
   buildStoryFrontierCalibration,
   storyFrontierBandFor,
@@ -2606,7 +2606,7 @@ async function refreshStoryGraphForYouUnserialized(
       array_buffers: Math.max(previousPeak.array_buffers, snapshot.array_buffers),
       captured_at: snapshot.captured_at,
     } : snapshot;
-    updateRecommendationRefreshJobRuntime(options.job_ids ?? [], {
+    updateRecommendationRefreshJobRuntimeBestEffort(options.job_ids ?? [], {
       phase,
       phase_cursor: cursor,
       heartbeat_at: snapshot.captured_at,
@@ -2619,7 +2619,7 @@ async function refreshStoryGraphForYouUnserialized(
     try {
       checkpoint('heartbeat');
     } catch (error) {
-      updateRecommendationRefreshJobRuntime(options.job_ids ?? [], {
+      updateRecommendationRefreshJobRuntimeBestEffort(options.job_ids ?? [], {
         error_code: error instanceof CouchPreemptedRecommendationRefreshError
           ? error.code
           : 'heartbeat_failed',
@@ -2734,7 +2734,7 @@ async function refreshStoryGraphForYouUnserialized(
     now,
     checkpoint,
   });
-  updateRecommendationRefreshJobRuntime(options.job_ids ?? [], { story_generation_id: storyGenerationId });
+  updateRecommendationRefreshJobRuntimeBestEffort(options.job_ids ?? [], { story_generation_id: storyGenerationId });
   const titles = [...profiles.values()].map(contentProfileStoryGraphTitle);
   const candidateIds = scan.rows.flatMap((row) => {
     const key = contentKey(row.type, row.id);
@@ -2790,7 +2790,7 @@ async function refreshStoryGraphForYouUnserialized(
     rank: ranked,
     now,
   });
-  updateRecommendationRefreshJobRuntime(options.job_ids ?? [], { taste_generation_id: tasteGenerationId });
+  updateRecommendationRefreshJobRuntimeBestEffort(options.job_ids ?? [], { taste_generation_id: tasteGenerationId });
   const db = libraryDatabase();
   const rankGeneration = db.prepare(`
 INSERT INTO vod_rank_generations(
@@ -2812,7 +2812,7 @@ RETURNING rank_generation_id
     scan.verifiedCount,
     now,
   ) as { rank_generation_id: number };
-  updateRecommendationRefreshJobRuntime(options.job_ids ?? [], {
+  updateRecommendationRefreshJobRuntimeBestEffort(options.job_ids ?? [], {
     rank_generation_id: rankGeneration.rank_generation_id,
   });
   const scoreByKey = rankScoreByKey(ranked);
@@ -3131,7 +3131,7 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = ?
     evaluation,
   };
   } catch (error) {
-    updateRecommendationRefreshJobRuntime(options.job_ids ?? [], {
+    updateRecommendationRefreshJobRuntimeBestEffort(options.job_ids ?? [], {
       error_code: error instanceof CouchPreemptedRecommendationRefreshError
         ? error.code
         : error instanceof Error && 'code' in error && typeof error.code === 'string'

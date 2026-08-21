@@ -63,6 +63,17 @@ export function recommendationMemorySnapshot(now = Date.now()): RecommendationMe
   };
 }
 
+function recommendationLeaseOwnerAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return Boolean(error && typeof error === 'object' && 'code' in error
+      && (error as { code?: unknown }).code === 'EPERM');
+  }
+}
+
 export function readFreshRecommendationMaintenanceLease(
   now = Date.now(),
 ): RecommendationMaintenanceLeaseRecord | null {
@@ -72,6 +83,7 @@ export function readFreshRecommendationMaintenanceLease(
     ) as RecommendationMaintenanceLeaseRecord;
     if (!Number.isFinite(parsed.heartbeat_at)
       || now - parsed.heartbeat_at > RECOMMENDATION_MAINTENANCE_LEASE_STALE_MS) return null;
+    if (!recommendationLeaseOwnerAlive(parsed.pid)) return null;
     return parsed;
   } catch {
     return null;

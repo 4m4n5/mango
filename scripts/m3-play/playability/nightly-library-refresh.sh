@@ -35,6 +35,11 @@ normalize_preset() {
   esac
 }
 
+recommendation_maintenance_active() {
+  local lease_path="${MANGO_RECOMMENDATION_MAINTENANCE_LEASE:-${CACHE_DIR}/recommendation-maintenance.lease}"
+  python3 "$REPO_DIR/scripts/diag/recommendation_maintenance_lease.py" "$lease_path"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode) MODE="${2:-}"; shift 2 ;;
@@ -127,6 +132,8 @@ if [[ "${MANGO_NIGHTLY_VACUUM:-1}" == "1" ]]; then
     echo "nightly library refresh: VACUUM skipped (playback active)"
   elif [[ "$couch_idle" -ne 1 ]]; then
     echo "nightly library refresh: VACUUM skipped (couch not idle)"
+  elif recommendation_maintenance_active; then
+    echo "nightly library refresh: VACUUM skipped (VOD recommendation maintenance active)"
   elif [[ ! -f "$LIBRARY_DB" ]]; then
     echo "nightly library refresh: VACUUM skipped (library.db missing)"
   else

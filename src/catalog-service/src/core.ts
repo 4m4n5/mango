@@ -826,6 +826,58 @@ async function fetchJson(url: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<u
   }
 }
 
+type ManifestBootRetryOptions = {
+  deadlineAt: number;
+  retryDelayMs: number;
+  fetcher?: (url: string) => Promise<unknown>;
+  now?: () => number;
+  wait?: (delayMs: number) => Promise<void>;
+};
+
+function isLoopbackManifestUrl(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Only a still-starting local addon is worth waiting for. A manifest that
+ * answers with a permanent error is a real misconfiguration, so retrying it
+ * would just stall boot for the whole deadline.
+ */
+export function isStartingLocalAddonError(error: unknown): boolean {
+  if (error instanceof CatalogError && error.status < 500) return false;
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return /fetch failed|econnrefused|econnreset|socket hang up|timeout|aborted|abort|network|502|503|504/
+    .test(message);
+}
+
+/** A just-woken local addon may become reachable after the indexer starts. */
+export async function fetchManifestAtBoot(
+  url: string,
+  options: ManifestBootRetryOptions,
+): Promise<unknown> {
+  const fetcher = options.fetcher ?? fetchJson;
+  const now = options.now ?? Date.now;
+  const wait = options.wait ?? ((delayMs: number) => new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  }));
+  while (true) {
+    try {
+      return await fetcher(url);
+    } catch (error) {
+      const remaining = options.deadlineAt - now();
+      if (!isLoopbackManifestUrl(url) || remaining <= 0 || !isStartingLocalAddonError(error)) {
+        throw error;
+      }
+      await wait(Math.min(Math.max(1, options.retryDelayMs), remaining));
+    }
+  }
+}
+
 export function supportsResource(manifest: Manifest, resourceName: string, type: string): boolean {
   const resources = manifest.resources || [];
   if (resources.length === 0) return false;
@@ -1349,11 +1401,36 @@ export class CatalogCore {
       throw new CatalogError(500, `${exportPath} has no addon manifest URLs`);
     }
 
+    const configuredManifestWait = Number.parseInt(
+      process.env.MANGO_LOCAL_MANIFEST_BOOT_WAIT_MS ?? '',
+      10,
+    );
+    const configuredManifestRetry = Number.parseInt(
+      process.env.MANGO_LOCAL_MANIFEST_BOOT_RETRY_MS ?? '',
+      10,
+    );
+    // Maintenance must not proceed on a partial addon graph, so it waits longer.
+    // The couch path prefers a fast boot: a short wait covers a co-starting local
+    // addon, after which the existing warn-and-continue behavior applies.
+    const defaultManifestWaitMs = purpose === 'playability_vod' ? 90_000 : 20_000;
+    const localManifestDeadline = Date.now() + (
+      Number.isFinite(configuredManifestWait)
+        ? Math.max(0, configuredManifestWait)
+        : defaultManifestWaitMs
+    );
+    const localManifestRetryMs = Number.isFinite(configuredManifestRetry)
+      ? Math.max(100, configuredManifestRetry)
+      : 2_000;
     const addons: Addon[] = [];
     const manifestFailures: string[] = [];
     for (const addon of exported) {
       try {
-        const manifest = await fetchJson(addon.manifestUrl) as Manifest;
+        const manifest = await (isPlayabilityVodCriticalAddon(addon.name)
+          ? fetchManifestAtBoot(addon.manifestUrl, {
+            deadlineAt: localManifestDeadline,
+            retryDelayMs: localManifestRetryMs,
+          })
+          : fetchJson(addon.manifestUrl)) as Manifest;
         addons.push({
           name: manifest.name || addon.name,
           manifestUrl: addon.manifestUrl,

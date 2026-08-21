@@ -370,32 +370,25 @@ stage_playability_db_if_needed() {
   export MANGO_PLAYABILITY_DB="$WORK_PLAYABILITY_DB"
 }
 
-refresh_json_ok() {
+refresh_json_publishable() {
   local path="$1"
-  python3 - "$path" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-try:
-    payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-except Exception:
-    print("0")
-    raise SystemExit(0)
-print("1" if payload.get("ok") is True else "0")
-PY
+  local publish_rc="$2"
+  python3 "$REPO_DIR/scripts/diag/playability_refresh_decision.py" "$path" "$publish_rc"
 }
 
 publish_or_discard_staged_db() {
   if [[ "$STAGED_GROW_DB" != "1" ]]; then
     return 0
   fi
-  local json_ok="0"
+  local json_publishable="0"
   if [[ "$REFRESH_OUT_WRITTEN" == "1" && -f "$REFRESH_OUT" ]]; then
-    json_ok="$(refresh_json_ok "$REFRESH_OUT")"
+    json_publishable="$(refresh_json_publishable "$REFRESH_OUT" "$PUBLISH_RC")"
   fi
   set_live_playability_db_env
-  if [[ "$REFRESH_RC" -eq 0 && "$json_ok" == "1" ]]; then
+  # PUBLISH_RC is the exit status of the phase that produced the staged work.
+  # Nightly stale refresh is independent evidence: a stale-phase failure must
+  # not discard a later completed, publishable grow receipt.
+  if [[ "$json_publishable" == "1" ]]; then
     echo "stage DB: publishing completed grow to $LIVE_PLAYABILITY_DB"
     sqlite_publish_db "$WORK_PLAYABILITY_DB" "$LIVE_PLAYABILITY_DB"
     grow_state log "stage DB: published completed grow"
@@ -705,6 +698,9 @@ run_refresh() {
 
 REFRESH_JSON=""
 REFRESH_RC=0
+# Exit status of the phase whose work landed in the staged DB. REFRESH_RC is the
+# nightly aggregate and can carry an unrelated stale failure; publication must not.
+PUBLISH_RC=0
 
 set +e
 if [[ "$MODE" == "nightly" ]]; then
@@ -725,6 +721,8 @@ if [[ "$MODE" == "nightly" ]]; then
     write_deferred_report nightly_grow_phase
     REFRESH_JSON="$STALE_JSON"
     REFRESH_RC=0
+    # The staged DB holds the stale phase's work; its own receipt gates publish.
+    PUBLISH_RC=0
   else
     echo "== phase 2: grow pass (preset=$MANGO_GROW_PRESET) =="
     if [[ "${MANGO_SOURCE_HITRATE_PREFLIGHT:-0}" == "1" ]]; then
@@ -743,6 +741,7 @@ if [[ "$MODE" == "nightly" ]]; then
     grow_state set --phase grow --message "grow refresh in progress" --mode "$MODE" --preset "$MANGO_GROW_PRESET"
     REFRESH_JSON="$(run_refresh grow 2>&1)"
     REFRESH_RC=$?
+    PUBLISH_RC=$REFRESH_RC
     echo "$REFRESH_JSON"
     if [[ "$STALE_RC" -ne 0 && "$REFRESH_RC" -eq 0 ]]; then
       REFRESH_RC=$STALE_RC
@@ -757,6 +756,7 @@ else
   write_grow_baseline_if_needed "$MODE"
   REFRESH_JSON="$(run_refresh "$MODE" 2>&1)"
   REFRESH_RC=$?
+  PUBLISH_RC=$REFRESH_RC
   echo "$REFRESH_JSON"
 fi
 set -e
@@ -853,8 +853,7 @@ if [[ "$MODE" == "grow" || "$MODE" == "nightly" ]] && [[ "$REFRESH_OUT_WRITTEN" 
       exit 2
     fi
     VOD_RECOMMENDATION_RESPONSE="$(mktemp)"
-    VOD_RECOMMENDATION_STATE="$(mktemp)"
-    trap 'rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"' EXIT
+    trap 'rm -f "$VOD_RECOMMENDATION_RESPONSE"' EXIT
     if curl -fsS -m 10 -X POST \
         -H 'content-type: application/json' \
         --data '{"reason":"playability_corpus_publication"}' \
@@ -879,88 +878,24 @@ for job in jobs:
 print(",".join(job_ids))
 PY
       )"; then
-        rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
+        rm -f "$VOD_RECOMMENDATION_RESPONSE"
         echo "VOD recommendation refresh response was invalid; last-good remains active" >&2
         exit 10
       fi
       echo "playability maintenance: waiting for VOD recommendation jobs $VOD_RECOMMENDATION_JOB_IDS"
-      IFS=',' read -r -a VOD_RECOMMENDATION_JOB_ID_LIST <<<"$VOD_RECOMMENDATION_JOB_IDS"
-      VOD_RECOMMENDATION_DEADLINE=$((SECONDS + VOD_RECOMMENDATION_TIMEOUT_SEC))
-      VOD_RECOMMENDATION_STATUS="pending"
       VOD_RECOMMENDATION_DETAIL=""
-      while (( SECONDS < VOD_RECOMMENDATION_DEADLINE )); do
-        : >"$VOD_RECOMMENDATION_STATE"
-        for VOD_RECOMMENDATION_JOB_ID in "${VOD_RECOMMENDATION_JOB_ID_LIST[@]}"; do
-          if ! curl -fsS -m 5 \
-              "${CATALOG_URL}/recommendations/jobs/${VOD_RECOMMENDATION_JOB_ID}" \
-              >>"$VOD_RECOMMENDATION_STATE"; then
-            rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
-            echo "VOD recommendation exact job read failed for ${VOD_RECOMMENDATION_JOB_ID}; last-good remains active" >&2
-            exit 10
-          fi
-          printf '\n' >>"$VOD_RECOMMENDATION_STATE"
-        done
-        VOD_RECOMMENDATION_LINE="$(python3 - "$VOD_RECOMMENDATION_STATE" "$VOD_RECOMMENDATION_JOB_IDS" <<'PY'
-import json
-import sys
-
-path, joined_ids = sys.argv[1:]
-expected = joined_ids.split(",")
-with open(path, encoding="utf-8") as handle:
-    payloads = [json.loads(line) for line in handle if line.strip()]
-by_id = {}
-for payload in payloads:
-    job = payload.get("job") if isinstance(payload, dict) else None
-    if isinstance(job, dict) and job.get("job_id"):
-        by_id[str(job["job_id"])] = job
-missing = [job_id for job_id in expected if job_id not in by_id]
-if missing:
-    print("missing\t" + ",".join(missing))
-    raise SystemExit(0)
-failed = [
-    f"{job_id}:{by_id[job_id].get('error') or 'unknown error'}"
-    for job_id in expected
-    if by_id[job_id].get("status") == "failed"
-]
-if failed:
-    print("failed\t" + " | ".join(failed).replace("\t", " ").replace("\n", " "))
-    raise SystemExit(0)
-statuses = {job_id: str(by_id[job_id].get("status") or "unknown") for job_id in expected}
-invalid = [f"{job_id}:{status}" for job_id, status in statuses.items()
-           if status not in {"queued", "running", "complete", "coalesced"}]
-if invalid:
-    print("invalid\t" + ",".join(invalid))
-elif all(status in {"complete", "coalesced"} for status in statuses.values()):
-    print("complete\t" + ",".join(f"{job_id}:{statuses[job_id]}" for job_id in expected))
-else:
-    print("pending\t" + ",".join(f"{job_id}:{statuses[job_id]}" for job_id in expected))
-PY
-        )"
-        IFS=$'\t' read -r VOD_RECOMMENDATION_STATUS VOD_RECOMMENDATION_DETAIL <<<"$VOD_RECOMMENDATION_LINE"
-        case "$VOD_RECOMMENDATION_STATUS" in
-          complete) break ;;
-          pending) sleep 1 ;;
-          missing|failed|invalid)
-            rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
-            echo "VOD recommendation refresh $VOD_RECOMMENDATION_STATUS: $VOD_RECOMMENDATION_DETAIL; last-good remains active" >&2
-            exit 10
-            ;;
-          *)
-            rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
-            echo "VOD recommendation refresh returned an invalid aggregate status; last-good remains active" >&2
-            exit 10
-            ;;
-        esac
-      done
-      rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
-      trap - EXIT
-      if [[ "$VOD_RECOMMENDATION_STATUS" != "complete" ]]; then
-        echo "VOD recommendation jobs timed out after ${VOD_RECOMMENDATION_TIMEOUT_SEC}s ($VOD_RECOMMENDATION_DETAIL); last-good remains active" >&2
+      if ! VOD_RECOMMENDATION_DETAIL="$(
+        bash "$REPO_DIR/scripts/m3-play/playability/wait-vod-recommendation-jobs.sh" \
+          "$CATALOG_URL" "$VOD_RECOMMENDATION_JOB_IDS" "$VOD_RECOMMENDATION_TIMEOUT_SEC"
+      )"; then
+        rm -f "$VOD_RECOMMENDATION_RESPONSE"
         exit 10
       fi
+      rm -f "$VOD_RECOMMENDATION_RESPONSE"
+      trap - EXIT
       echo "playability maintenance: VOD recommendation jobs complete ($VOD_RECOMMENDATION_DETAIL)"
     else
-      rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
+      rm -f "$VOD_RECOMMENDATION_RESPONSE"
       echo "VOD recommendation refresh enqueue failed; last-good remains active" >&2
       exit 10
     fi

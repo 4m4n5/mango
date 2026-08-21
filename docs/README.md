@@ -48,3 +48,5 @@ Reference configuration lives in [reference/](reference/). Agent invariants
 live in [`../AGENTS.md`](../AGENTS.md). Open incident evidence (facts only; not
 current product spec):
 [`tasks/NIGHTLY_WAKE_GROW_RECS_INCIDENT_2026-08-21.md`](tasks/NIGHTLY_WAKE_GROW_RECS_INCIDENT_2026-08-21.md).
+Independent diagnosis and local patch evidence:
+[`tasks/NIGHTLY_WAKE_GROW_RECS_DIAGNOSIS_2026-08-21.md`](tasks/NIGHTLY_WAKE_GROW_RECS_DIAGNOSIS_2026-08-21.md).

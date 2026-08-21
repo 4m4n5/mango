@@ -195,6 +195,29 @@ WHERE job_id = @job_id
   }, 0))();
 }
 
+function isRecommendationRuntimeWriteContention(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('code' in error)) return false;
+  const code = String((error as { code?: unknown }).code ?? '');
+  return code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED';
+}
+
+/**
+ * Runtime checkpoints are diagnostics, never publication authority. A live
+ * SQLite maintenance lock may delay them, but must not crash or invalidate the
+ * recommendation refresh that still owns last-good publication semantics.
+ */
+export function updateRecommendationRefreshJobRuntimeBestEffort(
+  jobIds: readonly string[],
+  update: RecommendationRefreshJobRuntimeUpdate,
+): number {
+  try {
+    return updateRecommendationRefreshJobRuntime(jobIds, update);
+  } catch (error) {
+    if (isRecommendationRuntimeWriteContention(error)) return 0;
+    throw error;
+  }
+}
+
 export function updateRecommendationRefreshJobs(
   jobIds: readonly string[],
   status: Exclude<RecommendationRefreshJobStatus, 'queued'>,

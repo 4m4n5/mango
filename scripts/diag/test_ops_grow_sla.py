@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import unittest
 import os
+from unittest.mock import patch
 
 from ops_grow_sla import (
     PROGRAM_PASS_RATE,
@@ -34,6 +35,21 @@ class GrowSlaTests(unittest.TestCase):
                 os.environ.pop("MANGO_GROW_ANCHOR_DIET", None)
             else:
                 os.environ["MANGO_GROW_ANCHOR_DIET"] = previous
+
+    def test_full_pool_uses_the_same_breadth_lane_as_the_indexer(self) -> None:
+        cfg = RailPlayabilityConfig(
+            display_limit=9,
+            grow_per_pass=20,
+            pool_target=20,
+            pool_max=120,
+        )
+        with patch.dict(os.environ, {
+            "MANGO_GROW_PER_PASS": "",
+            "MANGO_PLAYABILITY_GROWTH_QUOTA": "",
+        }):
+            self.assertEqual(resolve_grow_target(cfg, 120), 4)
+            self.assertEqual(resolve_grow_target(cfg, 118), 6)
+            self.assertEqual(resolve_grow_target(cfg, 100), 20)
 
     def test_assess_rail_met(self) -> None:
         row = {
