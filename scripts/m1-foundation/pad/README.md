@@ -1,6 +1,6 @@
 # M1 foundation — pad scripts
 
-Run on the Pi from `~/mango`. Full context: [docs/OPS.md](../../../docs/OPS.md).
+Run on the Pi from `~/mango`. Full context: [docs/OPERATIONS.md](../../../docs/OPERATIONS.md).
 
 > **Native branch:** daily stack is `mango-stack.sh`. Scripts here support gamepad bring-up and **`mango-tv-pad.py`** (launcher + mpv).
 

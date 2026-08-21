@@ -189,20 +189,29 @@ unset _ff_match_line _ff_enable_line
 _hold_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /hold_null_buffer_at_handoff/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
 _hide_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /mango-window\.sh.*hide/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
 _rewind_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /rewind_null_buffer_to_intended_start/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
+_audio_ready_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /wait_mpv_split_audio_ready/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
 _raise_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /raise_mpv_window/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
 _release_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /release_null_buffer_start/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
-if [[ -n "$_hold_line" && -n "$_hide_line" && -n "$_rewind_line" && -n "$_raise_line" && -n "$_release_line" ]] \
-  && (( _hold_line < _hide_line && _rewind_line < _raise_line && _raise_line < _release_line )); then
-  gate_pass "buffer handoff pauses, rewinds A/V, raises, then releases at intended start"
+if [[ -n "$_hold_line" && -n "$_hide_line" && -n "$_rewind_line" && -n "$_audio_ready_line" && -n "$_raise_line" && -n "$_release_line" ]] \
+  && (( _hold_line < _hide_line && _rewind_line < _audio_ready_line && _audio_ready_line < _raise_line && _raise_line < _release_line )); then
+  gate_pass "buffer handoff pauses, rewinds, proves split audio sync, raises, then releases"
 else
-  gate_fail "buffer handoff first-frame ordering invalid (hold=${_hold_line:-?} hide=${_hide_line:-?} rewind=${_rewind_line:-?} raise=${_raise_line:-?} release=${_release_line:-?})"
+  gate_fail "buffer handoff first-frame ordering invalid (hold=${_hold_line:-?} hide=${_hide_line:-?} rewind=${_rewind_line:-?} audio=${_audio_ready_line:-?} raise=${_raise_line:-?} release=${_release_line:-?})"
 fi
-unset _hold_line _hide_line _rewind_line _raise_line _release_line
+unset _hold_line _hide_line _rewind_line _audio_ready_line _raise_line _release_line
 
 if grep -q 'MANGO_MPV_START_REWIND_TIMEOUT_MS:-8000' scripts/m2-catalog/service/mpv-play.sh; then
   gate_pass "exact A/V rewind tolerates slow split-stream range fetches"
 else
   gate_fail "exact A/V rewind timeout is too short for slow split-stream starts"
+fi
+
+if grep -q -- '--initial-audio-sync=yes' scripts/m2-catalog/service/mpv-play.sh \
+  && grep -q 'MANGO_MPV_SPLIT_AUDIO_READY_TIMEOUT_MS:-5000' scripts/m2-catalog/service/mpv-play.sh \
+  && grep -q 'mpv_property audio-pts' scripts/m2-catalog/service/mpv-play.sh; then
+  gate_pass "split YouTube A/V release requires real AO and aligned audio PTS"
+else
+  gate_fail "split YouTube audio can release after video without timestamp proof"
 fi
 
 # Playback HUD must render inside mpv (libass overlay), not as a separate X11
@@ -220,10 +229,16 @@ fi
 if grep -q 'mango-hud-display-ready' scripts/m2-catalog/service/mpv-play.sh \
   && grep -q 'mp.register_script_message("mango-hud-display-ready"' scripts/m2-catalog/service/mango-hud.lua \
   && grep -q 'local overlay = nil' scripts/m2-catalog/service/mango-hud.lua \
+  && grep -q 'HIDDEN_ASS' scripts/m2-catalog/service/mango-hud.lua \
+  && grep -q 'visible_state_owned_by_other' scripts/m2-catalog/service/mango-hud.lua \
+  && grep -q 'mp.observe_property("vo-configured", "bool"' scripts/m2-catalog/service/mango-hud.lua \
+  && grep -q 'reset_playback_hud_state' scripts/m2-catalog/service/mpv-play.sh \
+  && ! grep -q 'if overlay_mode == "streams" then return end' scripts/m2-catalog/service/mango-hud.lua \
+  && ! grep -q 'overlay\.hidden = true' scripts/m2-catalog/service/mango-hud.lua \
   && ! grep -q 'overlay\.data = ""' scripts/m2-catalog/service/mango-hud.lua; then
-  gate_pass "HUD binds after real VO and preserves its payload across hide/show"
+  gate_pass "HUD rebinds after VO changes, stays active, and fences stale routing"
 else
-  gate_fail "HUD overlay lifecycle can bind to null VO or lose its payload"
+  gate_fail "HUD lifecycle can strand its overlay or retain stale Streams routing"
 fi
 
 if grep -q 'PLAYBACK_OSD_VISIBLE_FILE' scripts/m2-catalog/service/mpv-stop.sh \
@@ -350,7 +365,7 @@ grep -q '_hud_meta\|DISPLAY_SIZE_TTL_SEC' scripts/m2-catalog/service/playback-os
 
 python3 - config/catalog-filters.example.json config/catalog-filters.4k-hdr.example.json \
   config/catalog-filters.4k-hifi.example.json config/aiostreams-target-patch.json \
-  docs/PLAYABILITY.md docs/STATUS.md <<'PY' \
+  docs/features/content-and-playback.md docs/STATUS.md <<'PY' \
   && gate_pass "playback policy examples and docs agree" \
   || gate_fail "playback policy examples/docs drift"
 import json
@@ -402,7 +417,7 @@ status = pathlib.Path(sys.argv[6]).read_text(encoding="utf-8")
 required = ("uncached TorBox", "service-scoped stable release", "every non-live VOD")
 missing = [token for token in required if token not in playability]
 if missing:
-    raise SystemExit(f"PLAYABILITY.md missing: {missing}")
+        raise SystemExit(f"content-and-playback.md missing: {missing}")
 if "set-playback-engine.sh status" not in status or "mpv-hifi" not in status:
     raise SystemExit("STATUS.md missing runtime profile source of truth")
 PY

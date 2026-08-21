@@ -191,5 +191,5 @@ explicit product approval.
 | Stateful config | AIO `userData`, AIOMetadata config, credentials, seeds, and runtime DBs use explicit separate workflows; deploy AIOMetadata rail sync is opt-in via `MANGO_SYNC_AIOMETADATA=1`. Direct mutation helpers still need secure-temp/redaction hardening |
 | First boot | `install.sh`/wizard with no SSH is a target, not current functionality |
 
-See [OPS.md](OPS.md). Never commit API keys, OAuth material, debrid secrets,
+See [OPERATIONS.md](OPERATIONS.md). Never commit API keys, OAuth material, debrid secrets,
 signed URLs, cookies, or private companion state.

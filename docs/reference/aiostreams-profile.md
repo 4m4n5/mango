@@ -258,5 +258,5 @@ clear cache/databases, or print URLs to make a contribution check pass.
 - [AIOStreams scored sorting](https://docs.aiostreams.viren070.me/guides/scored-sorting/)
 - [AIOStreams API](https://docs.aiostreams.viren070.me/apis/)
 - [Mango addon stack](addon-stack.md)
-- [Mango playability](../PLAYABILITY.md)
+- [Mango playability](../features/content-and-playback.md)
 - Operator UI guide: [`scripts/m4-addons/configure-aiostreams.md`](../../scripts/m4-addons/configure-aiostreams.md)

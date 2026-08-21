@@ -1,6 +1,6 @@
 # Scripts
 
-**Layout:** [MILESTONES.md](MILESTONES.md) · **Ops:** [docs/OPS.md](../docs/OPS.md) · **Plan:** [docs/ROADMAP.md](../docs/ROADMAP.md)
+**Layout:** [MILESTONES.md](MILESTONES.md) · **Ops:** [docs/OPERATIONS.md](../docs/OPERATIONS.md) · **Testing:** [docs/TESTING.md](../docs/TESTING.md)
 
 Scripts are organized by **milestone** (M1–M6). Legacy `phase-*` trees were removed in the milestone rename (`852ba05`) — use paths in [MILESTONES.md](MILESTONES.md) only.
 
@@ -10,7 +10,7 @@ Scripts are organized by **milestone** (M1–M6). Legacy `phase-*` trees were re
 
 | Script | When |
 |--------|------|
-| **`pi-deploy.sh`** | Mac → Pi pull/build/restart; **currently blocked for unattended agents** because branch selection is not enforced/pinned and deploy may mutate AIOMetadata private state—see `docs/DEPLOY.md` |
+| **`pi-deploy.sh`** | Mac → Pi pull/build/restart; fail-closed on `main`, SHA, and dirty state. See [docs/OPERATIONS.md](../docs/OPERATIONS.md) |
 | **`pi-exec-gate.sh`** | Mac pull + gate-lite; **currently blocked for unattended agents** because it derives and pulls an unpinned branch |
 | **`mango-stack.sh`** | `start\|stop\|status\|restart\|refresh` — launcher + catalog + voice |
 | **`m1-foundation/ui/bootstrap-after-reboot.sh`** | After Pi reboot |
@@ -21,10 +21,11 @@ Scripts are organized by **milestone** (M1–M6). Legacy `phase-*` trees were re
 ## Gates
 
 ```bash
-bash scripts/pi-pre-couch-gate.sh          # default (~1–2 min)
-bash scripts/gate-lite.sh                  # same, on Pi
-MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh  # ~5–8 min, 3 plays/rail
-bash scripts/m1-foundation/gate/gate-m1.sh # stack hygiene only
+bash scripts/gate-mango.sh --pr            # Mac local-pass
+bash scripts/gate-mango.sh --lite          # Pi fast (alias: gate-lite.sh)
+bash scripts/gate-mango.sh --full          # Pi full play sample
+bash scripts/pi-pre-couch-gate.sh          # default Pi pre-couch
+MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
 ```
 
 | Milestone | Script |
@@ -38,9 +39,9 @@ bash scripts/m1-foundation/gate/gate-m1.sh # stack hygiene only
 | M5 | `m5-voice/ai/gate-m5-voice.sh`, `gate-m5-ai-catalogs.sh` |
 | M6.1 | `m6-ship/gate-m6-library-smoke.sh` |
 | M6.2 | `m6-ship/gate-m6-youtube-smoke.sh` — base YouTube API/launcher smoke; playback only with `MANGO_YOUTUBE_PLAY=1` and not proof that YouTube v2 is promoted |
-| M6.5 | `m6-ship/gate-m6-ux-smoke.sh` — launcher focus/HUD DOM+CSS contracts; in pre-couch on `feat/native-experience` |
+| M6.5 | `m6-ship/gate-m6-ux-smoke.sh` — launcher focus/HUD DOM+CSS contracts; in pre-couch on `main` |
 | M6 hardening | `m6-ship/gate-m6-reliability-proof.sh` — run after deploy; fails red, warns yellow |
-| M6 playback SSOT | `m6-ship/gate-m6-playback-ssot.sh` — mpv-only, 1080p browse invariant; in pre-couch on `feat/native-experience` |
+| M6 playback SSOT | `m6-ship/gate-m6-playback-ssot.sh` — mpv-only, 1080p browse invariant; in pre-couch on `main` |
 | M6 controller | `m6-ship/gate-m6-controller-reconnect.sh` — installed BlueZ/pad ownership and no-pairing policy; five physical wake cycles remain couch proof |
 | M6 Streams | `m6-ship/gate-m6-stream-picker-source.sh`, `gate-m6-stream-picker-smoke.sh` — source invariants plus URL-free/revisioned Pi state |
 | M6 display/profile readiness | `m6-ship/gate-m6-4k-hdr-profile.sh` — mpv-hifi policy, modes/EDID and resources; not native-HDR playback proof |
@@ -87,7 +88,7 @@ diag/            manual diagnostics
 
 ## Voice
 
-`m5-voice/stack/` — mkcert, orchestrator, companion. [docs/VOICE.md](../docs/VOICE.md)
+`m5-voice/stack/` — mkcert, orchestrator, companion. [docs/features/search-and-librarian.md](../docs/features/search-and-librarian.md)
 
 ## Playability ops (M3)
 
@@ -126,7 +127,7 @@ diag/            manual diagnostics
 | `m3-play/playability/rail-pool-retheme.sh` | Thematic pool prune/relocate (manual) |
 | `m3-play/playability/rail-curation.sh` | Pins / blocks |
 
-Production grow target is `+20` fresh verified titles per active rail. Benchmark runs use `MANGO_GROW_PER_PASS=5`; see [docs/PLAYABILITY.md](../docs/PLAYABILITY.md).
+Production grow target is `+20` fresh verified titles per active rail. Benchmark runs use `MANGO_GROW_PER_PASS=5`; see [docs/features/content-and-playback.md](../docs/features/content-and-playback.md).
 
 Household VOD and YouTube recommendation-v2 source contracts live primarily in
 the full catalog-service suite (`cd src/catalog-service && npm test`) and

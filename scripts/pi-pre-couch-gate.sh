@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-couch gate — run on Pi before TV testing. Deploy via git pull only (see docs/DEPLOY.md).
+# Pre-couch gate — run on Pi before TV testing. Deploy via git pull only (see docs/OPERATIONS.md).
 # Mac: bash scripts/pi-exec-gate.sh  or  bash scripts/pi-deploy.sh --fast --gate
 #
 # Default: gate-lite (~1–2 min). Full gate: MANGO_GATE_FULL=1 (~5–8 min, 3 plays/rail).

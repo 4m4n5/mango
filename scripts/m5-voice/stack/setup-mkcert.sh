@@ -2,7 +2,7 @@
 # Generate mkcert TLS for companion HTTPS (Pi or Mac).
 #
 # Prereq: brew install mkcert  (Mac)  |  apt install mkcert  (Pi)
-# Phone: install root CA once — see docs/VOICE.md
+# Phone: install root CA once — see docs/features/search-and-librarian.md
 
 set -euo pipefail
 

@@ -63,4 +63,4 @@ bash scripts/m3-play/playability/playability-top-up-rail.sh movies-india-trendin
 ```
 
 Full stale/bootstrap maintenance is disruptive and belongs to an explicitly
-authorized idle window; see [`docs/PLAYABILITY.md`](../../../docs/PLAYABILITY.md).
+authorized idle window; see [`docs/features/content-and-playback.md`](../../../docs/features/content-and-playback.md).

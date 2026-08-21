@@ -81,6 +81,7 @@ for (const fixture of ['ideal_1080p_hdr', '4k_sdr_cached']) {
       '--ao=null',
       '--gpu-api=opengl',
       '--profile=fast',
+      '--initial-audio-sync=yes',
       '--tone-mapping=bt.2446a',
       '--audio-channels=auto-safe',
       '--sub-visibility=no',
@@ -97,6 +98,24 @@ test('S4: deferred handoff restores automatic audio output when no AO override e
   const source = await readFile(script, 'utf8');
   assert.match(source, /local ao="\$\{MANGO_MPV_AO:-auto\}"/);
   assert.match(source, /\["set_property","ao","%s"\]/);
+});
+
+test('S4: split YouTube audio is ready and timestamp-aligned before release', async () => {
+  const source = await readFile(script, 'utf8');
+  const handoff = source.match(/foreground_handoff\(\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  const rewind = handoff.indexOf('rewind_null_buffer_to_intended_start');
+  const audioReady = handoff.indexOf('wait_mpv_split_audio_ready', rewind);
+  const raise = handoff.indexOf('raise_mpv_window', audioReady);
+  const release = handoff.indexOf('release_null_buffer_start', raise);
+  assert.ok(
+    rewind >= 0 && audioReady > rewind && raise > audioReady && release > raise,
+    'handoff must rewind, prove split audio alignment, raise, then release',
+  );
+
+  const readiness = source.match(/wait_mpv_split_audio_ready\(\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  assert.match(readiness, /current-ao/);
+  assert.match(readiness, /audio-pts/);
+  assert.match(readiness, /ap<=0\.25/);
 });
 
 test('S4: every probe teardown is display-neutral', async () => {

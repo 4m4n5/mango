@@ -2,7 +2,7 @@
 
 **M4 default:** mango uses self-hosted AIOStreams and AIOMetadata on the Pi. See
 [`reference/addon-stack.md`](addon-stack.md) and
-[`../archive/tasks/archive/phase-n3d-self-hosted-addon-stack.md`](../archive/tasks/archive/phase-n3d-self-hosted-addon-stack.md).
+[addon-stack.md](addon-stack.md).
 
 ElfHosted is now a **paid fallback** if Pi-local addon hosting becomes too
 fragile. Do not put public ElfHosted addon URLs in the hot path; public shared

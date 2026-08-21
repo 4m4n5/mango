@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Print legacy fallback couch-test steps (after restart-with-diag.sh or alpha-test.sh).
-# Current native couch checks live in docs/COUCH_TEST.md.
+# Current native couch checks live in docs/TESTING.md.
 
 cat <<'EOF'
 ══════════════════════════════════════════════════════════════════

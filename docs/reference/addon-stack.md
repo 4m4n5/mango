@@ -93,7 +93,7 @@ MANGO_RAIL_HITRATE_PER_RAIL=2 python3 scripts/diag/rail-hitrate.py   # after fil
 
 ## Pi deploy
 
-Git only — never rsync. See [`DEPLOY.md`](../DEPLOY.md).
+Git only — never rsync. See [`OPERATIONS.md`](../OPERATIONS.md).
 
 ```bash
 # Mac preflight (after commit + push)
@@ -102,9 +102,8 @@ test "$(git branch --show-current)" = feat/native-experience
 test "$(git rev-parse HEAD)" = "$(git rev-parse origin/feat/native-experience)"
 ```
 
-The current deploy wrapper is blocked for unattended agents because it does not
-enforce/pin that revision and can implicitly mutate AIOMetadata state. Follow
-the reviewed exception/manual path in `DEPLOY.md` until the helper is hardened.
+The deploy wrapper enforces the branch and expected revision. AIOMetadata rail
+sync remains opt-in via `MANGO_SYNC_AIOMETADATA=1`.
 
 Git deployment does **not** overwrite the Pi-owned AIOStreams `userData`.
 The AIO helper now uses private temporary files, fixed redacted output,

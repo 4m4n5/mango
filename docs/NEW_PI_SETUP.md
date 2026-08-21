@@ -498,7 +498,7 @@ start, use Companion's YouTube Connect flow to create a fresh recipient
 `/etc/mango/youtube-auth.json`.
 
 For playback, export a fresh Netscape cookie jar from the recipient's own
-browser/account as documented in [YOUTUBE.md](YOUTUBE.md#playback-cookies-gvs),
+browser/account as documented in [features/youtube.md](features/youtube.md),
 then install it as:
 
 ```bash
@@ -772,6 +772,6 @@ It probes only due/stale evidence; it is not a full rebuild from scratch.
 The Pi remains a Git checkout. Future source changes move by commit/push/pull
 and a dependency-aware build—never by copying repository files. Keep all
 credentials, manifests, databases, cookies, certificates, and provider state
-on the recipient device. Follow [DEPLOY.md](DEPLOY.md): its wrappers now enforce
+on the recipient device. Follow [OPERATIONS.md](OPERATIONS.md): its wrappers now enforce
 branch/SHA/fetch preconditions and leave AIOMetadata sync disabled unless an
 operator explicitly opts in.

@@ -1,6 +1,10 @@
 # mango — current status
 
-**Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
+**This file is the only owner of current Pi SHA, generation, and
+“Pi serves” claims.** Other docs may say “see STATUS.md” or label facts
+Historical.
+
+**Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [TESTING.md](TESTING.md)
 
 Latest recorded Pi deployment: **2026-08-20**,
 `28f2e1cd76cf288112dd5e77f9004ac9053e8fdd`. Re-authorized OAuth refresh
@@ -30,8 +34,8 @@ Use `git status`, `git rev-parse HEAD`, and the Pi commands below before acting.
 | Deferred | The named evidence does not exist yet or belongs to an older contract/SHA |
 
 Green in Reliability Center means that the sampled runtime was healthy at that
-moment. It is not a permanent product certification. Historical task reports
-prove only their exact revision and contract.
+moment. It is not a permanent product certification. Historical Git history
+may still contain retired task reports; they prove only their exact revision.
 
 ## Executive status
 
@@ -203,7 +207,7 @@ The Pi was read back at
 `04171bb1c771f5fc713d192e50e0fc79e966c3cc` after a Git-only exact-SHA
 fast-forward and controlled restart. The verified pre-migration online backup
 set is
-`/home/aman/.local/share/mango/backups/state/state-20260811T210222.463866Z`.
+`$HOME/.local/share/mango/backups/state/state-20260811T210222.463866Z`.
 Library migration 18, YouTube migration 17, playability migration 17, and
 progress migration 2 all applied; all four live databases passed
 `quick_check`. The 12 pre-existing noncanonical library tabs became zero while
@@ -304,9 +308,8 @@ that read-only snapshot; `fb20baa` remains the last fully gated proof above.
   physical controller cycles, target-TV quality/audio, and broad subjective UX
   proof open. They must not be promoted to current-HEAD verdicts.
 
-See [tasks/RECOMMENDATIONS_HOME_PI_REPORT.md](tasks/RECOMMENDATIONS_HOME_PI_REPORT.md),
-[tasks/FULL_COUCH_UX_HOME_ACCEPTANCE_REPORT.md](tasks/FULL_COUCH_UX_HOME_ACCEPTANCE_REPORT.md),
-and [tasks/RECOMMENDATIONS_STORYDNA_BULK_WORK_AGENT_PROMPT.md](tasks/RECOMMENDATIONS_STORYDNA_BULK_WORK_AGENT_PROMPT.md).
+Those historical reports remain in Git history; they are not current product
+specifications.
 
 ## Runtime stack
 
@@ -347,7 +350,7 @@ viewer. Idle health expects neither to be running.
 
 Search does not autoplay, impersonate a chatbot, introduce a fifth browse tab,
 or let a failed external phase erase usable local results. Detail:
-[SEARCH.md](SEARCH.md).
+[features/search-and-librarian.md](features/search-and-librarian.md).
 
 ## Playback and stream ladder
 
@@ -435,7 +438,7 @@ frames to ship as HDR. A Kodi/GBM HDR experiment proved hardware/display
 feasibility but is parked because it is not integrated with Mango's HUD,
 controller, progress, lifecycle, and security contracts.
 
-Detail: [PLAYABILITY.md](PLAYABILITY.md) · [HARDWARE.md](HARDWARE.md).
+Detail: [features/content-and-playback.md](features/content-and-playback.md) · [HARDWARE.md](HARDWARE.md).
 
 ## Mango-owned state
 
@@ -540,7 +543,7 @@ runtime readback remains **DEFERRED**.
 - Measure progressive coverage and teacher cost before deciding whether the
   still-absent offline bulk artifact/importer is required.
 
-Detail: [FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md).
+Detail: [features/content-and-playback.md](features/content-and-playback.md).
 
 ## Native YouTube
 
@@ -593,7 +596,7 @@ complete does not mean served or couch-observed. Exact active-profile utility
 ownership in `off` is source-tested and remains a Pi rollback check.
 Public API routes cannot reproduce the proprietary native YouTube home feed.
 
-Detail: [YOUTUBE.md](YOUTUBE.md).
+Detail: [features/youtube.md](features/youtube.md).
 
 ## Live TV
 
@@ -604,7 +607,7 @@ Home injection. Browse is cache-first; a failed/empty rebuild never overwrites
 a non-empty last-good cache. Per-channel health is credential-safe and Live
 uses a separate immediate playback path with no VOD clean-empty retry.
 
-Detail: [LIVE_TV.md](LIVE_TV.md).
+Detail: [features/live-tv.md](features/live-tv.md).
 
 ## Voice and companion
 
@@ -618,7 +621,7 @@ Detail: [LIVE_TV.md](LIVE_TV.md).
 | Network trust | TLS and exact catalog capability allowlist, but no per-device client auth/pairing; any reachable trusted-LAN client can submit companion/WSS actions |
 | Open proof | Full current-revision V1–V12 phone/voice/memory couch matrix |
 
-Detail: [VOICE.md](VOICE.md) · [AI_LAYER.md](AI_LAYER.md).
+Detail: [features/search-and-librarian.md](features/search-and-librarian.md) · [features/search-and-librarian.md](features/search-and-librarian.md).
 
 ## Playability grow and nightly maintenance
 
@@ -639,7 +642,7 @@ timer are persistent calendar timers. A missed event can run after boot, subject
 to playback/idle/overlap guards. There is no separate uncontrolled daytime
 retry watcher.
 
-Detail: [PLAYABILITY.md](PLAYABILITY.md) · [OPS.md](OPS.md).
+Detail: [features/content-and-playback.md](features/content-and-playback.md) · [OPERATIONS.md](OPERATIONS.md).
 
 ## Reliability and controller
 
@@ -660,7 +663,7 @@ on—not pairing mode—is the happy path. The backend exposes
 the corresponding action; docs must call it API/backend-only until code is
 reconciled. Five physical normal-wake cycles remain an acceptance gate.
 
-Detail: [RELIABILITY.md](RELIABILITY.md) · [OPS.md](OPS.md).
+Detail: [TESTING.md](TESTING.md) · [OPERATIONS.md](OPERATIONS.md).
 
 ## Display sleep gap
 
@@ -698,7 +701,7 @@ blanking must not be documented as the happy path.
 - Root controller policy changes only when explicitly installed with
   `MANGO_CONTROLLER_LINK_INSTALL=1`.
 
-Detail: [DEPLOY.md](DEPLOY.md) · [DEPLOY-SPLIT-MACHINE.md](DEPLOY-SPLIT-MACHINE.md).
+Detail: [OPERATIONS.md](OPERATIONS.md).
 
 ## Current priority queue
 
@@ -756,6 +759,6 @@ bash scripts/m5-voice/ai/gate-m5-companion-memory.sh
 bash scripts/m6-ship/gate-m6-controller-reconnect.sh
 ```
 
-Then perform [COUCH_TEST.md](COUCH_TEST.md). Screenshots prove pixels; the human
+Then perform [TESTING.md](TESTING.md). Screenshots prove pixels; the human
 owns readability, focus feel, physical controller/CEC/audio behavior, perceived
 latency, and recommendation quality.

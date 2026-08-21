@@ -2089,7 +2089,7 @@ function streamHdrLabel(stream: CatalogStream): string | null {
   if (tags.includes("hlg")) return "HLG";
   // HDR10 and HDR10+ collapse to one label. The distinction is real in the file and
   // meaningless on this box: the X11 output path cannot emit HDR at all, and the
-  // Kodi path that can emits HDR10 either way (docs/tasks/m6-4k-fidelity.md). Dolby
+  // Kodi path that can emits HDR10 either way. Dolby
   // Vision stays separate because the ladder does treat it differently — it must
   // never pick a DV-only stream. Collapsing also reclaims up to 46px of a 332px
   // chip row that was overflowing and slicing "cached" off the end.
@@ -2104,7 +2104,7 @@ function streamHdrLabel(stream: CatalogStream): string | null {
  * AV1 and VP9 are software-decoded — "Other CODECs run in software" per the
  * BCM2712 documentation. Measured on a 4K remux, software decode runs ~0.52x
  * realtime against 1.4-1.8x for hardware, which is why the play ladder enforces
- * `require_hevc` above 1080p (docs/tasks/m6-4k-fidelity.md).
+ * `require_hevc` above 1080p. See docs/HARDWARE.md.
  *
  * So at 4K, a non-HEVC codec is the single most important fact about a stream, and
  * at 1080p and below software decode is comfortable and the codec is trivia. The

@@ -27,7 +27,7 @@ fi
 echo
 echo "=== Automated steps done ==="
 echo
-echo "Manual steps remaining (see docs/archive/phase0-checklist.md):"
+echo "Manual steps remaining (see docs/HARDWARE.md and docs/INSTALL.md):"
 echo "  [ ] Remap gamepad: bash scripts/m1-foundation/pad/install-gamepad-remap.sh (FastPad) or antimicrox (js0)"
 echo "  [ ] Install systemd units: bash scripts/m1-foundation/ui/install-systemd-units.sh"
 echo "  [ ] Start stack: MANGO_CATALOG=1 bash scripts/mango-stack.sh restart"

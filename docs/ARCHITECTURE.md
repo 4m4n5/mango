@@ -1,6 +1,6 @@
 # mango — architecture
 
-**Branch:** `feat/native-experience` · **Vision:** [VISION.md](VISION.md)
+**Branch:** `feat/native-experience` · **Product:** [PRODUCT.md](PRODUCT.md)
 
 Stack layers, foreground contract, and API boundaries. Policy lives here — not duplicated in task docs.
 
@@ -183,7 +183,7 @@ once; if both fail it flushes progress and marks the existing playback session
 | `titles` | Global verified/failed state and TTLs for unique playable titles |
 | `rail_pool` | Thematic per-rail membership used by couch-visible browse sessions |
 
-The theme gate (`rail-theme-gate.ts`) enforces `config/rail-theme-profiles.yaml` on grow/link/verify pool writes. Grow runs operate on an isolated work DB and publish the live DB after a completed publishable run; per-rail `+20` shortfalls are operator warnings by default, while failed or aborted runs preserve the previous couch snapshot. Finalization attaches verified orphans and caps unpinned overlap without full metadata retheme. See [PLAYABILITY.md](PLAYABILITY.md).
+The theme gate (`rail-theme-gate.ts`) enforces `config/rail-theme-profiles.yaml` on grow/link/verify pool writes. Grow runs operate on an isolated work DB and publish the live DB after a completed publishable run; per-rail `+20` shortfalls are operator warnings by default, while failed or aborted runs preserve the previous couch snapshot. Finalization attaches verified orphans and caps unpinned overlap without full metadata retheme. See [features/content-and-playback.md](features/content-and-playback.md).
 
 Target `c8cfe72` retains playability migration `14` and reports the same value
 through `/playability/status.schema_version`. A focused test binds the public
@@ -368,7 +368,7 @@ domain, rail, served revision, exact membership, source revision, and bounded
 context. Public cards carry opaque content IDs needed for actions, but the TV
 never renders them; predictions, private tags/prompts, URLs, credentials, and AI
 output remain service-private. Stale-owner actions fail with 409. See
-[FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md).
+[features/content-and-playback.md](features/content-and-playback.md).
 
 `/etc/mango/stremio-export.json` remains an addon-manifest graph only, not a
 Stremio user-library sync source.
@@ -509,7 +509,7 @@ or clear in Search. L/R browse-tab switches paint a warm per-tab catalog cache
 immediately; loading is only for a tab's first visit or a real owner change.
 X ownership follows the visibly focused surface, so a
 lingering playback marker or background mpv cannot steal Home shuffle. See
-[SEARCH.md](SEARCH.md).
+[features/search-and-librarian.md](features/search-and-librarian.md).
 
 ---
 
@@ -612,7 +612,7 @@ or clears caches. Active-rail accounting uses the rails actually served for the
 loaded mode rather than penalizing inactive historical surfaces. At historical
 SHA `04171bb`, this removed the false Library warning: all core components were
 green, while proof freshness and rail growth kept the overall state honestly
-yellow. Detail: [RELIABILITY.md](RELIABILITY.md).
+yellow. Detail: [TESTING.md](TESTING.md).
 
 ---
 
@@ -734,7 +734,7 @@ last-resort → obligation floor), `picker` (single stream), `verify` (main only
 | `POST` | `/play-session/active/streams/issue` | Downrank the current release on this path for seven days |
 | `POST` | `/play-session/active/streams/issue/undo` | Undo the current session's issue report |
 
-See [PLAYABILITY.md](PLAYABILITY.md) for play-first policy.
+See [features/content-and-playback.md](features/content-and-playback.md) for play-first policy.
 
 ## Library API
 
@@ -806,7 +806,7 @@ The optional orchestrator `POST /search/expand` is localhost-only, has no
 tools/history, validates at most three alternate queries, and has a four-second
 deadline.
 
-Detail: [YOUTUBE.md](YOUTUBE.md).
+Detail: [features/youtube.md](features/youtube.md).
 
 ## Reliability API
 
@@ -821,7 +821,7 @@ Detail: [YOUTUBE.md](YOUTUBE.md).
 | `POST` | `/reliability/stack/restart` | Localhost-only detached stack restart when idle |
 | `POST` | `/reliability/refresh/run` | Localhost-only detached nightly movie/TV + YouTube refresh when idle |
 
-Detail: [RELIABILITY.md](RELIABILITY.md).
+Detail: [TESTING.md](TESTING.md).
 
 ---
 
@@ -836,7 +836,7 @@ Launcher voice-hud ◄── WS loopback :8766
 
 **Rule:** Voice/text opens detail — pad **B** plays. Replies are text-only on phone (TTS off). Live channels use the native Mango/mpv path. `GET /voice/search?tab=live&q=` searches the full configured free-IPTV + AREA69 inventories, applies persistent playback health, and never hands off to another app; browse rails remain separately thin and policy-qualified.
 
-Detail: [VOICE.md](VOICE.md) · [AI_LAYER.md](AI_LAYER.md)
+Detail: [features/search-and-librarian.md](features/search-and-librarian.md) · [features/search-and-librarian.md](features/search-and-librarian.md)
 
 ---
 

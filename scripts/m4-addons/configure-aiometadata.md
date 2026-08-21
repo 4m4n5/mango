@@ -95,7 +95,7 @@ bash scripts/m4-addons/aiometadata-config.sh check "$IMPORT"
 ```
 
 The normal Git deploy runs `scripts/lib/sync-etc-mango-config.sh`. If a manual
-policy sync is explicitly approved, follow [`docs/DEPLOY.md`](../../docs/DEPLOY.md)
+policy sync is explicitly approved, follow [`docs/OPERATIONS.md`](../../docs/OPERATIONS.md)
 and re-run the catalog/addon gates on the exact revision.
 
 ## Verify
