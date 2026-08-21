@@ -1,0 +1,137 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {
+  classifyPlayError,
+  garbageKind,
+  isGarbagePlayError,
+  isPipelineFatalPlayError,
+  isRateLimitPlaceholderUrl,
+  isTransientPlayError,
+  shouldRefreshCachedTransport,
+} from './play-error-classify.js';
+
+test('classifyPlayError maps each class', () => {
+  assert.equal(classifyPlayError('play cancelled'), 'cancelled');
+  assert.equal(classifyPlayError('play epoch mismatch'), 'cancelled');
+  assert.equal(classifyPlayError('PlayCancelledError'), 'cancelled');
+
+  assert.equal(classifyPlayError('debrid_nfo_sidecar'), 'garbage');
+  assert.equal(classifyPlayError('mpv-play failed: debrid_copyright_block'), 'garbage');
+  assert.equal(classifyPlayError('debrid_status_clip duration=12'), 'garbage');
+
+  assert.equal(classifyPlayError('rate limit exceeded'), 'rate_limited');
+  assert.equal(classifyPlayError('HTTP 429 Too Many Requests'), 'rate_limited');
+  assert.equal(classifyPlayError('HTTP Error 429: Too Many Requests'), 'rate_limited');
+  assert.equal(classifyPlayError('429 Too Many Requests'), 'rate_limited');
+  assert.equal(classifyPlayError('https://aio/rate-limit-exceeded'), 'rate_limited');
+  // Opaque debrid/MF tokens often contain the digits 429 — must NOT trip rate_limited.
+  assert.equal(
+    classifyPlayError(
+      'https://mediafusion.example/streaming_provider/D-abcRL429w3jsewvts/playback/torbox/hash/file.mp4',
+    ),
+    'unknown',
+  );
+  assert.equal(isRateLimitPlaceholderUrl('https://aio/rate-limit-exceeded'), true);
+  assert.equal(
+    isRateLimitPlaceholderUrl(
+      'https://mediafusion.example/streaming_provider/D-abcRL429w3jsewvts/playback/file.mp4',
+    ),
+    false,
+  );
+
+  assert.equal(classifyPlayError('no_playable_stream'), 'no_stream');
+  assert.equal(classifyPlayError('no HTTP streams for movie/tt1'), 'no_stream');
+
+  assert.equal(classifyPlayError('debrid_playback_unreadable'), 'transient');
+  assert.equal(classifyPlayError('preflight timeout'), 'transient');
+  assert.equal(classifyPlayError('vo not ready'), 'transient');
+  assert.equal(classifyPlayError('play budget exhausted'), 'transient');
+  assert.equal(classifyPlayError('ECONNRESET'), 'transient');
+  assert.equal(classifyPlayError('HTTP 503'), 'transient');
+  assert.equal(classifyPlayError('supplemental_or_short_release'), 'transient');
+  assert.equal(classifyPlayError('no error detail captured'), 'transient');
+  assert.equal(classifyPlayError('stream_url_bad_cached'), 'transient');
+
+  assert.equal(classifyPlayError('mpv-play failed: HTTP error 403'), 'unknown');
+  assert.equal(classifyPlayError(''), 'unknown');
+});
+
+test('cancelled wins over garbage when both appear', () => {
+  assert.equal(
+    classifyPlayError('play cancelled after debrid_nfo_sidecar'),
+    'cancelled',
+  );
+});
+
+test('garbage wins over transient when both appear', () => {
+  assert.equal(
+    classifyPlayError('debrid_status_clip then timeout'),
+    'garbage',
+  );
+  assert.equal(
+    classifyPlayError('debrid_nfo_sidecar timeout'),
+    'garbage',
+  );
+});
+
+test('debrid_playback_unreadable is transient not garbage', () => {
+  assert.equal(classifyPlayError('debrid_playback_unreadable'), 'transient');
+  assert.equal(isGarbagePlayError('debrid_playback_unreadable'), false);
+  assert.equal(isTransientPlayError('debrid_playback_unreadable'), true);
+  assert.equal(garbageKind('debrid_playback_unreadable'), null);
+});
+
+test('isGarbagePlayError / isTransientPlayError helpers', () => {
+  assert.equal(isGarbagePlayError('debrid_copyright_block'), true);
+  assert.equal(isGarbagePlayError('timeout'), false);
+  assert.equal(isTransientPlayError('timed out'), true);
+  assert.equal(isTransientPlayError('debrid_nfo_sidecar'), false);
+});
+
+test('pipeline-fatal detection is exact and excludes candidate-local failures', () => {
+  for (const message of [
+    'mpv-play failed: play cancelled',
+    'PlayCancelledError: play epoch 8 is no longer current',
+    'mpv-play failed: foreground_playback_active',
+    'mpv-play failed: foreground_playback_busy',
+    'mpv-play failed: playback ownership busy',
+    'mpv-play failed: mpv display enable failed',
+    'mpv-play failed: mpv vo not ready after display enable',
+    'mpv-play failed: mpv handoff failed',
+    'play deadline exceeded',
+  ]) {
+    assert.equal(isPipelineFatalPlayError(message), true, message);
+  }
+
+  for (const message of [
+    'mpv did not start playback within 8000ms',
+    'mpv-play failed: play deadline exhausted before mpv startup',
+    'play budget exhausted after probe',
+    'preflight timeout',
+    'HTTP 503',
+    'debrid_nfo_sidecar',
+    'debrid_copyright_block',
+    'supplemental_or_short_release',
+    'vo not ready',
+  ]) {
+    assert.equal(isPipelineFatalPlayError(message), false, message);
+  }
+});
+
+test('cached transport refresh is bounded to stale or transient failures', () => {
+  assert.equal(shouldRefreshCachedTransport(['mpv-play failed: HTTP error 403']), true);
+  assert.equal(shouldRefreshCachedTransport(['stream_url_bad_cached']), true);
+  assert.equal(shouldRefreshCachedTransport(['mpv-play failed: timed out']), true);
+  assert.equal(shouldRefreshCachedTransport(['HTTP 429 Too Many Requests']), false);
+  assert.equal(shouldRefreshCachedTransport(['debrid_copyright_block']), false);
+  assert.equal(shouldRefreshCachedTransport(['play cancelled']), false);
+  assert.equal(shouldRefreshCachedTransport([]), false);
+});
+
+test('garbageKind differentiates nfo / copyright / status_clip', () => {
+  assert.equal(garbageKind('debrid_nfo_sidecar'), 'nfo');
+  assert.equal(garbageKind('FAIL: debrid_copyright_block'), 'copyright');
+  assert.equal(garbageKind('debrid_status_clip'), 'status_clip');
+  assert.equal(garbageKind('timeout'), null);
+});

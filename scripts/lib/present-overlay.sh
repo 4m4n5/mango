@@ -5,6 +5,9 @@ set -euo pipefail
 
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=launcher-window.sh
+source "$SCRIPT_DIR/launcher-window.sh"
 
 OVERLAY_X="${MANGO_OVERLAY_X:-560}"
 OVERLAY_Y="${MANGO_OVERLAY_Y:-812}"
@@ -40,8 +43,12 @@ present_overlay_hud() {
 }
 
 refocus_launcher() {
-  if command -v wmctrl >/dev/null 2>&1; then
-    wmctrl -xa mango-launcher 2>/dev/null || true
+  if command -v xdotool >/dev/null 2>&1; then
+    local wid
+    wid="$(find_launcher_wid 2>/dev/null || true)"
+    if [[ -n "$wid" ]]; then
+      xdotool windowactivate "$wid" 2>/dev/null || true
+    fi
   fi
 }
 

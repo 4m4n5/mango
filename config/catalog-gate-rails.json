@@ -1,0 +1,19 @@
+{
+  "_comment": "Catalog gate tiers — required rails must have >=1 display item; optional warn when pool empty.",
+  "required": [
+    "movies-global-popular",
+    "movies-india-trending",
+    "movies-classics",
+    "movies-quick-watches",
+    "series-global-popular",
+    "series-india-picks",
+    "series-classics"
+  ],
+  "optional": [
+    "movies-comedy",
+    "movies-documentaries",
+    "series-comedy",
+    "series-miniseries",
+    "series-reality-casual"
+  ]
+}

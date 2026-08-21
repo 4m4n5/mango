@@ -1,6 +1,7 @@
 # Secrets
 .env
 .env.*
+!deploy/**/.env.example
 *.key
 keys/
 **/stremio.json
@@ -29,5 +30,18 @@ dist/
 # Pi-local downloads (e.g. Kodi addons)
 downloads/
 
-# Editor
+# Editor / local tooling
 .vscode/
+.cursor/
+*.code-workspace
+assets/
+
+# Companion runtime journal (keep on disk; do not commit)
+config/companion.example/companion.db
+
+# ux-harness: recorded API fixtures contain debrid playback tokens — never commit
+tools/ux-harness/fixtures/
+tools/ux-harness/shots/
+
+# Local agent orchestration scratch
+.orchestration/

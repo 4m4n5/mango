@@ -1,0 +1,405 @@
+# mango catalog rails — copy to /etc/mango/catalog.yaml on the Pi
+#
+# N2b: Movies | TV Shows tabs · 6 discover rails per tab.
+# Curation notes: config/catalog-rail-curation.md
+#
+# Series yaml order: anchor rails first, optional/niche last (niche-first session allocation).
+#
+# Rail catalog ids must exist in addon manifests:
+#   AIOMetadata — bash scripts/m4-addons/aiometadata-config.sh import …
+#   Bharat Binge — config/bharat-binge-manifest.url + config/bharat-binge-rail-catalogs.json
+# Mapping reference: config/aiometadata-rail-catalogs.json
+
+version: 2
+
+rails:
+  # ── Movies tab (niche rails later in yaml → allocate session slots first) ──
+
+  - id: movies-global-popular
+    tab: movies
+    label: popular worldwide
+    type: composite_list
+    content_type: movie
+    limit: 20
+    sources:
+      - { addon: Cinemeta, catalog: top, weight: 0.22 }
+      - { addon: AIOMetadata, catalog: mdblist.88302, weight: 0.13 }
+      - { addon: AIOMetadata, catalog: mdblist.88306, weight: 0.11 }
+      - { addon: AIOMetadata, catalog: mdblist.87667, weight: 0.10 }
+      - { addon: AIOMetadata, catalog: mdblist.2618, weight: 0.07 }
+      - { addon: AIOMetadata, catalog: mdblist.14, weight: 0.06 }
+      - { addon: AIOMetadata, catalog: mdblist.2202, weight: 0.06 }
+      - { addon: AIOMetadata, catalog: mdblist.2236, weight: 0.04 }
+      - { addon: AIOMetadata, catalog: mdblist.3093, weight: 0.05 }
+      - { addon: AIOMetadata, catalog: mdblist.3094, weight: 0.04 }
+      - { addon: AIOMetadata, catalog: mdblist.3095, weight: 0.03 }
+      - { addon: AIOMetadata, catalog: mdblist.3096, weight: 0.04 }
+      - { addon: Cinemeta, catalog: year, weight: 0.05 }
+    playability:
+      display_limit: 9
+      min_display: 6
+      pool_target: 20
+      pool_max: 120
+      pool_growth_per_refresh: 15
+      grow_per_pass: 20
+      display_max: 9
+      ingest_multiplier: 5
+
+  - id: movies-india-trending
+    tab: movies
+    label: indian cinema
+    type: composite_list
+    content_type: movie
+    limit: 20
+    sources:
+      - { addon: "Bharat Binge", catalog: tmdb-hi-recent-movie, weight: 0.12 }
+      - { addon: AIOMetadata, catalog: mdblist.180437, weight: 0.10 }
+      - { addon: AIOMetadata, catalog: mdblist.170279, weight: 0.09 }
+      - { addon: "Bharat Binge", catalog: tmdb-ta-recent-movie, weight: 0.09 }
+      - { addon: "Bharat Binge", catalog: tmdb-te-recent-movie, weight: 0.09 }
+      - { addon: AIOMetadata, catalog: mdblist.160358, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.165053, weight: 0.07 }
+      - { addon: "Bharat Binge", catalog: tmdb-ml-recent-movie, weight: 0.04 }
+      - { addon: AIOMetadata, catalog: mdblist.167063, weight: 0.04 }
+      - { addon: AIOMetadata, catalog: mdblist.79339, weight: 0.03 }
+      - { addon: AIOMetadata, catalog: mdblist.160357, weight: 0.03 }
+      - { addon: "Bharat Binge", catalog: tmdb-kn-recent-movie, weight: 0.03 }
+      - { addon: AIOMetadata, catalog: mdblist.167057, weight: 0.03 }
+      - { addon: AIOMetadata, catalog: mdblist.160365, weight: 0.03 }
+      - { addon: AIOMetadata, catalog: mdblist.131141, weight: 0.03 }
+      - { addon: AIOMetadata, catalog: mdblist.45216, weight: 0.03 }
+      - { addon: AIOMetadata, catalog: mdblist.156057, weight: 0.03 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-surprise_me-movie, weight: 0.02 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-top_rated-movie, weight: 0.03 }
+      - { addon: "Bharat Binge", catalog: tmdb-ta-top_rated-movie, weight: 0.03 }
+      - { addon: "Bharat Binge", catalog: tmdb-te-top_rated-movie, weight: 0.03 }
+      - { addon: AIOMetadata, catalog: mdblist.183641, weight: 0.04 }
+      - { addon: AIOMetadata, catalog: mdblist.157957, weight: 0.02 }
+      - { addon: AIOMetadata, catalog: mdblist.44081, weight: 0.02 }
+      - { addon: AIOMetadata, catalog: mdblist.162567, weight: 0.02 }
+      - { addon: AIOMetadata, catalog: mdblist.166154, weight: 0.02 }
+      - { addon: "Bharat Binge", catalog: tmdb-ml-top_rated-movie, weight: 0.02 }
+      - { addon: "Bharat Binge", catalog: tmdb-kn-top_rated-movie, weight: 0.02 }
+      - { addon: "Bharat Binge", catalog: tmdb-ta-surprise_me-movie, weight: 0.01 }
+      - { addon: "Bharat Binge", catalog: tmdb-te-surprise_me-movie, weight: 0.01 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.recmov, weight: 0.01 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.popmov, weight: 0.01 }
+      - { addon: AIOMetadata, catalog: mdblist.49761, weight: 0.01 }
+    playability:
+      display_limit: 9
+      min_display: 6
+      pool_target: 20
+      pool_max: 120
+      pool_growth_per_refresh: 15
+      grow_per_pass: 20
+      display_max: 9
+      ingest_multiplier: 8
+
+  - id: movies-classics
+    tab: movies
+    label: highly rated
+    type: composite_list
+    content_type: movie
+    limit: 20
+    sources:
+      - { addon: Cinemeta, catalog: imdbRating, weight: 0.28 }
+      - { addon: AIOMetadata, catalog: mdblist.83666, weight: 0.18 }
+      - { addon: AIOMetadata, catalog: mdblist.101881, weight: 0.15 }
+      - { addon: AIOMetadata, catalog: mdblist.88006, weight: 0.13 }
+      - { addon: AIOMetadata, catalog: mdblist.143797, weight: 0.10 }
+      - { addon: AIOMetadata, catalog: mdblist.97710, weight: 0.07 }
+      - { addon: AIOMetadata, catalog: mdblist.99248, weight: 0.05 }
+      - { addon: AIOMetadata, catalog: mdblist.3922, weight: 0.04 }
+    playability:
+      display_limit: 9
+      min_display: 6
+      pool_target: 20
+      pool_max: 120
+      pool_growth_per_refresh: 15
+      grow_per_pass: 20
+      display_max: 9
+      ingest_multiplier: 5
+
+  - id: movies-comedy
+    tab: movies
+    label: comedy & comfort
+    type: composite_list
+    content_type: movie
+    limit: 20
+    sources:
+      - { addon: Cinemeta, catalog: top, weight: 0.22 }
+      - { addon: AIOMetadata, catalog: mdblist.91223, weight: 0.22 }
+      - { addon: AIOMetadata, catalog: mdblist.128040, weight: 0.15 }
+      - { addon: AIOMetadata, catalog: mdblist.2195, weight: 0.10 }
+      - { addon: AIOMetadata, catalog: mdblist.3107, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.69712, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.86734, weight: 0.07 }
+      - { addon: AIOMetadata, catalog: mdblist.11274, weight: 0.04 }
+      - { addon: AIOMetadata, catalog: mdblist.84444, weight: 0.04 }
+    playability:
+      display_limit: 9
+      min_display: 6
+      pool_target: 20
+      pool_max: 120
+      pool_growth_per_refresh: 15
+      grow_per_pass: 20
+      display_max: 9
+      ingest_multiplier: 10
+  - id: movies-quick-watches
+    tab: movies
+    label: quick & easy
+    type: composite_list
+    content_type: movie
+    limit: 20
+    sources:
+      - { addon: AIOMetadata, catalog: mdblist.86934, weight: 0.23 }
+      - { addon: AIOMetadata, catalog: mdblist.84444, weight: 0.18 }
+      - { addon: AIOMetadata, catalog: mdblist.69712, weight: 0.14 }
+      - { addon: AIOMetadata, catalog: mdblist.3885, weight: 0.14 }
+      - { addon: AIOMetadata, catalog: mdblist.86734, weight: 0.11 }
+      - { addon: AIOMetadata, catalog: mdblist.11274, weight: 0.09 }
+      - { addon: Cinemeta, catalog: year, weight: 0.07 }
+      - { addon: AIOMetadata, catalog: mdblist.45854, weight: 0.04 }
+    playability:
+      display_limit: 9
+      min_display: 6
+      pool_target: 20
+      pool_max: 120
+      pool_growth_per_refresh: 15
+      grow_per_pass: 20
+      display_max: 9
+      ingest_multiplier: 8
+
+  - id: movies-documentaries
+    tab: movies
+    label: true stories
+    type: composite_list
+    content_type: movie
+    limit: 20
+    sources:
+      - { addon: AIOMetadata, catalog: mdblist.128051, weight: 0.18 }
+      - { addon: AIOMetadata, catalog: mdblist.2406, weight: 0.15 }
+      - { addon: AIOMetadata, catalog: mdblist.84677, weight: 0.13 }
+      - { addon: AIOMetadata, catalog: mdblist.78210, weight: 0.12 }
+      - { addon: AIOMetadata, catalog: mdblist.2885, weight: 0.10 }
+      - { addon: AIOMetadata, catalog: mdblist.178241, weight: 0.11 }
+      - { addon: AIOMetadata, catalog: mdblist.100477, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.34451, weight: 0.06 }
+      - { addon: AIOMetadata, catalog: mdblist.81741, weight: 0.05 }
+      - { addon: AIOMetadata, catalog: mdblist.72165, weight: 0.02 }
+    playability:
+      display_limit: 9
+      min_display: 6
+      pool_target: 20
+      pool_max: 120
+      pool_growth_per_refresh: 15
+      grow_per_pass: 20
+      display_max: 9
+      ingest_multiplier: 10
+  - id: series-global-popular
+    tab: series
+    label: popular worldwide
+    type: composite_list
+    content_type: series
+    limit: 20
+    sources:
+      - { addon: Cinemeta, catalog: top, weight: 0.28 }
+      - { addon: AIOMetadata, catalog: mdblist.88303, weight: 0.15 }
+      - { addon: AIOMetadata, catalog: mdblist.88434, weight: 0.10 }
+      - { addon: AIOMetadata, catalog: mdblist.2194, weight: 0.09 }
+      - { addon: AIOMetadata, catalog: mdblist.3882, weight: 0.07 }
+      - { addon: AIOMetadata, catalog: mdblist.3082, weight: 0.06 }
+      - { addon: AIOMetadata, catalog: mdblist.3088, weight: 0.05 }
+      - { addon: AIOMetadata, catalog: mdblist.3090, weight: 0.05 }
+      - { addon: AIOMetadata, catalog: mdblist.3089, weight: 0.04 }
+      - { addon: AIOMetadata, catalog: mdblist.72464, weight: 0.04 }
+      - { addon: AIOMetadata, catalog: mdblist.101882, weight: 0.04 }
+      - { addon: AIOMetadata, catalog: mdblist.105797, weight: 0.03 }
+    playability:
+      display_limit: 9
+      min_display: 6
+      pool_target: 20
+      pool_max: 120
+      pool_growth_per_refresh: 15
+      grow_per_pass: 20
+      display_max: 9
+      ingest_multiplier: 5
+
+  - id: series-india-picks
+    tab: series
+    label: indian series
+    type: composite_list
+    content_type: series
+    limit: 20
+    sources:
+      - { addon: AIOMetadata, catalog: mdblist.173530, weight: 0.34 }
+      - { addon: AIOMetadata, catalog: mdblist.160359, weight: 0.24 }
+      - { addon: AIOMetadata, catalog: mdblist.107457, weight: 0.18 }
+      - { addon: AIOMetadata, catalog: mdblist.181621, weight: 0.03 }
+      - { addon: AIOMetadata, catalog: mdblist.1824, weight: 0.02 }
+      - { addon: AIOMetadata, catalog: mdblist.80807, weight: 0.02 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.015 }
+      - { addon: AIOMetadata, catalog: mdblist.167064, weight: 0.01 }
+      - { addon: AIOMetadata, catalog: mdblist.166155, weight: 0.01 }
+      - { addon: AIOMetadata, catalog: mdblist.8310, weight: 0.01 }
+      - { addon: AIOMetadata, catalog: mdblist.107438, weight: 0.01 }
+      - { addon: AIOMetadata, catalog: mdblist.183642, weight: 0.01 }
+      - { addon: AIOMetadata, catalog: mdblist.11103, weight: 0.008 }
+      - { addon: AIOMetadata, catalog: mdblist.122391, weight: 0.008 }
+      - { addon: AIOMetadata, catalog: mdblist.65408, weight: 0.008 }
+      - { addon: AIOMetadata, catalog: mdblist.81619, weight: 0.008 }
+      - { addon: AIOMetadata, catalog: mdblist.33753, weight: 0.008 }
+      - { addon: AIOMetadata, catalog: mdblist.89014, weight: 0.008 }
+      - { addon: AIOMetadata, catalog: mdblist.55120, weight: 0.006 }
+      - { addon: AIOMetadata, catalog: mdblist.131190, weight: 0.006 }
+      - { addon: AIOMetadata, catalog: mdblist.160360, weight: 0.005 }
+      - { addon: AIOMetadata, catalog: mdblist.167061, weight: 0.005 }
+      - { addon: AIOMetadata, catalog: mdblist.160363, weight: 0.005 }
+      - { addon: AIOMetadata, catalog: mdblist.181302, weight: 0.005 }
+      - { addon: AIOMetadata, catalog: mdblist.21011, weight: 0.005 }
+      - { addon: AIOMetadata, catalog: mdblist.141869, weight: 0.005 }
+      - { addon: AIOMetadata, catalog: mdblist.138454, weight: 0.005 }
+      - { addon: AIOMetadata, catalog: mdblist.165054, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-recent-series, weight: 0.005 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-latest_episodes-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-top_rated-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-surprise_me-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-ta-recent-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-ta-latest_episodes-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-ta-top_rated-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-ta-surprise_me-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-te-recent-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-te-latest_episodes-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-te-top_rated-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-te-surprise_me-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-ml-recent-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-ml-latest_episodes-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-ml-top_rated-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-ml-surprise_me-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-kn-recent-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-kn-latest_episodes-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-kn-top_rated-series, weight: 0.003 }
+      - { addon: "Bharat Binge", catalog: tmdb-kn-surprise_me-series, weight: 0.003 }
+      - { addon: AIOMetadata, catalog: mdblist.79344, weight: 0.003 }
+      - { addon: AIOMetadata, catalog: mdblist.89085, weight: 0.003 }
+    playability:
+      display_limit: 9
+      min_display: 6
+      pool_target: 20
+      pool_max: 120
+      pool_growth_per_refresh: 15
+      grow_per_pass: 20
+      display_max: 9
+      ingest_multiplier: 10
+
+  - id: series-classics
+    tab: series
+    label: critically acclaimed
+    type: composite_list
+    content_type: series
+    limit: 20
+    sources:
+      - { addon: Cinemeta, catalog: imdbRating, weight: 0.28 }
+      - { addon: AIOMetadata, catalog: mdblist.101882, weight: 0.20 }
+      - { addon: AIOMetadata, catalog: mdblist.3086, weight: 0.13 }
+      - { addon: AIOMetadata, catalog: mdblist.50087, weight: 0.11 }
+      - { addon: AIOMetadata, catalog: mdblist.3087, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.127220, weight: 0.06 }
+      - { addon: AIOMetadata, catalog: mdblist.143745, weight: 0.06 }
+      - { addon: AIOMetadata, catalog: mdblist.128052, weight: 0.05 }
+      - { addon: AIOMetadata, catalog: mdblist.84403, weight: 0.03 }
+    playability:
+      display_limit: 9
+      min_display: 6
+      pool_target: 20
+      pool_max: 120
+      pool_growth_per_refresh: 15
+      grow_per_pass: 20
+      display_max: 9
+      ingest_multiplier: 5
+
+  - id: series-miniseries
+    tab: series
+    label: limited series
+    type: composite_list
+    content_type: series
+    limit: 20
+    sources:
+      - { addon: AIOMetadata, catalog: mdblist.143745, weight: 0.18 }
+      - { addon: AIOMetadata, catalog: mdblist.83865, weight: 0.16 }
+      - { addon: AIOMetadata, catalog: mdblist.149728, weight: 0.13 }
+      - { addon: AIOMetadata, catalog: mdblist.61189, weight: 0.10 }
+      - { addon: AIOMetadata, catalog: mdblist.50083, weight: 0.10 }
+      - { addon: AIOMetadata, catalog: mdblist.130152, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.130153, weight: 0.07 }
+      - { addon: AIOMetadata, catalog: mdblist.181334, weight: 0.06 }
+      - { addon: AIOMetadata, catalog: mdblist.169800, weight: 0.04 }
+      - { addon: AIOMetadata, catalog: mdblist.147478, weight: 0.03 }
+      - { addon: AIOMetadata, catalog: mdblist.35502, weight: 0.02 }
+      - { addon: AIOMetadata, catalog: mdblist.24908, weight: 0.02 }
+      - { addon: AIOMetadata, catalog: mdblist.134293, weight: 0.01 }
+    playability:
+      display_limit: 9
+      min_display: 6
+      pool_target: 20
+      pool_max: 120
+      pool_growth_per_refresh: 15
+      grow_per_pass: 20
+      display_max: 9
+      ingest_multiplier: 8
+  - id: series-reality-casual
+    tab: series
+    label: reality TV
+    type: composite_list
+    content_type: series
+    limit: 20
+    sources:
+      - { addon: AIOMetadata, catalog: mdblist.84401, weight: 0.35 }
+      - { addon: AIOMetadata, catalog: mdblist.147884, weight: 0.25 }
+      - { addon: AIOMetadata, catalog: mdblist.143024, weight: 0.14 }
+      - { addon: AIOMetadata, catalog: mdblist.122526, weight: 0.10 }
+      - { addon: AIOMetadata, catalog: mdblist.63182, weight: 0.04 }
+      - { addon: AIOMetadata, catalog: mdblist.125320, weight: 0.05 }
+      - { addon: AIOMetadata, catalog: mdblist.125155, weight: 0.05 }
+      - { addon: Cinemeta, catalog: top, weight: 0.02 }
+      - { addon: AIOMetadata, catalog: mdblist.88303, weight: 0.015 }
+      - { addon: AIOMetadata, catalog: mdblist.88434, weight: 0.015 }
+      - { addon: AIOMetadata, catalog: mdblist.101882, weight: 0.01 }
+      - { addon: Cinemeta, catalog: imdbRating, weight: 0.01 }
+    playability:
+      display_limit: 9
+      min_display: 6
+      pool_target: 20
+      pool_max: 120
+      pool_growth_per_refresh: 15
+      grow_per_pass: 20
+      display_max: 9
+      ingest_multiplier: 10
+
+  - id: series-comedy
+    tab: series
+    label: comedy
+    type: composite_list
+    content_type: series
+    limit: 20
+    sources:
+      - { addon: Cinemeta, catalog: top, weight: 0.32 }
+      - { addon: AIOMetadata, catalog: mdblist.91224, weight: 0.20 }
+      - { addon: AIOMetadata, catalog: mdblist.83918, weight: 0.14 }
+      - { addon: AIOMetadata, catalog: mdblist.3122, weight: 0.12 }
+      - { addon: AIOMetadata, catalog: mdblist.142679, weight: 0.10 }
+      - { addon: AIOMetadata, catalog: mdblist.155168, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.49761, weight: 0.04 }
+    playability:
+      display_limit: 9
+      min_display: 6
+      pool_target: 20
+      pool_max: 120
+      pool_growth_per_refresh: 15
+      grow_per_pass: 20
+      display_max: 9
+      ingest_multiplier: 10
+  - id: continue
+    label: continue watching
+    type: stremio_library
+    enabled: false

@@ -1,0 +1,426 @@
+function positiveInt(value: string | undefined, fallback: number, min = 1, max = 32): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min) return fallback;
+  return Math.min(parsed, max);
+}
+
+function boundedInt(value: string | undefined, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min) return fallback;
+  return Math.min(parsed, max);
+}
+
+function boundedFloat(value: string | undefined, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < min) return fallback;
+  return Math.min(parsed, max);
+}
+
+function positiveDurationMs(
+  value: string | undefined,
+  fallback: number,
+  min = 0,
+  max = 30 * 24 * 60 * 60 * 1000,
+): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min) return fallback;
+  return Math.min(parsed, max);
+}
+
+export function isMaintenanceMode(): boolean {
+  return process.env.MANGO_MAINTENANCE_MODE === '1';
+}
+
+export function playabilityBootstrapFill(): boolean {
+  return process.env.MANGO_PLAYABILITY_BOOTSTRAP === '1';
+}
+
+export function playabilityEarlyExitMinDisplay(): boolean {
+  if (process.env.MANGO_PLAYABILITY_EARLY_EXIT_MIN_DISPLAY === '0') return false;
+  if (process.env.MANGO_PLAYABILITY_EARLY_EXIT_MIN_DISPLAY === '1') return true;
+  return playabilityBootstrapFill();
+}
+
+export function playabilityResolveConcurrency(): number {
+  if (isMaintenanceMode()) {
+    return positiveInt(process.env.MANGO_PLAYABILITY_RESOLVE_CONCURRENCY, 8, 1, 16);
+  }
+  return positiveInt(process.env.MANGO_PLAYABILITY_RESOLVE_CONCURRENCY, 3, 1, 16);
+}
+
+export function playabilityProbeConcurrency(): number {
+  if (isMaintenanceMode()) {
+    return positiveInt(process.env.MANGO_PLAYABILITY_PROBE_CONCURRENCY, 3, 1, 4);
+  }
+  return positiveInt(process.env.MANGO_PLAYABILITY_PROBE_CONCURRENCY, 1, 1, 4);
+}
+
+export function playabilityBatchDbEnabled(): boolean {
+  if (process.env.MANGO_PLAYABILITY_BATCH_DB === '0') return false;
+  if (process.env.MANGO_PLAYABILITY_BATCH_DB === '1') return true;
+  return isMaintenanceMode();
+}
+
+export function playabilityUseProbePool(): boolean {
+  if (process.env.MANGO_PLAYABILITY_PROBE_POOL === '0') return false;
+  if (process.env.MANGO_PLAYABILITY_PROBE_POOL === '1') return true;
+  return isMaintenanceMode();
+}
+
+export function isPlayabilityGrowPass(): boolean {
+  return process.env.MANGO_PLAYABILITY_GROW_PASS === '1';
+}
+
+export function playabilityFailedRetryMs(): number {
+  return positiveDurationMs(process.env.MANGO_PLAYABILITY_FAILED_RETRY_MS, 24 * 60 * 60 * 1000, 60_000, 7 * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * Q2: play_failure (couch-confirmed playback failure) gets its own short retry window,
+ * distinct from the ~7d no_stream/title_mismatch tombstone — a couch failure must be
+ * re-eligible well before the next nightly grow, not sit behind the generic window.
+ */
+export function playabilityPlayFailureRetryMs(): number {
+  const hours = boundedFloat(process.env.MANGO_PLAY_FAILURE_RETRY_HOURS, 1, 0, 7 * 24);
+  return Math.round(hours * 60 * 60 * 1000);
+}
+
+/** Hard nightly stale-admission ceiling; queue backoff can make the due set smaller. */
+export function playabilityStaleCandidateLimit(): number {
+  return boundedInt(
+    process.env.MANGO_PLAYABILITY_STALE_CANDIDATE_LIMIT,
+    playabilityPolicySnapshot().policy.nightly.stale_candidate_limit,
+    1,
+    2000,
+  );
+}
+
+export function playabilityAdmissionDeadlineReached(now = Date.now()): boolean {
+  const raw = Number(process.env.MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS);
+  return Number.isFinite(raw) && raw > 0 && now >= raw;
+}
+
+/** Yield at the next candidate/page boundary when the couch becomes active. */
+export function playabilityCouchYieldRequested(now = Date.now()): boolean {
+  if (!isMaintenanceMode() || process.env.MANGO_MAINTENANCE_IGNORE_COUCH_ACTIVITY === '1') {
+    return false;
+  }
+  const statePath = process.env.MANGO_COUCH_ACTIVITY_STATE
+    || join(process.env.XDG_CACHE_HOME || join(homedir(), '.cache'), 'mango/couch-activity.json');
+  const idleSeconds = boundedInt(process.env.MANGO_COUCH_IDLE_SEC, 1800, 1, 24 * 60 * 60);
+  try {
+    const state = JSON.parse(readFileSync(statePath, 'utf8')) as { ts?: unknown };
+    const timestamp = Number(state.ts);
+    return Number.isFinite(timestamp) && timestamp > 0 && now - timestamp < idleSeconds * 1000;
+  } catch {
+    return false;
+  }
+}
+
+export function playabilityFailedRetryMsForReason(reason?: string | null): number {
+  if (playabilityBootstrapFill()) {
+    // Bootstrap re-probes titles poisoned by prior bad runs (e.g. probe argv bug).
+    return 0;
+  }
+  switch (reason) {
+    case 'uncached_verify_legacy':
+      return positiveDurationMs(
+        process.env.MANGO_PLAYABILITY_LEGACY_UNCACHED_RETRY_MS,
+        0,
+        0,
+        24 * 60 * 60 * 1000,
+      );
+    case 'play_failure':
+      return playabilityPlayFailureRetryMs();
+    case 'no_stream':
+    case 'title_mismatch':
+      if (isPlayabilityGrowPass()) {
+        return positiveDurationMs(
+          process.env.MANGO_GROW_NO_STREAM_RETRY_MS,
+          7 * 24 * 60 * 60 * 1000,
+          0,
+          7 * 24 * 60 * 60 * 1000,
+        );
+      }
+      return positiveDurationMs(
+        process.env.MANGO_PLAYABILITY_NO_STREAM_RETRY_MS,
+        7 * 24 * 60 * 60 * 1000,
+        0,
+        30 * 24 * 60 * 60 * 1000,
+      );
+    case 'copyright':
+    case 'status_clip':
+      return positiveDurationMs(
+        process.env.MANGO_PLAYABILITY_PERMANENT_FAIL_RETRY_MS,
+        14 * 24 * 60 * 60 * 1000,
+        0,
+        30 * 24 * 60 * 60 * 1000,
+      );
+    case 'rate_limited':
+    case 'rate_limit':
+      return positiveDurationMs(
+        process.env.MANGO_GROW_RATE_LIMIT_RETRY_MS,
+        60 * 60 * 1000,
+        0,
+        24 * 60 * 60 * 1000,
+      );
+    default:
+      return playabilityFailedRetryMs();
+  }
+}
+
+export function playabilityRailRejectionTtlMsForReason(reason?: string | null): number {
+  if (playabilityBootstrapFill()) {
+    return 0;
+  }
+  switch (reason) {
+    case 'theme_mismatch':
+    case 'theme_probe_skip':
+    case 'unresolved_external_id':
+      return positiveDurationMs(
+        process.env.MANGO_GROW_THEME_REJECTION_TTL_MS,
+        7 * 24 * 60 * 60 * 1000,
+        0,
+        30 * 24 * 60 * 60 * 1000,
+      );
+    case 'no_stream':
+    case 'title_mismatch':
+      return positiveDurationMs(
+        process.env.MANGO_GROW_NO_STREAM_REJECTION_TTL_MS
+          ?? process.env.MANGO_GROW_NO_STREAM_RETRY_MS,
+        7 * 24 * 60 * 60 * 1000,
+        0,
+        7 * 24 * 60 * 60 * 1000,
+      );
+    case 'rate_limited':
+    case 'rate_limit':
+      return positiveDurationMs(
+        process.env.MANGO_GROW_RATE_LIMIT_REJECTION_TTL_MS,
+        60 * 60 * 1000,
+        0,
+        24 * 60 * 60 * 1000,
+      );
+    default:
+      return positiveDurationMs(
+        process.env.MANGO_GROW_REJECTION_TTL_MS,
+        24 * 60 * 60 * 1000,
+        0,
+        14 * 24 * 60 * 60 * 1000,
+      );
+  }
+}
+export function playabilityVerifyMinDurationSec(contentType?: string): number {
+  // Indexer probes: reject debrid status clips (~30–90s) without requiring full runtime.
+  if (contentType === 'series') {
+    return positiveInt(process.env.MANGO_PLAYABILITY_MIN_DURATION_SEC_SERIES, 120, 30, 7200);
+  }
+  return positiveInt(process.env.MANGO_PLAYABILITY_MIN_DURATION_SEC, 120, 30, 7200);
+}
+
+/** Maintenance verification is title-level — never scrape sibling episodes. */
+export function playabilitySeriesCrossProbeLimit(): number {
+  return boundedInt(process.env.MANGO_PLAYABILITY_SERIES_CROSS_PROBE_LIMIT, 0, 0, 24);
+}
+
+export function playabilityVerifyZeroStreamRetryAttempts(): number {
+  const fallback = isPlayabilityGrowPass() ? 1 : 0;
+  return boundedInt(
+    process.env.MANGO_PLAYABILITY_VERIFY_ZERO_RETRY_ATTEMPTS,
+    fallback,
+    0,
+    2,
+  );
+}
+
+export function playabilityVerifyZeroStreamRetryDelayMs(): number {
+  const fallback = isPlayabilityGrowPass() ? 1200 : 0;
+  return boundedInt(
+    process.env.MANGO_PLAYABILITY_VERIFY_ZERO_RETRY_DELAY_MS,
+    fallback,
+    0,
+    5000,
+  );
+}
+
+export function playabilityVerifyTtlMs(): number {
+  return positiveDurationMs(
+    process.env.MANGO_PLAYABILITY_TTL_MS,
+    30 * 24 * 60 * 60 * 1000,
+    3_600_000,
+    180 * 24 * 60 * 60 * 1000,
+  );
+}
+
+/** Fresh (untested) titles to queue per rail on each full refresh/top-up pass. */
+export function playabilityFreshPerRail(): number {
+  return boundedInt(process.env.MANGO_PLAYABILITY_FRESH_PER_RAIL, 40, 5, 200);
+}
+
+/** Override catalog yaml pool_growth_per_refresh for this process (quick vs nightly passes). */
+export function playabilityPoolGrowthOverride(yamlGrowth: number): number {
+  const raw = process.env.MANGO_PLAYABILITY_POOL_GROWTH_PER_REFRESH;
+  if (raw === undefined || raw === '') {
+    return yamlGrowth;
+  }
+  return boundedInt(raw, yamlGrowth, 1, 50);
+}
+
+/** @deprecated Use MANGO_PLAYABILITY_FRESH_PER_RAIL — kept for one release. */
+export function playabilityFreshTargetPerRefresh(): number {
+  const perRail = process.env.MANGO_PLAYABILITY_FRESH_PER_RAIL;
+  if (perRail) {
+    return boundedInt(perRail, 40, 5, 200);
+  }
+  return boundedInt(process.env.MANGO_PLAYABILITY_FRESH_TARGET, 100, 10, 500);
+}
+
+export function playabilityIngestPageSize(): number {
+  return boundedInt(process.env.MANGO_PLAYABILITY_INGEST_PAGE_SIZE, 50, 10, 200);
+}
+
+export function playabilityMaxIngestScan(): number {
+  return boundedInt(process.env.MANGO_PLAYABILITY_MAX_INGEST_SCAN, 1200, 50, 5000);
+}
+
+/** Pages to advance each catalog source when a grow pass exhausts without hitting target. */
+export function playabilityGrowSourceAdvancePages(): number {
+  return boundedInt(process.env.MANGO_GROW_SOURCE_ADVANCE_PAGES, 25, 5, 200);
+}
+
+/** Pages to advance on first-loop tombstone skew (before deep-page source reset cycles). */
+export function playabilityGrowHeadAdvancePages(): number {
+  return boundedInt(process.env.MANGO_GROW_HEAD_ADVANCE_PAGES, 5, 1, 50);
+}
+
+/** Fraction of ingest page that must be skipped_recent_failed to trigger head advance. */
+export function playabilityGrowHeadTombstoneRatio(): number {
+  return boundedFloat(process.env.MANGO_GROW_HEAD_TOMBSTONE_RATIO, 0.5, 0.1, 0.95);
+}
+
+/** Max head-advance cycles per rail grow session (independent of source reset cycles). */
+export function playabilityGrowHeadAdvanceMaxCycles(): number {
+  return boundedInt(process.env.MANGO_GROW_HEAD_ADVANCE_MAX_CYCLES, 8, 1, 30);
+}
+
+/** Grow passes: advance catalog cursors when exhausted but pool still below grow target. */
+export function playabilityGrowSourceResetCycles(): number {
+  return boundedInt(process.env.MANGO_GROW_SOURCE_RESET_CYCLES, 10, 0, 30);
+}
+
+/** When 1, grow refresh ok requires +grow_per_pass verified per rail. Default is best-effort publish. */
+export function playabilityGrowRequireTarget(): boolean {
+  if (process.env.MANGO_GROW_REQUIRE_TARGET === '0') return false;
+  if (process.env.MANGO_GROW_REQUIRE_TARGET === '1') return true;
+  return false;
+}
+
+/**
+ * Fresh candidates to queue per grow loop — scale with remaining quota (probe hit rate ~25–40%).
+ */
+export function growIngestFreshTarget(remainingQuota: number, batchDefault: number): number {
+  if (remainingQuota <= 0) {
+    return batchDefault;
+  }
+  const scaled = Math.max(batchDefault, remainingQuota * 5);
+  return Math.min(scaled, 200);
+}
+
+/** Max cross-rail links per grow session (0 = global link pass off). Links never count toward grow quota. */
+export function growLinkMaxPerRail(): number {
+  return boundedInt(process.env.MANGO_GROW_LINK_MAX, 0, 0, 20);
+}
+
+export function playabilityGrowSourceCircuitBreakerEnabled(): boolean {
+  return process.env.MANGO_GROW_SOURCE_CIRCUIT_BREAKER !== '0';
+}
+
+export function playabilityGrowSourceNoVerifyScanLimit(): number {
+  return boundedInt(
+    process.env.MANGO_GROW_SOURCE_NO_VERIFY_SCAN_LIMIT,
+    playabilityPolicySnapshot().policy.source_lifecycle.no_win_candidate_limit,
+    25,
+    5000,
+  );
+}
+
+export function playabilityGrowSourceThemeRejectMinSamples(): number {
+  return boundedInt(process.env.MANGO_GROW_SOURCE_THEME_REJECT_MIN_SAMPLES, 25, 5, 500);
+}
+
+export function playabilityGrowSourceThemeRejectRatio(): number {
+  return boundedFloat(process.env.MANGO_GROW_SOURCE_THEME_REJECT_RATIO, 0.85, 0.1, 1);
+}
+
+export function playabilityGrowSourceFailMinSamples(): number {
+  return boundedInt(process.env.MANGO_GROW_SOURCE_FAIL_MIN_SAMPLES, 20, 5, 500);
+}
+
+export function playabilityGrowSourceFailRatio(): number {
+  return boundedFloat(process.env.MANGO_GROW_SOURCE_FAIL_RATIO, 0.85, 0.1, 1);
+}
+
+/** Minimum verified/playable yield for a source to keep normal grow allocation. */
+export function playabilityGrowSourceMinVerifyRate(): number {
+  return boundedFloat(process.env.MANGO_GROW_SOURCE_MIN_VERIFY_RATE, 0.05, 0.01, 0.25);
+}
+
+export function playabilityGrowSourceCatalogErrorLimit(): number {
+  return boundedInt(
+    process.env.MANGO_GROW_SOURCE_CATALOG_ERROR_LIMIT,
+    playabilityPolicySnapshot().policy.source_lifecycle.consecutive_fetch_failures,
+    1,
+    20,
+  );
+}
+
+/** Bounded per-rail candidate audit samples included in grow reports. */
+export function playabilityGrowCandidateAuditLimit(): number {
+  return boundedInt(process.env.MANGO_GROW_CANDIDATE_AUDIT_LIMIT, 80, 0, 500);
+}
+
+/** H1: master switch for the live in-process trigger-consumer background tick. Off by default (couch safety). */
+export function triggerConsumerEnabled(): boolean {
+  return process.env.MANGO_TRIGGER_CONSUMER === '1';
+}
+
+/** Bounded rows drained per background-tick call (couch-safety — small and rate-limited). */
+export function triggerConsumerBatchLimit(): number {
+  return boundedInt(process.env.MANGO_TRIGGER_CONSUMER_BATCH, 10, 1, 100);
+}
+
+/** Bounded rows drained per nightly-maintenance-chain call (no couch latency concern — larger). */
+export function triggerConsumerMaintenanceBatchLimit(): number {
+  return boundedInt(process.env.MANGO_TRIGGER_CONSUMER_MAINTENANCE_BATCH, 200, 1, 2000);
+}
+
+/** Debounce between background-tick drains. */
+export function triggerConsumerCooldownMs(): number {
+  return positiveDurationMs(process.env.MANGO_TRIGGER_CONSUMER_COOLDOWN_MS, 5 * 60 * 1000, 30_000, 60 * 60 * 1000);
+}
+
+/** Couch idle threshold (seconds) before the background tick is allowed to run. */
+export function triggerConsumerIdleSec(): number {
+  return boundedInt(process.env.MANGO_TRIGGER_CONSUMER_IDLE_SEC, 1800, 30, 24 * 60 * 60);
+}
+
+export function isPlayabilityGrowthMode(mode?: string): boolean {
+  if (mode === 'grow') {
+    return true;
+  }
+  if (mode === 'growth' || mode === 'full') {
+    console.warn(`playability: growth mode "${mode}" is deprecated — use "grow"`);
+    return true;
+  }
+  const refreshMode = process.env.MANGO_PLAYABILITY_REFRESH_MODE;
+  if (refreshMode === 'grow' || refreshMode === 'nightly') {
+    return true;
+  }
+  if (refreshMode === 'growth' || refreshMode === 'full') {
+    return true;
+  }
+  return process.env.MANGO_PLAYABILITY_GROWTH_MODE === '1';
+}
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { playabilityPolicySnapshot } from './policy.js';

@@ -1,0 +1,2684 @@
+{
+  "_comment": "Tagged MDBList catalog inventory for mango rail composition. Hit rates: source = stream resolve sample (source-hitrate.py); pool = verified_pool after maintenance. unprobed = not yet in AIOMetadata import.",
+  "_updated": "2026-06-24",
+  "_measurement": {
+    "sync_toplists": "python3 scripts/diag/mdblist-inventory.py sync-toplists",
+    "pipeline": "bash scripts/m4-addons/mdblist-catalog-pipeline.sh full",
+    "export_llm": "python3 scripts/diag/mdblist-inventory.py export-llm --out ~/.cache/mango/mdblist-llm-context.json",
+    "compose": "python3 scripts/m4-addons/rail-compose.py plan config/rail-proposals/example.json",
+    "source_hitrate_cmd": "MANGO_SOURCE_HITRATE_PER_SOURCE=8 python3 scripts/diag/source-hitrate.py",
+    "pool_status_cmd": "python3 scripts/diag/grow_monitor.py status",
+    "target_rate": 0.8,
+    "notes": "Cinemeta charts are probed via catalog-service, not mdblist rows below."
+  },
+  "toplists_snapshots": [
+    {
+      "fetched_at": "2026-06-20T07:47:00.533685+00:00",
+      "source": "toplists",
+      "count": 50,
+      "catalog_ids": [
+        "mdblist.2194",
+        "mdblist.14",
+        "mdblist.3082",
+        "mdblist.2236",
+        "mdblist.86934",
+        "mdblist.3093",
+        "mdblist.2410",
+        "mdblist.87667",
+        "mdblist.2406",
+        "mdblist.3892",
+        "mdblist.3086",
+        "mdblist.3090",
+        "mdblist.2412",
+        "mdblist.101881",
+        "mdblist.2195",
+        "mdblist.88434",
+        "mdblist.2407",
+        "mdblist.3088",
+        "mdblist.3095",
+        "mdblist.3094",
+        "mdblist.3089",
+        "mdblist.2409",
+        "mdblist.2618",
+        "mdblist.2416",
+        "mdblist.3882",
+        "mdblist.3364",
+        "mdblist.3110",
+        "mdblist.2411",
+        "mdblist.2415",
+        "mdblist.3096",
+        "mdblist.101882",
+        "mdblist.3107",
+        "mdblist.3087",
+        "mdblist.3111",
+        "mdblist.3106",
+        "mdblist.3885",
+        "mdblist.3125",
+        "mdblist.3105",
+        "mdblist.3126",
+        "mdblist.2202",
+        "mdblist.3922",
+        "mdblist.3923",
+        "mdblist.69",
+        "mdblist.2413",
+        "mdblist.3108",
+        "mdblist.88469",
+        "mdblist.3921",
+        "mdblist.2408",
+        "mdblist.3112",
+        "mdblist.72464"
+      ]
+    }
+  ],
+  "tags": {
+    "genre": [
+      "awards",
+      "bbc",
+      "bollywood",
+      "classics",
+      "comedy",
+      "criterion",
+      "documentary",
+      "horror",
+      "limited-series",
+      "reality",
+      "science",
+      "shorts",
+      "sitcom",
+      "stand-up",
+      "trending",
+      "true-crime"
+    ],
+    "media": [
+      "movie",
+      "series",
+      "mixed"
+    ],
+    "region": [
+      "global",
+      "india"
+    ],
+    "curation": [
+      "official-snoak",
+      "community",
+      "curated-small",
+      "deep-pool"
+    ],
+    "status": [
+      "candidate",
+      "curated",
+      "demoted",
+      "deployed",
+      "legacy"
+    ]
+  },
+  "catalogs": [
+    {
+      "catalog_id": "mdblist.100477",
+      "slug": "killjester/science-documentaries-l73dro1jbh",
+      "url": "https://mdblist.com/lists/killjester/science-documentaries-l73dro1jbh",
+      "name": "Science and Nature Documentaries",
+      "items": 158,
+      "media": "mixed",
+      "tags": [
+        "community",
+        "deployed",
+        "documentary",
+        "science"
+      ],
+      "hit_rate": {
+        "source": null,
+        "pool_verified": null,
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.101881",
+      "slug": "snoak/imdb-top-250-movies",
+      "url": "https://mdblist.com/lists/snoak/imdb-top-250-movies",
+      "name": "Top 250 Movies (iMDB)",
+      "items": 250,
+      "media": "movie",
+      "curator": "snoak",
+      "popularity": 273,
+      "source": "toplists",
+      "tags": [
+        "classics",
+        "deployed",
+        "global",
+        "movie",
+        "official-snoak",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-classics"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.101882",
+      "slug": "snoak/imdb-top-250-shows",
+      "url": "https://mdblist.com/lists/snoak/imdb-top-250-shows",
+      "name": "Top 250 Shows (iMDB)",
+      "items": 243,
+      "media": "series",
+      "curator": "snoak",
+      "popularity": 178,
+      "source": "toplists",
+      "tags": [
+        "classics",
+        "deployed",
+        "global",
+        "official-snoak",
+        "series",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-global-popular",
+        "series-classics"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.105797",
+      "slug": null,
+      "name": "Daily Picks",
+      "media": "series",
+      "tags": [
+        "demoted",
+        "deployed",
+        "global",
+        "series",
+        "trending"
+      ],
+      "hit_rate": {
+        "source": 0.0,
+        "source_n": 3,
+        "measured": "2026-06-24",
+        "notes": "Demoted after Pi source probe 0/3 stream hits"
+      },
+      "rails": [
+        "series-global-popular"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.11274",
+      "slug": "turtlespam/top-stand-up",
+      "url": "https://mdblist.com/lists/turtlespam/top-stand-up",
+      "name": "Top Stand Up",
+      "items": 244,
+      "media": "mixed",
+      "tags": [
+        "stand-up",
+        "comedy",
+        "global",
+        "community",
+        "candidate"
+      ],
+      "hit_rate": {
+        "source": null,
+        "pool_verified": null,
+        "status": "unprobed",
+        "notes": "Curator note: not on streaming services; may probe poorly"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.122526",
+      "slug": "6ahd-deleted-1743432684/reality-tv-shows",
+      "url": "https://mdblist.com/lists/6ahd-deleted-1743432684/reality-tv-shows",
+      "name": "Reality TV Shows, a list by Ahmad al-rufaidy",
+      "items": 232,
+      "media": "series",
+      "curator": "6ahd-deleted-1743432684",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "community",
+        "curated",
+        "deployed",
+        "reality",
+        "series"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.125155",
+      "slug": "andyhawks/reality-competition",
+      "url": "https://mdblist.com/lists/andyhawks/reality-competition",
+      "name": "Reality Series",
+      "items": 18,
+      "media": "series",
+      "curator": "andyhawks",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "community",
+        "competition",
+        "curated",
+        "deployed",
+        "reality",
+        "series"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.125320",
+      "slug": "andyhawks/reality-dating",
+      "url": "https://mdblist.com/lists/andyhawks/reality-dating",
+      "name": "Reality Series",
+      "items": 38,
+      "media": "series",
+      "curator": "andyhawks",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "community",
+        "curated",
+        "dating",
+        "deployed",
+        "reality",
+        "series"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.128040",
+      "slug": "snoak/latest-comedy-movies",
+      "url": "https://mdblist.com/lists/snoak/latest-comedy-movies",
+      "name": "Latest Comedy Movies",
+      "items": 500,
+      "media": "movie",
+      "tags": [
+        "comedy",
+        "deep-pool",
+        "deployed",
+        "official-snoak",
+        "trending"
+      ],
+      "hit_rate": {
+        "source": null,
+        "pool_verified": null,
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-comedy"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.128051",
+      "hit_rate": {
+        "source": 1.0,
+        "source_n": 3,
+        "measured": "2026-06-24",
+        "notes": "Pi reserve probe 3/3 stream hits"
+      },
+      "name": "Popular Documentary Movies",
+      "slug": "snoak/popular-documentary-movies",
+      "url": "https://mdblist.com/lists/snoak/popular-documentary-movies",
+      "items": 500,
+      "media": "movie",
+      "curator": "snoak",
+      "source": "configured-import",
+      "tags": [
+        "deployed",
+        "documentary",
+        "global",
+        "movie",
+        "official-snoak"
+      ],
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.128052",
+      "hit_rate": {
+        "source": 1.0,
+        "source_n": 3,
+        "measured": "2026-06-24",
+        "notes": "Pi reserve probe 3/3 stream hits"
+      },
+      "name": "Popular Documentary Shows",
+      "slug": "snoak/popular-documentary-shows",
+      "url": "https://mdblist.com/lists/snoak/popular-documentary-shows",
+      "items": 500,
+      "media": "series",
+      "curator": "snoak",
+      "source": "configured-import",
+      "tags": [
+        "documentary",
+        "global",
+        "official-snoak",
+        "series"
+      ],
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.130152",
+      "hit_rate": {
+        "source": 1.0,
+        "source_n": 3,
+        "measured": "2026-06-24",
+        "notes": "Pi reserve probe 3/3 stream hits"
+      },
+      "name": "Latest Miniseries",
+      "slug": "snoak/latest-miniseries",
+      "url": "https://mdblist.com/lists/snoak/latest-miniseries",
+      "items": 200,
+      "media": "series",
+      "curator": "snoak",
+      "source": "configured-import",
+      "tags": [
+        "deployed",
+        "global",
+        "limited-series",
+        "official-snoak",
+        "series",
+        "trending"
+      ],
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.130153",
+      "slug": null,
+      "name": "Popular Miniseries",
+      "media": "series",
+      "tags": [
+        "deployed",
+        "global",
+        "legacy",
+        "limited-series"
+      ],
+      "hit_rate": {
+        "source": 0.25,
+        "source_n": 8,
+        "pool_verified": 20,
+        "measured": "2026-06-20",
+        "notes": "80% in curation doc; stale cache sample 25%. Consider replacing with jordanhawk list."
+      },
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.138454",
+      "slug": "sukhi.bhandal8/tv-shows-indian-imdb-popular",
+      "url": "https://mdblist.com/lists/sukhi.bhandal8/tv-shows-indian-imdb-popular",
+      "name": "TV Shows",
+      "items": 100,
+      "media": "series",
+      "curator": "sukhi.bhandal8",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "classics",
+        "community",
+        "curated",
+        "deployed",
+        "india",
+        "series"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.14",
+      "slug": "linaspurinis/top-watched-movies-of-the-week",
+      "url": "https://mdblist.com/lists/linaspurinis/top-watched-movies-of-the-week",
+      "name": "Top Watched Movies of The Week / >60",
+      "items": 51,
+      "media": "movie",
+      "curator": "Linas Purinis",
+      "popularity": 919,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.142679",
+      "slug": "huntyknowsbest/comedy-shows-1950-2014",
+      "url": "https://mdblist.com/lists/huntyknowsbest/comedy-shows-1950-2014",
+      "name": "Comedy Shows (1950-2014), a list by huntyknowsbest",
+      "items": 723,
+      "media": "series",
+      "curator": "huntyknowsbest",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "comedy",
+        "community",
+        "curated",
+        "deep-pool",
+        "deployed",
+        "series",
+        "sitcom"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-comedy"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.143024",
+      "slug": "pethersonfarias2025/discovery-shows-and-reality-tv",
+      "url": "https://mdblist.com/lists/pethersonfarias2025/discovery-shows-and-reality-tv",
+      "name": "Discovery Shows and Reality TV, a list by Pether",
+      "items": 156,
+      "media": "series",
+      "curator": "pethersonfarias2025",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "community",
+        "curated",
+        "deployed",
+        "documentary",
+        "reality",
+        "series"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.143745",
+      "slug": "jordanhawk122/limited-series",
+      "url": "https://mdblist.com/lists/jordanhawk122/limited-series",
+      "name": "Limited Series (Jordan Hawk)",
+      "items": 675,
+      "media": "series",
+      "tags": [
+        "community",
+        "deep-pool",
+        "deployed",
+        "global",
+        "limited-series"
+      ],
+      "hit_rate": {
+        "source": null,
+        "pool_verified": null,
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-classics",
+        "series-miniseries"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.143797",
+      "slug": "jservs7/oscar-nominees-for-best-picture",
+      "url": "https://mdblist.com/lists/jservs7/oscar-nominees-for-best-picture",
+      "name": "Oscar Nominees for Best Picture, a list by jservs7",
+      "items": 624,
+      "media": "movie",
+      "curator": "jservs7",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "awards",
+        "classics",
+        "community",
+        "curated",
+        "deployed",
+        "movie"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-classics"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.147478",
+      "slug": "k0meta/best-miniseries",
+      "url": "https://mdblist.com/lists/k0meta/best-miniseries",
+      "name": "Best Miniseries, a list by Kometa",
+      "items": 92,
+      "media": "series",
+      "curator": "k0meta",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "community",
+        "curated",
+        "deployed",
+        "limited-series",
+        "series"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.147884",
+      "slug": "livingstone01989/reality-tv",
+      "url": "https://mdblist.com/lists/livingstone01989/reality-tv",
+      "name": "Reality TV, a list by Brent Livingstone",
+      "items": 5048,
+      "media": "series",
+      "curator": "livingstone01989",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "community",
+        "curated",
+        "deep-pool",
+        "deployed",
+        "reality",
+        "series"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.155168",
+      "slug": "nxsxs/rolling-stones-100-best-sitcoms-of-all-time",
+      "url": "https://mdblist.com/lists/nxsxs/rolling-stones-100-best-sitcoms-of-all-time",
+      "name": "Rolling Stone's 100 Best Sitcoms of All Time, a list by NxSxS",
+      "items": 100,
+      "media": "series",
+      "curator": "nxsxs",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "classics",
+        "comedy",
+        "community",
+        "curated",
+        "deployed",
+        "series",
+        "sitcom"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-comedy"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.157957",
+      "slug": "jansun79/bollywood-latest-hd-releases",
+      "url": "https://mdblist.com/lists/jansun79/bollywood-latest-hd-releases",
+      "name": "Bollywood Latest HD Releases, a list by jan sun",
+      "items": 300,
+      "media": "movie",
+      "curator": "jansun79",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "bollywood",
+        "community",
+        "curated",
+        "deployed",
+        "india",
+        "movie",
+        "trending"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.166155",
+      "slug": "testmegamerge/trending-indian-tv-shows",
+      "url": "https://mdblist.com/lists/testmegamerge/trending-indian-tv-shows",
+      "name": "Trending Indian TV Shows, a list by Test Test",
+      "items": 100,
+      "media": "series",
+      "curator": "testmegamerge",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "community",
+        "curated",
+        "deployed",
+        "india",
+        "series",
+        "trending"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.169800",
+      "slug": "swoop081/unmissable-limited-series",
+      "url": "https://mdblist.com/lists/swoop081/unmissable-limited-series",
+      "name": "Unmissable Limited Series",
+      "items": 200,
+      "media": "series",
+      "tags": [
+        "community",
+        "curated-small",
+        "deployed",
+        "limited-series"
+      ],
+      "hit_rate": {
+        "source": null,
+        "pool_verified": null,
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.170279",
+      "slug": "imranguts01/latest-indian-movies-digital-release",
+      "url": "https://mdblist.com/lists/imranguts01/latest-indian-movies-digital-release",
+      "name": "Latest Indian Movies",
+      "items": 256,
+      "media": "movie",
+      "curator": "imranguts01",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "community",
+        "curated",
+        "deployed",
+        "hindi",
+        "india",
+        "movie",
+        "trending"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.178241",
+      "slug": "john/top-250-documentary-films",
+      "url": "https://mdblist.com/lists/john/top-250-documentary-films",
+      "name": "Top 250 Documentary Films, a list by John Nathan",
+      "items": 249,
+      "media": "movie",
+      "curator": "john",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "classics",
+        "community",
+        "curated",
+        "deployed",
+        "documentary",
+        "movie"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.180437",
+      "slug": "dnp30/new-indian-movies",
+      "url": "https://mdblist.com/lists/dnp30/new-indian-movies",
+      "name": "New Indian Movies, a list by dnp",
+      "items": 1366,
+      "media": "movie",
+      "curator": "dnp30",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "community",
+        "curated",
+        "deep-pool",
+        "deployed",
+        "india",
+        "movie"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.181302",
+      "slug": "robtrex/list-of-indian-tv-shows",
+      "url": "https://mdblist.com/lists/robtrex/list-of-indian-tv-shows",
+      "name": "List of Indian TV Shows, a list by sivam chopra",
+      "items": 3563,
+      "media": "series",
+      "curator": "robtrex",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "community",
+        "curated",
+        "deep-pool",
+        "deployed",
+        "hindi",
+        "india",
+        "series"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.183641",
+      "slug": "biswas-dipan/best-indian-movies-ce27zm8q9p",
+      "url": "https://mdblist.com/lists/biswas-dipan/best-indian-movies-ce27zm8q9p",
+      "name": "Best Indian movies, a list by Dipan",
+      "items": 250,
+      "media": "movie",
+      "curator": "biswas-dipan",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "community",
+        "curated",
+        "deployed",
+        "india",
+        "movie"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.183642",
+      "slug": "biswas-dipan/best-indian-shows-et53qhsvfh",
+      "url": "https://mdblist.com/lists/biswas-dipan/best-indian-shows-et53qhsvfh",
+      "name": "Best Indian shows, a list by Dipan",
+      "items": 47,
+      "media": "series",
+      "curator": "biswas-dipan",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "community",
+        "curated",
+        "deployed",
+        "india",
+        "series"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.2194",
+      "slug": "garycrawfordgc/latest-tv-shows",
+      "url": "https://mdblist.com/lists/garycrawfordgc/latest-tv-shows",
+      "name": "Latest TV Shows",
+      "items": 300,
+      "media": "series",
+      "curator": "Gary",
+      "popularity": 2074,
+      "source": "toplists",
+      "tags": [
+        "community",
+        "deployed",
+        "global",
+        "series",
+        "toplists",
+        "trending"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-global-popular"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.2195",
+      "slug": "hdlists/comedy-movies-2001-2020",
+      "url": "https://mdblist.com/lists/hdlists/comedy-movies-2001-2020",
+      "name": "Comedy Movies (Top Rated From 1960 To Today)",
+      "items": 4224,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 319,
+      "source": "toplists",
+      "tags": [
+        "comedy",
+        "community",
+        "deployed",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-comedy"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.2202",
+      "slug": "garycrawfordgc/latest-blu-ray-releases",
+      "url": "https://mdblist.com/lists/garycrawfordgc/latest-blu-ray-releases",
+      "name": "Latest Blu-ray Releases",
+      "items": 44,
+      "media": "movie",
+      "curator": "Gary",
+      "popularity": 147,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists",
+        "trending"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.2236",
+      "slug": "garycrawfordgc/top-movies-of-the-week",
+      "url": "https://mdblist.com/lists/garycrawfordgc/top-movies-of-the-week",
+      "name": "Top Movies of the week",
+      "items": 8,
+      "media": "movie",
+      "curator": "Gary",
+      "popularity": 541,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.2406",
+      "slug": "hdlists/latest-hd-documentary-movies-1980-to-today",
+      "url": "https://mdblist.com/lists/hdlists/latest-hd-documentary-movies-1980-to-today",
+      "name": "Documentary Movies (Top Rated From 1980 to Today)",
+      "items": 2000,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 409,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "documentary",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.2407",
+      "slug": "hdlists/latest-hd-action-movies-from-1980-to-today",
+      "url": "https://mdblist.com/lists/hdlists/latest-hd-action-movies-from-1980-to-today",
+      "name": "Action Movies (Top Rated From 1980 to Today)",
+      "items": 514,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 299,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.2408",
+      "slug": "hdlists/latest-hd-drama-movies-from-1980-to-today",
+      "url": "https://mdblist.com/lists/hdlists/latest-hd-drama-movies-from-1980-to-today",
+      "name": "Drama Movies (Top Rated From 1980 to Today)",
+      "items": 3864,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 127,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.2409",
+      "slug": "hdlists/latest-hd-animated-movies-from-1980-to-today",
+      "url": "https://mdblist.com/lists/hdlists/latest-hd-animated-movies-from-1980-to-today",
+      "name": "Children's Animated Movies (From 1950 to Today)",
+      "items": 598,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 228,
+      "source": "toplists",
+      "tags": [
+        "animation",
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.2410",
+      "slug": "hdlists/latest-hd-horror-movies-top-rated-from-1980-to-today",
+      "url": "https://mdblist.com/lists/hdlists/latest-hd-horror-movies-top-rated-from-1980-to-today",
+      "name": "Horror Movies (Top Rated From 1960 to Today)",
+      "items": 909,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 422,
+      "source": "toplists",
+      "tags": [
+        "community",
+        "deployed",
+        "global",
+        "horror",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "ai-horror"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.2411",
+      "slug": "hdlists/latest-hd-crime-movies-top-rated-from-1980-to-today",
+      "url": "https://mdblist.com/lists/hdlists/latest-hd-crime-movies-top-rated-from-1980-to-today",
+      "name": "Crime Movies (Top Rated From 1980 to Today)",
+      "items": 1265,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 201,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "crime",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.2412",
+      "slug": "hdlists/latest-hd-fantasy-sci-fi-movies-top-rated-from-1980-to-today",
+      "url": "https://mdblist.com/lists/hdlists/latest-hd-fantasy-sci-fi-movies-top-rated-from-1980-to-today",
+      "name": "Fantasy/Sci-Fi Movies (Top Rated From 1980 to Today)",
+      "items": 876,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 344,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "sci-fi",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.2413",
+      "slug": "hdlists/latest-hd-superhero-movies-from-1980-to-today",
+      "url": "https://mdblist.com/lists/hdlists/latest-hd-superhero-movies-from-1980-to-today",
+      "name": "Superhero Movies (From 1980 to Today)",
+      "items": 175,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 135,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.2415",
+      "slug": "hdlists/latest-hd-family-movies-top-rated-from-1980-to-today",
+      "url": "https://mdblist.com/lists/hdlists/latest-hd-family-movies-top-rated-from-1980-to-today",
+      "name": "Family Movies (Top Rated From 1980 to Today)",
+      "items": 839,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 172,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "family",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.2416",
+      "slug": "hdlists/latest-hd-mystery-movies-top-rated-from-1980-to-today",
+      "url": "https://mdblist.com/lists/hdlists/latest-hd-mystery-movies-top-rated-from-1980-to-today",
+      "name": "Mystery Movies (Top Rated From 1980 to Today)",
+      "items": 1860,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 214,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.2618",
+      "slug": "garycrawfordgc/top-movies",
+      "url": "https://mdblist.com/lists/garycrawfordgc/top-movies",
+      "name": "Top Movies",
+      "items": 300,
+      "media": "movie",
+      "curator": "Gary",
+      "popularity": 236,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.27298",
+      "slug": "davo1624/rotten-tomatoes-200-best-horror-movies-of-all-time",
+      "url": "https://mdblist.com/lists/davo1624/rotten-tomatoes-200-best-horror-movies-of-all-time",
+      "name": "Rotten Tomatoes 200 Greatest Horror Movies, a list by Dave",
+      "items": 199,
+      "media": "movie",
+      "curator": "davo1624",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "community",
+        "curated",
+        "deployed",
+        "horror",
+        "movie"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "ai-horror"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.2885",
+      "slug": "rizreflects/documentary",
+      "url": "https://mdblist.com/lists/rizreflects/documentary",
+      "name": "Documentaries (Riz)",
+      "items": 99,
+      "media": "mixed",
+      "tags": [
+        "community",
+        "curated-small",
+        "deployed",
+        "documentary"
+      ],
+      "hit_rate": {
+        "source": null,
+        "pool_verified": null,
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.3082",
+      "slug": "garycrawfordgc/netflix-shows",
+      "url": "https://mdblist.com/lists/garycrawfordgc/netflix-shows",
+      "name": "Netflix Shows",
+      "items": 300,
+      "media": "series",
+      "curator": "Gary",
+      "popularity": 641,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "netflix",
+        "series",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3086",
+      "slug": "garycrawfordgc/hbo-shows",
+      "url": "https://mdblist.com/lists/garycrawfordgc/hbo-shows",
+      "name": "HBO Shows",
+      "items": 300,
+      "media": "series",
+      "curator": "Gary",
+      "popularity": 370,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "hbo",
+        "series",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3087",
+      "slug": "garycrawfordgc/bbc-shows",
+      "url": "https://mdblist.com/lists/garycrawfordgc/bbc-shows",
+      "name": "BBC Shows",
+      "items": 300,
+      "media": "series",
+      "curator": "Gary",
+      "popularity": 178,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "series",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3088",
+      "slug": "garycrawfordgc/amazon-prime-shows",
+      "url": "https://mdblist.com/lists/garycrawfordgc/amazon-prime-shows",
+      "name": "Amazon Prime Shows",
+      "items": 300,
+      "media": "series",
+      "curator": "Gary",
+      "popularity": 285,
+      "source": "toplists",
+      "tags": [
+        "amazon",
+        "candidate",
+        "community",
+        "global",
+        "series",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3089",
+      "slug": "garycrawfordgc/hulu-shows",
+      "url": "https://mdblist.com/lists/garycrawfordgc/hulu-shows",
+      "name": "Hulu Shows",
+      "items": 300,
+      "media": "series",
+      "curator": "Gary",
+      "popularity": 252,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "hulu",
+        "series",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3090",
+      "slug": "garycrawfordgc/disney-shows",
+      "url": "https://mdblist.com/lists/garycrawfordgc/disney-shows",
+      "name": "Disney+ Shows",
+      "items": 300,
+      "media": "series",
+      "curator": "Gary",
+      "popularity": 331,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "disney",
+        "global",
+        "series",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3093",
+      "slug": "garycrawfordgc/netflix-movies",
+      "url": "https://mdblist.com/lists/garycrawfordgc/netflix-movies",
+      "name": "Netflix Movies",
+      "items": 200,
+      "media": "movie",
+      "curator": "Gary",
+      "popularity": 478,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "netflix",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3094",
+      "slug": "garycrawfordgc/amazon-prime-movies",
+      "url": "https://mdblist.com/lists/garycrawfordgc/amazon-prime-movies",
+      "name": "Amazon Prime Movies",
+      "items": 200,
+      "media": "movie",
+      "curator": "Gary",
+      "popularity": 257,
+      "source": "toplists",
+      "tags": [
+        "amazon",
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3095",
+      "slug": "garycrawfordgc/disney-movies",
+      "url": "https://mdblist.com/lists/garycrawfordgc/disney-movies",
+      "name": "Disney+ Movies",
+      "items": 200,
+      "media": "movie",
+      "curator": "Gary",
+      "popularity": 264,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "disney",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3096",
+      "slug": "garycrawfordgc/hulu-movies",
+      "url": "https://mdblist.com/lists/garycrawfordgc/hulu-movies",
+      "name": "Hulu Movies",
+      "items": 200,
+      "media": "movie",
+      "curator": "Gary",
+      "popularity": 198,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "hulu",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3105",
+      "slug": "garycrawfordgc/drama",
+      "url": "https://mdblist.com/lists/garycrawfordgc/drama",
+      "name": "Drama",
+      "items": 400,
+      "media": "movie",
+      "curator": "Gary",
+      "popularity": 145,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3106",
+      "slug": "garycrawfordgc/action",
+      "url": "https://mdblist.com/lists/garycrawfordgc/action",
+      "name": "Action",
+      "items": 400,
+      "media": "movie",
+      "curator": "Gary",
+      "popularity": 185,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3107",
+      "slug": "garycrawfordgc/comedy",
+      "url": "https://mdblist.com/lists/garycrawfordgc/comedy",
+      "name": "Comedy",
+      "items": 400,
+      "media": "movie",
+      "curator": "Gary",
+      "popularity": 186,
+      "source": "toplists",
+      "tags": [
+        "comedy",
+        "community",
+        "deep-pool",
+        "deployed",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "source": null,
+        "pool_verified": null,
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-comedy"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.3108",
+      "slug": "garycrawfordgc/crime",
+      "url": "https://mdblist.com/lists/garycrawfordgc/crime",
+      "name": "Crime",
+      "items": 400,
+      "media": "movie",
+      "curator": "Gary",
+      "popularity": 132,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "crime",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3110",
+      "slug": "garycrawfordgc/horror",
+      "url": "https://mdblist.com/lists/garycrawfordgc/horror",
+      "name": "Horror",
+      "items": 388,
+      "media": "movie",
+      "curator": "Gary",
+      "popularity": 204,
+      "source": "toplists",
+      "tags": [
+        "community",
+        "deployed",
+        "global",
+        "horror",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "ai-horror"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.3111",
+      "slug": "garycrawfordgc/thriller",
+      "url": "https://mdblist.com/lists/garycrawfordgc/thriller",
+      "name": "Thriller",
+      "items": 400,
+      "media": "movie",
+      "curator": "Gary",
+      "popularity": 177,
+      "source": "toplists",
+      "tags": [
+        "community",
+        "deployed",
+        "global",
+        "movie",
+        "thriller",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "ai-horror"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.3112",
+      "slug": "garycrawfordgc/war",
+      "url": "https://mdblist.com/lists/garycrawfordgc/war",
+      "name": "War",
+      "items": 194,
+      "media": "movie",
+      "curator": "Gary",
+      "popularity": 122,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists",
+        "war"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3122",
+      "slug": "garycrawfordgc/comedy-shows",
+      "url": "https://mdblist.com/lists/garycrawfordgc/comedy-shows",
+      "name": "Comedy Shows (Gary)",
+      "items": 300,
+      "media": "series",
+      "tags": [
+        "comedy",
+        "community",
+        "deep-pool",
+        "deployed",
+        "global"
+      ],
+      "hit_rate": {
+        "source": null,
+        "pool_verified": null,
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-comedy"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.3125",
+      "slug": "garycrawfordgc/sci-fi-shows",
+      "url": "https://mdblist.com/lists/garycrawfordgc/sci-fi-shows",
+      "name": "Sci-Fi Shows",
+      "items": 145,
+      "media": "series",
+      "curator": "Gary",
+      "popularity": 150,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "sci-fi",
+        "series",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3126",
+      "slug": "garycrawfordgc/crime-shows",
+      "url": "https://mdblist.com/lists/garycrawfordgc/crime-shows",
+      "name": "Crime Shows",
+      "items": 500,
+      "media": "series",
+      "curator": "Gary",
+      "popularity": 150,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "crime",
+        "global",
+        "series",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3364",
+      "slug": "garycrawfordgc/sci-fi",
+      "url": "https://mdblist.com/lists/garycrawfordgc/sci-fi",
+      "name": "Sci-Fi",
+      "items": 267,
+      "media": "movie",
+      "curator": "Gary",
+      "popularity": 205,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "sci-fi",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.34451",
+      "slug": "qjao/academy-award-for-best-documentary-feature-film",
+      "url": "https://mdblist.com/lists/qjao/academy-award-for-best-documentary-feature-film",
+      "name": "Academy Award for Best Documentary Feature Film, a list by Jo\u00e3o Segatti",
+      "items": 82,
+      "media": "movie",
+      "curator": "qjao",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "awards",
+        "community",
+        "curated",
+        "deployed",
+        "documentary",
+        "movie"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.3882",
+      "slug": "hdlists/latest-tv-shows",
+      "url": "https://mdblist.com/lists/hdlists/latest-tv-shows",
+      "name": "Latest TV Shows",
+      "items": 300,
+      "media": "series",
+      "curator": "HD Movie Lists",
+      "popularity": 221,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "series",
+        "toplists",
+        "trending"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3885",
+      "slug": "hdlists/100-on-rottentomatoes-com",
+      "url": "https://mdblist.com/lists/hdlists/100-on-rottentomatoes-com",
+      "name": "100% on RottenTomatoes.com",
+      "items": 64,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 169,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.3892",
+      "slug": "hdlists/mindfuck-movies",
+      "url": "https://mdblist.com/lists/hdlists/mindfuck-movies",
+      "name": "Mindfuck Movies",
+      "items": 285,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 391,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "mindfuck",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3921",
+      "slug": "hdlists/based-on-or-inspired-by-a-true-story",
+      "url": "https://mdblist.com/lists/hdlists/based-on-or-inspired-by-a-true-story",
+      "name": "Based On or Inspired By a True Story",
+      "items": 249,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 128,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3922",
+      "slug": "hdlists/nostalgiac-movies-from-the-80s-90s",
+      "url": "https://mdblist.com/lists/hdlists/nostalgiac-movies-from-the-80s-90s",
+      "name": "Nostalgic Movies From The 80s & 90s",
+      "items": 289,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 137,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.3923",
+      "slug": "hdlists/crazy-plot-twists",
+      "url": "https://mdblist.com/lists/hdlists/crazy-plot-twists",
+      "name": "Crazy Plot Twists",
+      "items": 100,
+      "media": "movie",
+      "curator": "HD Movie Lists",
+      "popularity": 153,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "community",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.45854",
+      "slug": "traction1/pixar-shorts",
+      "url": "https://mdblist.com/lists/traction1/pixar-shorts",
+      "name": "Pixar Shorts, a list by Traction1",
+      "items": 60,
+      "media": "movie",
+      "curator": "traction1",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "animation",
+        "community",
+        "curated",
+        "deployed",
+        "family",
+        "movie",
+        "shorts"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.49761",
+      "slug": "binoytrevadia/indian-stand-up-comedy",
+      "url": "https://mdblist.com/lists/binoytrevadia/indian-stand-up-comedy",
+      "name": "Indian Stand Up Comedy",
+      "items": 52,
+      "media": "mixed",
+      "tags": [
+        "comedy",
+        "community",
+        "curated-small",
+        "deployed",
+        "india",
+        "stand-up"
+      ],
+      "hit_rate": {
+        "source": null,
+        "pool_verified": null,
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-india-trending",
+        "series-india-picks",
+        "series-comedy"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.50083",
+      "slug": "rdsgtrakt/imdb-best-miniseries",
+      "url": "https://mdblist.com/lists/rdsgtrakt/imdb-best-miniseries",
+      "name": "IMDB Best Miniseries, a list by RDsgTrakt",
+      "items": 558,
+      "media": "series",
+      "curator": "rdsgtrakt",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "classics",
+        "community",
+        "curated",
+        "deployed",
+        "limited-series",
+        "series"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.50087",
+      "slug": "rdsgtrakt/bbc-top-shows-1o1k4msqzw",
+      "url": "https://mdblist.com/lists/rdsgtrakt/bbc-top-shows-1o1k4msqzw",
+      "name": "BBC Top Shows, a list by RDsgTrakt",
+      "items": 496,
+      "media": "series",
+      "curator": "rdsgtrakt",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "bbc",
+        "classics",
+        "community",
+        "curated",
+        "deployed",
+        "series"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-classics"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.63182",
+      "slug": "trackertrack/reality-tv",
+      "url": "https://mdblist.com/lists/trackertrack/reality-tv",
+      "name": "Reality TV & Game Shows, a list by trackertrack",
+      "items": 556,
+      "media": "mixed",
+      "curator": "trackertrack",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "community",
+        "demoted",
+        "deployed",
+        "reality",
+        "series"
+      ],
+      "hit_rate": {
+        "source": 0.3333333333333333,
+        "source_n": 3,
+        "measured": "2026-06-24",
+        "notes": "Demoted after Pi source probe 1/3 stream hits"
+      },
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.69",
+      "slug": "linaspurinis/imdb-moviemeter-top-100",
+      "url": "https://mdblist.com/lists/linaspurinis/imdb-moviemeter-top-100",
+      "name": "IMDb Moviemeter (Top 100)",
+      "items": 28,
+      "media": "movie",
+      "curator": "Linas Purinis",
+      "popularity": 137,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "classics",
+        "global",
+        "movie",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.69712",
+      "slug": "sentinam/stand-up-comedy",
+      "url": "https://mdblist.com/lists/sentinam/stand-up-comedy",
+      "name": "Stand Up Comedy, a list by sentinam",
+      "items": 1040,
+      "media": "movie",
+      "curator": "sentinam",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "comedy",
+        "community",
+        "curated",
+        "deep-pool",
+        "deployed",
+        "movie",
+        "stand-up"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-comedy",
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.72165",
+      "slug": "rphv4eva/true-crime-documentaries",
+      "url": "https://mdblist.com/lists/rphv4eva/true-crime-documentaries",
+      "name": "True Crime Documentaries",
+      "items": 659,
+      "media": "mixed",
+      "tags": [
+        "community",
+        "deep-pool",
+        "demoted",
+        "deployed",
+        "documentary",
+        "true-crime"
+      ],
+      "hit_rate": {
+        "source": 0.0,
+        "source_n": 3,
+        "measured": "2026-06-24",
+        "notes": "Demoted after Pi source probe 0/3 stream hits"
+      },
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.72464",
+      "slug": "notamongo5/netflix-series-2",
+      "url": "https://mdblist.com/lists/notamongo5/netflix-series-2",
+      "name": "Netflix Movies & Series",
+      "items": 1728,
+      "media": "series",
+      "curator": "Frunkis5",
+      "popularity": 118,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "global",
+        "netflix",
+        "series",
+        "toplists"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.78210",
+      "slug": "an-kah/best-true-crime-documentaries",
+      "url": "https://mdblist.com/lists/an-kah/best-true-crime-documentaries",
+      "name": "Best True Crime Documentaries",
+      "items": 76,
+      "media": "mixed",
+      "tags": [
+        "community",
+        "curated-small",
+        "deployed",
+        "documentary",
+        "true-crime"
+      ],
+      "hit_rate": {
+        "source": null,
+        "pool_verified": null,
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.83666",
+      "slug": null,
+      "name": "Top Classic Movies",
+      "media": "movie",
+      "tags": [
+        "classics",
+        "global",
+        "deployed"
+      ],
+      "hit_rate": {
+        "source": 0.88,
+        "source_n": 8,
+        "pool_verified": null,
+        "measured": "2026-06-20",
+        "notes": "Demoted candidate in curation doc \u2014 re-test before raising weight"
+      },
+      "rails": [
+        "movies-classics"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.83918",
+      "slug": "ldroid/comedysitcom-zwcl1mruzm",
+      "url": "https://mdblist.com/lists/ldroid/comedysitcom-zwcl1mruzm",
+      "name": "Comedy/Sitcom, a list by ldroid",
+      "items": 465,
+      "media": "series",
+      "curator": "ldroid",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "comedy",
+        "community",
+        "curated",
+        "deep-pool",
+        "deployed",
+        "series",
+        "sitcom"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-comedy"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.84401",
+      "hit_rate": {
+        "source": 1.0,
+        "source_n": 3,
+        "measured": "2026-06-24",
+        "notes": "Pi reserve probe 3/3 stream hits"
+      },
+      "name": "Top Reality TV",
+      "slug": "tvgeniekodi/top-reality-tv",
+      "url": "https://mdblist.com/lists/tvgeniekodi/top-reality-tv",
+      "items": 200,
+      "media": "series",
+      "curator": "tvgeniekodi",
+      "source": "configured-import",
+      "tags": [
+        "deployed",
+        "global",
+        "official-snoak",
+        "reality",
+        "series"
+      ],
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.84403",
+      "slug": "tvgeniekodi/top-documentaries",
+      "url": "https://mdblist.com/lists/tvgeniekodi/top-documentaries",
+      "name": "Top Documentaries (Shows)",
+      "items": 200,
+      "media": "series",
+      "tags": [
+        "documentary",
+        "global",
+        "community",
+        "candidate"
+      ],
+      "hit_rate": {
+        "source": null,
+        "pool_verified": null,
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.84444",
+      "slug": "abhikbhatia/top-stand-up-comedy-since-1983",
+      "url": "https://mdblist.com/lists/abhikbhatia/top-stand-up-comedy-since-1983",
+      "name": "Top Stand Up Comedy (Since 1983)",
+      "items": 253,
+      "media": "mixed",
+      "tags": [
+        "stand-up",
+        "comedy",
+        "global",
+        "community",
+        "candidate",
+        "deep-pool"
+      ],
+      "hit_rate": {
+        "source": null,
+        "pool_verified": null,
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.84677",
+      "slug": null,
+      "name": "Top Documentaries (Movies)",
+      "media": "movie",
+      "tags": [
+        "deployed",
+        "documentary",
+        "global"
+      ],
+      "hit_rate": {
+        "source": 1.0,
+        "source_n": 8,
+        "pool_verified": 15,
+        "measured": "2026-06-20",
+        "notes": "High source rate but pool stuck at 15 \u2014 shallow head of list exhausted"
+      },
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.86734",
+      "slug": "pawdog/netflix-stand-up-comedy",
+      "url": "https://mdblist.com/lists/pawdog/netflix-stand-up-comedy",
+      "name": "Netflix Stand Up Comedy, a list by Ricky Cash",
+      "items": 416,
+      "media": "movie",
+      "curator": "pawdog",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "comedy",
+        "community",
+        "curated",
+        "deployed",
+        "movie",
+        "netflix",
+        "stand-up"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-comedy",
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.86934",
+      "slug": "snoak/latest-movies-digital-release",
+      "url": "https://mdblist.com/lists/snoak/latest-movies-digital-release",
+      "name": "Latest Streaming Movies",
+      "items": 200,
+      "media": "movie",
+      "curator": "snoak",
+      "popularity": 456,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "global",
+        "movie",
+        "official-snoak",
+        "toplists",
+        "trending"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.87667",
+      "slug": "snoak/trending-movies",
+      "url": "https://mdblist.com/lists/snoak/trending-movies",
+      "name": "Trakt's Trending Movies",
+      "items": 137,
+      "media": "movie",
+      "curator": "snoak",
+      "popularity": 393,
+      "source": "toplists",
+      "tags": [
+        "candidate",
+        "global",
+        "movie",
+        "official-snoak",
+        "toplists",
+        "trending"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.88006",
+      "slug": "shtluck/the-complete-criterion-collection",
+      "url": "https://mdblist.com/lists/shtluck/the-complete-criterion-collection",
+      "name": "The Complete Criterion Collection, a list by Evan Varisto",
+      "items": 1589,
+      "media": "movie",
+      "curator": "shtluck",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "classics",
+        "community",
+        "criterion",
+        "curated",
+        "deep-pool",
+        "deployed",
+        "movie"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "movies-classics"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.88302",
+      "slug": null,
+      "name": "Trending Movies",
+      "items": null,
+      "media": "movie",
+      "tags": [
+        "deployed",
+        "global",
+        "trending"
+      ],
+      "hit_rate": {
+        "source": 0.62,
+        "source_n": 8,
+        "pool_verified": 21,
+        "measured": "2026-06-20",
+        "notes": "80\u2013100% in earlier fills; anchor for popular/quick rails"
+      },
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.88303",
+      "hit_rate": {
+        "source": 1.0,
+        "source_n": 3,
+        "measured": "2026-06-24",
+        "notes": "Pi reserve probe 3/3 stream hits"
+      },
+      "name": "Trending Shows",
+      "slug": "tvgeniekodi/trending-shows",
+      "url": "https://mdblist.com/lists/tvgeniekodi/trending-shows",
+      "items": 200,
+      "media": "series",
+      "curator": "tvgeniekodi",
+      "source": "configured-import",
+      "tags": [
+        "deployed",
+        "global",
+        "official-snoak",
+        "series",
+        "trending"
+      ],
+      "rails": [
+        "series-global-popular"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.88306",
+      "hit_rate": {
+        "source": 1.0,
+        "source_n": 3,
+        "measured": "2026-06-24",
+        "notes": "Pi reserve probe 3/3 stream hits"
+      },
+      "name": "Latest Movies",
+      "slug": "tvgeniekodi/latest-movies",
+      "url": "https://mdblist.com/lists/tvgeniekodi/latest-movies",
+      "items": 200,
+      "media": "movie",
+      "curator": "tvgeniekodi",
+      "source": "configured-import",
+      "tags": [
+        "deployed",
+        "global",
+        "movie",
+        "official-snoak",
+        "trending"
+      ],
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.88434",
+      "slug": "snoak/trakt-s-trending-shows",
+      "url": "https://mdblist.com/lists/snoak/trakt-s-trending-shows",
+      "name": "Trakt's Trending Shows",
+      "items": 249,
+      "media": "series",
+      "curator": "snoak",
+      "popularity": 293,
+      "source": "toplists",
+      "tags": [
+        "deployed",
+        "global",
+        "official-snoak",
+        "series",
+        "toplists",
+        "trending"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-global-popular"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.88469",
+      "slug": "snoak/trending-anime-shows",
+      "url": "https://mdblist.com/lists/snoak/trending-anime-shows",
+      "name": "Trending Anime Shows",
+      "items": 200,
+      "media": "series",
+      "curator": "snoak",
+      "popularity": 83,
+      "source": "toplists",
+      "tags": [
+        "anime",
+        "candidate",
+        "global",
+        "official-snoak",
+        "series",
+        "toplists",
+        "trending"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": []
+    },
+    {
+      "catalog_id": "mdblist.91223",
+      "slug": "snoak/comedy-movies",
+      "url": "https://mdblist.com/lists/snoak/comedy-movies",
+      "name": "Popular Comedy Movies",
+      "items": 500,
+      "media": "movie",
+      "tags": [
+        "comedy",
+        "deep-pool",
+        "deployed",
+        "global",
+        "official-snoak"
+      ],
+      "hit_rate": {
+        "source": 1.0,
+        "source_n": 8,
+        "pool_verified": 20,
+        "measured": "2026-06-20",
+        "notes": "100% in curation doc; pool growth session hit min_display"
+      },
+      "rails": [
+        "movies-comedy"
+      ]
+    },
+    {
+      "catalog_id": "mdblist.91224",
+      "slug": "snoak/comedy-shows",
+      "url": "https://mdblist.com/lists/snoak/comedy-shows",
+      "name": "Popular Comedy Shows",
+      "items": 500,
+      "media": "series",
+      "tags": [
+        "comedy",
+        "deep-pool",
+        "deployed",
+        "global",
+        "official-snoak"
+      ],
+      "hit_rate": {
+        "source": 0.4,
+        "source_n": 8,
+        "pool_verified": 28,
+        "measured": "2026-06-20",
+        "notes": "~40% with Cinemeta anchor per curation; pool deep after growth session"
+      },
+      "rails": [
+        "series-comedy"
+      ]
+    }
+  ],
+  "rail_proposals": [],
+  "applied_proposals": [
+    {
+      "applied_at": "2026-06-20T08:35:26.633843+00:00",
+      "proposal": {
+        "version": 1,
+        "description": "v2.3 full \u2014 comedy, documentaries, miniseries, series comedy (enrich existing rails only)",
+        "rails": [
+          {
+            "rail_id": "movies-comedy",
+            "label": "comedy & comfort",
+            "tab": "movies",
+            "content_type": "movie",
+            "rationale": "Popular anchor + fresh latest + Gary depth",
+            "sources": [
+              {
+                "catalog_id": "mdblist.91223",
+                "weight": 0.45
+              },
+              {
+                "catalog_id": "mdblist.128040",
+                "weight": 0.35
+              },
+              {
+                "catalog_id": "mdblist.3107",
+                "weight": 0.2
+              }
+            ]
+          },
+          {
+            "rail_id": "movies-documentaries",
+            "label": "true stories",
+            "tab": "movies",
+            "content_type": "movie",
+            "rationale": "Break 84677 pool exhaustion; true-crime + science + Riz curated",
+            "sources": [
+              {
+                "catalog_id": "mdblist.78210",
+                "weight": 0.3
+              },
+              {
+                "catalog_id": "mdblist.72165",
+                "weight": 0.25
+              },
+              {
+                "catalog_id": "mdblist.2885",
+                "weight": 0.25
+              },
+              {
+                "catalog_id": "mdblist.100477",
+                "weight": 0.1
+              },
+              {
+                "catalog_id": "mdblist.84677",
+                "weight": 0.1
+              }
+            ]
+          },
+          {
+            "rail_id": "series-miniseries",
+            "label": "limited series",
+            "tab": "series",
+            "content_type": "series",
+            "rationale": "675-item deep pool + curated picks; keep 130153 fallback",
+            "sources": [
+              {
+                "catalog_id": "mdblist.143745",
+                "weight": 0.55
+              },
+              {
+                "catalog_id": "mdblist.169800",
+                "weight": 0.3
+              },
+              {
+                "catalog_id": "mdblist.130153",
+                "weight": 0.15
+              }
+            ]
+          },
+          {
+            "rail_id": "series-comedy",
+            "label": "comedy",
+            "tab": "series",
+            "content_type": "series",
+            "rationale": "Cinemeta anchor + snoak + Gary + India stand-up spice",
+            "sources": [
+              {
+                "catalog_id": "Cinemeta.top",
+                "weight": 0.5
+              },
+              {
+                "catalog_id": "mdblist.91224",
+                "weight": 0.25
+              },
+              {
+                "catalog_id": "mdblist.3122",
+                "weight": 0.15
+              },
+              {
+                "catalog_id": "mdblist.49761",
+                "weight": 0.1
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,28 +1,40 @@
-# Source
+# Mango source
 
-Phase 1 source is intentionally small and local-first.
+Native TV stack on `feat/native-experience`. Mac source ships by Git; Pi runtime
+state and physical couch proof remain separate.
 
-| Path | Status | Purpose |
-|------|--------|---------|
-| `launcher/` | Phase 1 | Vite + vanilla TypeScript TV launcher |
-| `overlay/` | Phase 1 | Vite + vanilla TypeScript idle overlay stub |
-| `mango-ui-server/` | Phase 1 | Stdlib-only Python static server and launch API |
-| `orchestrator/` | Deferred | Voice, LLM, tools, session |
-| `companion/` | Deferred | Phone PWA |
-| `stremio-service/` | Deferred | Stremio catalog/library API |
-| `adapters/` | Deferred | Kodi RPC, Stremio deep links, window focus, TMDB |
+| Path | Purpose |
+|------|---------|
+| `launcher/` | Search, Movies, TV Shows, Live, YouTube, Detail, ratings, Settings, focus/state restoration |
+| `mango-ui-server/` | Chromium static/API server, pad-nav queue, catalog proxy, health/launch boundary |
+| `catalog-service/` | Catalog/addon graph, library/progress, playability/grow, Search, recommendations, resolver/play sessions, YouTube, Reliability Center |
+| `orchestrator/` | Optional text/PTT librarian, STT, tool loop and TV dispatch (`:8765`/`:8766`) |
+| `companion/` | Optional HTTPS phone PWA (`:3001`) with a strict capability proxy |
 
-Build launcher and overlay separately:
+mpv is the only supported daily player. AIOStreams is the intended sole
+stream-capable VOD aggregate/path in a wider catalog/metadata/Live manifest
+graph; catalog-service still has an optional legacy direct
+MediaFusion thin-pool supplement whose removal or explicit gating is open.
+Kodi/Stremio artifacts are not the current automatic recovery contract.
 
-```bash
-cd src/launcher && npm install && npm run build
-cd ../overlay && npm install && npm run build
-```
-
-Run the Phase 1 shell from the repo root:
+## Local checks
 
 ```bash
-bash scripts/phase1/start-mango-ui.sh
+cd src/catalog-service && npm test
+cd ../launcher && npm run build
+cd ../companion && npm run build
 ```
 
-See [PHASE1.md](../docs/PHASE1.md) for the full runbook.
+Run only the checks relevant to a change, then prove runtime behavior on the
+exact Pi SHA before couch handoff.
+
+## Pi stack
+
+```bash
+bash scripts/mango-stack.sh restart
+bash scripts/pi-pre-couch-gate.sh
+```
+
+See [architecture](../docs/ARCHITECTURE.md),
+[status](../docs/STATUS.md), [catalog-service](catalog-service/README.md),
+[operations](../docs/OPS.md), and [deployment](../docs/DEPLOY.md).

@@ -1,0 +1,6 @@
+{
+  "installed": {
+    "client_id": "YOUR_GOOGLE_TV_OR_DESKTOP_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+    "client_secret": "optional-for-installed-client"
+  }
+}

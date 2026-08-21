@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Alpha test entry — restart mango with full diagnostic logging.
+# Legacy Phase 0 couch session (Stremio/Kodi matrix). Native deploy: use gate-lite instead.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

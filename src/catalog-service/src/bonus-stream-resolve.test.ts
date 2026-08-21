@@ -1,0 +1,249 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {
+  bonusIndexerProbeIds,
+  buildBonusTitleTokens,
+  dedupeStreamsByUrl,
+  isSupplementalEpisodeTitle,
+  isSupplementalStream,
+  listEpisodeCrossProbeIds,
+  parseSeriesEpisodeId,
+  pickBonusStreamsFromCandidates,
+  pickMainEpisodeStreams,
+  streamConflictsMainEpisodeNumber,
+  streamMatchesBonusEpisodeNumber,
+  streamMatchesBonusEpisodeTitleRelaxed,
+  streamMatchesMainEpisodeNumber,
+  streamMatchesBonusEpisodeTitle,
+} from './bonus-stream-resolve.js';
+import type { Stream } from './core.js';
+
+function stream(name: string, description = '', url = 'https://example.test/a'): Stream {
+  return { name, title: name, description, url, source: 'test' };
+}
+
+test('parseSeriesEpisodeId reads season and episode', () => {
+  assert.deepEqual(parseSeriesEpisodeId('tt33094114:0:7'), {
+    bare: 'tt33094114',
+    season: 0,
+    episode: 7,
+  });
+});
+
+test('bonusIndexerProbeIds includes each main season for the same episode number', () => {
+  assert.deepEqual(
+    bonusIndexerProbeIds('tt33094114:0:1', [
+      { season: 1 },
+      { season: 2 },
+    ]),
+    ['tt33094114:1:1', 'tt33094114:2:1'],
+  );
+});
+
+test('listEpisodeCrossProbeIds prioritizes same episode number across seasons', () => {
+  const ids = listEpisodeCrossProbeIds(
+    'tt33094114',
+    [
+      { id: 'tt33094114:1:3', season: 1, episode: 3 },
+      { id: 'tt33094114:2:1', season: 2, episode: 1 },
+      { id: 'tt33094114:1:1', season: 1, episode: 1 },
+    ],
+    { bare: 'tt33094114', season: 2, episode: 1 },
+    'tt33094114:2:1',
+    8,
+  );
+  assert.deepEqual(ids.slice(0, 2), ['tt33094114:1:1', 'tt33094114:1:3']);
+});
+
+test('streamMatchesBonusEpisodeNumber matches indexer bonus labels', () => {
+  assert.equal(streamMatchesBonusEpisodeNumber('igl bonus e01 web-dl', 1), true);
+  assert.equal(streamMatchesBonusEpisodeNumber('igl bonus ep 3', 3), true);
+  assert.equal(streamMatchesBonusEpisodeNumber('igl e07 main episode', 7), false);
+});
+
+test('streamMatchesBonusEpisodeNumber matches Cinemeta S00 identity labels', () => {
+  assert.equal(streamMatchesBonusEpisodeNumber("india's got latent (2024) s00 • e04 av1", 4), true);
+  assert.equal(streamMatchesBonusEpisodeNumber('igl s0e04 web-dl', 4), true);
+  assert.equal(streamMatchesBonusEpisodeNumber('igl s00e10', 10), true);
+  assert.equal(streamMatchesBonusEpisodeNumber('igl s01e04 main', 4), false);
+  assert.equal(streamMatchesBonusEpisodeNumber('igl s00e05', 4), false);
+});
+
+test('pickBonusStreamsFromCandidates keeps S00 identity rows for season-0 episodes', () => {
+  const picked = pickBonusStreamsFromCandidates(
+    [
+      stream('Comet', "📁 India's Got Latent (2024) S00 • E04 🎞️ AV1"),
+      stream('Torrentio', '📁 Igl S01E04 WEB-DL'),
+    ],
+    4,
+    'Bonus EP 3 ft. Avika Gor',
+  );
+  assert.equal(picked.length, 1);
+  assert.ok(/S00/i.test(String(picked[0]?.description ?? '')));
+});
+
+test('streamMatchesBonusEpisodeTitle matches deleted-moments extras', () => {
+  const haystack = 'indias got latent deleted moments deepak kalal 1080p';
+  assert.equal(
+    streamMatchesBonusEpisodeTitle(haystack, 'Deepak Kalal Episode Deleted Moments', 8),
+    true,
+  );
+  assert.equal(
+    streamMatchesBonusEpisodeTitle('igl e07 main episode', 'EP 07 ft. guest', 7),
+    false,
+  );
+});
+
+test('relaxed bonus title match uses meta supplemental title without torrent keywords', () => {
+  assert.equal(isSupplementalEpisodeTitle('Deepak Kalal Episode Deleted Moments'), true);
+  assert.equal(
+    streamMatchesBonusEpisodeTitleRelaxed(
+      'indias got latent deepak kalal 1080p repack',
+      'Deepak Kalal Episode Deleted Moments',
+      8,
+    ),
+    true,
+  );
+  assert.equal(
+    streamMatchesBonusEpisodeTitleRelaxed(
+      'igl e08 ft poonam pandey 1080p',
+      'Deepak Kalal Episode Deleted Moments',
+      8,
+    ),
+    false,
+  );
+  assert.equal(
+    streamMatchesBonusEpisodeTitleRelaxed(
+      'igl e07 main episode 1080p',
+      'Bonus EP 7 ft. Aakash Gupta',
+      7,
+    ),
+    false,
+  );
+});
+
+test('pickBonusStreamsFromCandidates relaxed tier finds title-only supplemental matches', () => {
+  const picked = pickBonusStreamsFromCandidates(
+    [
+      stream('Torrentio', 'indias got latent deepak kalal 1080p'),
+      stream('Torrentio', 'igl e08 main 1080p'),
+    ],
+    8,
+    'Deepak Kalal Episode Deleted Moments',
+    'relaxed',
+  );
+  assert.equal(picked.length, 1);
+  assert.ok(/deepak/i.test(String(picked[0]?.description ?? '')));
+});
+
+test('buildBonusTitleTokens strips short and stop words', () => {
+  assert.deepEqual(
+    buildBonusTitleTokens('Bonus EP 7 ft. Aakash Gupta').sort(),
+    ['aakash', 'bonus', 'gupta'].sort(),
+  );
+});
+
+test('pickBonusStreamsFromCandidates keeps bonus-labeled rows only', () => {
+  const picked = pickBonusStreamsFromCandidates(
+    [
+      stream('Torrentio', '📁 Igl Bonus E02\n📦 1.15 GB'),
+      stream('Torrentio', '📁 Igl E07\n📦 1.32 GB'),
+    ],
+    2,
+    'Bonus EP 2 ft. Badshah',
+  );
+  assert.equal(picked.length, 1);
+  assert.ok(/Bonus E02/i.test(String(picked[0]?.description ?? '')));
+});
+
+test('dedupeStreamsByUrl keeps first stream per url', () => {
+  const kept = dedupeStreamsByUrl([
+    stream('one', '', 'https://example.test/same'),
+    stream('two', '', 'https://example.test/same'),
+    stream('three', '', 'https://example.test/other'),
+  ]);
+  assert.equal(kept.length, 2);
+});
+
+test('pickMainEpisodeStreams drops supplemental and bonus-number mislabels', () => {
+  const bonusOnly = pickMainEpisodeStreams(
+    [stream('Torrentio', '📁 Igl Bonus E01 WEB-DL 1080p')],
+    1,
+    1,
+  );
+  assert.equal(bonusOnly.length, 0);
+
+  const mixed = pickMainEpisodeStreams(
+    [
+      stream('Torrentio', '📁 Igl Bonus E01 WEB-DL 1080p'),
+      stream('Torrentio', '📁 Igl S01E01 WEB-DL 1080p'),
+    ],
+    1,
+    1,
+  );
+  assert.equal(mixed.length, 1);
+  assert.ok(/S01E01/i.test(String(mixed[0]?.description ?? '')));
+});
+
+test('pickMainEpisodeStreams rejects wrong-episode labels (IGL E07 on S1E1)', () => {
+  const wrongEpisode = pickMainEpisodeStreams(
+    [stream('Torrentio', '📁 Igl E07 🎞️ AVC')],
+    1,
+    1,
+  );
+  assert.equal(wrongEpisode.length, 0);
+  assert.equal(streamConflictsMainEpisodeNumber('igl e07 avc', 1, 1), true);
+  assert.equal(streamMatchesMainEpisodeNumber('igl e07 avc', 1, 7), true);
+});
+
+test('pickMainEpisodeStreams rejects wrong labels beyond episode 30', () => {
+  const wrongEpisode = pickMainEpisodeStreams(
+    [stream('AIOStreams', '📁 The Alliance S01E35 WEB-DL 1080p')],
+    1,
+    36,
+  );
+  assert.equal(wrongEpisode.length, 0);
+  assert.equal(
+    streamConflictsMainEpisodeNumber('the alliance s01e35 web-dl', 1, 36),
+    true,
+  );
+  assert.equal(
+    streamMatchesMainEpisodeNumber('the alliance s01e36 web-dl', 1, 36),
+    true,
+  );
+  assert.equal(
+    streamConflictsMainEpisodeNumber('the alliance s02e36 web-dl', 1, 36),
+    true,
+  );
+});
+
+test('pickMainEpisodeStreams cross-probe mode requires episode label match', () => {
+  const strict = pickMainEpisodeStreams(
+    [
+      stream('Torrentio', '📁 Igl E07 🎞️ AVC'),
+      stream('Torrentio', '📁 Igl E01 🎞️ AVC'),
+    ],
+    1,
+    1,
+    { requireEpisodeLabel: true },
+  );
+  assert.equal(strict.length, 1);
+  assert.ok(/E01/i.test(String(strict[0]?.description ?? '')));
+});
+
+test('pickMainEpisodeStreams keeps normal series releases', () => {
+  const kept = pickMainEpisodeStreams(
+    [stream('Torrentio', '📁 Panchayat S01E01 AMZN WEB-DL')],
+    1,
+    1,
+  );
+  assert.equal(kept.length, 1);
+  assert.equal(isSupplementalStream(kept[0] ?? stream('', '')), false);
+});
+
+test('Discarded packs are supplemental (not main-episode play)', () => {
+  assert.equal(
+    isSupplementalStream(stream('MediaFusion', '📁 Indias Got Latent Discarded E01')),
+    true,
+  );
+});

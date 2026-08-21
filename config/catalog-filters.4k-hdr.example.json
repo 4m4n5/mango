@@ -1,0 +1,59 @@
+{
+  "_profile": "m6.3-tv-vlc-4k-stage2",
+  "_notes": [
+    "Target-TV profile after Samsung Input Signal Plus: launcher stays 1080p60 and couch playback uses a single backend for all resolutions.",
+    "Prefer cached HEVC/x265 streams, exclude REMUX, and allow 4K before falling back to 1080p.",
+    "exclude_hdr on the 4K step is mandatory while playback runs under X11: a real 4K HDR10 remux measured 27.7% dropped frames on the Pi X11 mpv path (2026-07-29) versus 0.1% for its SDR twin. loadFilterConfig now refuses a 4K main step without it on any x11 capability profile."
+  ],
+  "exclude_uncached_debrid": true,
+  "strict_unknown_cache": true,
+  "max_quality": "4k",
+  "preferred_quality": "4k",
+  "preferred_hdr_tags": [],
+  "preferred_video_codecs": ["hevc", "x265", "h265"],
+  "exclude_remux": true,
+  "include_uncached": false,
+  "exclude_error_streams": true,
+  "stream_display_limit": 8,
+  "auto_play_max_attempts": 8,
+  "auto_play_wall_ms": 90000,
+  "auto_play_probe_ms": 10000,
+  "auto_play_uncached_probe_ms": 25000,
+  "play_ladder": [
+    {
+      "step": "4k_hevc_cached",
+      "max_quality": "2160p",
+      "min_quality": "2160p",
+      "exclude_remux": true,
+      "require_hevc": true,
+      "exclude_hdr": true,
+      "require_cache": "cached",
+      "debrid_services": ["torbox", "realdebrid"],
+      "addons": ["AIOStreams"]
+    },
+    {
+      "step": "1080p_hevc_cached",
+      "max_quality": "1080p",
+      "exclude_remux": true,
+      "require_cache": "cached",
+      "debrid_services": ["torbox", "realdebrid"],
+      "addons": ["AIOStreams"]
+    },
+    {
+      "step": "1080p_cached_fallback",
+      "max_quality": "1080p",
+      "exclude_remux": true,
+      "require_cache": "cached",
+      "debrid_services": ["torbox", "realdebrid"],
+      "addons": ["AIOStreams"]
+    },
+    {
+      "step": "1080p_uncached_fallback",
+      "max_quality": "1080p",
+      "exclude_remux": true,
+      "require_cache": "cached_or_uncached",
+      "debrid_services": ["torbox", "realdebrid"],
+      "addons": ["AIOStreams"]
+    }
+  ]
+}

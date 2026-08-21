@@ -1,13 +1,140 @@
 :root {
-  color: #f7f3e8;
-  background: #050608;
+  color: var(--text-primary);
+  background: var(--bg-base);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
+
+  /* Cinema Dark tokens — locked 2026-07-05 */
+  --bg-base: #07080a;
+  --bg-elevated: #12151a;
+  --bg-overlay: rgba(7, 8, 10, 0.94);
+  --text-primary: #f4f1ea;
+  --text-secondary: rgba(244, 241, 234, 0.68);
+  --text-muted: rgba(244, 241, 234, 0.45);
+  /* One source for the brand amber; every tint derives its alpha from it. */
+  --accent-rgb: 232 160 32;
+  --accent: rgb(var(--accent-rgb));
+  --accent-soft: rgb(var(--accent-rgb) / 0.16);
+  --accent-glow: rgb(var(--accent-rgb) / 0.42);
+  /* Selected state, shared by browse tabs, search scope chips and season chips.
+     At 0.08 over near-black the fill was invisible at 3 m, so which tab you were
+     on could only be read from a 0.68-vs-1.0 text alpha. */
+  --tab-active-fill: rgba(255, 255, 255, 0.16);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --border-selected: rgba(255, 255, 255, 0.38);
+  /* Amber marks focus and nothing else interactive, so the primary action needs
+     its own fill. Cream carries the weight without competing with the ring. */
+  --primary-fill: var(--text-primary);
+  --on-primary: var(--bg-base);
+  --on-accent: #17120a;
+  /* Semantic status, kept separate from --accent so warnings never resemble
+     the current D-pad focus. */
+  --status-info: rgb(96 165 250 / 0.52);
+  --status-info-soft: rgb(30 64 175 / 0.24);
+  --status-ok: rgb(34 197 94 / 0.42);
+  --status-ok-soft: rgb(34 197 94 / 0.1);
+  --status-warn: rgb(251 113 133 / 0.52);
+  --status-warn-soft: rgb(136 19 55 / 0.24);
+  --status-error: rgb(248 113 113 / 0.52);
+  --status-error-soft: rgb(127 29 29 / 0.26);
+  /* 5% of 1920x1080 — the Android TV / Fire TV / Roku overscan floor. */
+  --safe-x: 96px;
+  --safe-y: 54px;
+  --focus-ring: 3px;
+  --focus-glow: 14px;
+  --focus-gutter: calc(var(--focus-glow) + 8px);
+  /* Amber is the focus colour. It may still carry the brand on decoration that
+     cannot be mistaken for a cursor — rail ticks, eyebrows, icons, progress fill,
+     inline badges — but never as a focusable element's own border or fill, since
+     that is indistinguishable from focus when the cursor is somewhere else.
+     Lasting states (selected, primary) use --border-selected + --tab-active-fill. */
+  --focus-ring-color: var(--accent);
+  --focus-scale-poster: 1.06;
+  --focus-scale-control: 1.03;
+  /* Large panels distort if scaled as much as a chip or a key. */
+  --focus-scale-surface: 1.012;
+  --text-display: 56px;
+  --text-title: 28px;
+  --text-body: 26px;
+  /* Fire TV's floor is 28px at 1080p and tvOS's body minimum is 29pt. The small
+     end of this scale sat well under both, so caption and control were lifted to
+     24px/26px. Control now equals body, so hierarchy between a control and body
+     copy is carried by weight and colour rather than size. */
+  --text-control: 26px;
+  --text-caption: 24px;
+  /* One tier below caption, and deliberately under the 24px Android TV caption
+     floor: badges were spread across six hardcoded sizes from 11.2px to 17.6px,
+     and at 24px the stream chips wrap the streams panel onto extra lines. The rule
+     for using it: only metadata a couch user does not have to read to make a
+     choice — codec, source, file size, or a label that repeats elsewhere on the
+     same screen. Anything decision-carrying uses caption or above. */
+  --text-micro: 20px;
+  --space-section: 3rem;
+  /* A rail label must group with the row it labels. At 0.85rem it sat 14px above
+     its own row and 17px below the previous row's text — near-equal, so it read
+     as belonging to neither. Label-to-its-row is now 20px against ~49px above it. */
+  --space-rail-header: 1.25rem;
+  --space-stack: 1rem;
+  --space-stack-lg: 1.5rem;
+  --detail-related-gap: 1.15rem;
+  /* Distance over which a stream/episode row dissolves as it leaves the side panel.
+     Roughly one row's height, so a row is meaningfully faded before its edge is
+     reached; shorter reads as a flicker, longer dims rows you are still choosing
+     between. Tunable — see docs/tasks/ux-round/07-handoff-protocol.md. */
+  /* How far content dissolves at the top and bottom of the stream/episode panel.
+     3rem is about half a row: enough to read as "this continues", short enough that
+     it never eats a row you were choosing between. Consumed by --panel-fade-top /
+     --panel-fade-bottom, which detail.ts clamps to the content actually hidden. */
+  --panel-edge-fade: 3rem;
+  --rail-accent-width: 3px;
+  /* 48px + a 30px label + a 20px header gap puts ~98px between one row's bottom
+     and the next row's artwork, which is the ~100px tvOS asks for between titled
+     rows. Applied by .rails AND .rails__tab — see the note on that rule. */
+  --rail-gap: var(--space-section);
+  /* One gutter for every main rail. Android TV's grid gutter is 20dp = 40px at
+     1080p, and the poster and 16:9 research passes independently landed on the
+     same number, so posters and thumbnails no longer space differently. */
+  --card-gap: 40px;
+  --radius-poster: 12px;
+  --radius-control: 999px;
+  --radius-panel: 16px;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  /* Instant D-pad focus snap — animated rings read as input lag at 3 m. */
+  --dur-focus-in: 0ms;
+  --dur-focus-out: 0ms;
+  /* Hover intent for the focused-poster label. Zero by default: a delay was tried
+     to stop labels strobing while scrubbing, but at 100ms the reveal read as lag on
+     the focused card, which is the cost the user actually notices. The label now
+     tracks focus as immediately as the ring does. Raise this only if scrubbing a
+     rail on the panel reads as flicker. */
+  --poster-label-delay: 80ms;
 }
 
 * {
   box-sizing: border-box;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Any author `display` rule beats the UA sheet's `[hidden] { display: none }`, so
+   an element toggled with `.hidden = true` stays on screen unless every one of its
+   selectors also guards the attribute. That is how the verify badge shipped as a
+   bare amber dot: empty text, but its `display: inline-flex` kept the pill and its
+   ::before dot painted. Make the attribute authoritative in one place instead. */
+[hidden] {
+  display: none !important;
 }
 
 html,
@@ -24,9 +151,9 @@ body {
   margin: 0;
   overflow: hidden;
   background:
-    linear-gradient(120deg, rgba(10, 107, 72, 0.18), transparent 38%),
-    radial-gradient(circle at 80% 10%, rgba(255, 179, 0, 0.18), transparent 32%),
-    #050608;
+    radial-gradient(ellipse 120% 80% at 50% 0%, rgba(255, 255, 255, 0.03), transparent 55%),
+    radial-gradient(ellipse 90% 60% at 50% 100%, rgba(0, 0, 0, 0.45), transparent 50%),
+    var(--bg-base);
 }
 
 button {
@@ -36,15 +163,1700 @@ button {
 .shell {
   width: 100vw;
   height: 100vh;
-  padding: 6vh 7vw;
+  padding: var(--safe-y) var(--safe-x);
 }
 
 .view {
   height: 100%;
   display: flex;
   flex-direction: column;
+  gap: 2.5vh;
+}
+
+.home {
+  justify-content: flex-start;
+  /* Room for top-rail focus glow below the tab bar — must exceed focus-gutter */
+  gap: 0.6rem;
+}
+
+.browse-bar {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex: 0 0 auto;
+  min-height: 3rem;
+  padding-bottom: 0.35rem;
+  /* Anchors the scrim below, so it needs no hardcoded header offset. */
+  position: relative;
+}
+
+/* Rails scroll under this bar and were cut off hard at the scrollport edge, so
+   bright poster art ran straight into the tab pills. This fades content out as it
+   reaches the bar. It is painted over the top of the scrollport rather than being
+   a mask on the scrollport itself, which would have to recomposite on every
+   scroll frame on the Pi. Its opacity is scroll-driven — see §scroll-aware edges. */
+.browse-bar::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  /* .shell insets by --safe-x; the fade has to reach the panel edges. */
+  left: calc(-1 * var(--safe-x));
+  right: calc(-1 * var(--safe-x));
+  height: 2.5rem;
+  background: linear-gradient(to bottom, var(--bg-base) 25%, transparent);
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* The wordmark is the one place amber is allowed to mean "brand" rather than
+   "focus": it is static, corner-anchored, and never focusable, so it cannot be
+   mistaken for a focus ring on an adjacent control. */
+.browse-brand {
+  flex: 0 0 auto;
+  margin: 0;
+  color: var(--accent);
+  font-size: var(--text-title);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+/* A pseudo-element rather than a character in the markup: the dot is a mark, not
+   punctuation, so it should not be read out or picked up by text tooling, and its
+   size can be tuned independently of the wordmark. Letter-spacing applies after
+   the final glyph, so it has to be cancelled or the dot floats away from "mango". */
+.browse-brand::after {
+  content: ".";
+  margin-left: calc(-1 * 0.04em);
+}
+
+.browse-tabs {
+  display: flex;
+  gap: 1rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Search is an action, not a destination; the rule separates it from the
+     browse destinations so the pill does not read as a fifth tab. */
+  padding-left: 1.25rem;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.browse-shuffle {
+  flex: 0 0 auto;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  appearance: none;
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0.55rem 0.95rem;
+  font-size: var(--text-control);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  transition:
+    border-color var(--dur-focus-in) var(--ease-out),
+    background var(--dur-focus-in) var(--ease-out),
+    color var(--dur-focus-in) var(--ease-out),
+    box-shadow var(--dur-focus-in) var(--ease-out),
+    opacity var(--dur-focus-in) var(--ease-out);
+}
+
+.browse-shuffle.focused,
+.browse-shuffle:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
+}
+
+.browse-shuffle--active {
+  color: var(--text-primary);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.browse-shuffle--active .browse-shuffle-key {
+  animation: shuffle-deal 0.55s var(--ease-out);
+}
+
+@keyframes shuffle-deal {
+  0% { transform: rotate(0deg) scale(1); }
+  35% { transform: rotate(-140deg) scale(1.12); }
+  100% { transform: rotate(-360deg) scale(1); }
+}
+
+/* A bare "X" would read as "close". The circular keycap says "the round X button
+   on the pad" instead, matching the 8BitDo face buttons the user is holding. */
+.browse-shuffle-key {
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+  font-size: var(--text-micro);
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.browse-shuffle-label {
+  font-size: var(--text-micro);
+  letter-spacing: 0.08em;
+}
+
+.browse-tab {
+  flex-shrink: 0;
+  appearance: none;
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0.65rem 1.4rem;
+  font-size: var(--text-control);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  transition:
+    border-color var(--dur-focus-in) var(--ease-out),
+    background var(--dur-focus-in) var(--ease-out),
+    color var(--dur-focus-in) var(--ease-out),
+    box-shadow var(--dur-focus-in) var(--ease-out);
+}
+
+.browse-tab.focused,
+.browse-tab:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
+}
+
+.browse-tab--active {
+  border-color: var(--border-selected);
+  background: var(--tab-active-fill);
+  color: var(--text-primary);
+}
+
+.browse-tab--active.focused,
+.browse-tab--active:focus-visible {
+  border-color: var(--accent);
+}
+
+.browse-search {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  appearance: none;
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-secondary);
+  padding: 0.65rem 1.15rem;
+  font-size: var(--text-control);
+  font-weight: 700;
+  text-transform: lowercase;
+}
+
+.browse-search.focused,
+.browse-search:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
+}
+
+.browse-personalization {
+  flex: 0 0 auto;
+  min-width: 10.5rem;
+  min-height: 3.45rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  appearance: none;
+  padding: 0.42rem 0.85rem;
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.browse-personalization--mood {
+  border-color: var(--border-selected);
+  background: var(--tab-active-fill);
+}
+
+.browse-personalization.focused,
+.browse-personalization:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
+}
+
+.browse-personalization-avatar {
+  flex: 0 0 auto;
+  width: 2.25rem;
+  height: 2.25rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--text-primary);
+  font-size: var(--text-micro);
+  font-weight: 850;
+  line-height: 1;
+}
+
+.browse-personalization-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.browse-personalization-name,
+.browse-personalization-mood {
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browse-personalization-name {
+  font-size: var(--text-caption);
+  font-weight: 750;
+  line-height: 1.05;
+}
+
+.browse-personalization-mood {
+  color: var(--text-muted);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  line-height: 1.05;
+}
+
+.rails {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--rail-gap);
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: clip;
+  /* Vertical gutter lives inside the scrollport only — no negative margin-block
+     (that pulled the scrollport under the tab bar and clipped top/bottom focus). */
+  padding-block-start: var(--focus-gutter);
+  /* Named because the bottom fade has to offset itself by exactly this much:
+     sticky resolves `bottom` against the content box, so a fade at `bottom: 0`
+     floats this far above the scrollport edge it is meant to cover. */
+  --rails-pad-end: calc(var(--focus-gutter) * 2 + 2.5rem);
+  padding-block-end: var(--rails-pad-end);
+  padding-inline: var(--focus-gutter);
+  margin-inline: calc(-1 * var(--focus-gutter));
+  /* Keep the first rail's header clear of the tab bar when its card is
+     focused — the scroll-into-view must not tuck the label under the tabs. */
+  scroll-padding-block-start: 3.25rem;
+  scroll-padding-block-end: var(--focus-gutter);
+  scrollbar-width: none;
+}
+
+/* Rails are grouped inside a per-tab wrapper, so the gap on .rails only separated
+   that wrapper from the apps rail: rails within a tab had no spacing at all, which
+   is why every rail label sat as close to the row above it as to the row it
+   labels. The class was created in markup but never styled. */
+.rails__tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rail-gap);
+}
+
+.search {
+  position: relative;
+  isolation: isolate;
+  height: calc(100% - 1.5rem - var(--focus-gutter));
+  /* Horizontal inset belongs to .shell's safe area alone — a second inset here
+     pushed Search further in than the rails it sits above. */
+  margin: 1.5rem 0 var(--focus-gutter);
+  gap: 0;
+  overflow: visible;
+  --search-line: var(--border-subtle);
+  --search-key: var(--bg-elevated);
+  --search-key-gap: 0.4rem;
+  --search-key-width: 4.35rem;
+}
+
+.search--results {
+  /* Named scroll timeline for the pinned-head fade below. Scoped here so the
+     sibling .search-head can animate against .search-results without resolving
+     to the document scroller. */
+  timeline-scope: --search-scroll;
+}
+
+.search-atmosphere {
+  position: absolute;
+  z-index: -1;
+  /* Artwork and atmosphere can bleed to the panel edge; controls remain inside
+     .shell's 5% safe area. This removes the visible inset rectangle without
+     putting focus rings in overscan territory. */
+  inset:
+    calc(-1 * (var(--safe-y) + 1.5rem))
+    calc(-1 * var(--safe-x))
+    calc(-1 * (var(--safe-y) + var(--focus-gutter)));
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      ellipse 58% 48% at 8% 0%,
+      rgb(var(--accent-rgb) / 0.045),
+      transparent 70%
+    ),
+    var(--bg-base);
+}
+
+.search-atmosphere-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 72% 28%;
+  opacity: 0;
+  transform: scale(1.04);
+  transition: opacity 220ms ease;
+}
+
+.search-atmosphere--ready .search-atmosphere-image {
+  opacity: 0.16;
+}
+
+.search-atmosphere::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      90deg,
+      var(--bg-base) 0%,
+      rgb(7 8 10 / 0.88) 34%,
+      rgb(7 8 10 / 0.62) 62%,
+      rgb(7 8 10 / 0.78) 100%
+    ),
+    linear-gradient(
+      180deg,
+      rgb(7 8 10 / 0.35) 0%,
+      transparent 28%,
+      rgb(7 8 10 / 0.55) 78%,
+      var(--bg-base) 100%
+    );
+}
+
+.search-head {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "query"
+    "scopes";
+  align-items: end;
+  row-gap: 0.75rem;
+  flex: 0 0 auto;
+  padding: 0 0 1.05rem;
+  border-bottom: 1px solid transparent;
+  background:
+    linear-gradient(to bottom, var(--bg-base) 72%, transparent);
+}
+
+.search--compose .search-head {
+  border-bottom-color: var(--search-line);
+  background: none;
+}
+
+.search--results .search-head {
+  padding-bottom: 0.85rem;
+  /* Solid base so scrolling rails dissolve under the pinned query/scopes rather
+     than colliding with them. The hairline is the only permanent seam. */
+  border-bottom-color: var(--search-line);
+  background: var(--bg-base);
+}
+
+/* Compositor-cheap dissolve under the pinned Search head — same pattern as the
+   browse bar. Opacity stays 0 at rest so the first rail title is not washed out;
+   it appears only after content has actually scrolled under the header. */
+.search--results .search-head::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: calc(-1 * var(--safe-x));
+  right: calc(-1 * var(--safe-x));
+  height: 2.25rem;
+  background: linear-gradient(to bottom, var(--bg-base) 20%, transparent);
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0;
+}
+
+.search-query-shell {
+  grid-area: query;
+  min-width: 0;
+  min-height: 3.35rem;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.mango-icon,
+.search-icon {
+  width: 1.45em;
+  height: 1.45em;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mango-icon--fill {
+  fill: currentColor;
+  stroke: none;
+}
+
+.search-query-shell > .search-icon {
+  width: 1.7rem;
+  height: 1.7rem;
+  color: var(--text-secondary);
+}
+
+.search--results .search-query-shell {
+  min-height: 3.35rem;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
+}
+
+.search-query {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-primary);
+  font-size: clamp(1.7rem, 2.15vw, 2.35rem);
+  font-weight: 700;
+  letter-spacing: -0.028em;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.search-query-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-query[data-empty="true"] {
+  color: var(--text-muted);
+  font-weight: 540;
+}
+
+.search-query-caret {
+  width: 2px;
+  height: 1.85rem;
+  flex: 0 0 auto;
+  border-radius: 3px;
+  background: rgb(var(--accent-rgb) / 0.72);
+  box-shadow: none;
+}
+
+.search-query[data-empty="true"] .search-query-caret {
+  margin-right: 0.15rem;
+}
+
+.search-scopes,
+.search-starter-track {
+  display: flex;
+  align-items: stretch;
+}
+
+.search-scopes {
+  grid-area: scopes;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.search-scopes .search-control {
+  min-height: 3.45rem;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  gap: 6vh;
+  padding: 0.65rem 1.4rem;
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: transparent;
+  font-size: var(--text-control);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.search-control {
+  appearance: none;
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-poster);
+  background: var(--search-key);
+  color: var(--text-secondary);
+  min-height: 3rem;
+  padding: 0.5rem 0.95rem;
+  font-size: var(--text-caption);
+  font-weight: 680;
+  letter-spacing: 0.01em;
+  transform: translateZ(0);
+}
+
+.search-control.focused,
+.search-control:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
+  transform: scale(var(--focus-scale-control));
+}
+
+.search-chip--active {
+  border-color: var(--border-selected);
+  background: var(--tab-active-fill);
+  color: var(--text-primary);
+}
+
+.search-chip--active.focused,
+.search-chip--active:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.search-chip--active::before {
+  content: none;
+}
+
+.search-compose-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(18rem, 0.72fr);
+  align-items: start;
+  column-gap: clamp(1.4rem, 2vw, 2.2rem);
+  min-height: 0;
+  flex: 1 1 auto;
+  padding-top: 1rem;
+}
+
+/* Keyboard above, preview band below, sharing the grid's left column. */
+.search-compose-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.search-keyboard {
+  min-width: 0;
+  flex: 0 0 auto;
+  padding: 0.1rem 0 var(--focus-gutter);
+}
+
+.search-keyboard-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--search-key-gap);
+}
+
+/* Editorial stage under the keys. Height stays stable; recents without art
+   keep a typographic fallback so the band never collapses into dead space. */
+.search-preview {
+  min-width: 0;
+  min-height: 12.5rem;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: clamp(1.1rem, 1.5vw, 1.75rem);
+  padding: 0.15rem var(--focus-gutter) 0 0.1rem;
+  overflow: clip;
+}
+
+.search-preview[hidden] {
+  display: none;
+}
+
+.search-preview-frame {
+  position: relative;
+  flex: 0 0 auto;
+  height: 11.5rem;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border: none;
+  border-radius: var(--radius-poster);
+  background: var(--bg-elevated);
+}
+
+.search-preview--landscape .search-preview-frame {
+  aspect-ratio: 16 / 9;
+}
+
+.search-preview--text .search-preview-frame {
+  aspect-ratio: 2 / 3;
+  display: grid;
+  place-items: center;
+  background: var(--bg-elevated);
+}
+
+.search-preview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.search-preview-image--ready {
+  opacity: 1;
+}
+
+.search-preview-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.search-preview-fallback[hidden] {
+  display: none;
+}
+
+.search-preview-fallback-mark {
+  color: var(--text-muted);
+  font-size: 2.4rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.08em;
+}
+
+.search-preview-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding-top: 0.35rem;
+  max-width: 22rem;
+}
+
+.search-preview-title {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-title);
+  font-weight: 720;
+  line-height: 1.22;
+  letter-spacing: -0.018em;
+}
+
+.search-preview-meta {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.search-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 0;
+  margin-bottom: 0.35rem;
+}
+
+.search-panel-head .rail-title {
+  margin: 0;
+}
+
+.search-panel-head h2:not(.rail-title) {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.search-panel-head p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 560;
+}
+
+.search-key-row {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: var(--search-key-gap);
+  justify-content: stretch;
+  margin-bottom: 0;
+}
+
+.search-key {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  min-height: 3.85rem;
+  flex: none;
+  padding-inline: 0.15rem;
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-poster);
+  background: var(--search-key);
+  color: var(--text-primary);
+  font-size: var(--text-control);
+  font-weight: 700;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.search-key.focused,
+.search-key:focus-visible {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
+  transform: scale(var(--focus-scale-control));
+}
+
+.search-key-action {
+  min-height: 3.85rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  text-transform: lowercase;
+}
+
+.search-key-space,
+.search-key-clear,
+.search-key-delete,
+.search-key-submit {
+  min-width: 0;
+}
+
+.search-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  color: var(--text-primary);
+}
+
+.search-submit > .search-icon {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.search-submit.focused,
+.search-submit:focus-visible {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.search-starters {
+  min-height: 0;
+  overflow: visible;
+}
+
+.search-discovery {
+  padding: 0.15rem 0 0.5rem 0.2rem;
+  border-left: none;
+}
+
+.search-starter-track {
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 0;
+  overflow: visible;
+  padding: var(--focus-gutter) calc(var(--focus-ring) + 2px);
+  margin-top: calc(-1 * var(--focus-gutter));
+}
+
+.search-starter {
+  width: 100%;
+  min-height: 4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.5rem 0.65rem;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.search-starter.focused,
+.search-starter:focus-visible {
+  background: var(--accent-soft);
+  transform: scale(var(--focus-scale-surface));
+}
+
+.search-starter-icon {
+  width: 2.15rem;
+  height: 2.15rem;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+}
+
+.search-starter-icon .search-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.search-starter-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.search-starter-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+  font-size: var(--text-control);
+  font-weight: 650;
+}
+
+.search-starter-meta {
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.search-starter-empty {
+  min-height: 14rem;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.9rem;
+  padding: 2rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.search-starter-empty .search-icon {
+  width: 2.1rem;
+  height: 2.1rem;
+  color: var(--text-muted);
+}
+
+.search-starter-empty p {
+  max-width: 17rem;
+  margin: 0;
+  font-size: var(--text-caption);
+  line-height: 1.45;
+}
+
+.search-results {
+  position: relative;
+  z-index: 1;
+  margin-top: 0;
+  padding-block-start: 0.85rem;
+  padding-block-end: 3.5rem;
+  gap: 1.45rem;
+  scroll-padding-block-start: 1rem;
+  scroll-padding-block-end: 5rem;
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+/* Search is already a bounded full-page scroll surface. The generic rail tail
+   scrim made its content end at a visible horizontal box boundary. */
+.search-results::after {
+  display: none;
+}
+
+@supports (animation-timeline: scroll()) and (timeline-scope: --search-scroll) {
+  .search-results {
+    scroll-timeline: --search-scroll y;
+  }
+
+  .search--results .search-head::after {
+    animation: rails-edge-appear linear both;
+    animation-timeline: --search-scroll;
+    animation-range: 0px 3rem;
+  }
+}
+
+.search-results-toolbar {
+  position: relative;
+  z-index: 1;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 0 0 auto;
+  padding: 0.2rem 0 0.45rem;
+  margin: 0;
+  background: transparent;
+}
+
+.search-results-toolbar::after {
+  content: none;
+}
+
+.search-results-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  font-weight: 650;
+}
+
+.search-results-state-mark {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  box-shadow: none;
+  opacity: 0.85;
+}
+
+.search-results .rail {
+  position: relative;
+}
+
+.search-results .rail-title {
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  font-weight: 700;
+  letter-spacing: -0.012em;
+}
+
+.search-edit {
+  border-radius: var(--radius-control);
+}
+
+.search-edit .search-icon {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.search-more-card.card--portrait {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(255, 255, 255, 0.08), transparent 38%),
+    linear-gradient(145deg, rgba(28, 31, 36, 0.96), var(--bg-base));
+}
+
+.search-more-frame {
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.08), transparent 42%),
+    linear-gradient(145deg, rgba(28, 31, 36, 0.96), var(--bg-base));
+}
+
+.search-more-glyph {
+  color: var(--text-secondary);
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  font-weight: 500;
+  line-height: 1;
+}
+
+.search-more-card.card--portrait .search-more-glyph {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.search-edit {
+  min-width: 6.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  flex: 0 0 auto;
+  border-radius: var(--radius-control);
+  font-size: var(--text-caption);
+}
+
+.search-edit[hidden] {
+  display: none;
+}
+
+.search-message {
+  min-height: 20rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.4rem;
+  padding: 3rem 0;
+  color: var(--text-secondary);
+}
+
+.search-message > .search-icon {
+  width: 3.2rem;
+  height: 3.2rem;
+  color: var(--text-muted);
+}
+
+.search-message h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-title);
+  font-weight: 720;
+}
+
+.search-message p {
+  margin: 0.45rem 0 0;
+  max-width: 34rem;
+  font-size: var(--text-caption);
+  line-height: 1.4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-control,
+  .search-key,
+  .search-preview-image,
+  .search-atmosphere-image {
+    transition: none;
+  }
+
+  .search-control.focused,
+  .search-control:focus-visible,
+  .search-key.focused,
+  .search-key:focus-visible,
+  .search-starter.focused,
+  .search-starter:focus-visible {
+    transform: none;
+  }
+}
+
+/* The peek row below the focused rail is deliberate, but it was cut dead at the
+   scrollport edge, usually straight through a line of card titles. This fades it
+   instead, so a partly-shown rail reads as "more below" — the same treatment the
+   tab bar gives the top edge and the episode panel gives its own bottom. Sticky
+   rather than a mask on the scrollport: a mask would fade the focus ring of a
+   card sitting at the edge, and on the Pi it recomposites every scroll frame. */
+.rails::after {
+  content: "";
+  position: sticky;
+  bottom: calc(-1 * var(--rails-pad-end));
+  z-index: 3;
+  flex: 0 0 auto;
+  height: 2.5rem;
+  margin-block-start: calc(-2.5rem - var(--rail-gap));
+  margin-inline: calc(-1 * var(--focus-gutter));
+  background: linear-gradient(to top, var(--bg-base), transparent);
+  pointer-events: none;
+}
+
+.rails::-webkit-scrollbar {
+  display: none;
+}
+
+/* Scroll-aware edges.
+
+   Both edge fades used to be painted unconditionally, which meant the top one
+   washed over the first rail's title while sitting at rest with nothing scrolled
+   under it, and the bottom one still implied "more below" on the last rail. Their
+   opacity is now driven by scroll position, so each fade only exists while it is
+   telling the truth.
+
+   Driven by a named scroll timeline rather than `scroll()` because the top fade
+   belongs to .browse-bar, which is a sibling of the scroller and not a descendant,
+   so the anonymous `nearest` lookup would resolve to the document instead. Opacity
+   on an already-composited overlay is the cheap half of this: it runs on the
+   compositor, so unlike a mask on the scrollport it costs nothing per scroll frame. */
+@supports (animation-timeline: scroll()) and (timeline-scope: --rails-scroll) {
+  .home {
+    timeline-scope: --rails-scroll;
+  }
+
+  .rails {
+    scroll-timeline: --rails-scroll y;
+  }
+
+  .browse-bar::after {
+    opacity: 0;
+    animation: rails-edge-appear linear both;
+    animation-timeline: --rails-scroll;
+    /* Absolute length, not a percentage: a percentage of scroll distance would
+       make the fade arrive later on a long tab than a short one. */
+    animation-range: 0px 3rem;
+  }
+
+  .rails::after {
+    animation: rails-edge-vanish linear both;
+    animation-timeline: --rails-scroll;
+    /* Ends where the content ends, not where the scroller does. Focus-driven
+       scrolling stops as soon as the focused row is on screen, so landing on the
+       last row leaves the scroller's trailing padding unscrolled — measured at 67px
+       of slack, against a range that only resolved in the final 48px. The fade
+       therefore sat at full opacity on the apps row with nothing beneath it.
+       Subtracting the padding anchors the range to the last pixel of real content. */
+    animation-range:
+      calc(100% - var(--rails-pad-end) - 3rem)
+      calc(100% - var(--rails-pad-end));
+  }
+}
+
+@keyframes rails-edge-appear {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rails-edge-vanish {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+.rail {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-block: calc(var(--focus-gutter) * 0.45);
+  min-height: 0;
+}
+
+.rail:not(:first-child) {
+  padding-top: calc(var(--space-rail-header) * 0.5);
+}
+
+.rail-title {
+  margin: 0 0 var(--space-rail-header);
+  padding-left: 0.85rem;
+  border-left: var(--rail-accent-width) solid var(--accent);
+  /* Was 22px at 68% alpha — under the 10-ft body floor for a section heading
+     that has to be readable while scanning past it. */
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  /* Rail labels arrive from the catalog with mixed casing ("continue watching"
+     next to "Saved"), so normalise here rather than trusting the source. */
+  text-transform: lowercase;
+}
+
+.rail-track--posters {
+  display: grid;
+  grid-template-columns: repeat(var(--rail-cols, 9), minmax(0, 1fr));
+  gap: var(--card-gap);
+  overflow: visible;
+  padding: var(--focus-gutter);
+  margin: calc(-1 * var(--focus-gutter));
+  width: calc(100% + 2 * var(--focus-gutter));
+  scroll-snap-type: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    transition-duration: 0.01ms;
+  }
+
+  .card.focused,
+  .card:focus-visible,
+  .card--landscape.focused,
+  .card--landscape:focus-visible,
+  .browse-tab.focused,
+  .browse-shuffle.focused,
+  .detail-button.focused,
+  .search-key.focused,
+  .search-control.focused {
+    transform: none;
+  }
+
+  .detail {
+    animation: none;
+  }
+
+  .detail-backdrop-image {
+    width: 100%;
+    height: 100%;
+    left: 0;
+    top: 0;
+    filter: brightness(0.45);
+    transform: none;
+  }
+}
+
+.rail-track:not(.rail-track--posters) {
+  display: flex;
+  gap: 1.4vw;
+  overflow: visible;
+  padding: var(--focus-gutter);
+  margin: calc(-1 * var(--focus-gutter));
+  width: calc(100% + 2 * var(--focus-gutter));
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.rail-track::-webkit-scrollbar {
+  display: none;
+}
+
+.empty-state {
+  width: min(860px, 100%);
+  min-height: 8rem;
+  padding: var(--space-stack) var(--space-stack-lg);
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+}
+
+.catalog-state--empty .empty-state {
+  border-color: var(--border-strong);
+}
+
+.catalog-state--offline .rail-title {
+  border-left-color: var(--status-error);
+}
+
+.catalog-state--offline .empty-state {
+  background: var(--status-error-soft);
+  border-color: var(--status-error);
+}
+
+.catalog-state--loading .rail-title {
+  border-left-color: var(--status-info);
+}
+
+.catalog-skeleton-grid {
+  pointer-events: none;
+}
+
+.catalog-skeleton-card {
+  min-width: 0;
+}
+
+.catalog-skeleton-art,
+.catalog-skeleton-line {
+  display: block;
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.025));
+  border: 2px solid var(--border-subtle);
+}
+
+.catalog-skeleton-card--portrait .catalog-skeleton-art {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-poster);
+}
+
+.catalog-skeleton-card--landscape {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.catalog-skeleton-card--landscape .catalog-skeleton-art {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-poster);
+}
+
+.catalog-skeleton-line {
+  height: 1rem;
+  border: 0;
+  border-radius: 999px;
+}
+
+.catalog-skeleton-line--title {
+  width: 68%;
+}
+
+.catalog-skeleton-line--meta {
+  width: 42%;
+  opacity: 0.62;
+}
+
+.catalog-stale-banner {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.75rem 1rem;
+  color: var(--text-primary);
+  background: var(--status-warn-soft);
+  border: 1px solid var(--status-warn);
+  border-radius: var(--radius-panel);
+  font-size: var(--text-caption);
+}
+
+.catalog-stale-title {
+  font-weight: 850;
+}
+
+.catalog-stale-body {
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+
+.empty-state-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-title);
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.empty-state-body {
+  margin: 0.6rem 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  font-weight: 700;
+}
+
+.rail-empty {
+  min-height: 4rem;
+  margin: 0;
+  padding: var(--space-stack);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.card {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-poster);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  scroll-snap-align: start;
+  transition:
+    border-color var(--dur-focus-out) var(--ease-out),
+    box-shadow var(--dur-focus-in) var(--ease-out);
+}
+
+.card--poster {
+  position: relative;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  background: var(--bg-elevated);
+}
+
+.card--poster.card--portrait {
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, rgba(33, 42, 44, 0.92), var(--bg-base));
+}
+
+.card--poster.card--landscape {
+  display: flex;
+  flex-direction: column;
+  /* Thumbnail bottom to title: platform examples use 16px, comfortable is 20-24. */
+  gap: 1.25rem;
+  /* No inset. The padding here insets the thumbnail inside its own grid cell, so
+     a 271px cell rendered a 227px thumbnail and the visible gutter between
+     thumbnails became 64px — 28% of thumbnail width. The focus ring is drawn on
+     .poster-frame and paints outside it, into the track's own focus gutter. */
+  overflow: visible;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.card--landscape .poster-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--radius-poster);
+  border: 2px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  transition:
+    box-shadow var(--dur-focus-in) var(--ease-out),
+    border-color var(--dur-focus-out) var(--ease-out);
+}
+
+.card--landscape .poster-content {
+  position: static;
+  padding: 0 0.15rem;
+}
+
+.card--landscape.focused .poster-frame,
+.card--landscape:focus-visible .poster-frame {
+  border-color: transparent;
+  box-shadow:
+    0 0 0 var(--focus-ring) var(--focus-ring-color),
+    0 0 var(--focus-glow) var(--accent-glow),
+    0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.card--landscape.focused,
+.card--landscape:focus-visible {
+  z-index: 2;
+  box-shadow: none;
+  border: none;
+}
+
+/* Scaled with the card: a 23px disc that read as a deliberate marker on a 174px
+   poster reads as a speck on a 255px one. Deliberately NOT amber-filled: a
+   saturated accent disc on every saved poster outweighed the focus ring it sits
+   next to, and accent that appears on non-interactive status teaches a false
+   affordance. Dark disc + cream glyph reads on any poster art without competing. */
+.card--poster.card--saved::after {
+  content: "★";
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  z-index: 3;
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(5, 8, 10, 0.72);
+  color: var(--text-primary);
+  font-size: var(--text-micro);
+  font-weight: 900;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+/* Inside the Saved rail every card is saved by definition, so the marker is pure
+   noise there — one row of identical badges restating the rail label. */
+.rail[data-rail-id="saved"] .card--poster.card--saved::after {
+  content: none;
+}
+
+.card-live-pill {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 3;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(220, 38, 38, 0.92);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+}
+
+.card--app {
+  width: clamp(11rem, 16vw, 18rem);
+  min-height: 11rem;
+  padding: 1.4rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  border-radius: var(--radius-panel);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+}
+
+.card.focused,
+.card:focus-visible {
+  outline: none;
+  border-color: transparent;
+  z-index: 2;
+  box-shadow:
+    0 0 0 var(--focus-ring) var(--focus-ring-color),
+    0 0 var(--focus-glow) var(--accent-glow),
+    0 18px 48px rgba(0, 0, 0, 0.5);
+  /* The ring alone reads flat at 3 m; the declared poster scale was never
+     applied. Lift is instant (--dur-focus-in: 0) so it cannot read as lag. */
+  transform: scale(var(--focus-scale-poster));
+}
+
+.card--landscape.focused,
+.card--landscape:focus-visible {
+  box-shadow: none;
+  border: none;
+}
+
+.poster-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #101417;
+}
+
+.poster-shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, transparent 42%, rgba(5, 8, 10, 0.92) 82%),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.18), transparent 45%);
+}
+
+.poster-content {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem 1rem 1.1rem;
+}
+
+/* ui-flags.ts MINIMAL_VOD_POSTER_LABELS — remove class hook to revert.
+
+   Poster art already carries the title, so a permanent label on every card is
+   duplicated text noise across 54 cards. But hiding it outright left the focused
+   card with no title either, which matters exactly when the art does not identify
+   itself: foreign-language releases, generic fallback art, and remakes that share
+   a name. So the grid stays pure artwork and the label is revealed on the one card
+   you are actually on. Opacity rather than `display` so it can transition;
+   Chromium skips painting fully transparent layers, so idle cost stays nil. */
+.card--poster-minimal .poster-content,
+.card--poster-minimal .poster-shade {
+  opacity: 0;
+  /* Applies on the way OUT — leave immediately, no delay, so the label does not
+     linger over art you have already left. */
+  transition: opacity 90ms var(--ease-out);
+}
+
+.card--poster-minimal.focused .poster-content,
+.card--poster-minimal.focused .poster-shade,
+.card--poster-minimal:focus-visible .poster-content,
+.card--poster-minimal:focus-visible .poster-shade {
+  opacity: 1;
+  /* Applies on the way IN. Short enough to read as part of the focus change rather
+     than as a separate event arriving late — the ring is instant
+     (--dur-focus-in: 0ms) and the label should feel attached to it. */
+  transition: opacity 70ms var(--ease-out) var(--poster-label-delay);
+}
+
+/* The reveal's second line is the year on discovery and Saved rails, and progress
+   on Continue watching — see posterRevealMeta() in home.ts. It collapses rather
+   than leaving a blank line when there is nothing worth saying, so single-line and
+   two-line reveals both sit flush to the bottom of the poster. */
+.card--poster-minimal .card-subtitle:empty {
+  display: none;
+}
+
+/* Quieter than the title and tabular so a column of years does not visibly jitter
+   between glyph widths as focus moves along a rail. */
+.card--poster-minimal .card-subtitle {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tighter than the default shade, which starts fading at 42% and would dim over
+   half the artwork at the moment focus is drawing the eye to it. */
+.card--poster-minimal .poster-shade {
+  background: linear-gradient(180deg, transparent 58%, rgba(5, 8, 10, 0.94) 88%);
+}
+
+.poster-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.14);
+  z-index: 2;
+}
+
+.poster-progress::after {
+  content: "";
+  display: block;
+  height: 100%;
+  width: var(--progress, 0%);
+  background: var(--accent);
+}
+
+.card-title {
+  display: block;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: var(--text-title);
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.card-subtitle,
+.card-kicker {
+  display: block;
+  color: var(--text-secondary);
+  font-size: calc(var(--text-caption) - 2px);
+  font-weight: 600;
+}
+
+/* Platform guidance for a title under a 16:9 card is 28-32px at 1080p with a
+   36-44px line box; this was 26px on a 29.9px line. */
+.card--landscape .card-title {
+  font-size: var(--text-title);
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+}
+
+.card--landscape .card-subtitle {
+  font-size: var(--text-caption);
+  -webkit-line-clamp: 1;
+}
+
+.card--app .card-title {
+  font-size: calc(var(--text-title) - 4px);
+}
+
+.card--app .card-kicker {
+  font-size: var(--text-caption);
+  text-transform: lowercase;
 }
 
 .hidden {
@@ -57,90 +1869,1781 @@ button {
 
 .eyebrow {
   margin: 0 0 0.5rem;
-  color: #ffb300;
-  font-size: clamp(1.2rem, 2vw, 2rem);
+  color: var(--accent);
+  font-size: 1.45rem;
   font-weight: 800;
-  text-transform: uppercase;
+  /* Eyebrows echo catalog-supplied labels, which are inconsistently cased. */
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
 }
 
 h1 {
   max-width: 1100px;
   margin: 0;
-  font-size: clamp(3rem, 7vw, 6.8rem);
+  font-size: 5.4rem;
   line-height: 0.98;
   letter-spacing: 0;
 }
 
-.tiles {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 2vw;
+.detail-copy #detail-title {
+  margin: 0;
+  font-size: clamp(2rem, 3.2vw, var(--text-display));
+  line-height: 1.08;
+  max-width: none;
+  overflow-wrap: anywhere;
 }
 
-.tile {
-  min-height: 34vh;
-  padding: 2.4rem;
-  text-align: left;
-  color: #f9f7f0;
-  background: rgba(20, 24, 28, 0.92);
-  border: 4px solid rgba(255, 255, 255, 0.12);
-  border-radius: 28px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
-}
-
-.tile.selected,
-.tile:focus-visible {
-  outline: none;
-  border-color: #fff9c4;
-  box-shadow:
-    0 0 0 8px rgba(255, 179, 0, 0.34),
-    0 22px 80px rgba(0, 0, 0, 0.48);
-  transform: translateY(-6px);
-}
-
-.tile-kicker,
-.tile-title {
-  display: block;
-}
-
-.tile-kicker {
-  min-height: 2rem;
-  color: #b8c7d0;
-  font-size: clamp(1rem, 1.4vw, 1.5rem);
+/* Scoped to the detail view rather than changing the global `.eyebrow`, which the
+   next-episode prompt and settings masthead also use.
+   Dropped from accent to secondary: this line names the rail the user arrived from,
+   which is provenance rather than status, and it was one of the amber elements
+   competing with the focus ring on a view that has only one focused control. */
+.detail-copy .eyebrow {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
   font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
-.tile-title {
-  margin-top: 2.2rem;
-  font-size: clamp(2.4rem, 4.5vw, 5.2rem);
-  font-weight: 900;
-}
-
-.status,
 .settings-note {
   min-height: 2rem;
   margin: 0;
-  color: #d1e5f0;
-  font-size: clamp(1.1rem, 1.6vw, 1.7rem);
+  color: var(--text-secondary);
+  font-size: 1.35rem;
+}
+
+.settings-heading {
+  margin: 2rem 0 0.5rem;
+  font-size: var(--text-title);
+  font-weight: 700;
+  text-transform: none;
+  color: var(--text-primary);
+}
+
+.settings-subheading {
+  margin: 0.75rem 0 0;
+  font-size: calc(var(--text-caption) - 2px);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--text-muted);
+}
+
+.settings-refresh {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 52rem;
+  margin-top: 1rem;
+}
+
+.settings-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 1.1rem 1.4rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  text-align: left;
+  transition:
+    box-shadow var(--dur-focus-in) var(--ease-out),
+    border-color var(--dur-focus-out) var(--ease-out);
+}
+
+.settings-action.focused,
+.settings-action:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
+}
+
+.settings-action.settings-action--selected {
+  background: var(--tab-active-fill);
+}
+
+.settings-action.settings-action--selected:not(.focused):not(:focus-visible) {
+  border-color: var(--border-selected);
+}
+
+.settings-action--primary {
+  border-color: var(--border-selected);
+  background: var(--tab-active-fill);
+}
+
+.settings-action--quick,
+.settings-action--standard,
+.settings-action--overnight {
+  border: 2px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  border-left-width: 4px;
+}
+
+.settings-action--quick {
+  border-left-color: rgba(56, 189, 248, 0.65);
+}
+
+.settings-action--standard {
+  border-left-color: var(--accent);
+}
+
+.settings-action--overnight {
+  border-left-color: rgba(167, 139, 250, 0.65);
+}
+
+.settings-action:disabled {
+  opacity: 0.55;
+}
+
+.settings-action-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.settings-action-meta {
+  font-size: 1.15rem;
+  color: var(--text-muted);
+}
+
+.settings-action-body {
+  font-size: 1.2rem;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+.settings-actions-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.personalization-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.personalization-section .settings-heading {
+  margin-top: 0;
+}
+
+.personalization-summary {
+  min-height: 5.25rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.95rem 1.15rem;
+  border: 1px solid var(--border-selected);
+  border-radius: var(--radius-panel);
+  background: var(--tab-active-fill);
+}
+
+.personalization-avatar {
+  width: 3.35rem;
+  height: 3.35rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--text-primary);
+  font-size: var(--text-title);
+  font-weight: 850;
+}
+
+.personalization-summary-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.personalization-summary-name {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-title);
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.personalization-summary-meta {
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+}
+
+.personalization-mood {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  font-weight: 700;
+}
+
+.personalization-mood--active {
+  border-color: var(--border-selected);
+  color: var(--text-primary);
+}
+
+.personalization-options {
+  margin-bottom: 0.15rem;
+}
+
+.personalization-onboarding:empty {
+  display: none;
+}
+
+.personalization-onboarding {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.95rem 1.1rem 1.1rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.personalization-onboarding .settings-subheading,
+.personalization-onboarding .settings-note {
+  margin: 0;
+}
+
+.personalization-profile-options .settings-action-title {
+  font-size: var(--text-title);
+}
+
+.personalization-mood-options {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.personalization-mood-options .settings-action {
+  min-height: 5.75rem;
+}
+
+.personalization-companion-note {
+  color: var(--text-muted);
+}
+
+.settings-action--reliability {
+  min-height: 5.9rem;
+}
+
+.reliability-summary {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.05rem 1.25rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.reliability-summary--green {
+  border-color: var(--status-ok);
+  background: var(--status-ok-soft);
+}
+
+.reliability-summary--yellow {
+  border-color: var(--status-warn);
+  background: var(--status-warn-soft);
+}
+
+.reliability-summary--red {
+  border-color: var(--status-error);
+  background: var(--status-error-soft);
+}
+
+.reliability-status {
+  flex: 0 0 auto;
+  min-width: 5.8rem;
+  padding: 0.38rem 0.7rem;
+  border-radius: 999px;
+  color: var(--bg-base);
+  background: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.reliability-copy {
+  color: var(--text-secondary);
+  font-size: 1.16rem;
+  line-height: 1.35;
+}
+
+.reliability-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.reliability-card {
+  min-height: 5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border-subtle);
+  border-left-width: 0.45rem;
+  border-radius: 0.8rem;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.reliability-card--green {
+  border-left-color: #22c55e;
+}
+
+.reliability-card--yellow {
+  border-left-color: var(--accent);
+}
+
+.reliability-card--red {
+  border-left-color: #f87171;
+}
+
+.reliability-card-title {
+  color: var(--text-primary);
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.reliability-card-summary {
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.card-health-badge {
+  align-self: flex-start;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--text-micro);
+  font-weight: 900;
+  letter-spacing: 0.03em;
+}
+
+.card-health-badge[data-status="red"] {
+  background: rgba(248, 113, 113, 0.2);
+  color: #fecaca;
+}
+
+.detail {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(280px, 24vw, 380px);
+  /* Related has its own row spanning both columns, so it runs under the side panel
+     instead of stopping at the main column and leaving ~480x500px of dead canvas
+     there. minmax(0, 1fr) on the first row means the panel takes what is left after
+     the related row and scrolls inside it, rather than the row growing off-screen. */
+  grid-template-areas:
+    "main side"
+    "related related";
+  grid-template-rows: minmax(0, 1fr) auto;
+  column-gap: clamp(1.75rem, 3.5vw, 3rem);
+  row-gap: var(--space-stack-lg);
+  align-items: stretch;
+  padding: var(--safe-y) var(--safe-x);
+  overflow: hidden;
+  background: var(--bg-overlay);
+  animation: detail-enter 220ms var(--ease-out);
+}
+
+.detail:not(:has(.detail-side > :not([hidden]))) {
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "main"
+    "related";
+}
+
+@keyframes detail-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.detail-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.detail-backdrop-image {
+  position: absolute;
+  width: 50%;
+  height: 50%;
+  left: 50%;
+  top: 50%;
+  object-fit: cover;
+  /* Downscale first so blur samples a quarter of the pixels, then scale back
+     with a little bleed so the art still fills the frame. */
+  filter: blur(14px) brightness(0.5);
+  transform: translate(-50%, -50%) scale(2.16);
+  transform-origin: center center;
+}
+
+.detail-backdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    /* The plateau runs to 48% because the description block ends at ~70% of the
+       width; a shorter plateau left its last words on thin scrim, which measured
+       4.6:1 against a worst-case white backdrop. */
+    linear-gradient(
+      100deg,
+      rgb(7 8 10 / 0.96) 0%,
+      rgb(7 8 10 / 0.9) 48%,
+      rgb(7 8 10 / 0.45) 78%,
+      rgb(7 8 10 / 0.18) 100%
+    ),
+    linear-gradient(0deg, rgb(7 8 10 / 0.92) 0%, transparent 46%);
+}
+
+.detail.hidden {
+  display: none;
+}
+
+.detail-poster-wrap,
+.detail-copy {
+  position: relative;
+  z-index: 1;
+}
+
+.detail-main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+.detail:has(.detail-related:not(.hidden)) .detail-main {
+  justify-content: center;
+  gap: clamp(1.15rem, 2.8vh, 1.75rem);
+}
+
+.detail:not(:has(.detail-related:not(.hidden))) .detail-main {
+  justify-content: center;
+}
+
+.detail-hero {
+  display: grid;
+  /* 280px, not the 314px of a browse poster: committing to a title should not
+     shrink its art, but 314 needs 471px of height and the view has ~97px of slack
+     below the related row. At 280 the poster is exactly as tall as the copy beside
+     it, so the hero does not grow at all, and it clears the ~255px floor platform
+     research gives for poster art at 3m. 15vw so the cap is reachable at 1920. */
+  grid-template-columns: clamp(180px, 15vw, 280px) minmax(0, 1fr);
+  column-gap: clamp(1.75rem, 3.5vw, 3rem);
+  flex: 0 1 auto;
+  min-height: 0;
+  align-content: center;
+  align-items: center;
+}
+
+.detail:has(.detail-related:not(.hidden)) .detail-hero {
+  align-content: start;
+  align-items: start;
+}
+
+.detail-poster-wrap {
+  align-self: center;
+  width: 100%;
+  max-width: none;
+  max-height: min(56vh, 440px);
+  height: auto;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius-panel);
+  background: var(--bg-elevated);
+  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.45);
+}
+
+.detail:has(.detail-related:not(.hidden)) .detail-poster-wrap {
+  align-self: start;
+  max-height: min(50vh, 400px);
+}
+
+.detail-poster {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.detail-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: calc(var(--space-stack) * 0.9);
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  align-self: center;
+  overflow: visible;
+  padding: var(--focus-gutter);
+  margin: calc(-1 * var(--focus-gutter));
+}
+
+.detail:has(.detail-related:not(.hidden)) .detail-copy {
+  align-self: start;
+  padding-top: 0.15rem;
+}
+
+/* Four lines here too, not three: a narrower measure fits fewer characters per
+   line, so keeping three would have cut the synopsis down rather than just
+   reflowing it. Four lines at ~60 characters is about what three at ~85 showed. */
+.detail:has(.detail-related:not(.hidden)) .detail-description {
+  -webkit-line-clamp: 4;
+}
+
+.detail-related {
+  grid-area: related;
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+  /* The track is flex-nowrap, so enough cards would spill out of this grid column
+     and paint over the episodes panel. Clipping at the column edge keeps a data
+     change from becoming an overlap, and the clip margin leaves room for the
+     focus ring and its glow to render outside the box. */
+  overflow: clip;
+  /* --focus-gutter would be the natural value but it is a calc(), and Chromium
+     computes overflow-clip-margin to 0 for any calc, substituted or authored,
+     which would clip the ring flush. --focus-glow is a plain length. */
+  overflow-clip-margin: var(--focus-glow);
+}
+
+.detail-related.hidden {
+  display: none;
+}
+
+.detail-related-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0 0 var(--space-rail-header);
+}
+
+.detail-related-label {
+  display: block;
+  margin: 0;
+  padding-left: 0.85rem;
+  border-left: var(--rail-accent-width) solid var(--accent);
+  color: var(--text-secondary);
+  font-size: var(--text-control);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.detail-related-context {
+  margin: 0;
+  padding-left: calc(0.85rem + var(--rail-accent-width));
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+
+.detail-related-track {
+  display: flex;
+  flex-wrap: nowrap;
+  /* Its own token, not a fraction of --card-gap: this is a secondary rail inside a
+     fixed-width column, so it must not inherit the main rails' 40px gutter. */
+  gap: var(--detail-related-gap);
+  overflow: visible;
+  padding: var(--focus-gutter);
+  margin: calc(-1 * var(--focus-gutter));
+  width: calc(100% + 2 * var(--focus-gutter));
+  max-width: none;
+}
+
+.detail-related-track .card--poster {
+  flex: 0 0 auto;
+  aspect-ratio: 2 / 3;
+  /* 228px, seven across: the row now spans the full 1728px rather than the 1300px
+     main column, and seven of these plus their gaps come to 1706px. Wider cards
+     were possible (six at 268px) but every pixel of extra card height is taken out
+     of the side panel above, which costs a visible episode row. Seven at 228 keeps
+     a row of episodes that six at 268 would have cost, at a card width within a
+     few percent of the previous 240. */
+  width: clamp(136px, 13vw, 228px);
+  height: auto;
+  max-width: none;
+}
+
+/* Straight tokens, not vw clamps: the clamps capped out at 22.08px and 16.8px at
+   1080p, and the panel is always 1920 wide on the Pi, so the viewport term only
+   hid which size actually shipped. */
+.card--related .card-title {
+  font-size: var(--text-caption);
+  line-height: 1.2;
+}
+
+.card--related .card-subtitle {
+  font-size: var(--text-micro);
+}
+
+/* YouTube Detail: 16:9 hero and a four-across related row with titles under the
+   thumb, matching Home landscape rails. VOD Detail keeps the portrait related row. */
+.detail--youtube .detail-hero {
+  grid-template-columns: minmax(18rem, 28vw) minmax(0, 1fr);
+  align-items: start;
+}
+
+.detail--youtube .detail-poster-wrap,
+.detail--youtube:has(.detail-related:not(.hidden)) .detail-poster-wrap {
+  aspect-ratio: 16 / 9;
+  max-height: none;
+  align-self: start;
+}
+
+.detail--youtube .detail-poster {
+  object-fit: contain;
+}
+
+.detail--youtube .detail-related-track {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--card-gap);
+}
+
+.detail--youtube .detail-related-track .card--poster {
+  flex: unset;
+  aspect-ratio: unset;
+  width: 100%;
+  max-width: none;
+}
+
+.detail--youtube .card--landscape .poster-image {
+  object-fit: contain;
+}
+
+.detail--youtube .card--related.card--landscape .card-title {
+  font-size: var(--text-title);
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+}
+
+.detail--youtube .card--related.card--landscape .card-subtitle {
+  font-size: var(--text-caption);
+  -webkit-line-clamp: 1;
+}
+
+.detail-side {
+  grid-area: side;
+  position: relative;
+  z-index: 2;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-stack-lg);
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  /* Inset scrollport so stream/episode focus rings (same as home cards) are
+     not clipped on the left/right rail edge.
+     The block axis needs the same inset and did not have it: measured 0px of
+     footroom for 9 of 14 stream rows, which cut the 3px ring and its 14px glow at
+     the bottom edge every time focus moved past the fifth row. Centred focus
+     (revealInSidePanel) keeps the focused row away from the edges in the general
+     case; this covers the first and last rows, where centring is clamped and the
+     row genuinely does sit at the boundary.
+     Negative margin so the inset buys ring headroom without also pushing the
+     panel's content inward — the column's visual alignment with the hero is
+     unchanged. */
+  /* Deliberately NOT the scrollport. The stream/episode label is a heading for the
+     list, not a member of it, so when this element scrolled the label scrolled away
+     with it — taking "14 · 4K–SD" out of view at exactly the moment the user starts
+     scrolling and needs to know how far the ladder reaches. The scrollport is now the
+     list itself (see .detail-stream-list / .detail-episode-list), which leaves the
+     label fixed above it and, incidentally, means the panel's scroll height is the
+     list's own rather than the list plus a heading. */
+  overflow: visible;
+}
+
+.detail-stream-list,
+.detail-episode-list {
+  /* The scrolling region. Takes the space its label leaves; min-height: 0 is what
+     lets a flex child actually shrink to its container instead of growing to fit its
+     content, without which nothing scrolls at all. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: clip;
+  scrollbar-width: none;
+  /* Inset so focus rings (3px ring + 14px glow) are not clipped against the
+     scrollport's own edges. Centred focus keeps the focused row away from the top and
+     bottom in the general case; this covers the first and last rows, where centring
+     is clamped and the row genuinely does sit at the boundary. Negative margin so the
+     inset buys ring headroom without pushing content inward — the column's visual
+     alignment with the hero is unchanged. */
+  padding: var(--focus-gutter);
+  margin: calc(-1 * var(--focus-gutter));
+  /* Edge fade, same mechanism the season rail already uses on its horizontal axis.
+     A mask rather than opacity, because the problem is geometric: the scrollport cuts
+     a row along a straight line, and dimming a row does not stop it being cut — you
+     get a faded row with a hard edge through it, which is what the earlier per-row
+     opacity dissolve produced. A mask removes the pixels, so content dissolves into
+     whatever is actually behind the panel instead of toward an assumed colour.
+     updateEdgeFade() in detail.ts writes how much content is genuinely hidden above
+     and below; the min() here caps each side at --panel-edge-fade. Splitting it that
+     way keeps the band a style decision and the measurement a script one.
+     Because the bands track real hidden content they are 0 at the top, 0 at the
+     bottom, and 0 whenever the list does not overflow — so the fade can never claim
+     there is more to see than there is, which is exactly how the container gradient
+     that came before this lied. It also means the focused row can never be masked:
+     centred focus keeps it away from the bands, and at the clamped first and last
+     rows the band on the side it touches is 0 by construction. No exemption needed. */
+  --panel-hidden-top: 0px;
+  --panel-hidden-bottom: 0px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 min(var(--panel-hidden-top), var(--panel-edge-fade)),
+    #000 calc(100% - min(var(--panel-hidden-bottom), var(--panel-edge-fade))),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 min(var(--panel-hidden-top), var(--panel-edge-fade)),
+    #000 calc(100% - min(var(--panel-hidden-bottom), var(--panel-edge-fade))),
+    transparent 100%
+  );
+}
+
+/* The container gradient that used to live here is gone. It softened the hard cut
+   at the scrollport edge, but a gradient laid across the box necessarily draws the
+   box: it painted a horizontal band the full width of the panel, which read as a
+   visible rectangular boundary rather than as content continuing past the edge. It
+   also lied at rest, sitting at full strength with the last row half-swallowed when
+   there was nothing below it at all.
+
+   Per-row `view()` opacity dissolves replaced it and were in turn replaced by the
+   mask on `.detail-side` above. Opacity was the wrong tool twice over: dimming a row
+   does not stop the scrollport cutting it, so a dissolving row still had a straight
+   edge sliced through it. Only a mask removes the pixels. */
+.detail-side::-webkit-scrollbar {
+  display: none;
+}
+
+.detail-side:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+/* Column so the label takes its natural height and the list below it absorbs the
+   rest; min-height: 0 so that "the rest" can be less than the list's content height,
+   which is what makes the list scroll rather than overflow the panel. */
+.detail-panels {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.detail-panels[hidden] {
+  display: none;
+}
+
+.detail-episodes-label,
+.detail-streams-label {
+  flex: 0 0 auto;
+  margin: 0 0 var(--space-rail-header);
+  padding-left: 0.85rem;
+  border-left: var(--rail-accent-width) solid var(--accent);
+  color: var(--text-secondary);
+  font-size: var(--text-control);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.detail-season-list {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-x: auto;
+  overflow-y: visible;
+  /* Bottom margin is at least --focus-gutter, and that is a constraint rather than a
+     taste choice: the episode list below pulls its scrollport up by exactly that much
+     (padding for ring headroom, cancelled by a negative margin). At the previous
+     0.85rem the list's scrollport reached 8px ABOVE this rail's bottom edge, so
+     episodes scrolling through the list's top padding painted ghosted text up behind
+     the season chips. Anything less than the gutter reintroduces that overlap. */
+  margin: 0 0 var(--focus-gutter);
+  padding: var(--focus-gutter);
+  margin-inline: calc(-1 * var(--focus-gutter));
+  scroll-padding-inline: 2rem;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  /* Fade the scroll edges so overflowing seasons dissolve cleanly instead of
+     hard-clipping at the panel edge (SOTA horizontal rail treatment). */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 1.5rem,
+    #000 calc(100% - 1.5rem),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 1.5rem,
+    #000 calc(100% - 1.5rem),
+    transparent 100%
+  );
+}
+
+.detail-season-list[hidden] {
+  display: none;
+}
+
+.detail-season-list::-webkit-scrollbar {
+  display: none;
+}
+
+.detail-season-chip {
+  flex: 0 0 auto;
+  min-width: 3.4rem;
+  padding: 0.5rem 0.95rem;
+  color: var(--text-secondary);
+  text-align: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 2px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: var(--text-caption);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  scroll-margin-inline: 2rem;
+  transition:
+    border-color var(--dur-focus-out) var(--ease-out),
+    box-shadow var(--dur-focus-in) var(--ease-out),
+    background var(--dur-focus-in) var(--ease-out),
+    color var(--dur-focus-in) var(--ease-out);
+}
+
+.detail-season-chip--active {
+  border-color: var(--border-strong);
+  background: var(--tab-active-fill);
+  color: var(--text-primary);
+}
+
+/* Match detail action buttons: accent border + ring/glow, no drop-shadow. */
+.detail-season-chip.focused,
+.detail-season-chip:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
+}
+
+.detail-season-chip--active.focused,
+.detail-season-chip--active:focus-visible {
+  background: var(--accent-soft);
+}
+
+.detail-episode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  /* No `overflow: visible` here — this element is the scrollport now, and this rule
+     comes after the one that makes it so. */
+}
+
+.detail-episode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* Same reason as .detail-stream: a flex item inside the scrollport must not be
+     compressed to fit. Episode titles wrap to two lines, so a shrunk row clips the
+     second line against its own border. */
+  flex: 0 0 auto;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  color: var(--text-primary);
+  text-align: left;
+  background: rgba(255, 255, 255, 0.04);
+  border: 2px solid var(--border-subtle);
+  border-radius: 12px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  transition:
+    border-color var(--dur-focus-out) var(--ease-out),
+    box-shadow var(--dur-focus-in) var(--ease-out);
+}
+
+.detail-episode-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.detail-episode-progress {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+/* This marks the episode `resume` will play, which is a lasting state rather than
+   a cursor position, so it must not borrow the amber that means focus: while
+   focus sat elsewhere in the list the panel showed two amber-outlined rows. */
+.detail-episode--selected {
+  border-color: var(--border-selected);
+  background: var(--tab-active-fill);
+}
+
+/* `.detail-episode--disabled` was in this selector and is gone: detail.ts never adds
+   it. `--no-streams` is the class that actually marks an unplayable episode. */
+.detail-episode--no-streams {
+  opacity: 0.55;
+}
+
+.detail-episode-stream-badge {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: var(--text-micro);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.detail-episode--has-streams .detail-episode-stream-badge {
+  display: none;
+}
+
+.detail-episode.focused,
+.detail-episode:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
+}
+
+.detail-episode--selected.focused,
+.detail-episode--selected:focus-visible {
+  background: var(--tab-active-fill);
+}
+
+.next-prompt {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  padding: 8vh 7vw;
+  background: var(--bg-overlay);
+}
+
+.next-prompt.hidden {
+  display: none;
+}
+
+.next-prompt-card {
+  width: min(42rem, 100%);
+  padding: 2rem 2.2rem;
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+
+.next-prompt .eyebrow {
+  font-size: var(--text-caption);
+}
+
+#next-prompt-title {
+  font-size: clamp(2rem, 3vw, var(--text-display));
+  line-height: 1.08;
+  margin: 0;
+}
+
+.next-prompt-meta {
+  margin: 0.8rem 0 0;
+  color: var(--text-primary);
+  font-size: 1.45rem;
+  font-weight: 800;
+}
+
+.next-prompt-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1.8rem;
+}
+
+.detail-meta {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+
+.detail-rating-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 0.15rem 0 0;
+}
+
+.detail-rating-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.52rem;
+  min-height: 2.55rem;
+  padding: 0.34rem 0.72rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(9, 11, 14, 0.72);
+  color: var(--text-primary);
+}
+
+.detail-rating-label,
+.detail-rating-value {
+  font-size: var(--text-micro);
+  font-weight: 850;
+}
+
+.detail-rating-chip--fire .detail-rating-label,
+.detail-rating-chip--fire .detail-rating-value {
+  color: #ff9b22;
+}
+
+.detail-rating-chip--water .detail-rating-label,
+.detail-rating-chip--water .detail-rating-value {
+  color: #57b9ef;
+}
+
+.detail-rating-invitation {
+  width: fit-content;
+  margin: 0;
+  padding: 0.56rem 0.8rem;
+  border-left: 4px solid var(--accent);
+  border-radius: 0 10px 10px 0;
+  background: rgba(232, 160, 32, 0.12);
+  color: var(--text-primary);
+  font-size: var(--text-caption);
+  font-weight: 700;
+}
+
+.detail-button--rating-cue::after {
+  content: "";
+  display: inline-block;
+  width: 0.48rem;
+  height: 0.48rem;
+  margin-left: 0.55rem;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.rating-marks {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  white-space: nowrap;
+}
+
+.rating-mark {
+  position: relative;
+  display: inline-block;
+  width: 2.4rem;
+  height: 2.55rem;
+  overflow: hidden;
+  font-family: "Noto Color Emoji", "Apple Color Emoji", sans-serif;
+  font-size: 2.15rem;
+  line-height: 1;
+}
+
+.rating-mark-empty,
+.rating-mark-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  display: block;
+  overflow: hidden;
+}
+
+.rating-mark-empty {
+  width: 100%;
+  filter: grayscale(1) saturate(0) brightness(1.48);
+  opacity: 0.5;
+}
+
+.rating-mark-fill {
+  z-index: 1;
+  filter: saturate(1.08);
+}
+
+/* Full-width glyph inside a width-clipped fill so .5 marks are true halves. */
+.rating-mark-glyph {
+  display: block;
+  width: 2.4rem;
+  height: 2.55rem;
+  line-height: 2.55rem;
+  text-align: center;
+  pointer-events: none;
+}
+
+.rating-marks--compact {
+  gap: 0.08rem;
+}
+
+.rating-marks--compact .rating-mark {
+  width: 1.2rem;
+  height: 1.3rem;
+  font-size: 1.08rem;
+}
+
+.rating-marks--compact .rating-mark-glyph {
+  width: 1.2rem;
+  height: 1.3rem;
+  line-height: 1.3rem;
+}
+
+.rating-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 850;
+  display: grid;
+  place-items: center;
+  padding: var(--safe-y) var(--safe-x);
+  background: var(--bg-overlay);
+}
+
+.rating-sheet.hidden {
+  display: none;
+}
+
+.rating-sheet-panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: min(36rem, 100%);
+  max-height: min(72vh, 100%);
+  padding: 1.4rem 1.5rem 1.2rem;
+  overflow: hidden;
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius-panel);
+  background: var(--bg-elevated);
+}
+
+.rating-sheet-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.rating-sheet-head h2 {
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-title);
+  font-weight: 800;
+  line-height: 1.12;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rating-sheet-help {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-micro);
+  font-weight: 600;
+}
+
+.rating-axis-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-height: 0;
+}
+
+.rating-axis {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.85rem;
+  min-height: 4.5rem;
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.rating-axis.focused,
+.rating-axis:focus-visible,
+.rating-sheet-actions .detail-button.focused,
+.rating-sheet-actions .detail-button:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
+}
+
+.rating-axis-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.rating-axis-name {
+  font-size: var(--text-control);
+  font-weight: 800;
+  text-transform: lowercase;
+}
+
+.rating-axis-name--fire {
+  color: #ff9b22;
+}
+
+.rating-axis-name--water {
+  color: #57b9ef;
+}
+
+.rating-axis-definition {
+  color: var(--text-secondary);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.rating-axis-value {
+  color: var(--text-primary);
+  font-size: var(--text-control);
+  font-weight: 800;
+  text-align: right;
+  min-width: 3.2rem;
+}
+
+.rating-sheet-error,
+.rating-clear-confirm {
+  margin: 0;
+  padding: 0.72rem 1rem;
+  border-radius: var(--radius-panel);
+  color: var(--text-primary);
+  font-size: var(--text-caption);
+  font-weight: 700;
+}
+
+.rating-sheet-error {
+  border-left: 4px solid var(--status-error);
+  background: var(--status-error-soft);
+}
+
+.rating-clear-confirm {
+  border-left: 4px solid var(--accent);
+  background: var(--accent-soft);
+}
+
+.rating-sheet-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* Verify-state badge — couch-readable, subtle chip mirroring .card-health-badge. */
+.verify-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: fit-content;
+  margin: 0;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  /* Green, not amber, and the same green as the "cached" stream chip. Both facts
+     answer the same question — is this ready to play right now — so they should not
+     be two different colours, and neither should be wearing the focus colour.
+     Status on this view now reads as a small coherent system: green ready, blue in
+     progress (the queued state below), red-shifted a decode risk, amber focus only. */
+  background: rgba(80, 220, 150, 0.16);
+  color: #66e0a3;
+  font-size: var(--text-micro);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.verify-badge::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.verify-badge[data-state="queued"] {
+  background: rgba(142, 202, 230, 0.16);
+  color: #8ecae6;
+}
+
+.card-verify-badge {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(5, 8, 10, 0.72);
+  color: var(--accent);
+  font-size: var(--text-micro);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.card-verify-badge::before {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.card-verify-badge[data-state="queued"] {
+  color: #8ecae6;
+}
+
+.detail-description {
+  width: 100%;
+  /* The column is wide enough to run ~85 characters a line, past the 80 WCAG 1.4.8
+     sets as the ceiling for readable prose. 54ch measures ~62 actual characters:
+     the ch unit is the advance of "0", which is wider than average lowercase. */
+  max-width: 54ch;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-body);
+  font-weight: 600;
+  line-height: 1.48;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  row-gap: 0.75rem;
+  margin: 0.35rem 0 0;
+}
+
+.detail-button--busy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  white-space: nowrap;
+}
+
+.detail-button--busy .detail-button-label {
+  white-space: nowrap;
+}
+
+.detail-button-spinner {
+  display: none;
+  width: 1.15rem;
+  height: 1.15rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: detail-spinner 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+.detail-button--busy .detail-button-spinner {
+  display: block;
+}
+
+@keyframes detail-spinner {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.detail-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  min-width: 9rem;
+  min-height: 3.5rem;
+  padding: 0.85rem 1.35rem;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  font-size: var(--text-control);
+  font-weight: 700;
+  text-transform: lowercase;
+  transition:
+    box-shadow var(--dur-focus-in) var(--ease-out),
+    border-color var(--dur-focus-in) var(--ease-out);
+}
+
+.detail-button-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.12rem;
+  flex-shrink: 0;
+}
+
+.detail-button-icon .mango-icon {
+  width: 1.15em;
+  height: 1.15em;
+}
+
+.detail-button--busy .detail-button-icon {
+  display: none;
+}
+
+.detail-button--quiet {
+  min-width: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: transparent;
+}
+
+.detail-button--quiet.focused,
+.detail-button--quiet:focus-visible {
+  color: var(--text-primary);
+}
+
+.detail-button--primary {
+  color: var(--on-primary);
+  background: var(--primary-fill);
+  border-color: var(--primary-fill);
+}
+
+.detail-button.focused,
+.detail-button:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
+}
+
+.detail-button:disabled {
+  opacity: 0.62;
+}
+
+.detail-stream-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  scrollbar-width: none;
+  /* No `overflow: visible` here — this element is the scrollport now, and this rule
+     comes after the one that makes it so. */
+}
+
+.detail-stream-list::-webkit-scrollbar {
+  display: none;
+}
+
+.detail-stream {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  /* Never shrink. The parent list is both a column flex container and the scrollport,
+     so its children are flex items in a box whose height is constrained — they were
+     being compressed to the min-height floor below while their two lines needed 77px,
+     spilling the languages/size line 13px past the row's own bottom border. On an
+     unverified row, whose border is dashed and whose fill is transparent, that read as
+     a line struck through the text. Rows must keep their natural height and let the
+     list scroll instead, which is the entire point of the scrollport. */
+  flex: 0 0 auto;
+  gap: 0.4rem;
+  width: 100%;
+  min-height: 4rem;
+  padding: 0.7rem 0.9rem;
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  text-align: left;
+  transition:
+    border-color var(--dur-focus-out) var(--ease-out),
+    box-shadow var(--dur-focus-in) var(--ease-out);
+}
+
+.detail-stream-primary {
+  display: flex;
+  align-items: center;
+  /* 0.3rem, down from 0.4rem: three gaps in a row that is 9px short of fitting. The
+     chips carry their own fills, so the boundary between them is drawn by contrast
+     rather than by whitespace, and the tighter gap does not run them together. */
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.detail-streams-summary {
+  text-transform: none;
+}
+
+/* Resolution is ranked on the neutral ramp, not in accent.
+   These badges were amber — 12 of the 17 amber elements on this view, against
+   exactly one that meant focus. On a surface where the focus ring is the only thing
+   that has to be found from three metres, accent spent on static status is accent
+   taken from focus, and a focused row's amber ring sat inches from amber badges on
+   every other row. Rank now reads through brightness and fill weight, which is a
+   monotonic scale the eye resolves at distance without colour. */
+.detail-stream-res {
+  flex: 0 0 auto;
+  /* 2.6rem, not 3.2rem. The floor was only ever reached by the two shortest labels
+     ("4K", "SD") — 1080p and 720p size themselves at 90px and 75px — so it was not
+     buying column alignment, just padding the shortest badges.
+     It recovers ~1px, not the ~10px first assumed: "4K" measures 50px naturally at
+     24px/900, so the old 3.2rem (51.2px) was barely binding and the new floor is not
+     binding at all. The row's real slack came from chip padding and gap instead. Kept
+     because a floor no label reaches is the correct value for a floor whose purpose
+     is to stop a one-character label collapsing. */
+  min-width: 2.6rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+/* Top of the ladder gets the brightest treatment available in the neutral ramp:
+   a filled chip with primary-weight text, so it still announces itself. */
+.detail-stream-res[data-res="4k"] {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--text-primary);
+}
+
+.detail-stream-res[data-res="1440p"],
+.detail-stream-res[data-res="1080p"] {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text-primary);
+}
+
+.detail-stream-chip {
+  flex: 0 0 auto;
+  /* Inline padding trimmed from 0.45rem. Four chips plus the resolution badge need
+     312px on the widest row against a 303px budget, and the padding is the only
+     slack in the row that costs nothing to give up: type size is already at the
+     scale's floor, and every label is load-bearing. 0.34rem still clears the ~4px
+     minimum that keeps a filled chip from looking like it is squeezing its text. */
+  padding: 0.18rem 0.34rem;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: var(--text-micro);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Was gold (#ffcf7a on amber-tinted fill). Close enough to the accent in hue that
+   it read as part of the same family as the focus ring, which is the confusion the
+   resolution-badge change above exists to remove. HDR still needs to stand out from
+   the plain facts beside it, so it keeps a filled chip — just on the neutral ramp. */
+/* The one chip in the row allowed to shrink, so that when a stream carries an
+   unusually full set (4K + WEB-DL + HDR + cached, and worse combinations exist in
+   the wild) the overflow is absorbed by the least decision-relevant item instead of
+   slicing the most relevant one off the right edge — which is what used to happen
+   to "cached" on 12 of 14 rows. Release provenance is also the chip the file size on
+   the line below partly implies, so it is the cheapest thing to abbreviate.
+   Every row in the current fixture still fits without shrinking; this is the guard
+   for the ones that do not. */
+.detail-stream-chip--tier {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.detail-stream-chip--hdr {
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--text-primary);
+}
+
+/* Green is the one colour left carrying meaning in this row, and it means "starts
+   now" — the single most useful fact when picking a stream from the couch. */
+.detail-stream-chip--cache {
+  background: rgba(80, 220, 150, 0.16);
+  color: #66e0a3;
+  text-transform: lowercase;
+}
+
+/* Shown only when the codec cannot be hardware-decoded at this resolution, i.e.
+   when picking this stream means software decode at ~0.52x realtime. That is a
+   warning, not a specification, so it is the one chip allowed to look alarming.
+   Deliberately red-shifted rather than amber: amber means focus here. */
+.detail-stream-chip--codec-risk {
+  background: rgba(255, 120, 100, 0.16);
+  color: #ff9b8a;
+}
+
+.detail-stream-secondary {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--text-micro);
+  font-weight: 700;
+}
+
+.detail-stream-langs {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.detail-stream-size {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
+
+.detail-streams--unverified .detail-streams-label {
+  color: var(--text-muted);
+  border-left-color: var(--border-subtle);
+}
+
+.detail-stream--unverified {
+  opacity: 0.82;
+  border-style: dashed;
+  background: transparent;
+}
+
+.detail-stream--unverified .detail-stream-res {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+}
+
+.detail-stream.focused,
+.detail-stream:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
+}
+
+.detail-stream:disabled {
+  opacity: 0.55;
 }
 
 .settings {
   justify-content: flex-start;
+  overflow-y: auto;
+  min-height: 0;
+  max-height: 100%;
+  padding-bottom: 14vh;
+  scrollbar-width: none;
+}
+
+.settings .masthead {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-stack);
+}
+
+.settings .masthead .eyebrow,
+.settings .eyebrow {
+  margin: 0;
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.settings .masthead h1,
+#settings-view h1 {
+  margin: 0;
+  font-size: clamp(2rem, 3vw, var(--text-display));
+  line-height: 1.08;
+  max-width: 54rem;
+  text-transform: lowercase;
+}
+
+.card--poster .poster-fallback,
+.detail-poster-wrap .poster-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  color: var(--text-primary);
+  font-size: clamp(2rem, 8vw, 3.4rem);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  background:
+    linear-gradient(145deg, rgba(33, 42, 44, 0.92), var(--bg-base));
+  pointer-events: none;
+}
+
+.card--poster .poster-fallback {
+  text-transform: none;
+  letter-spacing: 0.04em;
+  font-size: clamp(1.4rem, 4vw, 2.4rem);
+}
+
+.poster-image--missing {
+  opacity: 0;
 }
 
 .back-button {
   align-self: flex-start;
-  padding: 1rem 1.6rem;
-  color: #050608;
-  background: #fff9c4;
+  padding: 0.85rem 1.35rem;
+  /* Was amber-filled at rest, which put an amber focus ring on an amber fill
+     and made focus nearly invisible. It is the only action here, so it is the
+     primary. */
+  color: var(--on-primary);
+  background: var(--primary-fill);
   border: 0;
-  border-radius: 14px;
-  font-weight: 900;
+  border-radius: var(--radius-panel);
+  font-weight: 700;
+  text-transform: lowercase;
 }
 
+.back-button.focused,
 .back-button:focus-visible {
-  outline: 6px solid #ffb300;
-  outline-offset: 4px;
+  outline: none;
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
 .info-list {
@@ -154,37 +3657,133 @@ h1 {
 .info-list div {
   min-height: 7rem;
   padding: 1.4rem;
-  background: rgba(255, 255, 255, 0.08);
-  border: 2px solid rgba(255, 255, 255, 0.12);
-  border-radius: 18px;
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
 }
 
 .info-list dt {
-  color: #a9b6be;
-  font-size: 1.2rem;
-  font-weight: 800;
-  text-transform: uppercase;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: none;
 }
 
 .info-list dd {
   margin: 0.8rem 0 0;
   overflow-wrap: anywhere;
-  font-size: clamp(1.8rem, 2.6vw, 3rem);
-  font-weight: 900;
+  font-size: var(--text-body);
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+/* Couch toast — typed outcome feedback. It never takes focus; tone is paired
+   with a glyph so colour is not the only severity signal. */
+.toast {
+  position: fixed;
+  top: max(var(--safe-y), calc(env(safe-area-inset-top, 0px) + 1.25rem));
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  max-width: calc(100vw - 2 * var(--safe-x));
+  transform: translateX(-50%) translateY(-14px);
+  z-index: 50;
+  padding: 0.85rem 1.4rem;
+  background: rgba(5, 8, 10, 0.92);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-primary);
+  font-size: var(--text-caption);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s ease;
+}
+
+.toast::before {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1.45em;
+  height: 1.45em;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 0.8em;
+  line-height: 1;
+}
+
+.toast[data-tone="info"] {
+  border-color: var(--status-info);
+  background: color-mix(in srgb, var(--bg-overlay) 82%, var(--status-info-soft));
+}
+
+.toast[data-tone="info"]::before {
+  content: "i";
+  color: rgb(147 197 253);
+}
+
+.toast[data-tone="success"] {
+  border-color: var(--status-ok);
+  background: color-mix(in srgb, var(--bg-overlay) 82%, var(--status-ok-soft));
+}
+
+.toast[data-tone="success"]::before {
+  content: "✓";
+  color: rgb(134 239 172);
+}
+
+.toast[data-tone="warning"] {
+  border-color: var(--status-warn);
+  background: color-mix(in srgb, var(--bg-overlay) 82%, var(--status-warn-soft));
+}
+
+.toast[data-tone="warning"]::before {
+  content: "!";
+  color: rgb(253 164 175);
+}
+
+.toast[data-tone="error"] {
+  border-color: var(--status-error);
+  background: color-mix(in srgb, var(--bg-overlay) 78%, var(--status-error-soft));
+}
+
+.toast[data-tone="error"]::before {
+  content: "×";
+  color: rgb(254 202 202);
+}
+
+.toast[data-visible="true"] {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Home's browse controls occupy the same top safe-area band. Put transient
+   feedback directly below them so a toast never covers the active tab/focus. */
+.home:not(.hidden) ~ .toast {
+  top: calc(var(--safe-y) + 4.5rem);
 }
 
 .voice-hud {
   position: fixed;
   left: 50%;
-  bottom: 4vh;
+  bottom: max(5vh, calc(env(safe-area-inset-bottom, 0px) + 1.25rem));
   transform: translateX(-50%) translateY(0);
-  width: min(700px, 86vw);
+  width: min(700px, calc(100vw - 2 * max(7vw, env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px))));
+  max-height: min(34vh, 300px);
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px 20px 18px;
   background: rgba(5, 8, 10, 0.9);
-  border: 2px solid rgba(255, 249, 196, 0.38);
+  border: 1px solid var(--border-strong);
   border-radius: 22px;
   box-shadow: 0 18px 56px rgba(0, 0, 0, 0.5);
-  z-index: 20;
+  z-index: 40;
   opacity: 1;
   pointer-events: none;
   transition:
@@ -209,7 +3808,7 @@ h1 {
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: lowercase;
-  color: rgba(255, 249, 196, 0.82);
+  color: var(--text-secondary);
 }
 
 .voice-dot {
@@ -248,24 +3847,74 @@ h1 {
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: lowercase;
-  color: rgba(255, 249, 196, 0.55);
+  color: var(--text-muted);
   padding-top: 0.35rem;
 }
 
 .voice-text {
-  font-size: clamp(1.45rem, 2.2vw, 1.9rem);
+  font-size: 24px;
   font-weight: 800;
   line-height: 1.28;
-  color: #fffef2;
+  color: var(--text-primary);
   overflow-wrap: anywhere;
 }
 
+@media (max-width: 900px) {
+  .masthead--compact h1,
+  h1 {
+    font-size: 3.1rem;
+  }
+
+  .detail {
+    grid-template-columns: minmax(0, 1fr) clamp(240px, 30vw, 340px);
+    column-gap: 1.5rem;
+  }
+
+  .detail-hero {
+    grid-template-columns: 10rem minmax(0, 1fr);
+    column-gap: 1.5rem;
+  }
+
+  .detail:has(.detail-related:not(.hidden)) .detail-poster-wrap {
+    max-height: min(44vh, 320px);
+  }
+
+  .detail-related-track .card--poster {
+    width: clamp(120px, 14vw, 148px);
+  }
+
+  .detail--youtube .detail-hero {
+    grid-template-columns: minmax(12rem, 42vw) minmax(0, 1fr);
+  }
+
+  .detail--youtube .detail-poster-wrap,
+  .detail--youtube:has(.detail-related:not(.hidden)) .detail-poster-wrap {
+    max-height: none;
+  }
+
+  .detail--youtube .detail-related-track .card--poster {
+    width: 100%;
+  }
+}
+
 .voice-line.user .voice-text {
-  color: #ffe082;
+  color: var(--accent);
 }
 
 .voice-line.reply .voice-text {
-  color: #e8fff0;
+  color: var(--text-primary);
+}
+
+.voice-line.tool .voice-tag {
+  color: var(--accent);
+}
+
+.voice-line.tool .voice-text {
+  color: var(--text-secondary);
+}
+
+.voice-line.tool[data-active="true"] .voice-text {
+  opacity: 0.92;
 }
 
 .voice-hint {

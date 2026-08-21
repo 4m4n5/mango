@@ -3,31 +3,170 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>mango launcher</title>
+    <title>mango</title>
   </head>
-  <body style="margin:0;background:#050608">
-    <main id="app" class="shell" aria-label="mango launcher">
-      <section id="home-view" class="view">
-        <header class="masthead">
-          <p class="eyebrow">mango</p>
-          <h1>What do you want to watch?</h1>
-        </header>
-        <section id="tiles" class="tiles" aria-label="Apps">
-          <button class="tile" type="button" data-action="stremio">
-            <span class="tile-kicker">Movies and shows</span>
-            <span class="tile-title">Stremio</span>
+  <body style="margin:0;background:#07080a">
+    <main id="app" class="shell" aria-label="mango">
+      <section id="home-view" class="view home">
+        <div class="browse-bar">
+          <p class="browse-brand" aria-hidden="true">mango</p>
+          <button id="search-entry" class="browse-search" type="button" aria-label="search mango">
+            <span aria-hidden="true">⌕</span>
+            <span>search</span>
           </button>
-          <button class="tile" type="button" data-action="kodi">
-            <span class="tile-kicker">Kodi add-on</span>
-            <span class="tile-title">YouTube</span>
+          <nav id="browse-tabs" class="browse-tabs" aria-label="Browse tabs"></nav>
+          <button id="personalization-entry" class="browse-personalization" type="button"
+            aria-label="Personalization settings. Household profile. Any mood.">
+            <span id="personalization-entry-avatar" class="browse-personalization-avatar" aria-hidden="true">H</span>
+            <span class="browse-personalization-copy">
+              <span id="personalization-entry-name" class="browse-personalization-name">household</span>
+              <span id="personalization-entry-mood" class="browse-personalization-mood">any mood</span>
+            </span>
           </button>
-          <button class="tile" type="button" data-action="settings">
-            <span class="tile-kicker">System</span>
-            <span class="tile-title">Settings</span>
+          <button id="library-refresh" class="browse-shuffle" type="button" aria-label="Shuffle library, press X">
+            <span class="browse-shuffle-key" aria-hidden="true">X</span>
+            <span class="browse-shuffle-label">shuffle</span>
           </button>
-        </section>
-        <p id="status" class="status" role="status">D-pad to move. B to select. ⌂ for home.</p>
+        </div>
+        <div id="rails" class="rails" aria-label="Browse"></div>
       </section>
+
+      <section id="search-view" class="view search hidden" aria-label="Search"></section>
+
+      <section id="detail-view" class="view detail hidden" aria-label="Title detail">
+        <div class="detail-backdrop" aria-hidden="true">
+          <img id="detail-backdrop-image" class="detail-backdrop-image" alt="" />
+        </div>
+        <div class="detail-main">
+          <div class="detail-hero">
+            <div class="detail-poster-wrap">
+              <img id="detail-poster" class="detail-poster" alt="" />
+            </div>
+            <div class="detail-copy">
+              <p id="detail-eyebrow" class="eyebrow">catalog</p>
+              <h1 id="detail-title">title</h1>
+              <p id="detail-meta" class="detail-meta">movie</p>
+              <div id="detail-rating-chips" class="detail-rating-chips" hidden aria-label="Shared household rating">
+                <div class="detail-rating-chip detail-rating-chip--fire">
+                  <span class="detail-rating-label">Fire</span>
+                  <span id="detail-rating-fire-marks" class="rating-marks"></span>
+                  <span id="detail-rating-fire-value" class="detail-rating-value">0.0</span>
+                </div>
+                <div class="detail-rating-chip detail-rating-chip--water">
+                  <span class="detail-rating-label">Water</span>
+                  <span id="detail-rating-water-marks" class="rating-marks"></span>
+                  <span id="detail-rating-water-value" class="detail-rating-value">0.0</span>
+                </div>
+              </div>
+              <p id="detail-verify-badge" class="verify-badge" hidden></p>
+              <p id="detail-description" class="detail-description">loading details…</p>
+              <p id="detail-rating-invitation" class="detail-rating-invitation" hidden>Finished this one? Add your Fire and Water rating.</p>
+              <div class="detail-actions">
+                <button id="detail-play" class="detail-button detail-button--primary" type="button">
+                  <span class="detail-button-spinner" aria-hidden="true"></span>
+                  <span class="detail-button-icon" data-icon="play" data-icon-outline="true" aria-hidden="true"></span>
+                  <span class="detail-button-label">play</span>
+                </button>
+                <button id="detail-save" class="detail-button" type="button">
+                  <span class="detail-button-icon" data-icon="star" aria-hidden="true"></span>
+                  <span class="detail-button-label">save</span>
+                </button>
+                <button id="detail-rate" class="detail-button" type="button" hidden>
+                  <span class="detail-button-icon" aria-hidden="true">
+                    <span data-icon="flame"></span>
+                    <span data-icon="waves"></span>
+                  </span>
+                  <span class="detail-button-label">rate</span>
+                </button>
+                <button id="detail-not-interested" class="detail-button" type="button" hidden>
+                  <span class="detail-button-icon" data-icon="eye-off" aria-hidden="true"></span>
+                  <span class="detail-button-label">not for me</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="detail-side">
+          <div id="detail-streams" class="detail-panels detail-streams" hidden aria-label="Streams">
+            <p class="detail-streams-label">streams</p>
+            <div id="detail-stream-list" class="detail-stream-list"></div>
+          </div>
+          <div id="detail-episodes" class="detail-panels detail-episodes" hidden aria-label="Episodes">
+            <p class="detail-episodes-label">episodes</p>
+            <div id="detail-season-list" class="detail-season-list" hidden aria-label="Seasons"></div>
+            <div id="detail-episode-list" class="detail-episode-list"></div>
+          </div>
+        </div>
+        <!-- Its own full-width grid row, not inside .detail-main: the row spans
+             under the side panel so it uses the canvas the panel leaves empty. -->
+        <div id="detail-related" class="detail-related hidden" aria-label="Related titles">
+          <div class="detail-related-head">
+            <p id="detail-related-label" class="detail-related-label" role="heading" aria-level="2">related titles</p>
+            <p id="detail-related-context" class="detail-related-context" hidden></p>
+          </div>
+          <div id="detail-related-track" class="detail-related-track" role="list"></div>
+        </div>
+      </section>
+
+      <section id="rating-sheet" class="rating-sheet hidden" aria-label="Fire and Water rating" aria-hidden="true">
+        <div class="rating-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="rating-sheet-title">
+          <div class="rating-sheet-head">
+            <p id="rating-owner-label" class="eyebrow">shared household rating</p>
+            <h2 id="rating-sheet-title">rate</h2>
+            <p class="rating-sheet-help">left right 0.5 · Y close<span class="rating-sheet-clear-help"> · X clear</span></p>
+          </div>
+          <p id="rating-sheet-error" class="rating-sheet-error" role="alert" hidden></p>
+          <div class="rating-axis-list">
+            <button id="rating-fire-row" class="rating-axis" type="button" role="slider"
+              aria-label="Fire rating" aria-valuemin="0" aria-valuemax="5" aria-valuenow="0" aria-valuetext="Not set">
+              <span class="rating-axis-copy">
+                <span class="rating-axis-name rating-axis-name--fire">fire</span>
+                <span class="rating-axis-definition">fun · energy · tension · spectacle</span>
+              </span>
+              <span id="rating-fire-marks" class="rating-marks"></span>
+              <span id="rating-fire-value" class="rating-axis-value">Not set</span>
+            </button>
+            <button id="rating-water-row" class="rating-axis" type="button" role="slider"
+              aria-label="Water rating" aria-valuemin="0" aria-valuemax="5" aria-valuenow="0" aria-valuetext="Not set">
+              <span class="rating-axis-copy">
+                <span class="rating-axis-name rating-axis-name--water">water</span>
+                <span class="rating-axis-definition">heart · authenticity · emotional resonance</span>
+              </span>
+              <span id="rating-water-marks" class="rating-marks"></span>
+              <span id="rating-water-value" class="rating-axis-value">Not set</span>
+            </button>
+          </div>
+          <p id="rating-clear-confirm" class="rating-clear-confirm" role="alert" hidden>
+            Clear this rating? Press B to clear or Y to keep it.
+          </p>
+          <div class="rating-sheet-actions">
+            <button id="rating-save" class="detail-button detail-button--primary" type="button" disabled>
+              <span class="detail-button-label">save</span>
+            </button>
+            <button id="rating-not-interested" class="detail-button detail-button--quiet" type="button">
+              <span class="detail-button-icon" data-icon="eye-off" aria-hidden="true"></span>
+              <span class="detail-button-label">not for me</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section id="next-episode-prompt" class="next-prompt hidden" aria-label="Next episode" aria-hidden="true">
+        <div class="next-prompt-card">
+          <p class="eyebrow">next up</p>
+          <h2 id="next-prompt-title">series</h2>
+          <p id="next-prompt-meta" class="next-prompt-meta">S1 E2</p>
+          <div class="next-prompt-actions">
+            <button id="next-prompt-play" class="detail-button detail-button--primary" type="button">
+              <span class="detail-button-icon" data-icon="play" data-icon-outline="true" aria-hidden="true"></span>
+              <span class="detail-button-label">play next</span>
+            </button>
+            <button id="next-prompt-dismiss" class="detail-button" type="button">not now</button>
+          </div>
+        </div>
+      </section>
+
+      <div id="toast" class="toast" data-visible="false" data-tone="info" role="status" aria-live="polite" aria-atomic="true"></div>
 
       <aside id="voice-hud" class="voice-hud" data-state="idle" data-visible="false" aria-label="mango voice" aria-hidden="true">
         <header class="voice-hud-head">
@@ -42,35 +181,41 @@
           <span class="voice-tag">mango</span>
           <span id="voice-reply-text" class="voice-text"></span>
         </p>
+        <p id="voice-tool-line" class="voice-line tool" hidden>
+          <span class="voice-tag">tool</span>
+          <span id="voice-tool-text" class="voice-text"></span>
+        </p>
         <p id="voice-hint" class="voice-hint">hold on phone to talk</p>
       </aside>
 
       <section id="settings-view" class="view settings hidden" aria-label="Settings">
-        <button id="back-button" class="back-button" type="button">Back</button>
+        <button id="back-button" class="back-button" type="button">back</button>
         <header class="masthead">
           <p class="eyebrow">settings</p>
-          <h1>Pi connection</h1>
+          <h1>pi connection</h1>
         </header>
         <dl class="info-list">
           <div>
-            <dt>Hostname</dt>
+            <dt>hostname</dt>
             <dd id="hostname">mango</dd>
           </div>
           <div>
-            <dt>IP address</dt>
+            <dt>ip address</dt>
             <dd id="ip-address">10.0.0.174</dd>
           </div>
           <div>
-            <dt>Launcher</dt>
+            <dt>launcher</dt>
             <dd id="launcher-url">http://10.0.0.174:3000</dd>
           </div>
           <div>
-            <dt>Companion placeholder</dt>
+            <dt>companion</dt>
             <dd id="companion-url">https://10.0.0.174:3001</dd>
           </div>
         </dl>
-        <p class="settings-note">API keys arrive in Phase 2.</p>
+        <p class="settings-note">Voice keys live in /etc/mango on the Pi.</p>
+        <div id="settings-refresh" class="settings-refresh" aria-label="Library refresh"></div>
       </section>
+
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

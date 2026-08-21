@@ -67,7 +67,7 @@ else
   bump_fail
 fi
 
-for key in launcher_dist chromium input_remapper openbox; do
+for key in launcher_dist launcher_browser tv_pad input_remapper catalog openbox; do
   var="CHK_${key^^}"
   val="${!var:-}"
   case "$val" in
@@ -78,17 +78,11 @@ for key in launcher_dist chromium input_remapper openbox; do
   esac
 done
 
-if [[ "${CHK_KODI_RPC:-}" == "up" ]]; then
-  pass "kodi_rpc: up"
-elif [[ -n "${CHK_KODI_RPC:-}" ]]; then
-  warn "kodi_rpc: ${CHK_KODI_RPC} (expected when Kodi idle)"
-fi
-
 if $REPAIR_SERVER && (( ERRORS > 0 )); then
-  if systemctl --user is-enabled mango-ui-server.service &>/dev/null; then
-    mango_log verify_tv action=repair_server reason=health_fail
-    systemctl --user restart mango-ui-server.service || true
-    sleep 1
+  if [[ -x "$REPO_DIR/scripts/mango-health-repair.sh" ]]; then
+    mango_log verify_tv action=repair_stack reason=health_fail
+    bash "$REPO_DIR/scripts/mango-health-repair.sh" --quiet || true
+    sleep 2
     HEALTH_JSON="$(fetch_health)"
     eval "$(python3 - "$HEALTH_JSON" <<'PY'
 import json, sys
@@ -97,11 +91,14 @@ print(f"API_OK={'1' if data.get('ok') else '0'}")
 PY
 )"
     if [[ "${API_OK:-0}" == "1" ]]; then
-      pass "repair: mango-ui-server restarted"
+      pass "repair: stack health restored"
       ERRORS=0
     else
-      fail "repair: server still unhealthy"
+      fail "repair: stack still unhealthy"
     fi
+  elif systemctl --user is-enabled mango-ui-server.service &>/dev/null; then
+    mango_log verify_tv action=repair_server reason=health_fail
+    systemctl --user restart mango-ui-server.service || true
   else
     warn "repair skipped — systemd unit not enabled (run install-systemd-units.sh)"
   fi

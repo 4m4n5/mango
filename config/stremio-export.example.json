@@ -1,0 +1,38 @@
+{
+  "_comment": "Addon manifest graph only, not Mango user-library sync. Copy to /etc/mango/stremio-export.json on Pi. Never commit real export.",
+  "addons": [
+    {
+      "name": "Cinemeta",
+      "manifestUrl": "https://v3-cinemeta.strem.io/manifest.json"
+    },
+    {
+      "name": "AIOStreams",
+      "manifestUrl": "http://127.0.0.1:3035/stremio/YOUR_GENERATED_USER/manifest.json"
+    },
+    {
+      "name": "AIOMetadata",
+      "manifestUrl": "http://127.0.0.1:3036/stremio/YOUR_USER_UUID/YOUR_COMPRESSED_CONFIG/manifest.json"
+    },
+    {
+      "name": "Bharat Binge",
+      "manifestUrl": "https://bharat-binge.semi-column.workers.dev/lang%3Ahi-recent-movie%2Clang%3Ahi-recent-series%2Clang%3Ahi-latest_episodes-series%2Clang%3Ahi-top_rated-movie%2Clang%3Ahi-top_rated-series%2Clang%3Ahi-surprise_me-movie%2Clang%3Ahi-surprise_me-series%2Clang%3Ata-recent-movie%2Clang%3Ata-top_rated-movie%2Clang%3Ata-surprise_me-movie%2Clang%3Ata-recent-series%2Clang%3Ata-latest_episodes-series%2Clang%3Ata-top_rated-series%2Clang%3Ata-surprise_me-series%2Clang%3Ate-recent-movie%2Clang%3Ate-top_rated-movie%2Clang%3Ate-surprise_me-movie%2Clang%3Ate-recent-series%2Clang%3Ate-latest_episodes-series%2Clang%3Ate-top_rated-series%2Clang%3Ate-surprise_me-series%2Clang%3Aml-recent-movie%2Clang%3Aml-top_rated-movie%2Clang%3Aml-surprise_me-movie%2Clang%3Aml-recent-series%2Clang%3Aml-latest_episodes-series%2Clang%3Aml-top_rated-series%2Clang%3Aml-surprise_me-series%2Clang%3Akn-recent-movie%2Clang%3Akn-top_rated-movie%2Clang%3Akn-surprise_me-movie%2Clang%3Akn-recent-series%2Clang%3Akn-latest_episodes-series%2Clang%3Akn-top_rated-series%2Clang%3Akn-surprise_me-series/manifest.json"
+    },
+    {
+      "name": "mango Live TV",
+      "manifestUrl": "http://127.0.0.1:7000/YOUR_NEXOTV_TOKEN/manifest.json"
+    },
+    {
+      "name": "mango Live Free",
+      "manifestUrl": "http://127.0.0.1:7001/YOUR_NEXOTV_FREE_TOKEN/manifest.json"
+    },
+    {
+      "name": "mango Live News",
+      "manifestUrl": "http://127.0.0.1:7002/YOUR_NEXOTV_NEWS_TOKEN/manifest.json"
+    },
+    {
+      "name": "mango Live Cartoons",
+      "manifestUrl": "http://127.0.0.1:7003/YOUR_NEXOTV_CARTOONS_TOKEN/manifest.json"
+    }
+  ],
+  "auth": {}
+}

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Print couch-test steps (after restart-with-diag.sh or alpha-test.sh).
+# Print legacy fallback couch-test steps (after restart-with-diag.sh or alpha-test.sh).
+# Current native couch checks live in docs/COUCH_TEST.md.
 
 cat <<'EOF'
 ══════════════════════════════════════════════════════════════════
-  MANGO ALPHA TEST — your part (couch + one SSH window)
+  MANGO LEGACY FALLBACK TEST — your part (couch + one SSH window)
 ══════════════════════════════════════════════════════════════════
 
 Keep an SSH session open to the Pi. After EACH step below, run the
@@ -39,16 +40,16 @@ STEP 2 — open Stremio
   Tell agent: Fullscreen? Y behavior? ⌂ speed? D-pad after ⌂?
 
 ──────────────────────────────────────────────────────────────────
-STEP 3 — open YouTube
+STEP 3 — open legacy Kodi YouTube
 ──────────────────────────────────────────────────────────────────
-  On TV: focus YouTube tile · B · wait for YouTube in Kodi
+  On TV: focus legacy YouTube tile · B · wait for YouTube in Kodi
          (Subscriptions/Recommendations — NOT Kodi home menu).
          D-pad once · Y once.
 
   Then SSH:
     bash ~/mango/scripts/diag/mark.sh "step-3 youtube"
 
-  Tell agent: Landed in YouTube addon or Kodi home? Any flash/blank?
+  Tell agent: Landed in legacy YouTube addon or Kodi home? Any flash/blank?
 
 ──────────────────────────────────────────────────────────────────
 STEP 4 — home from Kodi (press 1)

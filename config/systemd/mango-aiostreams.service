@@ -1,0 +1,20 @@
+[Unit]
+Description=mango self-hosted AIOStreams
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/mango/deploy/aiostreams
+Environment=HOME=%h
+Environment=MANGO_AIOSTREAMS_DATA_DIR=%h/.local/share/mango/aiostreams/data
+ExecStartPre=/bin/mkdir -p %h/.local/share/mango/aiostreams/data
+ExecStart=/usr/bin/env docker compose up
+ExecStop=/usr/bin/env docker compose down
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=120
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

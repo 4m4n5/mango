@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 OverlayState = Literal["idle", "listening", "thinking", "speaking"]
 ChatRole = Literal["user", "assistant"]
@@ -14,10 +14,32 @@ class ChatMessage:
 
 
 @dataclass
+class VoiceBrowseContext:
+    """Recent search hits for follow-up picks ('the second one', 'open that')."""
+
+    library_hits: list[dict[str, Any]] = field(default_factory=list)
+    external_hits: list[dict[str, Any]] = field(default_factory=list)
+
+    def all_hits(self) -> list[dict[str, Any]]:
+        return [*self.library_hits, *self.external_hits]
+
+    def remember_library(self, hits: list[dict[str, Any]]) -> None:
+        if hits:
+            self.library_hits = hits[:8]
+
+    def remember_external(self, hits: list[dict[str, Any]]) -> None:
+        if hits:
+            self.external_hits = hits[:8]
+
+
+@dataclass
 class SessionState:
     overlay_state: OverlayState = "idle"
     overlay_text: str = "idle"
     messages: list[ChatMessage] = field(default_factory=list)
+    voice_browse: VoiceBrowseContext = field(default_factory=VoiceBrowseContext)
+    last_nav_tab: str | None = None
+    last_open: dict[str, Any] | None = None
 
     def set_overlay(self, state: OverlayState, text: str | None = None) -> None:
         self.overlay_state = state
@@ -27,6 +49,23 @@ class SessionState:
         message = ChatMessage(role=role, text=text.strip())
         self.messages.append(message)
         return message
+
+    def record_dispatched_command(self, command: dict[str, Any]) -> None:
+        """Track last-dispatched TV nav/open state for the voice "TV context" prompt block."""
+        action = command.get("action")
+        if action == "tab":
+            tab = command.get("tab")
+            if isinstance(tab, str) and tab:
+                self.last_nav_tab = tab
+        elif action == "open_detail":
+            tab = command.get("tab")
+            self.last_open = {
+                "title": command.get("title"),
+                "type": command.get("content_type"),
+                "tab": tab,
+            }
+            if isinstance(tab, str) and tab:
+                self.last_nav_tab = tab
 
     def provider_messages(self, *, max_turns: int | None = None) -> list[dict[str, str]]:
         """LLM API shape — Anthropic/OpenAI expect ``content``, not ``text``."""

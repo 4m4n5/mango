@@ -16,13 +16,15 @@ SYSTEM_CONFIG = Path("/etc/mango/config.yaml")
 class OrchestratorSettings:
     host: str
     port: int
+    local_ws_port: int | None
     ssl_certfile: str | None
     ssl_keyfile: str | None
-    local_ws_port: int | None
     max_utterance_seconds: int
     stt_provider: str
     stt_model: str
     stt_language: str
+    stt_strategy: str
+    stt_detect_languages: tuple[str, ...]
     stt_api_key_file: str | None
     stt_timeout_seconds: float
     stt_keyterms: tuple[str, ...]
@@ -43,6 +45,10 @@ class OrchestratorSettings:
     llm_max_tokens: int
     llm_history_turns: int
     llm_api_key_file: str | None
+    catalog_upstream: str
+    launcher_ui_upstream: str
+    voice_tools_enabled: bool
+    max_tool_rounds: int
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -62,22 +68,25 @@ def load_settings() -> OrchestratorSettings:
     audio = raw.get("audio", {}) if isinstance(raw.get("audio"), dict) else {}
     stt = raw.get("stt", {}) if isinstance(raw.get("stt"), dict) else {}
     llm = raw.get("llm", {}) if isinstance(raw.get("llm"), dict) else {}
+    catalog = raw.get("catalog", {}) if isinstance(raw.get("catalog"), dict) else {}
     return OrchestratorSettings(
         host=str(os.environ.get("MANGO_ORCH_HOST", orch.get("host", "127.0.0.1"))),
         port=int(os.environ.get("MANGO_ORCH_PORT", orch.get("port", 8765))),
+        local_ws_port=_optional_int(orch.get("local_ws_port", 8766)),
         ssl_certfile=_optional_str(
             os.environ.get("MANGO_SSL_CERTFILE", orch.get("ssl_certfile"))
         ),
         ssl_keyfile=_optional_str(os.environ.get("MANGO_SSL_KEYFILE", orch.get("ssl_keyfile"))),
-        local_ws_port=_optional_int(orch.get("local_ws_port", 8766)),
         max_utterance_seconds=max(1, int(
             os.environ.get(
                 "MANGO_MAX_UTTERANCE_SECONDS", audio.get("max_utterance_seconds", 30)
             )
         )),
         stt_provider=str(stt.get("provider", "deepgram")),
-        stt_model=str(stt.get("model", "nova-2")),
-        stt_language=str(stt.get("language", "hi")),
+        stt_model=str(stt.get("model", "nova-3-general")),
+        stt_language=str(stt.get("language", "multi")),
+        stt_strategy=str(stt.get("strategy", "multilingual_with_detect_fallback")),
+        stt_detect_languages=_load_keyterms(stt.get("detect_languages", ["hi", "en"])),
         stt_api_key_file=_optional_str(stt.get("api_key_file")),
         stt_timeout_seconds=max(5.0, float(stt.get("timeout_seconds", 30))),
         stt_keyterms=_load_keyterms(stt.get("keyterms")),
@@ -95,9 +104,23 @@ def load_settings() -> OrchestratorSettings:
         duck_volume_percent=int(audio.get("duck_volume_percent", 40)),
         llm_provider=str(llm.get("provider", "anthropic")),
         llm_model=str(llm.get("model", "claude-haiku-4-5-20251001")),
-        llm_max_tokens=max(32, int(llm.get("max_tokens", 96))),
+        llm_max_tokens=max(64, int(llm.get("max_tokens", 192))),
         llm_history_turns=max(1, int(llm.get("history_turns", 3))),
         llm_api_key_file=_optional_str(llm.get("api_key_file")),
+        catalog_upstream=str(
+            os.environ.get(
+                "MANGO_CATALOG_UPSTREAM",
+                catalog.get("service_url", orch.get("catalog_upstream", "http://127.0.0.1:3020")),
+            )
+        ),
+        launcher_ui_upstream=str(
+            os.environ.get(
+                "MANGO_LAUNCHER_UPSTREAM",
+                orch.get("launcher_ui_upstream", "http://127.0.0.1:3000"),
+            )
+        ),
+        voice_tools_enabled=bool(orch.get("voice_tools_enabled", True)),
+        max_tool_rounds=max(1, int(orch.get("max_tool_rounds", 6))),
     )
 
 
@@ -106,6 +129,16 @@ def _optional_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        return None
+    return port if port > 0 else None
 
 
 def _load_keyterms(value: object) -> tuple[str, ...]:
@@ -117,17 +150,6 @@ def _load_keyterms(value: object) -> tuple[str, ...]:
         if text:
             terms.append(text)
     return tuple(terms)
-
-
-def _optional_int(value: object) -> int | None:
-    if value is None:
-        return None
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed > 0 else None
-
 
 def _tts_enabled(audio: dict[str, Any]) -> bool:
     if os.environ.get("MANGO_TTS_DISABLED") == "1":

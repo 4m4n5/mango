@@ -1,0 +1,644 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import type { Stream } from './core.js';
+import {
+  defaultFilterConfig,
+  filterAndRankStreams,
+  hasCacheableStream,
+  isCacheableStream,
+  mergeFilterConfig,
+  parseDebridCacheStatus,
+  parseFilterOverridesFromQuery,
+  streamHardwareDecodeSmooth,
+  streamMatchesMetaTitle,
+  streamPassesIntegrity,
+  trustedTitlesAreCompatible,
+  isSupplementalRelease,
+  isPlausibleFeatureDuration,
+  playMinDurationSec,
+  parseRuntimeMinutes,
+  streamMatchesVerifiedHint,
+  streamStableIdentity,
+} from './stream-filters.js';
+
+function stream(description: string, url: string): Stream {
+  return {
+    url,
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 1080p',
+    title: '[TB⚡] Torrentio 1080p',
+    description,
+    behaviorHints: {
+      bingeGroup: 'com.aiostreams|torbox|true|1080p',
+    },
+  };
+}
+
+const englishStream = stream(`🎥 BluRay 🎞️ HEVC 🏷️ SM737
+📦 8.98 GB
+🌐 🇬🇧`, 'https://example.test/english.mp4');
+
+const hindiStream = stream(`🎥 BluRay 🎞️ HEVC 🏷️ LAMA
+📦 3.02 GB
+🌐 🇮🇳 / 🇬🇧`, 'https://example.test/hindi.mp4');
+
+function testConfig(overrides = {}) {
+  return mergeFilterConfig({
+    ...defaultFilterConfig(),
+    exclude_uncached_debrid: false,
+    strict_unknown_cache: false,
+    exclude_remux: false,
+    max_quality: '1080p',
+    stream_display_limit: 8,
+  }, overrides);
+}
+
+test('W2: parseDebridCacheStatus reads current AIOStreams lightgdrive TB/RD badges', () => {
+  const examples = [
+    ['[TB⚡] Torrentio 1080p', 'cached'],
+    ['[TB⏳] Torrentio 1080p', 'uncached'],
+    ['[RD⚡] MediaFusion 2160p', 'cached'],
+    ['[RD⏳] MediaFusion 2160p', 'uncached'],
+    ['[TB] Comet 720p', 'unknown'],
+    ['[RD] Comet 720p', 'unknown'],
+  ] as const;
+
+  for (const [name, expected] of examples) {
+    const candidate: Stream = {
+      url: `https://example.test/${encodeURIComponent(name)}.mp4`,
+      source: 'AIOStreams',
+      name,
+      title: name,
+    };
+    assert.equal(parseDebridCacheStatus(candidate), expected, name);
+  }
+});
+
+test('W2: parseDebridCacheStatus also reads AIOStreams Torrentio formatter cache words', () => {
+  const cached: Stream = {
+    url: 'https://example.test/rd-cached.mp4',
+    source: 'AIOStreams',
+    name: '[RD+] Torrentio 1080p',
+    title: '[RD+] Torrentio 1080p',
+  };
+  const uncached: Stream = {
+    url: 'https://example.test/tb-download.mp4',
+    source: 'AIOStreams',
+    name: '[TB download] Torrentio 1080p',
+    title: '[TB download] Torrentio 1080p',
+  };
+  assert.equal(parseDebridCacheStatus(cached), 'cached');
+  assert.equal(parseDebridCacheStatus(uncached), 'uncached');
+});
+
+test('parseDebridCacheStatus trusts legacy explicit AIOStreams bingeGroup over display badge', () => {
+  const uncached: Stream = {
+    url: 'https://example.test/explicit-uncached.mp4',
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 1080p',
+    title: '[TB⚡] Torrentio 1080p',
+    behaviorHints: {
+      bingeGroup: 'com.aiostreams|torbox|false|1080p',
+    },
+  };
+  assert.equal(parseDebridCacheStatus(uncached), 'uncached');
+});
+
+test('parseFilterOverridesFromQuery splits hard language from soft preference', () => {
+  const overrides = parseFilterOverridesFromQuery(new URLSearchParams('language=Hindi&preferred_language=English'));
+  assert.equal(overrides.hard_language, 'Hindi');
+  assert.equal(overrides.preferred_language, 'English');
+});
+
+test('S5: verified identity survives signed URL rotation but not a distinct release', () => {
+  const original = {
+    ...englishStream,
+    url: 'https://example.test/movie.mkv?token=one',
+    behaviorHints: { infoHash: 'abc123', bingeGroup: 'aiostreams|torbox|true|1080p' },
+  };
+  const rotated = { ...original, url: 'https://example.test/movie.mkv?token=two' };
+  const distinct = {
+    ...rotated,
+    behaviorHints: { infoHash: 'different', bingeGroup: 'aiostreams|torbox|true|1080p' },
+  };
+  const hint = { win_url_hash: streamStableIdentity(original) };
+  assert.equal(streamMatchesVerifiedHint(rotated, hint), true);
+  assert.equal(streamMatchesVerifiedHint(distinct, hint), false);
+});
+
+test('S5: generic long binge-group tokens never merge distinct releases', () => {
+  const first = {
+    ...englishStream,
+    url: 'https://example.test/first.mkv?token=one',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p|torrentio' },
+  };
+  const second = {
+    ...first,
+    url: 'https://example.test/second.mkv?token=two',
+  };
+  assert.notEqual(streamStableIdentity(first), streamStableIdentity(second));
+});
+
+test('S5: a hash-bearing binge group survives signed URL rotation', () => {
+  const hash = '0123456789abcdef0123456789abcdef01234567';
+  const original = {
+    ...englishStream,
+    url: 'https://example.test/movie.mkv?token=one',
+    behaviorHints: { bingeGroup: `aiostreams|torbox|true|1080p|${hash}` },
+  };
+  const rotated = {
+    ...original,
+    url: 'https://example.test/movie.mkv?token=two',
+  };
+  assert.equal(streamStableIdentity(original), streamStableIdentity(rotated));
+});
+
+test('preferred_language boosts matching streams without excluding non-matches', () => {
+  const config = testConfig({ preferred_language: 'Hindi' });
+  const result = filterAndRankStreams(
+    [englishStream, hindiStream],
+    config,
+    {},
+    { preferred_language: config.preferred_language },
+  );
+  assert.equal(result.streams.length, 2);
+  assert.equal(result.streams[0]?.url, hindiStream.url);
+  assert.equal(result.meta.excluded.language_mismatch, 0);
+});
+
+test('preferred_hdr_tags boosts HDR-capable 2160p streams without requiring HDR', () => {
+  const sdr: Stream = {
+    url: 'https://example.test/sdr.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p',
+    title: '[TB⚡] Torrentio 2160p',
+    description: 'WEB-DL 2160p HEVC',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const hdr: Stream = {
+    url: 'https://example.test/hdr.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p',
+    title: '[TB⚡] Torrentio 2160p',
+    description: 'WEB-DL 2160p HEVC HDR10',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const config = {
+    ...testConfig({ max_quality: '2160p' }),
+    preferred_quality: '2160p' as const,
+    preferred_hdr_tags: ['hdr10', 'hdr'],
+  };
+  const result = filterAndRankStreams([sdr, hdr], config);
+  assert.equal(result.streams.length, 2);
+  assert.equal(result.streams[0]?.url, hdr.url);
+});
+
+test('preferred_hdr_tags does not boost DV-only streams unless configured', () => {
+  const hdr10: Stream = {
+    url: 'https://example.test/hdr10.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p',
+    title: '[TB⚡] Torrentio 2160p',
+    description: 'WEB-DL 2160p HEVC HDR10',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const dv: Stream = {
+    url: 'https://example.test/dv.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p',
+    title: '[TB⚡] Torrentio 2160p',
+    description: 'WEB-DL 2160p HEVC DV',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const config = {
+    ...testConfig({ max_quality: '2160p' }),
+    preferred_quality: '2160p' as const,
+    preferred_hdr_tags: ['hdr10', 'hdr'],
+  };
+  const result = filterAndRankStreams([dv, hdr10], config);
+  assert.equal(result.streams[0]?.url, hdr10.url);
+});
+
+test('preferred_video_codecs boosts 2160p HEVC over CPU-hostile AVC', () => {
+  const avc: Stream = {
+    url: 'https://example.test/avc.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p',
+    title: '[TB⚡] Torrentio 2160p',
+    description: 'WEB-DL 2160p AVC',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const hevc: Stream = {
+    url: 'https://example.test/hevc.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p',
+    title: '[TB⚡] Torrentio 2160p',
+    description: 'WEB-DL 2160p HEVC',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const config = {
+    ...testConfig({ max_quality: '2160p' }),
+    preferred_quality: '2160p' as const,
+    preferred_video_codecs: ['hevc', 'x265', 'h265'],
+  };
+  const result = filterAndRankStreams([avc, hevc], config);
+  assert.equal(result.streams.length, 2);
+  assert.equal(result.streams[0]?.url, hevc.url);
+});
+
+test('streamHardwareDecodeSmooth: HEVC any-res smooth, non-HEVC only <=1080p', () => {
+  const hevc4k: Stream = {
+    url: 'https://example.test/hevc4k.mkv', source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p', title: '[TB⚡] Torrentio 2160p', description: 'WEB-DL 2160p HEVC',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const av14k: Stream = {
+    url: 'https://example.test/av14k.mkv', source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p', title: '[TB⚡] Torrentio 2160p', description: 'WEB-DL 2160p AV1',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const avc1080: Stream = {
+    url: 'https://example.test/avc1080.mkv', source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 1080p', title: '[TB⚡] Torrentio 1080p', description: 'WEB-DL 1080p AVC',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|1080p' },
+  };
+  const unknownRes: Stream = {
+    url: 'https://example.test/unknown.mkv', source: 'AIOStreams',
+    name: 'Torrentio', title: 'Torrentio', description: 'WEB-DL AV1',
+  };
+  assert.equal(streamHardwareDecodeSmooth(hevc4k), true);
+  assert.equal(streamHardwareDecodeSmooth(av14k), false);
+  assert.equal(streamHardwareDecodeSmooth(avc1080), true);
+  assert.equal(streamHardwareDecodeSmooth(unknownRes), true);
+});
+
+test('hardware-decode tiebreak ranks 4K HEVC over 4K AV1 with no preferred codec set', () => {
+  const av14k: Stream = {
+    url: 'https://example.test/av14k.mkv', source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p', title: '[TB⚡] Torrentio 2160p', description: 'WEB-DL 2160p AV1',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const hevc4k: Stream = {
+    url: 'https://example.test/hevc4k.mkv', source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p', title: '[TB⚡] Torrentio 2160p', description: 'WEB-DL 2160p HEVC',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const config = {
+    ...testConfig({ max_quality: '2160p' }),
+    preferred_quality: '2160p' as const,
+    preferred_video_codecs: [] as string[],
+  };
+  const result = filterAndRankStreams([av14k, hevc4k], config);
+  assert.equal(result.streams.length, 2);
+  assert.equal(result.streams[0]?.url, hevc4k.url);
+});
+
+test('hard_language excludes non-matching streams', () => {
+  const result = filterAndRankStreams(
+    [englishStream, hindiStream],
+    testConfig({ hard_language: 'Hindi' }),
+    {},
+    { hard_language: 'Hindi' },
+  );
+  assert.equal(result.streams.length, 1);
+  assert.equal(result.streams[0]?.url, hindiStream.url);
+  assert.equal(result.meta.excluded.language_mismatch, 1);
+});
+
+test('hard_language does not match arbitrary haystack text when languages are parsed', () => {
+  const result = filterAndRankStreams(
+    [
+      stream(`🎥 BluRay 🎞️ HEVC 🏷️ SM737
+📦 8.98 GB
+🌐 🇬🇧
+Subtitles: Klingon`, 'https://example.test/subtitle-noise.mp4'),
+    ],
+    testConfig({ hard_language: 'Klingon' }),
+    {},
+    { hard_language: 'Klingon' },
+  );
+  assert.equal(result.streams.length, 0);
+  assert.equal(result.meta.excluded.language_mismatch, 1);
+});
+
+test('Indias Got Latent releases pass title relevance filter', () => {
+  const iglStream = stream(
+    "India's Got Latent S01E01 WEB-DL 1080p",
+    'https://example.test/igl.mp4',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(iglStream, "India's Got Latent", 'tt33094114:1:1'),
+    true,
+  );
+  const result = filterAndRankStreams(
+    [iglStream],
+    testConfig(),
+    { contentType: 'series', metaTitle: "India's Got Latent", metaId: 'tt33094114:1:1' },
+  );
+  assert.equal(result.streams.length, 1);
+  assert.equal(result.meta.excluded.title_mismatch, 0);
+});
+
+test('bounded trusted aliases admit an official extended title without weakening explicit conflicts', () => {
+  const extended = stream(
+    'My Next Guest Needs No Introduction with David Letterman S01E01 1080p',
+    'https://example.test/next-guest.mp4',
+  );
+  const wrongId = {
+    ...extended,
+    url: 'https://example.test/wrong-id.mp4',
+    description: `${extended.description ?? ''} tt9999999`,
+  };
+  const context = {
+    contentType: 'series',
+    metaTitle: 'My Next Guest Needs No Introduction',
+    trustedTitles: [
+      'My Next Guest Needs No Introduction',
+      'My Next Guest Needs No Introduction with David Letterman',
+    ],
+    metaId: 'tt7829834:1:1',
+  } as const;
+  assert.equal(streamPassesIntegrity(extended, context), true);
+  assert.equal(streamPassesIntegrity(wrongId, context), false);
+});
+
+test('trusted title compatibility is equality or a bounded prefix/suffix extension only', () => {
+  assert.equal(trustedTitlesAreCompatible('Amelie!', 'amelie'), true);
+  assert.equal(trustedTitlesAreCompatible(
+    'My Next Guest Needs No Introduction',
+    'My Next Guest Needs No Introduction with David Letterman',
+  ), true);
+  assert.equal(trustedTitlesAreCompatible('David Letterman', 'With David Letterman'), true);
+  assert.equal(trustedTitlesAreCompatible('Dead Silent', 'The White Silk Dress'), false);
+  assert.equal(trustedTitlesAreCompatible('David Letterman', 'A Very Long Interview with David Letterman'), false);
+  assert.equal(trustedTitlesAreCompatible('Alliance', 'Alliance'), true);
+});
+
+test('Friends rejects Apple TV and other compound "Friends" titles (1+2)', () => {
+  const apple: Stream = {
+    url: 'https://example.test/apple.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Comet 2160p',
+    title: '[TB⚡] Comet 2160p',
+    description: '📁 Your Friends And Neighbors S01 • E01\n🎥 WEB-DL 🎞️ HEVC 📡 Apple TV',
+    behaviorHints: {
+      filename: 'Your Friends and Neighbors S01E01 This Is What Happens 2160p ATVP WEB-DL.mkv',
+    },
+  };
+  const anime: Stream = {
+    url: 'https://example.test/natsume.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Comet 1080p',
+    title: '[TB⚡] Comet 1080p',
+    description: "📁 Natsume's Book Of Friends S01 • E01",
+    behaviorHints: {
+      filename: "[LostYears] Natsume's Book of Friends - S01E01.mkv",
+    },
+  };
+  const smiling: Stream = {
+    url: 'https://example.test/smiling.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Comet 1080p',
+    description: '📁 Smiling Friends S01 • E01',
+    behaviorHints: { filename: 'Smiling Friends S01E01 1080p.mkv' },
+  };
+  const real: Stream = {
+    url: 'https://example.test/friends.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Comet 2160p',
+    description: '📁 Friends S01 • E01\n🎥 BluRay REMUX',
+    behaviorHints: {
+      filename: 'Friends.S01E01.The.One.Where.Monica.Gets.a.Roommate.2160p.mkv',
+    },
+  };
+  const realYear: Stream = {
+    url: 'https://example.test/friends-year.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Comet 2160p',
+    description: '📁 Friends (1994) S01 • E01',
+    behaviorHints: {
+      filename: 'Friends.S01E01.1994.2160p.Max.WEB-DL.mkv',
+    },
+  };
+  assert.equal(streamMatchesMetaTitle(apple, 'Friends', 'tt0108778', { contentType: 'series' }), false);
+  assert.equal(streamMatchesMetaTitle(anime, 'Friends', 'tt0108778', { contentType: 'series' }), false);
+  assert.equal(streamMatchesMetaTitle(smiling, 'Friends', 'tt0108778', { contentType: 'series' }), false);
+  assert.equal(streamMatchesMetaTitle(real, 'Friends', 'tt0108778', { contentType: 'series' }), true);
+  assert.equal(streamMatchesMetaTitle(realYear, 'Friends', 'tt0108778', { contentType: 'series' }), true);
+
+  const ranked = filterAndRankStreams(
+    [apple, anime, smiling, real, realYear],
+    testConfig({ max_quality: '2160p' }),
+    { contentType: 'series', metaTitle: 'Friends', metaId: 'tt0108778:1:1' },
+  );
+  assert.equal(ranked.meta.excluded.title_mismatch, 3);
+  assert.equal(ranked.streams.length, 2);
+  assert.ok(ranked.streams.every((row) => {
+    const hints = row.behaviorHints as { filename?: string } | undefined;
+    return /friends\.s01/i.test(hints?.filename || '');
+  }));
+});
+
+test('same-name series editions use country, start year, and episode title without dropping ambiguous coverage', () => {
+  const release = (filename: string, description = filename): Stream => ({
+    url: `https://example.test/${encodeURIComponent(filename)}.mkv`,
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 1080p',
+    title: '[TB⚡] Torrentio 1080p',
+    description: `📁 ${description}`,
+    behaviorHints: {
+      filename,
+      bingeGroup: 'com.aiostreams|torbox|true|1080p',
+    },
+  });
+  const officeUk = {
+    contentType: 'series',
+    metaTitle: 'The Office',
+    metaId: 'tt0290978:1:1',
+    metaYear: 2001,
+    metaCountry: 'United Kingdom',
+    episodeTitle: 'Downsize',
+  } as const;
+  const correctUk = release('The.Office.U.K.2001.S01E01.Downsize.1080p.BluRay.x265.mkv');
+  const unqualified = release('The.Office.S01E01.1080p.BluRay.x265.mkv');
+  const wrongUs = release(
+    'The.Office.U.S.2005.S01E01.Pilot.1080p.WEB-DL.mkv',
+    'The Office (U.S.) (2005) S01E01 Pilot — tt0290978',
+  );
+  const wrongEpisode = release('The.Office.S01E01.Pilot.1080p.WEB-DL.mkv');
+
+  assert.equal(streamMatchesMetaTitle(correctUk, officeUk.metaTitle, officeUk.metaId, officeUk), true);
+  assert.equal(streamMatchesMetaTitle(unqualified, officeUk.metaTitle, officeUk.metaId, officeUk), true);
+  assert.equal(
+    streamMatchesMetaTitle(wrongUs, officeUk.metaTitle, officeUk.metaId, officeUk),
+    false,
+    'a matching target IMDb id must not bypass an explicit US-edition conflict',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(wrongEpisode, officeUk.metaTitle, officeUk.metaId, officeUk),
+    true,
+    'localized episode-title text must not override matching numeric episode identity',
+  );
+
+  const ranked = filterAndRankStreams(
+    [wrongUs, correctUk, wrongEpisode, unqualified],
+    testConfig(),
+    officeUk,
+  );
+  assert.equal(ranked.meta.excluded.title_mismatch, 1);
+  assert.deepEqual(
+    ranked.streams.map((row) => row.url).sort(),
+    [correctUk.url, wrongEpisode.url, unqualified.url].sort(),
+  );
+
+  const correctUs = release('The.Office.U.S.2005.S01E01.Pilot.1080p.WEB-DL.mkv');
+  assert.equal(streamMatchesMetaTitle(
+    correctUs,
+    'The Office',
+    'tt0386676:1:1',
+    {
+      contentType: 'series',
+      metaYear: 2005,
+      metaCountry: 'United States',
+      episodeTitle: 'Pilot',
+    },
+  ), true);
+
+  const pinned = filterAndRankStreams(
+    [wrongUs, correctUk],
+    testConfig(),
+    { ...officeUk, skipTitleFilter: true },
+  );
+  assert.deepEqual(pinned.streams.map((row) => row.url), [correctUk.url]);
+  assert.equal(pinned.meta.excluded.title_mismatch, 1);
+});
+
+test('same-name movie remakes reject an explicit conflicting release year', () => {
+  const dune1984: Stream = {
+    url: 'https://example.test/dune-1984.mkv',
+    source: 'AIOStreams',
+    title: 'Dune 1984 1080p',
+    description: '📁 Dune (1984) 1080p BluRay',
+    behaviorHints: { filename: 'Dune.1984.1080p.BluRay.x265.mkv' },
+  };
+  const dune2021: Stream = {
+    ...dune1984,
+    url: 'https://example.test/dune-2021.mkv',
+    title: 'Dune 2021 1080p',
+    description: '📁 Dune (2021) 1080p BluRay',
+    behaviorHints: { filename: 'Dune.2021.1080p.BluRay.x265.mkv' },
+  };
+  const context = { contentType: 'movie', metaYear: 2021 } as const;
+  assert.equal(streamMatchesMetaTitle(dune1984, 'Dune', 'tt1160419', context), false);
+  assert.equal(streamMatchesMetaTitle(dune2021, 'Dune', 'tt1160419', context), true);
+});
+
+test('country abbreviations that are part of the canonical title stay title tokens', () => {
+  const usMovie: Stream = {
+    url: 'https://example.test/us-2019.mkv',
+    source: 'AIOStreams',
+    title: 'Us 2019 1080p',
+    description: '📁 Us (2019) 1080p BluRay',
+    behaviorHints: { filename: 'Us.2019.1080p.BluRay.x265.mkv' },
+  };
+  assert.equal(streamMatchesMetaTitle(
+    usMovie,
+    'Us',
+    'tt6857112',
+    { contentType: 'movie', metaYear: 2019, metaCountry: 'United States' },
+  ), true);
+});
+
+test('an explicit conflicting IMDb id is rejected even when title meta is unavailable', () => {
+  const wrongId = stream('The Office S01E01 tt0386676 1080p', 'https://example.test/wrong-id.mkv');
+  const ranked = filterAndRankStreams(
+    [wrongId],
+    testConfig(),
+    { contentType: 'series', metaId: 'tt0290978:1:1' },
+  );
+  assert.equal(ranked.streams.length, 0);
+  assert.equal(ranked.meta.excluded.title_mismatch, 1);
+});
+
+test('single-token titles no longer bypass integrity (fix 1)', () => {
+  const junk = stream('📁 Completely Different Show S01 • E01', 'https://example.test/junk.mkv');
+  assert.equal(streamMatchesMetaTitle(junk, 'Seinfeld', 'tt0098904', { contentType: 'series' }), false);
+});
+
+test('isSupplementalRelease drops BTS and featurette labels for movies', () => {
+  assert.equal(isSupplementalRelease(stream('Behind the Scenes', 'https://example.test/bts.mp4'), 'movie'), true);
+  assert.equal(isSupplementalRelease(stream('Featurette: Making Of', 'https://example.test/ft.mp4'), 'movie'), true);
+  assert.equal(isSupplementalRelease(stream('1080p BluRay', 'https://example.test/main.mp4'), 'movie'), false);
+});
+
+test('isSupplementalRelease keeps bonus-labeled series torrents (indexer mislabels)', () => {
+  const iglBonus = stream('Igl Bonus E01 WEB-DL 1080p', 'https://example.test/igl-bonus.mp4');
+  assert.equal(isSupplementalRelease(iglBonus, 'series'), false);
+  assert.equal(isSupplementalRelease(iglBonus, 'movie'), true);
+});
+
+test('isPlausibleFeatureDuration rejects short probes for movies', () => {
+  assert.equal(parseRuntimeMinutes('2h30min'), 150);
+  assert.equal(isPlausibleFeatureDuration(12, 'movie', 150), false);
+  assert.equal(isPlausibleFeatureDuration(120, 'movie', 150), true);
+  assert.equal(isPlausibleFeatureDuration(45, 'movie', null), true);
+});
+
+test('isPlausibleFeatureDuration allows short bonus clips', () => {
+  assert.equal(isPlausibleFeatureDuration(3, 'series', null, { episodeRole: 'bonus' }), true);
+  assert.equal(isPlausibleFeatureDuration(0.4, 'series', null, { episodeRole: 'bonus' }), false);
+  assert.equal(isPlausibleFeatureDuration(3, 'series', null), false);
+});
+
+test('playMinDurationSec is lower for bonus than main series or movies', () => {
+  assert.equal(playMinDurationSec({ contentType: 'series', episodeRole: 'bonus' }), 30);
+  assert.equal(playMinDurationSec({ contentType: 'series', episodeRole: 'main' }), 120);
+  assert.equal(playMinDurationSec({ contentType: 'movie' }), 600);
+});
+
+test('movie filename integrity rejects mislabeled torrent descriptions', () => {
+  const mislabeled: Stream = {
+    url: 'https://example.test/bad.mkv',
+    source: 'AIOStreams',
+    name: '[TB☁️⚡] Torrentio 1080p',
+    title: '[TB☁️⚡] Torrentio 1080p',
+    description: '📁 The Shawshank Redemption (1994)\n🎥 BluRay 🎞️ HEVC',
+    behaviorHints: { filename: '3x2 a New Conversation.mkv', videoSize: 460_000_000 },
+    size_gb: 0.45,
+  };
+  const good: Stream = {
+    ...mislabeled,
+    url: 'https://example.test/good.mkv',
+    behaviorHints: {
+      filename: 'The.Shawshank.Redemption.1994.1080p.BluRay.x265.mkv',
+      videoSize: 9_000_000_000,
+    },
+    size_gb: 9,
+  };
+  assert.equal(
+    streamMatchesMetaTitle(mislabeled, 'The Shawshank Redemption', 'tt0111161', { contentType: 'movie' }),
+    false,
+  );
+  assert.equal(
+    streamMatchesMetaTitle(good, 'The Shawshank Redemption', 'tt0111161', { contentType: 'movie' }),
+    true,
+  );
+  const result = filterAndRankStreams(
+    [mislabeled, good],
+    testConfig({ exclude_uncached_debrid: false }),
+    { contentType: 'movie', metaTitle: 'The Shawshank Redemption', metaId: 'tt0111161', metaRuntimeMinutes: 142 },
+  );
+  assert.equal(result.streams.length, 1);
+  assert.equal(result.streams[0]?.url, good.url);
+});
+
+test('isCacheableStream rejects rate-limit placeholders', () => {
+  const good = stream('BluRay 1080p', 'https://example.test/play.mp4');
+  const rateLimitUrl = stream('rate limit', 'https://aiostreams.example/rate-limit-exceeded');
+  const errorLabel = stream('rate limit exceeded', 'https://example.test/placeholder.mp4');
+  assert.equal(isCacheableStream(good), true);
+  assert.equal(isCacheableStream(rateLimitUrl), false);
+  assert.equal(isCacheableStream(errorLabel), false);
+  assert.equal(hasCacheableStream([errorLabel, rateLimitUrl]), false);
+  assert.equal(hasCacheableStream([errorLabel, good]), true);
+});

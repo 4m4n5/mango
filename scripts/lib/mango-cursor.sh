@@ -19,7 +19,12 @@ hide_cursor() {
     pkill -x unclutter 2>/dev/null || true
     unclutter -idle 0 -root >/dev/null 2>&1 &
   fi
-  command -v xset >/dev/null 2>&1 && xset -dpms 2>/dev/null || true
+  if command -v xset >/dev/null 2>&1; then
+    xset -dpms 2>/dev/null || true
+    xset s off 2>/dev/null || true
+    xset s noblank 2>/dev/null || true
+    xset s 0 0 2>/dev/null || true
+  fi
 }
 
 show_cursor() {

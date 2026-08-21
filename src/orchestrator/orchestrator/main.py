@@ -7,22 +7,48 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from orchestrator.audio.duck import duck_audio, restore_audio
 from orchestrator.audio.ingest import decode_pcm_b64
 from orchestrator.audio.piper_tts import speak_reply
-from orchestrator.audio.stt import transcribe
+from orchestrator.audio.stt import transcribe_detailed
 from orchestrator.config import load_settings
+from orchestrator.companion_reflect import reflect_after_turn
+from orchestrator.couch_safe import couch_safe_error_message
+from orchestrator.llm.agent import generate_agent_reply, voice_tools_enabled
 from orchestrator.llm.provider import generate_reply
+from orchestrator.pick_options import (
+    enrich_tool_event,
+    open_tool_for_hit,
+    pick_hit_at_index,
+    tool_result_open_confirmed,
+)
 from orchestrator.session import ChatMessage, SessionState
+from orchestrator.tools.runner import execute_tool, tool_summary
+from orchestrator.tools.voice_nav import hit_to_open_input
 from orchestrator.timing import voice_stage
+from orchestrator.voice_log import (
+    TurnTimer,
+    append_event,
+    configure_logging,
+    new_turn_id,
+    reset_turn_id,
+    reset_turn_timer,
+    set_turn_id,
+    set_turn_timer,
+)
 from orchestrator.warmup import warmup_voice_stack
+from orchestrator.search_expand import expand_search_query
+from orchestrator.recommendation_enrich import enrich_story_dna_items
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +69,24 @@ listening_timeout_task: asyncio.Task[None] | None = None
 voice_epoch = 0
 
 
+def touch_couch_activity(hint: str) -> None:
+    cache_root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "mango"
+    path = Path(os.environ.get("MANGO_COUCH_ACTIVITY_STATE", cache_root / "couch-activity.json"))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "ts": int(time.time() * 1000),
+            "source": "voice",
+            "hint": hint[:96],
+            "pid": os.getpid(),
+        }
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        pass
+
+
 async def broadcast_status() -> None:
     await broadcast({"type": "status", "state": session.overlay_state, "text": session.overlay_text})
 
@@ -55,7 +99,7 @@ async def broadcast_chat(message: ChatMessage, *, partial: bool = False) -> None
 
 
 async def broadcast_error(message: str) -> None:
-    await broadcast({"type": "error", "message": message})
+    await broadcast({"type": "error", "message": couch_safe_error_message(message)})
 
 
 async def broadcast(payload: dict[str, Any]) -> None:
@@ -82,6 +126,65 @@ async def health() -> JSONResponse:
             "clients": len(clients),
         }
     )
+
+
+@app.post("/search/expand")
+async def search_expand(request: Request) -> JSONResponse:
+    client_host = request.client.host if request.client else ""
+    if client_host not in {"127.0.0.1", "::1", "localhost"}:
+        return JSONResponse(
+            {"ok": False, "error": "search expansion is localhost-only"},
+            status_code=403,
+        )
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ValueError("expected object")
+        query = str(payload.get("query", ""))
+        scope = str(payload.get("scope", "all"))
+        request_settings = load_settings()
+        expanded = await asyncio.wait_for(
+            asyncio.to_thread(expand_search_query, query, scope, request_settings),
+            timeout=4.0,
+        )
+        return JSONResponse({"ok": True, **expanded})
+    except asyncio.TimeoutError:
+        return JSONResponse({"ok": False, "error": "search expansion timed out"}, status_code=504)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
+
+
+_story_dna_lock = asyncio.Lock()
+
+
+@app.post("/recommendations/story-dna")
+async def recommendations_story_dna(request: Request) -> JSONResponse:
+    client_host = request.client.host if request.client else ""
+    if client_host not in {"127.0.0.1", "::1", "localhost"}:
+        return JSONResponse(
+            {"ok": False, "error": "StoryDNA enrichment is localhost-only"},
+            status_code=403,
+        )
+    try:
+        payload = await request.json()
+        request_settings = load_settings()
+        raw_items = payload.get("items") if isinstance(payload, dict) else None
+        item_count = len(raw_items) if isinstance(raw_items, list) else 1
+        # Serialize teacher calls so Movies/Series shadow jobs cannot starve each
+        # other into the old fixed 30s gateway timeout.
+        timeout_s = min(180.0, max(60.0, 25.0 * max(1, item_count)))
+        async with _story_dna_lock:
+            items = await asyncio.wait_for(
+                asyncio.to_thread(enrich_story_dna_items, payload, request_settings),
+                timeout=timeout_s,
+            )
+        return JSONResponse({"ok": True, "items": items})
+    except asyncio.TimeoutError:
+        return JSONResponse({"ok": False, "error": "StoryDNA enrichment timed out"}, status_code=504)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
 
 
 @app.websocket("/ws")
@@ -121,6 +224,7 @@ async def handle_client_message(websocket: WebSocket, raw: str) -> None:
             return
         # Allow a new turn while the TV still shows the last reply (overlay != idle).
         bump_voice_epoch()
+        touch_couch_activity("ptt_start")
         ptt_owner = websocket
         session.set_overlay("listening", "listening…")
         await broadcast_status()
@@ -146,17 +250,181 @@ async def handle_client_message(websocket: WebSocket, raw: str) -> None:
             await fail_to_idle("missing microphone audio")
             return
         session.set_overlay("thinking", "queued…")
+        touch_couch_activity("ptt_end")
         await broadcast_status()
         asyncio.create_task(run_voice_pipeline(pcm_b64))
+        return
+    if msg_type == "chat_send":
+        if ptt_owner is not None or voice_lock.locked():
+            await broadcast_error("voice is busy")
+            return
+        text = msg.get("text", "")
+        if not isinstance(text, str):
+            await broadcast_error("text is empty")
+            return
+        text = text.strip()
+        if not text:
+            await broadcast_error("text is empty")
+            return
+        if len(text) > 500:
+            await broadcast_error("text is too long")
+            return
+        epoch = bump_voice_epoch()
+        session.set_overlay("thinking", "thinking…")
+        await broadcast_status()
+        asyncio.create_task(run_text_pipeline(text, epoch))
+        return
+    if msg_type == "pick_select":
+        if ptt_owner is not None or voice_lock.locked():
+            await broadcast_error("voice is busy")
+            return
+        n = msg.get("n")
+        if not isinstance(n, int) or n < 1 or n > 4:
+            await broadcast_error("invalid pick")
+            return
+        epoch = bump_voice_epoch()
+        session.set_overlay("thinking", "opening…")
+        await broadcast_status()
+        asyncio.create_task(run_pick_pipeline(n, epoch))
         return
     if msg_type == "ping":
         await broadcast_status()
 
 
+async def run_text_pipeline(text: str, epoch: int) -> None:
+    settings = load_settings()
+    turn_id = new_turn_id()
+    turn_token = set_turn_id(turn_id)
+    turn_timer = TurnTimer()
+    timer_token = set_turn_timer(turn_timer)
+
+    append_event("turn_start", turn_id=turn_id, llm_model=settings.llm_model)
+    touch_couch_activity("turn_start")
+
+    user_message = session.add_message("user", text)
+    await broadcast_chat(user_message)
+
+    async with voice_lock:
+        showing_reply = False
+        try:
+            showing_reply = await run_agent_turn(
+                text,
+                input_mode="text",
+                epoch=epoch,
+                turn_id=turn_id,
+                turn_timer=turn_timer,
+            )
+        except Exception as exc:
+            if epoch == voice_epoch:
+                append_event("turn_error", turn_id=turn_id, error=str(exc))
+                await broadcast_error(str(exc))
+        finally:
+            append_event("turn_done", turn_id=turn_id, stages=turn_timer.as_dict())
+            reset_turn_timer(timer_token)
+            reset_turn_id(turn_token)
+            if epoch == voice_epoch and not showing_reply:
+                session.set_overlay("idle", "idle")
+                await broadcast_status()
+            touch_couch_activity("turn_end")
+
+
+async def run_pick_pipeline(n: int, epoch: int) -> None:
+    """Open a numbered search pick from companion without a full LLM turn."""
+    settings = load_settings()
+    turn_id = new_turn_id()
+    turn_token = set_turn_id(turn_id)
+    turn_timer = TurnTimer()
+    timer_token = set_turn_timer(turn_timer)
+
+    append_event("pick_start", turn_id=turn_id, pick=n)
+    touch_couch_activity("pick_start")
+
+    async with voice_lock:
+        try:
+            if epoch != voice_epoch:
+                return
+            hits = session.voice_browse.all_hits()
+            hit = pick_hit_at_index(hits, n)
+            if hit is None:
+                await broadcast_error("pick expired — search again")
+                return
+
+            async def dispatch_launcher(command: dict[str, Any]) -> int | None:
+                seq: int | None = None
+                try:
+                    from orchestrator.tools.launcher_dispatch import post_launcher_command
+
+                    seq = await asyncio.to_thread(post_launcher_command, settings, command)
+                except Exception as exc:
+                    logger.warning("launcher HTTP dispatch failed: %s", exc)
+                session.record_dispatched_command(command)
+                payload = {**command, "seq": seq} if seq is not None else command
+                await broadcast(payload)
+                return seq
+
+            tool_name = open_tool_for_hit(hit)
+            try:
+                tool_input = hit_to_open_input(hit)
+            except ValueError:
+                await broadcast_error("pick could not be opened")
+                return
+            title = str(tool_input.get("title", "")).strip()
+            summary = tool_summary(tool_name, tool_input)
+            await broadcast(
+                {"type": "tool", "phase": "start", "name": tool_name, "summary": summary}
+            )
+            result = await execute_tool(
+                tool_name,
+                tool_input,
+                settings,
+                dispatch_launcher=dispatch_launcher,
+            )
+            await broadcast(
+                enrich_tool_event(
+                    {
+                        "type": "tool",
+                        "phase": "done",
+                        "name": tool_name,
+                        "summary": summary,
+                        "result": result,
+                    }
+                )
+            )
+            if tool_result_open_confirmed(result):
+                reply = f"{title or 'title'} detail pe khula — B dabao play ke liye."
+            else:
+                reply = couch_safe_error_message("could not open that pick")
+            assistant_message = session.add_message("assistant", reply)
+            append_event("pick_done", turn_id=turn_id, title=title, ok=tool_result_open_confirmed(result))
+            await broadcast_chat(assistant_message)
+            if epoch == voice_epoch:
+                session.set_overlay("idle", "idle")
+                await broadcast_status()
+        except Exception as exc:
+            if epoch == voice_epoch:
+                append_event("pick_error", turn_id=turn_id, error=str(exc))
+                await broadcast_error(couch_safe_error_message(str(exc)))
+        finally:
+            append_event("turn_done", turn_id=turn_id, stages=turn_timer.as_dict())
+            reset_turn_timer(timer_token)
+            reset_turn_id(turn_token)
+            if epoch == voice_epoch:
+                session.set_overlay("idle", "idle")
+                await broadcast_status()
+            touch_couch_activity("turn_end")
+
+
 async def run_voice_pipeline(pcm_b64: str) -> None:
     settings = load_settings()
     epoch = voice_epoch
+    turn_id = new_turn_id()
+    turn_token = set_turn_id(turn_id)
+    turn_timer = TurnTimer()
+    timer_token = set_turn_timer(turn_timer)
     partial_state = {"text": "", "sent_at": 0.0}
+
+    append_event("turn_start", turn_id=turn_id, llm_model=settings.llm_model)
+    touch_couch_activity("turn_start")
 
     def on_llm_delta(text: str) -> None:
         partial_state["text"] = text
@@ -178,7 +446,6 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
             await broadcast_chat(ChatMessage(role="assistant", text=text), partial=True)
 
     async with voice_lock:
-        pump_task: asyncio.Task[None] | None = None
         showing_reply = False
         try:
             if epoch != voice_epoch:
@@ -193,56 +460,192 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
             if epoch != voice_epoch:
                 return
             with voice_stage("stt"):
-                transcript = await asyncio.to_thread(transcribe, audio.samples, settings)
+                stt_result = await asyncio.to_thread(transcribe_detailed, audio.samples, settings)
+            transcript = stt_result.text
+            append_event(
+                "stt",
+                turn_id=turn_id,
+                text=transcript,
+                provider=stt_result.provider,
+                model=stt_result.model,
+                confidence=stt_result.confidence,
+                language=stt_result.language,
+                mode=stt_result.mode,
+                fallback=stt_result.fallback,
+                audio_seconds=round(audio.duration_seconds, 2),
+            )
             user_message = session.add_message("user", transcript)
             await broadcast_chat(user_message)
 
-            if epoch != voice_epoch:
-                return
-            session.set_overlay("thinking", "thinking…")
-            await broadcast_status()
-            pump_task = asyncio.create_task(pump_llm_partials())
-            with voice_stage("llm"):
+            showing_reply = await run_agent_turn(
+                transcript,
+                input_mode="voice",
+                epoch=epoch,
+                turn_id=turn_id,
+                turn_timer=turn_timer,
+                on_llm_delta=on_llm_delta,
+                pump_llm_partials=pump_llm_partials,
+            )
+        except Exception as exc:
+            if epoch == voice_epoch:
+                append_event("turn_error", turn_id=turn_id, error=str(exc))
+                await broadcast_error(str(exc))
+        finally:
+            append_event("turn_done", turn_id=turn_id, stages=turn_timer.as_dict())
+            reset_turn_timer(timer_token)
+            reset_turn_id(turn_token)
+            await asyncio.to_thread(restore_audio)
+            if epoch == voice_epoch and not showing_reply:
+                session.set_overlay("idle", "idle")
+                await broadcast_status()
+            touch_couch_activity("turn_end")
+
+
+async def run_agent_turn(
+    user_text: str,
+    *,
+    input_mode: Literal["voice", "text"],
+    epoch: int,
+    turn_id: str,
+    turn_timer: TurnTimer,
+    on_llm_delta: Callable[[str], None] | None = None,
+    pump_llm_partials: Callable[[], Awaitable[None]] | None = None,
+) -> bool:
+    """Run the LLM/agent portion of a turn. Returns True if the overlay is holding a reply."""
+    settings = load_settings()
+    use_tools = voice_tools_enabled(settings)
+
+    if pump_llm_partials is None:
+        partial_state = {"text": "", "sent_at": 0.0}
+        caller_on_delta = on_llm_delta
+
+        def _default_on_llm_delta(text: str) -> None:
+            partial_state["text"] = text
+            if caller_on_delta is not None:
+                caller_on_delta(text)
+
+        on_llm_delta = _default_on_llm_delta
+
+        async def _default_pump_llm_partials() -> None:
+            while True:
+                await asyncio.sleep(0.12)
+                if epoch != voice_epoch:
+                    return
+                text = partial_state["text"].strip()
+                if not text:
+                    continue
+                now = time.monotonic()
+                if now - partial_state["sent_at"] < 0.12:
+                    continue
+                partial_state["sent_at"] = now
+                session.set_overlay("thinking", text)
+                await broadcast_status()
+                await broadcast_chat(ChatMessage(role="assistant", text=text), partial=True)
+
+        pump_llm_partials = _default_pump_llm_partials
+
+    if on_llm_delta is None:
+        partial_state = {"text": "", "sent_at": 0.0}
+
+        def _fallback_on_llm_delta(text: str) -> None:
+            partial_state["text"] = text
+
+        on_llm_delta = _fallback_on_llm_delta
+
+    pump_task: asyncio.Task[None] | None = None
+    showing_reply = False
+    try:
+        if epoch != voice_epoch:
+            return False
+        session.set_overlay("thinking", "thinking…")
+        await broadcast_status()
+        pump_task = asyncio.create_task(pump_llm_partials())
+
+        async def dispatch_launcher(command: dict[str, Any]) -> int | None:
+            seq: int | None = None
+            try:
+                from orchestrator.tools.launcher_dispatch import post_launcher_command
+
+                seq = await asyncio.to_thread(post_launcher_command, settings, command)
+            except Exception as exc:
+                logger.warning("launcher HTTP dispatch failed: %s", exc)
+            session.record_dispatched_command(command)
+            payload = {**command, "seq": seq} if seq is not None else command
+            await broadcast(payload)
+            return seq
+
+        async def on_tool_event(payload: dict[str, Any]) -> None:
+            await broadcast(payload)
+
+        with voice_stage("llm"):
+            if use_tools:
+                reply = await generate_agent_reply(
+                    session.provider_messages(max_turns=settings.llm_history_turns),
+                    settings,
+                    voice_browse=session.voice_browse,
+                    on_delta=on_llm_delta,
+                    dispatch_launcher=dispatch_launcher,
+                    on_tool_event=on_tool_event,
+                    tv_state={
+                        "last_nav_tab": session.last_nav_tab,
+                        "last_open": session.last_open,
+                    },
+                )
+            else:
                 reply = await asyncio.to_thread(
                     generate_reply,
                     session.provider_messages(max_turns=settings.llm_history_turns),
                     settings,
                     on_delta=on_llm_delta,
                 )
-            if pump_task is not None:
-                pump_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await pump_task
-            assistant_message = session.add_message("assistant", reply)
-            await broadcast_chat(assistant_message)
+        if pump_task is not None:
+            pump_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pump_task
+        assistant_message = session.add_message("assistant", reply)
+        append_event(
+            "agent_reply",
+            turn_id=turn_id,
+            text=reply,
+            use_tools=use_tools,
+            llm_model=settings.llm_model,
+        )
+        await broadcast_chat(assistant_message)
 
-            if epoch != voice_epoch:
-                return
-            if settings.tts_enabled:
-                if settings.tts_async:
-                    asyncio.create_task(_speak_async(reply, settings))
-                else:
-                    session.set_overlay("speaking", reply)
-                    await broadcast_status()
-                    with voice_stage("tts"):
-                        await asyncio.to_thread(speak_reply, reply, settings)
+        if use_tools and user_text.strip():
+            asyncio.create_task(
+                reflect_after_turn(
+                    settings,
+                    transcript=user_text,
+                    reply=reply,
+                )
+            )
+
+        if epoch != voice_epoch:
+            return False
+        if settings.tts_enabled and input_mode == "voice":
+            if settings.tts_async:
+                asyncio.create_task(_speak_async(reply, settings))
             else:
                 session.set_overlay("speaking", reply)
                 await broadcast_status()
-                showing_reply = True
-                asyncio.create_task(_hold_reply_then_idle(settings.overlay_reply_seconds, epoch))
-        except Exception as exc:
-            if pump_task is not None:
-                pump_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await pump_task
-            if epoch == voice_epoch:
-                await broadcast_error(str(exc))
-        finally:
-            await asyncio.to_thread(restore_audio)
-            if epoch == voice_epoch and not showing_reply:
+                with voice_stage("tts"):
+                    await asyncio.to_thread(speak_reply, reply, settings)
                 session.set_overlay("idle", "idle")
                 await broadcast_status()
+        else:
+            session.set_overlay("idle", "idle")
+            await broadcast_status()
+        return False
+    except Exception as exc:
+        if pump_task is not None:
+            pump_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pump_task
+        if epoch == voice_epoch:
+            append_event("turn_error", turn_id=turn_id, error=str(exc))
+            await broadcast_error(str(exc))
+        return False
 
 
 async def _hold_reply_then_idle(seconds: int, epoch: int) -> None:
@@ -314,10 +717,9 @@ async def fail_to_idle(message: str) -> None:
 
 
 def main() -> None:
-    import threading
-
     import uvicorn
 
+    configure_logging()
     settings = load_settings()
     parser = argparse.ArgumentParser(description="mango orchestrator")
     parser.add_argument("--host", default=settings.host)
@@ -328,19 +730,11 @@ def main() -> None:
 
     use_tls = bool(args.ssl_certfile and args.ssl_keyfile)
     local_port = settings.local_ws_port
-    if use_tls and local_port and local_port != args.port:
-        thread = threading.Thread(
-            target=lambda: uvicorn.run(
-                app,
-                host="127.0.0.1",
-                port=local_port,
-                log_level="warning",
-            ),
-            daemon=True,
-            name="mango-orch-local-ws",
-        )
-        thread.start()
-        logger.info("local overlay websocket on ws://127.0.0.1:%s/ws", local_port)
+    run_loopback = use_tls and local_port and local_port != args.port
+
+    if run_loopback:
+        asyncio.run(_run_servers(args, local_port, use_tls))
+        return
 
     uvicorn.run(
         app,
@@ -350,6 +744,35 @@ def main() -> None:
         ssl_certfile=args.ssl_certfile if use_tls else None,
         ssl_keyfile=args.ssl_keyfile if use_tls else None,
     )
+
+
+async def _run_servers(args: argparse.Namespace, local_port: int, use_tls: bool) -> None:
+    import uvicorn
+
+    servers = [
+        uvicorn.Server(
+            uvicorn.Config(
+                app,
+                host=args.host,
+                port=args.port,
+                log_level="info",
+                ssl_certfile=args.ssl_certfile if use_tls else None,
+                ssl_keyfile=args.ssl_keyfile if use_tls else None,
+            )
+        )
+    ]
+    servers.append(
+        uvicorn.Server(
+            uvicorn.Config(
+                app,
+                host="127.0.0.1",
+                port=local_port,
+                log_level="warning",
+            )
+        )
+    )
+    logger.info("loopback TV websocket on ws://127.0.0.1:%s/ws", local_port)
+    await asyncio.gather(*(server.serve() for server in servers))
 
 
 if __name__ == "__main__":

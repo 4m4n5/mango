@@ -5,8 +5,10 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-# shellcheck source=phase0/lib/irctl.sh
-source "$REPO_DIR/scripts/phase0/lib/irctl.sh"
+# shellcheck source=m1-foundation/pad/lib/irctl.sh
+source "$REPO_DIR/scripts/m1-foundation/pad/lib/irctl.sh"
+# shellcheck source=lib/launcher-window.sh
+source "$REPO_DIR/scripts/lib/launcher-window.sh"
 
 export DISPLAY=":0"
 export XAUTHORITY="/home/aman/.Xauthority"
@@ -15,8 +17,15 @@ if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
   # shellcheck disable=SC1091
   source "${HOME}/.config/mango/voice.env"
 fi
-export MANGO_SKIP_OVERLAY="${MANGO_SKIP_OVERLAY:-$([ "${MANGO_VOICE:-0}" == "1" ] && echo 0 || echo 1)}"
+export MANGO_SKIP_OVERLAY=1
 export MANGO_FAST_UI="${MANGO_FAST_UI:-1}"
+
+PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
+# shellcheck source=lib/mango-browse-display.sh
+source "$REPO_DIR/scripts/lib/mango-browse-display.sh"
+if ! playback_surface_active; then
+  bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" ensure-launcher 2>/dev/null || true
+fi
 
 # shellcheck source=lib/mango-log.sh
 source "$REPO_DIR/scripts/lib/mango-log.sh"
@@ -34,12 +43,21 @@ fi
 LOCK_DIR="${HOME}/.cache/mango"
 LOCK_FILE="${LOCK_DIR}/launch-launcher.lock"
 mkdir -p "$LOCK_DIR"
+LOCK_HELD=0
 
-# Stop orphaned media focus loops (they steal focus back to Kodi/Stremio after ⌂).
+cleanup_lock() {
+  if [[ "$LOCK_HELD" == "1" ]]; then
+    flock -u 9 2>/dev/null || true
+    exec 9>&- 2>/dev/null || true
+    rm -f "$LOCK_FILE" 2>/dev/null || true
+    LOCK_HELD=0
+  fi
+}
+trap cleanup_lock EXIT
+
+# Stop orphaned media focus loops (they steal focus back after ⌂).
 pkill -f 'bash.*focus-kodi.sh' 2>/dev/null || true
 pkill -f 'bash.*focus-stremio.sh' 2>/dev/null || true
-pkill -f 'bash.*launch-kodi.sh' 2>/dev/null || true
-pkill -f 'bash.*launch-stremio.sh' 2>/dev/null || true
 
 # Drop duplicate home while a switch is in flight.
 exec 9>"$LOCK_FILE"
@@ -48,18 +66,16 @@ if ! flock -n 9; then
   echo "launch-launcher busy" >&2
   exit 1
 fi
+LOCK_HELD=1
 
 launcher_already_focused() {
   command -v xdotool >/dev/null 2>&1 || return 1
-  local name
-  name=$(xdotool getactivewindow getwindowname 2>/dev/null || true)
-  [[ "$name" == *"mango launcher"* ]] || [[ "$name" == *"mango-launcher"* ]]
+  active_window_is_launcher
 }
 
 if launcher_already_focused; then
   bash "$REPO_DIR/scripts/lib/present-launcher.sh" --quick 2>/dev/null || true
-  flock -u 9
-  exec 9>&-
+  cleanup_lock
   END_TS=$(date +%s%3N 2>/dev/null || date +%s)
   DURATION_MS=$((END_TS - START_TS))
   mango_log launch_launcher status=ok mode=noop "duration_ms=$DURATION_MS"
@@ -74,7 +90,10 @@ if command -v wmctrl >/dev/null 2>&1; then
   bash "$REPO_DIR/scripts/lib/hide-media.sh" all 2>/dev/null || true
   wmctrl -x -r mango-launcher -b remove,hidden 2>/dev/null || true
   wmctrl -r "mango launcher" -b remove,hidden 2>/dev/null || true
-  wmctrl -xa mango-launcher 2>/dev/null || true
+  wid="$(find_launcher_wid 2>/dev/null || true)"
+  if [[ -n "$wid" ]] && command -v xdotool >/dev/null 2>&1; then
+    xdotool windowactivate "$wid" 2>/dev/null || true
+  fi
 fi
 
 if [[ "${MANGO_FAST_UI}" != "1" ]]; then
@@ -91,12 +110,11 @@ fi
 bash "$REPO_DIR/scripts/lib/mango-cursor.sh" hide 2>/dev/null || true
 
 # Release flock before any subprocess — never let reader-service inherit fd 9.
-flock -u 9
-exec 9>&-
+cleanup_lock
 
 # One pad owner: ensure router after home (no sync input-remapper handoff).
 if [[ "${MANGO_SKIP_REMAPPER:-}" != "1" ]]; then
-  bash "$REPO_DIR/scripts/phase0/start-mango-tv-pad.sh" 2>/dev/null || \
+  bash "$REPO_DIR/scripts/m1-foundation/pad/start-mango-tv-pad.sh" 2>/dev/null || \
     ir_resume_after_bridge "Pro Controller" "mango-tv"
 fi
 

@@ -1,24 +1,95 @@
 import "./style.css";
 
 type ChatRole = "user" | "assistant";
+type PickOption = {
+  n: number;
+  title: string;
+  tab?: string;
+  type?: string;
+  year?: string;
+};
 type ServerMessage =
   | { type: "status"; state?: string; text?: string }
   | { type: "chat"; role?: ChatRole; text?: string; partial?: boolean }
-  | { type: "error"; message?: string };
+  | { type: "error"; message?: string }
+  | {
+      type: "tool";
+      phase?: string;
+      name?: string;
+      summary?: string;
+      options?: PickOption[];
+    }
+  | {
+      type: "launcher_command";
+      action?: string;
+      tab?: string;
+      title?: string;
+      content_type?: string;
+    };
+
+type AiContextResponse = {
+  ok?: boolean;
+  now_playing?: {
+    active?: boolean;
+    title?: string | null;
+    message?: string;
+  };
+};
+
+type CompanionSummaryResponse = {
+  ok?: boolean;
+  summary?: string;
+  compiled_excerpt?: string;
+  familiarity?: Record<string, unknown>;
+};
 
 const TARGET_SAMPLE_RATE = 16_000;
 const MAX_UTTERANCE_MS = 30_000;
 
 const statusEl = document.getElementById("status");
+const statusDotEl = document.getElementById("status-dot");
 const errorEl = document.getElementById("error");
 const pttBtn = document.getElementById("ptt");
 const chatEl = document.getElementById("chat");
+const chatEmptyEl = document.getElementById("chat-empty");
+const composerForm = document.getElementById("composer");
+const composerInput = document.getElementById("composer-input") as HTMLTextAreaElement | null;
+const composerSubmit = composerForm?.querySelector("button[type='submit']");
+const mirrorTabEl = document.getElementById("mirror-tab");
+const mirrorOpenEl = document.getElementById("mirror-open");
+const mirrorPlayingEl = document.getElementById("mirror-playing");
+const mirrorToolEl = document.getElementById("mirror-tool");
+const memoryToggle = document.getElementById("memory-toggle");
+const memoryPanel = document.getElementById("memory-panel");
+const youtubeStatusEl = document.getElementById("youtube-status");
+const youtubeAvatarEl = document.getElementById("youtube-avatar");
+const youtubeStartBtn = document.getElementById("youtube-auth-start");
+const youtubeDisconnectBtn = document.getElementById("youtube-auth-disconnect");
+const youtubeCodeEl = document.getElementById("youtube-auth-code");
+const youtubeLinkEl = document.getElementById("youtube-auth-link");
+const youtubeUserCodeEl = document.getElementById("youtube-user-code");
+const toggleYoutubeBtn = document.getElementById("toggle-youtube");
+const toggleMirrorBtn = document.getElementById("toggle-mirror");
+const youtubePanelEl = document.getElementById("youtube-panel");
+const mirrorPanelEl = document.getElementById("mirror");
+const youtubeChipMetaEl = document.getElementById("youtube-chip-meta");
+const mirrorChipMetaEl = document.getElementById("mirror-chip-meta");
 const wsUrl = resolveWsUrl();
+
+let youtubeChipMeta = "…";
+let mirrorPlayingSummary = "—";
 
 let socket: WebSocket | null = null;
 let reconnectTimer: number | undefined;
 let pttActive = false;
 let maxUtteranceTimer: number | undefined;
+let youtubePollTimer: number | undefined;
+let connected = false;
+let voiceBusy = false;
+let mirrorPollTimer: number | undefined;
+let mirrorTab = "—";
+let mirrorOpen = "—";
+let mirrorTool = "—";
 
 let mediaStream: MediaStream | null = null;
 let audioContext: AudioContext | null = null;
@@ -28,6 +99,49 @@ let sampleRate = 48_000;
 let chunks: Float32Array[] = [];
 
 connect();
+void loadYoutubeState();
+startMirrorPoll();
+wirePanelToggles();
+renderMirror();
+
+function wirePanelToggles(): void {
+  if (toggleYoutubeBtn instanceof HTMLButtonElement && youtubePanelEl !== null) {
+    toggleYoutubeBtn.addEventListener("click", () => {
+      toggleDrawer(toggleYoutubeBtn, youtubePanelEl);
+    });
+  }
+  if (toggleMirrorBtn instanceof HTMLButtonElement && mirrorPanelEl !== null) {
+    toggleMirrorBtn.addEventListener("click", () => {
+      toggleDrawer(toggleMirrorBtn, mirrorPanelEl);
+    });
+  }
+}
+
+function toggleDrawer(button: HTMLButtonElement, panel: HTMLElement): void {
+  const open = button.getAttribute("aria-expanded") === "true";
+  if (open) {
+    panel.setAttribute("hidden", "");
+    button.setAttribute("aria-expanded", "false");
+    return;
+  }
+  panel.removeAttribute("hidden");
+  button.setAttribute("aria-expanded", "true");
+}
+
+function openYoutubePanel(): void {
+  if (toggleYoutubeBtn instanceof HTMLButtonElement && youtubePanelEl !== null) {
+    youtubePanelEl.removeAttribute("hidden");
+    toggleYoutubeBtn.setAttribute("aria-expanded", "true");
+  }
+}
+
+function truncateMeta(text: string, max = 28): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= max) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, max - 1)}…`;
+}
 
 function resolveWsUrl(): string {
   const env = import.meta.env as Record<string, string | undefined>;
@@ -43,14 +157,18 @@ function connect(): void {
   window.clearTimeout(reconnectTimer);
   socket = new WebSocket(wsUrl);
   socket.addEventListener("open", () => {
-    setStatus("connected");
+    connected = true;
+    updateComposerState();
+    setConnectionState("idle", "connected");
     setError("");
   });
   socket.addEventListener("message", (event: MessageEvent<string>) => {
     handleServerMessage(event.data);
   });
   socket.addEventListener("close", () => {
-    setStatus("disconnected");
+    connected = false;
+    updateComposerState();
+    setConnectionState("connecting", "disconnected");
     reconnectTimer = window.setTimeout(connect, 2000);
   });
   socket.addEventListener("error", () => {
@@ -59,12 +177,29 @@ function connect(): void {
   });
 }
 
+function updateComposerState(): void {
+  const disabled = !connected || voiceBusy;
+  composerInput?.toggleAttribute("disabled", disabled);
+  if (composerSubmit instanceof HTMLButtonElement) {
+    composerSubmit.disabled = disabled;
+  }
+}
+
 function handleServerMessage(raw: string): void {
   try {
     const msg = JSON.parse(raw) as ServerMessage;
     if (msg.type === "status") {
       const state = (msg.state ?? "").trim();
-      setStatus((msg.text ?? msg.state ?? "").trim());
+      setConnectionState(state, (msg.text ?? msg.state ?? "").trim());
+      voiceBusy = state === "listening" || state === "thinking";
+      updateComposerState();
+      if (pttBtn instanceof HTMLButtonElement) {
+        pttBtn.classList.toggle("active", state === "listening");
+      }
+      if (state === "idle") {
+        mirrorTool = "—";
+        renderMirror();
+      }
       if (state === "idle" || state === "listening") {
         setError("");
       }
@@ -80,16 +215,72 @@ function handleServerMessage(raw: string): void {
     }
     if (msg.type === "error") {
       setError(msg.message ?? "voice error");
+      return;
+    }
+    if (msg.type === "tool") {
+      const summary = msg.summary ?? msg.name ?? "working…";
+      mirrorTool = summary;
+      renderMirror();
+      appendToolCard(summary, msg.phase ?? "start");
+      if (msg.phase === "done" && Array.isArray(msg.options) && msg.options.length >= 2) {
+        appendPickCards(msg.options);
+      }
+      return;
+    }
+    if (msg.type === "launcher_command") {
+      applyLauncherMirror(msg);
+      return;
     }
   } catch {
     setStatus(raw.trim());
   }
 }
 
-function setStatus(text: string): void {
-  if (statusEl !== null) {
-    statusEl.textContent = text;
+function humanizeStatus(state: string, text: string): string {
+  const normalized = `${state} ${text}`.toLowerCase();
+  if (!connected) {
+    return "Reconnecting…";
   }
+  if (state === "listening" || normalized.includes("listening")) {
+    return "Listening…";
+  }
+  if (state === "thinking" || normalized.includes("thinking") || normalized.includes("transcrib")) {
+    return "Thinking…";
+  }
+  if (state === "speaking") {
+    return "Speaking…";
+  }
+  if (text === "connected" || state === "idle") {
+    return "Ready";
+  }
+  return text.trim() || "Ready";
+}
+
+function setConnectionState(state: string, text: string): void {
+  const label = humanizeStatus(state, text);
+  if (statusEl !== null) {
+    statusEl.textContent = label;
+  }
+  if (statusDotEl !== null) {
+    if (!connected) {
+      statusDotEl.dataset.state = "connecting";
+    } else if (state === "listening" || state === "thinking" || state === "speaking") {
+      statusDotEl.dataset.state = "busy";
+    } else {
+      statusDotEl.dataset.state = "ready";
+    }
+  }
+}
+
+function setStatus(text: string): void {
+  setConnectionState("", text);
+}
+
+function syncChatEmpty(): void {
+  if (chatEmptyEl === null || chatEl === null) {
+    return;
+  }
+  chatEmptyEl.hidden = chatEl.querySelector(".message") !== null;
 }
 
 function setError(text: string): void {
@@ -97,6 +288,359 @@ function setError(text: string): void {
     errorEl.textContent = text;
     errorEl.toggleAttribute("hidden", text.length === 0);
   }
+  if (statusDotEl !== null && text.length > 0) {
+    statusDotEl.dataset.state = "error";
+  } else if (statusDotEl !== null && connected) {
+    statusDotEl.dataset.state = voiceBusy ? "busy" : "ready";
+  }
+}
+
+function formatTabLabel(tab: string): string {
+  const labels: Record<string, string> = {
+    movies: "Movies",
+    series: "Series",
+    youtube: "YouTube",
+    live: "Live",
+  };
+  return labels[tab] ?? tab;
+}
+
+function applyLauncherMirror(msg: Extract<ServerMessage, { type: "launcher_command" }>): void {
+  const action = (msg.action ?? "").trim();
+  if (action === "tab" && typeof msg.tab === "string" && msg.tab.length > 0) {
+    mirrorTab = formatTabLabel(msg.tab);
+  } else if (action === "open_detail") {
+    const title = typeof msg.title === "string" ? msg.title.trim() : "";
+    if (title.length > 0) {
+      mirrorOpen = title;
+    }
+    if (typeof msg.tab === "string" && msg.tab.length > 0) {
+      mirrorTab = formatTabLabel(msg.tab);
+    }
+  } else if (action === "home") {
+    mirrorOpen = "—";
+  }
+  renderMirror();
+}
+
+function renderMirror(): void {
+  if (mirrorTabEl !== null) {
+    mirrorTabEl.textContent = mirrorTab;
+  }
+  if (mirrorOpenEl !== null) {
+    mirrorOpenEl.textContent = mirrorOpen;
+  }
+  if (mirrorToolEl !== null) {
+    mirrorToolEl.textContent = mirrorTool;
+  }
+  if (mirrorChipMetaEl !== null) {
+    const parts = [mirrorTab !== "—" ? mirrorTab : "", mirrorPlayingSummary !== "—" ? mirrorPlayingSummary : ""]
+      .filter((part) => part.length > 0);
+    mirrorChipMetaEl.textContent = parts.length > 0 ? truncateMeta(parts.join(" · ")) : "Idle";
+  }
+}
+
+function startMirrorPoll(): void {
+  window.clearInterval(mirrorPollTimer);
+  void refreshMirrorPlaying();
+  mirrorPollTimer = window.setInterval(() => {
+    void refreshMirrorPlaying();
+  }, 5000);
+}
+
+async function refreshMirrorPlaying(): Promise<void> {
+  try {
+    const ctx = await catalogFetch<AiContextResponse>("/ai/context");
+    const np = ctx.now_playing;
+    let playing = "—";
+    if (np?.active && typeof np.title === "string" && np.title.trim().length > 0) {
+      playing = np.title.trim();
+    } else if (typeof np?.message === "string" && np.message.trim().length > 0) {
+      playing = np.message.trim();
+    }
+    if (mirrorPlayingEl !== null) {
+      mirrorPlayingEl.textContent = playing;
+    }
+    mirrorPlayingSummary = playing;
+    renderMirror();
+  } catch {
+    if (mirrorPlayingEl !== null) {
+      mirrorPlayingEl.textContent = "—";
+    }
+    mirrorPlayingSummary = "—";
+    renderMirror();
+  }
+}
+
+async function toggleMemoryPanel(): Promise<void> {
+  if (memoryPanel === null) {
+    return;
+  }
+  const showing = !memoryPanel.hasAttribute("hidden");
+  if (showing) {
+    memoryPanel.setAttribute("hidden", "");
+    return;
+  }
+  memoryPanel.textContent = "loading…";
+  memoryPanel.removeAttribute("hidden");
+  try {
+    const data = await catalogFetch<CompanionSummaryResponse>("/voice/companion/summary");
+    const parts = [data.summary, data.compiled_excerpt].filter(
+      (part): part is string => typeof part === "string" && part.trim().length > 0,
+    );
+    memoryPanel.textContent = parts.length > 0 ? parts.join("\n\n") : "mango has no saved notes yet";
+  } catch (error) {
+    memoryPanel.textContent = error instanceof Error ? error.message : "memory unavailable";
+  }
+}
+
+function setYoutubeStatus(text: string): void {
+  if (youtubeStatusEl !== null) {
+    youtubeStatusEl.textContent = text;
+  }
+  youtubeChipMeta = truncateMeta(text);
+  if (youtubeChipMetaEl !== null) {
+    youtubeChipMetaEl.textContent = youtubeChipMeta;
+  }
+}
+
+type YoutubeAccountStatus = {
+  api_key_configured: boolean;
+  oauth_configured: boolean;
+  authenticated: boolean;
+  needs_attention: boolean;
+  sync_status: "disconnected" | "paused" | "syncing" | "ready" | "attention";
+  channel_title: string | null;
+  channel_thumbnail: string | null;
+  subscription_count: number | null;
+  region_code: string;
+  relevance_language: string;
+  synced_at: number | null;
+};
+
+function renderYoutubeAccount(state: YoutubeAccountStatus): void {
+  if (youtubeAvatarEl instanceof HTMLImageElement) {
+    youtubeAvatarEl.hidden = !state.authenticated || !state.channel_thumbnail;
+    youtubeAvatarEl.src = state.authenticated && state.channel_thumbnail ? state.channel_thumbnail : "";
+    youtubeAvatarEl.alt = state.channel_title ? `${state.channel_title} channel avatar` : "";
+  }
+  if (!state.authenticated) {
+    if (!state.oauth_configured) setYoutubeStatus("OAuth client missing on Pi");
+    else if (!state.api_key_configured) setYoutubeStatus("API key missing on Pi");
+    else setYoutubeStatus("not connected");
+    return;
+  }
+  const title = state.channel_title || "YouTube";
+  const locale = state.region_code === "IN" ? "India" : state.region_code;
+  if (state.sync_status === "syncing") {
+    setYoutubeStatus(`${title} · syncing subscriptions…`);
+  } else if (state.sync_status === "attention" || state.needs_attention) {
+    setYoutubeStatus(`${title} · sync needs attention`);
+  } else if (state.sync_status === "paused") {
+    setYoutubeStatus(`${title} · connected · recommendations paused`);
+  } else {
+    const subscriptions = state.subscription_count === null
+      ? "subscriptions synced"
+      : `${state.subscription_count} subscriptions`;
+    setYoutubeStatus(`${title} · ${subscriptions} · ${locale}`);
+  }
+}
+
+function showYoutubeCode(payload: {
+  user_code?: string;
+  verification_url?: string;
+  verification_url_complete?: string;
+}): void {
+  if (youtubeCodeEl !== null) {
+    youtubeCodeEl.toggleAttribute("hidden", !payload.user_code);
+  }
+  if (payload.user_code) {
+    openYoutubePanel();
+  }
+  if (youtubeUserCodeEl !== null) {
+    youtubeUserCodeEl.textContent = payload.user_code ?? "";
+  }
+  if (youtubeLinkEl instanceof HTMLAnchorElement) {
+    const href = payload.verification_url_complete || payload.verification_url || "#";
+    youtubeLinkEl.href = href;
+    youtubeLinkEl.textContent = payload.verification_url || "Google device login";
+  }
+}
+
+async function catalogFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`/api/catalog${path}`, {
+    ...init,
+    headers: {
+      accept: "application/json",
+      ...(init?.headers || {}),
+    },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = typeof (data as { error?: string }).error === "string"
+      ? (data as { error: string }).error
+      : `HTTP ${response.status}`;
+    throw new Error(message);
+  }
+  return data as T;
+}
+
+async function loadYoutubeState(): Promise<void> {
+  try {
+    renderYoutubeAccount(await catalogFetch<YoutubeAccountStatus>("/youtube/companion/status"));
+  } catch {
+    setYoutubeStatus("YouTube status unavailable");
+  }
+}
+
+async function startYoutubeAuth(): Promise<void> {
+  window.clearInterval(youtubePollTimer);
+  try {
+    const started = await catalogFetch<{
+      session_id: string;
+      user_code: string;
+      verification_url: string;
+      verification_url_complete?: string;
+      interval_sec?: number;
+    }>("/youtube/companion/auth/start", { method: "POST" });
+    showYoutubeCode(started);
+    setYoutubeStatus("waiting for Google login…");
+    const pollMs = Math.max(1000, (started.interval_sec ?? 5) * 1000);
+    youtubePollTimer = window.setInterval(() => {
+      void pollYoutubeAuth(started.session_id);
+    }, pollMs);
+    void pollYoutubeAuth(started.session_id);
+  } catch (error) {
+    setYoutubeStatus(error instanceof Error ? error.message : "could not start YouTube auth");
+  }
+}
+
+async function pollYoutubeAuth(sessionId: string): Promise<void> {
+  try {
+    const poll = await catalogFetch<{ status?: string; interval_sec?: number; account?: YoutubeAccountStatus }>(
+      `/youtube/companion/auth/poll?session_id=${encodeURIComponent(sessionId)}`,
+    );
+    if (poll.status === "authenticated") {
+      window.clearInterval(youtubePollTimer);
+      showYoutubeCode({});
+      if (poll.account) renderYoutubeAccount(poll.account);
+      else await loadYoutubeState();
+      return;
+    }
+    if (poll.status === "expired") {
+      window.clearInterval(youtubePollTimer);
+      setYoutubeStatus("code expired — connect again");
+      return;
+    }
+    setYoutubeStatus(poll.status === "slow_down" ? "waiting — Google asked us to slow down" : "waiting for Google login…");
+  } catch (error) {
+    window.clearInterval(youtubePollTimer);
+    setYoutubeStatus(error instanceof Error ? error.message : "YouTube auth failed");
+  }
+}
+
+async function disconnectYoutube(): Promise<void> {
+  window.clearInterval(youtubePollTimer);
+  try {
+    await catalogFetch("/youtube/companion/auth/disconnect", { method: "POST" });
+    showYoutubeCode({});
+    setYoutubeStatus("not connected");
+  } catch (error) {
+    setYoutubeStatus(error instanceof Error ? error.message : "could not disconnect YouTube");
+  }
+}
+
+function appendToolCard(text: string, phase: string): void {
+  if (chatEl === null) {
+    return;
+  }
+  const display = phase === "done" && text.startsWith("Creating AI catalog")
+    ? `${text} — building rail in background`
+    : text;
+  const item = document.createElement("article");
+  item.className = `message tool tool--${phase}`;
+  const roleEl = document.createElement("span");
+  roleEl.className = "role";
+  roleEl.textContent = phase === "done" ? "Done" : "Working";
+  const textEl = document.createElement("p");
+  textEl.textContent = display;
+  item.append(roleEl, textEl);
+  chatEl.append(item);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  syncChatEmpty();
+}
+
+function formatPickMeta(option: PickOption): string {
+  const tabLabels: Record<string, string> = {
+    movies: "Movies",
+    series: "Series",
+    youtube: "YouTube",
+    live: "Live",
+  };
+  const parts: string[] = [];
+  if (typeof option.tab === "string" && option.tab.length > 0) {
+    parts.push(tabLabels[option.tab] ?? option.tab);
+  } else if (typeof option.type === "string" && option.type.startsWith("youtube_")) {
+    parts.push("YouTube");
+  }
+  if (typeof option.year === "string" && option.year.length > 0) {
+    parts.push(option.year);
+  }
+  return parts.join(" · ");
+}
+
+function appendPickCards(options: PickOption[]): void {
+  if (chatEl === null || options.length < 2) {
+    return;
+  }
+  chatEl.querySelector(".message.pick-card")?.remove();
+  const item = document.createElement("article");
+  item.className = "message pick-card";
+  const roleEl = document.createElement("span");
+  roleEl.className = "role";
+  roleEl.textContent = "Pick one";
+  const list = document.createElement("div");
+  list.className = "pick-list";
+  list.setAttribute("role", "list");
+  for (const option of options) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "pick-row";
+    row.setAttribute("role", "listitem");
+    row.dataset.pickN = String(option.n);
+    const badge = document.createElement("span");
+    badge.className = "pick-badge";
+    badge.textContent = String(option.n);
+    const body = document.createElement("span");
+    body.className = "pick-body";
+    const titleEl = document.createElement("span");
+    titleEl.className = "pick-title";
+    titleEl.textContent = option.title;
+    body.append(titleEl);
+    const meta = formatPickMeta(option);
+    if (meta.length > 0) {
+      const metaEl = document.createElement("span");
+      metaEl.className = "pick-meta";
+      metaEl.textContent = meta;
+      body.append(metaEl);
+    }
+    row.append(badge, body);
+    row.addEventListener("click", () => {
+      if (voiceBusy || !connected) {
+        setError("voice is busy");
+        return;
+      }
+      if (send({ type: "pick_select", n: option.n })) {
+        appendChat("user", option.title);
+        setError("");
+      }
+    });
+    list.append(row);
+  }
+  item.append(roleEl, list);
+  chatEl.append(item);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  syncChatEmpty();
 }
 
 function appendChat(role: ChatRole, text: string): void {
@@ -113,12 +657,13 @@ function appendChat(role: ChatRole, text: string): void {
   }
   const roleEl = document.createElement("span");
   roleEl.className = "role";
-  roleEl.textContent = role === "user" ? "you" : "mango";
+  roleEl.textContent = role === "user" ? "You" : "Mango";
   const textEl = document.createElement("p");
   textEl.textContent = text;
   item.append(roleEl, textEl);
   chatEl.append(item);
   chatEl.scrollTop = chatEl.scrollHeight;
+  syncChatEmpty();
 }
 
 function upsertAssistantPartial(text: string): void {
@@ -132,7 +677,7 @@ function upsertAssistantPartial(text: string): void {
     item.dataset.partial = "true";
     const roleEl = document.createElement("span");
     roleEl.className = "role";
-    roleEl.textContent = "mango";
+    roleEl.textContent = "Mango";
     const textEl = document.createElement("p");
     item.append(roleEl, textEl);
     chatEl.append(item);
@@ -143,9 +688,10 @@ function upsertAssistantPartial(text: string): void {
   }
   item.dataset.partial = "true";
   chatEl.scrollTop = chatEl.scrollHeight;
+  syncChatEmpty();
 }
 
-function send(msg: Record<string, string>): boolean {
+function send(msg: Record<string, unknown>): boolean {
   if (socket?.readyState !== WebSocket.OPEN) {
     setError("not connected to mango");
     return false;
@@ -214,7 +760,8 @@ async function startCapture(): Promise<void> {
       channelCount: { ideal: 1 },
       sampleRate: { ideal: TARGET_SAMPLE_RATE },
       echoCancellation: true,
-      noiseSuppression: true,
+      // Noise suppression can clip Hindi/Hinglish consonants on phone mics.
+      noiseSuppression: false,
       autoGainControl: true,
     },
   });
@@ -329,5 +876,44 @@ if (pttBtn instanceof HTMLButtonElement) {
   });
   pttBtn.addEventListener("lostpointercapture", () => {
     void endPtt();
+  });
+}
+
+if (youtubeStartBtn instanceof HTMLButtonElement) {
+  youtubeStartBtn.addEventListener("click", () => {
+    void startYoutubeAuth();
+  });
+}
+
+if (youtubeDisconnectBtn instanceof HTMLButtonElement) {
+  youtubeDisconnectBtn.addEventListener("click", () => {
+    void disconnectYoutube();
+  });
+}
+
+if (memoryToggle instanceof HTMLButtonElement) {
+  memoryToggle.addEventListener("click", () => {
+    void toggleMemoryPanel();
+  });
+}
+
+if (composerForm instanceof HTMLFormElement && composerInput instanceof HTMLTextAreaElement) {
+  composerForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = composerInput.value.trim();
+    if (text.length === 0) {
+      return;
+    }
+    if (send({ type: "chat_send", text })) {
+      composerInput.value = "";
+      composerInput.focus();
+    }
+  });
+
+  composerInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      composerForm.requestSubmit();
+    }
   });
 }

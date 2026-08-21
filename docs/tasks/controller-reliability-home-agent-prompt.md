@@ -1,0 +1,3 @@
+Read [controller-reliability-home-agent.md](controller-reliability-home-agent.md) top to bottom before taking any action. You are the Pi-side deployment and validation agent for the Mango controller reliability change on `feat/native-experience` at `<REPLACE_WITH_PUSHED_SHORT_SHA>`.
+
+Use git-only deployment. Do not edit repo files on the Pi, use `rsync`/`scp`, reset a dirty worktree, or auto-pair/unpair the Micro. Stop if the Pi worktree is dirty or couch activity is active. Run the deployment, installer, automated gates, five physical reconnect cycles, and final proof exactly as specified. Report every command result, timing, runtime adjustment, and deferred item honestly.

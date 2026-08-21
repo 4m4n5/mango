@@ -1,0 +1,92 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  buildLlmRefreshToolManifest,
+  getRefreshLevel,
+  listRefreshLevelsForUi,
+  resolveRefreshLevelId,
+  startRefreshJob,
+} from '../playability/refresh-control.js';
+
+test('listRefreshLevelsForUi orders quick before overnight', () => {
+  const levels = listRefreshLevelsForUi();
+  assert.equal(levels[0]?.id, 'grow_quick');
+  assert.equal(levels.at(-1)?.id, 'grow_overnight');
+});
+
+test('legacy refresh level ids resolve to canonical levels', () => {
+  assert.equal(resolveRefreshLevelId('quick_topup'), 'grow_quick');
+  assert.equal(resolveRefreshLevelId('full_maintenance'), 'grow_nightly');
+  assert.equal(resolveRefreshLevelId('overnight_grow'), 'grow_overnight');
+  assert.equal(getRefreshLevel('quick_topup')?.id, 'grow_quick');
+});
+
+test('listRefreshLevels exposes LLM hints and estimates', () => {
+  const levels = listRefreshLevelsForUi();
+  assert.equal(levels.length, 4);
+  const shuffle = getRefreshLevel('shuffle_rails');
+  assert.ok(shuffle);
+  assert.equal(shuffle?.blocks_couch, false);
+  assert.ok(shuffle?.llm_hint.length > 10);
+  const nightly = getRefreshLevel('grow_nightly');
+  assert.ok(nightly?.blocks_couch);
+  assert.ok(nightly!.estimated_sec > shuffle!.estimated_sec);
+  assert.equal(nightly?.description.includes('~25 min wall'), true);
+  assert.equal(nightly?.estimated_label, '~60–90 min total');
+  assert.equal(nightly?.script, 'nightly-library-refresh.sh --mode nightly --preset nightly --detach');
+  const overnight = getRefreshLevel('grow_overnight');
+  assert.ok(overnight);
+  assert.equal(overnight?.category, 'overnight');
+  assert.equal(overnight?.description.includes('400 probe attempts'), true);
+  assert.equal(overnight?.estimated_label, '~4 hours');
+});
+
+test('buildLlmRefreshToolManifest exposes actionable levels for voice tools', () => {
+  const manifest = buildLlmRefreshToolManifest();
+  assert.equal(manifest.tool_name, 'mango_playability_refresh');
+  const levelEnum = manifest.parameters.properties.level.enum;
+  assert.ok(levelEnum.includes('grow_quick'));
+  assert.ok(levelEnum.includes('quick_topup'));
+  assert.ok(!levelEnum.includes('shuffle_rails'));
+  assert.equal(manifest.levels.length, 4);
+});
+
+test('simultaneous refresh starts yield exactly one durable coordinator claim', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-playability-coordinator-'));
+  const priorCache = process.env.XDG_CACHE_HOME;
+  const priorHold = process.env.MANGO_PLAYABILITY_COORDINATOR_TEST_HOLD_MS;
+  try {
+    process.env.XDG_CACHE_HOME = dir;
+    // Keep the winning owner alive long enough that both children necessarily
+    // contend even when the full test suite delays process scheduling.
+    process.env.MANGO_PLAYABILITY_COORDINATOR_TEST_HOLD_MS = '4000';
+    const [first, second] = await Promise.all([
+      startRefreshJob({ mode: 'grow', preset: 'quick' }),
+      startRefreshJob({ mode: 'grow', preset: 'quick' }),
+    ]);
+    const claimed = [first, second].filter((result) => result.ok);
+    const busy = [first, second].filter((result) => !result.ok && result.busy);
+    assert.equal(claimed.length, 1);
+    assert.equal(busy.length, 1);
+    const winner = claimed[0];
+    assert.ok(winner?.ok && winner.mode === 'background');
+    if (!winner?.ok || winner.mode !== 'background') return;
+    assert.equal(!busy[0]?.ok && busy[0]?.active_run_id, winner.run_id);
+    const receipt = JSON.parse(readFileSync(
+      join(dir, 'mango', 'playability-runs', `${winner.run_id}.json`),
+      'utf8',
+    )) as { run_id: string; state: string };
+    assert.equal(receipt.run_id, winner.run_id);
+    assert.equal(receipt.state, 'claimed');
+    await new Promise((resolve) => setTimeout(resolve, 4200));
+  } finally {
+    if (priorCache === undefined) delete process.env.XDG_CACHE_HOME;
+    else process.env.XDG_CACHE_HOME = priorCache;
+    if (priorHold === undefined) delete process.env.MANGO_PLAYABILITY_COORDINATOR_TEST_HOLD_MS;
+    else process.env.MANGO_PLAYABILITY_COORDINATOR_TEST_HOLD_MS = priorHold;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -12,8 +12,8 @@ export HOME="${HOME:-/home/aman}"
 
 cd "$REPO_DIR"
 
-# shellcheck source=phase0/lib/irctl.sh
-source "$REPO_DIR/scripts/phase0/lib/irctl.sh"
+# shellcheck source=m1-foundation/pad/lib/irctl.sh
+source "$REPO_DIR/scripts/m1-foundation/pad/lib/irctl.sh"
 
 bash "$SCRIPT_DIR/stop-session.sh" 2>/dev/null || true
 rm -f "${HOME}/.cache/mango/launch-launcher.lock"
@@ -28,12 +28,12 @@ source "${HOME}/.cache/mango/diag/session.env"
 set +a
 
 echo "=== restarting mango UI ==="
-bash "$REPO_DIR/scripts/phase1/restart-mango-ui.sh"
+bash "$REPO_DIR/scripts/m1-foundation/ui/restart-mango-ui.sh"
 
 echo "=== starting TV pad (debug) ==="
-bash "$REPO_DIR/scripts/phase0/stop-mango-tv-pad.sh" 2>/dev/null || true
+bash "$REPO_DIR/scripts/m1-foundation/pad/stop-mango-tv-pad.sh" 2>/dev/null || true
 sleep 0.3
-bash "$REPO_DIR/scripts/phase0/start-mango-tv-pad.sh" || true
+bash "$REPO_DIR/scripts/m1-foundation/pad/start-mango-tv-pad.sh" || true
 
 bash "$SCRIPT_DIR/snapshot.sh" post-restart
 bash "$SCRIPT_DIR/check-prerequisites.sh" 2>/dev/null || true

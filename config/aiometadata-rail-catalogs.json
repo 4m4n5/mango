@@ -1,0 +1,1469 @@
+{
+  "_comment": "AIOMetadata catalog ids referenced by config/catalog.example.yaml. Regenerate: rail-compose.py apply",
+  "addon": "AIOMetadata",
+  "catalogs": [
+    {
+      "id": "mdblist.100477",
+      "name": "Science and Nature Documentaries",
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.101881",
+      "name": "Top 250 Movies (iMDB)",
+      "rails": [
+        "movies-classics"
+      ]
+    },
+    {
+      "id": "mdblist.101882",
+      "name": "Top 250 Shows (iMDB)",
+      "rails": [
+        "series-global-popular",
+        "series-classics",
+        "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.105797",
+      "name": "Daily Picks",
+      "rails": [
+        "series-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.122526",
+      "name": "Reality TV Shows, a list by Ahmad al-rufaidy",
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.125155",
+      "name": "Reality Series",
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.125320",
+      "name": "Reality Series",
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.128040",
+      "name": "Latest Comedy Movies",
+      "rails": [
+        "movies-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.128051",
+      "name": "Popular Documentary Movies",
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.128052",
+      "name": "Popular Documentary Shows",
+      "media": "series",
+      "items": 500,
+      "slug": "snoak/popular-documentary-shows",
+      "tags": [
+        "documentary",
+        "global",
+        "official-snoak",
+        "series"
+      ],
+      "rails": [
+        "series-classics"
+      ]
+    },
+    {
+      "id": "mdblist.130152",
+      "name": "Latest Miniseries",
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.130153",
+      "name": "Popular Miniseries",
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.138454",
+      "name": "TV Shows",
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.142679",
+      "name": "Comedy Shows (1950-2014), a list by huntyknowsbest",
+      "rails": [
+        "series-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.143024",
+      "name": "Discovery Shows and Reality TV, a list by Pether",
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.143745",
+      "name": "Limited Series (Jordan Hawk)",
+      "rails": [
+        "series-classics",
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.143797",
+      "name": "Oscar Nominees for Best Picture, a list by jservs7",
+      "rails": [
+        "movies-classics"
+      ]
+    },
+    {
+      "id": "mdblist.147478",
+      "name": "Best Miniseries, a list by Kometa",
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.147884",
+      "name": "Reality TV, a list by Brent Livingstone",
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.155168",
+      "name": "Rolling Stone's 100 Best Sitcoms of All Time, a list by NxSxS",
+      "rails": [
+        "series-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.157957",
+      "name": "Bollywood Latest HD Releases, a list by jan sun",
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.166155",
+      "name": "Trending Indian TV Shows, a list by Test Test",
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.169800",
+      "name": "Unmissable Limited Series",
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.170279",
+      "name": "Latest Indian Movies",
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.178241",
+      "name": "Top 250 Documentary Films, a list by John Nathan",
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.180437",
+      "name": "New Indian Movies, a list by dnp",
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.181302",
+      "name": "List of Indian TV Shows, a list by sivam chopra",
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.183641",
+      "name": "Best Indian movies, a list by Dipan",
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.183642",
+      "name": "Best Indian shows, a list by Dipan",
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.2194",
+      "name": "Latest TV Shows",
+      "rails": [
+        "series-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.2195",
+      "name": "Comedy Movies (Top Rated From 1960 To Today)",
+      "rails": [
+        "movies-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.2202",
+      "name": "Latest Blu-ray Releases",
+      "media": "movie",
+      "items": 44,
+      "slug": "garycrawfordgc/latest-blu-ray-releases",
+      "tags": [
+        "global",
+        "movie",
+        "trending"
+      ],
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.2236",
+      "name": "Top Movies of the week",
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.2885",
+      "name": "Documentaries (Riz)",
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.3086",
+      "name": "HBO Shows",
+      "rails": [
+        "series-classics"
+      ]
+    },
+    {
+      "id": "mdblist.3087",
+      "name": "BBC Shows",
+      "rails": [
+        "series-classics"
+      ]
+    },
+    {
+      "id": "mdblist.3096",
+      "name": "Hulu Movies",
+      "media": "movie",
+      "items": 200,
+      "slug": "garycrawfordgc/hulu-movies",
+      "tags": [
+        "global",
+        "hulu",
+        "movie"
+      ],
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.3107",
+      "name": "Comedy",
+      "rails": [
+        "movies-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.3122",
+      "name": "Comedy Shows (Gary)",
+      "rails": [
+        "series-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.34451",
+      "name": "Academy Award for Best Documentary Feature Film, a list by Jo\u00e3o Segatti",
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.3885",
+      "name": "100% on RottenTomatoes.com",
+      "rails": [
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "id": "mdblist.44081",
+      "name": "Bollywood: The 2000s, a list by Apollo",
+      "media": "movie",
+      "items": 487,
+      "slug": "apollocat/bollywood-the-2000s-ny1mv80m7s",
+      "tags": [
+        "bollywood",
+        "india",
+        "movie"
+      ],
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.45854",
+      "name": "Pixar Shorts, a list by Traction1",
+      "rails": [
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "id": "mdblist.49761",
+      "name": "Indian Stand Up Comedy",
+      "rails": [
+        "movies-india-trending",
+        "series-india-picks",
+        "series-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.50083",
+      "name": "IMDB Best Miniseries, a list by RDsgTrakt",
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.50087",
+      "name": "BBC Top Shows, a list by RDsgTrakt",
+      "rails": [
+        "series-classics"
+      ]
+    },
+    {
+      "id": "mdblist.63182",
+      "name": "Reality TV & Game Shows, a list by trackertrack",
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.69712",
+      "name": "Stand Up Comedy, a list by sentinam",
+      "rails": [
+        "movies-comedy",
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "id": "mdblist.72165",
+      "name": "True Crime Documentaries",
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.72464",
+      "name": "Netflix Movies & Series",
+      "media": "series",
+      "items": 1730,
+      "slug": "notamongo5/netflix-series-2",
+      "tags": [
+        "deep-pool",
+        "global",
+        "netflix",
+        "series"
+      ],
+      "rails": [
+        "series-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.78210",
+      "name": "Best True Crime Documentaries",
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.81741",
+      "name": "True Crime Docs & Series, a list by Julian",
+      "media": "movie",
+      "items": 198,
+      "slug": "jewelbear/true-crime-docs-series",
+      "tags": [
+        "documentary",
+        "movie",
+        "true-crime"
+      ],
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.83666",
+      "name": "Top Classic Movies",
+      "rails": [
+        "movies-classics"
+      ]
+    },
+    {
+      "id": "mdblist.83918",
+      "name": "Comedy/Sitcom, a list by ldroid",
+      "rails": [
+        "series-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.84401",
+      "name": "Top Reality TV",
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.84403",
+      "name": "Top Documentaries (Shows)",
+      "media": "series",
+      "items": 200,
+      "slug": "tvgeniekodi/top-documentaries",
+      "tags": [
+        "documentary",
+        "global",
+        "series"
+      ],
+      "rails": [
+        "series-classics"
+      ]
+    },
+    {
+      "id": "mdblist.84444",
+      "name": "Top Stand Up Comedy (Since 1983)",
+      "rails": [
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "id": "mdblist.84677",
+      "name": "Top Documentaries (Movies)",
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.86734",
+      "name": "Netflix Stand Up Comedy, a list by Ricky Cash",
+      "rails": [
+        "movies-comedy",
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "id": "mdblist.86934",
+      "name": "Latest Streaming Movies",
+      "rails": [
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "id": "mdblist.88006",
+      "name": "The Complete Criterion Collection, a list by Evan Varisto",
+      "rails": [
+        "movies-classics"
+      ]
+    },
+    {
+      "id": "mdblist.88302",
+      "name": "Trending Movies",
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.88303",
+      "name": "Trending Shows",
+      "rails": [
+        "series-global-popular",
+        "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.88306",
+      "name": "Latest Movies",
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.88434",
+      "name": "Trakt's Trending Shows",
+      "rails": [
+        "series-global-popular",
+        "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.91223",
+      "name": "Popular Comedy Movies",
+      "rails": [
+        "movies-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.91224",
+      "name": "Popular Comedy Shows",
+      "rails": [
+        "series-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.97710",
+      "name": "A24, a list by Alex van Nieuwkuyk",
+      "media": "movie",
+      "items": 181,
+      "slug": "vancityguy/a24",
+      "tags": [
+        "classics",
+        "movie",
+        "prestige"
+      ],
+      "rails": [
+        "movies-classics"
+      ]
+    },
+    {
+      "id": "mdblist.99248",
+      "name": "Cannes Film Festival",
+      "media": "movie",
+      "items": 98,
+      "slug": "kackebob/cannes-film-festival-palme-dor",
+      "tags": [
+        "awards",
+        "classics",
+        "movie"
+      ],
+      "rails": [
+        "movies-classics"
+      ]
+    },
+    {
+      "id": "mdblist.14",
+      "name": "Top Watched Movies of The Week / >60",
+      "media": "movie",
+      "items": 52,
+      "slug": "linaspurinis/top-watched-movies-of-the-week",
+      "tags": [
+        "global",
+        "movie",
+        "trending"
+      ],
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.11274",
+      "name": "Top Stand Up",
+      "media": "mixed",
+      "items": 244,
+      "slug": "turtlespam/top-stand-up",
+      "tags": [
+        "comedy",
+        "stand-up"
+      ],
+      "rails": [
+        "movies-comedy",
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "id": "mdblist.127220",
+      "name": "BBC Shows, a list by Willie Stewart",
+      "media": "series",
+      "items": 299,
+      "slug": "wilzer09/bbc-shows-vus2pcjtpb",
+      "tags": [
+        "bbc",
+        "classics",
+        "series"
+      ],
+      "rails": [
+        "series-classics"
+      ]
+    },
+    {
+      "id": "mdblist.131141",
+      "name": "Netflix India Movies",
+      "media": "movie",
+      "items": 150,
+      "slug": "as_trakt2/netflix-india-latest-movies",
+      "tags": [
+        "india",
+        "movie",
+        "netflix"
+      ],
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.131190",
+      "name": "Netflix India Series",
+      "media": "series",
+      "items": 87,
+      "slug": "as_trakt/netflix-india-series",
+      "tags": [
+        "india",
+        "netflix",
+        "series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.134293",
+      "name": "Top Miniseries",
+      "media": "series",
+      "items": 46,
+      "slug": "dblev/top-miniseries",
+      "tags": [
+        "limited-series",
+        "series"
+      ],
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.149728",
+      "name": "miniseries",
+      "media": "series",
+      "items": 2393,
+      "slug": "cosmosplat/miniseries",
+      "tags": [
+        "deep-pool",
+        "limited-series",
+        "series"
+      ],
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.156057",
+      "name": "Latest Indian Digital Release",
+      "media": "movie",
+      "items": 9040,
+      "slug": "cold-friction/latest-hindi-digital-release",
+      "tags": [
+        "deep-pool",
+        "india",
+        "movie",
+        "trending"
+      ],
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.160357",
+      "name": "Zee5 Latest Movies",
+      "media": "movie",
+      "items": 1497,
+      "slug": "subinjosepht/zee5-latest-movies",
+      "tags": [
+        "india",
+        "movie",
+        "zee5"
+      ],
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.160358",
+      "name": "JioHotstar Latest Movies",
+      "media": "movie",
+      "items": 1983,
+      "slug": "subinjosepht/jiohotstar-latest-movies",
+      "tags": [
+        "hotstar",
+        "india",
+        "jio",
+        "movie"
+      ],
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.160359",
+      "name": "JioHotstar Latest Shows",
+      "media": "series",
+      "items": 247,
+      "slug": "subinjosepht/jiohotstar-latest-shows",
+      "tags": [
+        "hotstar",
+        "india",
+        "jio",
+        "series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.160360",
+      "name": "Zee5 Latest Shows",
+      "media": "series",
+      "items": 183,
+      "slug": "subinjosepht/zee5-latest-shows",
+      "tags": [
+        "india",
+        "series",
+        "zee5"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.160363",
+      "name": "Sony Liv Latest Shows",
+      "media": "series",
+      "items": 93,
+      "slug": "subinjosepht/sony-liv-latest-shows",
+      "tags": [
+        "india",
+        "series",
+        "sonyliv"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.160365",
+      "name": "Sony Liv Latest Movies",
+      "media": "movie",
+      "items": 136,
+      "slug": "subinjosepht/sony-liv-latest-movies",
+      "tags": [
+        "india",
+        "movie",
+        "sonyliv"
+      ],
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.162567",
+      "name": "Released last 90 days India, a list by Raman Raman",
+      "media": "movie",
+      "items": 49,
+      "slug": "sraman131312/released-last-90-days-india-q8byfz637b",
+      "tags": [
+        "india",
+        "movie",
+        "trending"
+      ],
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.165053",
+      "name": "JioHotstar Popular Movies",
+      "media": "movie",
+      "items": 4331,
+      "slug": "jaswanth0811/jiohotstar-popular-movies",
+      "tags": [
+        "deep-pool",
+        "hotstar",
+        "india",
+        "jio",
+        "movie"
+      ],
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.165054",
+      "name": "JioHotstar Popular Shows",
+      "media": "series",
+      "items": 1804,
+      "slug": "jaswanth0811/jiohotstar-popular-shows",
+      "tags": [
+        "deep-pool",
+        "hotstar",
+        "india",
+        "jio",
+        "series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.166154",
+      "name": "Latest Indian Movies",
+      "media": "movie",
+      "items": 100,
+      "slug": "testmegamerge/latest-indian-movies-digital-release",
+      "tags": [
+        "india",
+        "movie",
+        "trending"
+      ],
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.167057",
+      "name": "SonyLiv Movies",
+      "media": "movie",
+      "items": 235,
+      "slug": "a-v/sonyliv-movies",
+      "tags": [
+        "india",
+        "movie",
+        "sonyliv"
+      ],
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.167061",
+      "name": "SonyLiv Shows",
+      "media": "series",
+      "items": 85,
+      "slug": "a-v/sonyliv-shows",
+      "tags": [
+        "india",
+        "series",
+        "sonyliv"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.167063",
+      "name": "JioHotstar India Movies",
+      "media": "movie",
+      "items": 721,
+      "slug": "a-v/jiohotstar-movies",
+      "tags": [
+        "hotstar",
+        "india",
+        "jio",
+        "movie"
+      ],
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.167064",
+      "name": "JioHotstar India Shows",
+      "media": "series",
+      "items": 365,
+      "slug": "a-v/jiohotstar-india-shows",
+      "tags": [
+        "hotstar",
+        "india",
+        "jio",
+        "series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.181334",
+      "name": "Snoak's Latest Miniseries",
+      "media": "series",
+      "items": 307,
+      "slug": "hboinay/snoaks-latest-miniseries",
+      "tags": [
+        "limited-series",
+        "series",
+        "trending"
+      ],
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.1824",
+      "name": "List of Indian TV Shows",
+      "media": "series",
+      "items": 3575,
+      "slug": "geek-baba/list-of-latest-hindi-tv-shows",
+      "tags": [
+        "deep-pool",
+        "hindi",
+        "india",
+        "series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.21011",
+      "name": "Popular Indian TV Shows",
+      "media": "series",
+      "items": 1235,
+      "slug": "geek-baba/popular-indian-tv-shows",
+      "tags": [
+        "india",
+        "series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.33753",
+      "name": "Indian Web Series",
+      "media": "series",
+      "items": 1770,
+      "slug": "lmaggoo/indian-web-series",
+      "tags": [
+        "deep-pool",
+        "india",
+        "series",
+        "web-series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.65408",
+      "name": "Best Indian Series",
+      "media": "series",
+      "items": 281,
+      "slug": "smarthome4103/best-indian-series",
+      "tags": [
+        "india",
+        "series",
+        "web-series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.80807",
+      "name": "Bollywood Series - Popular",
+      "media": "series",
+      "items": 100,
+      "slug": "gilanimovies/bollywood-series-popular",
+      "tags": [
+        "bollywood",
+        "india",
+        "series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.81619",
+      "name": "Top Rated Indian Web Series",
+      "media": "series",
+      "items": 65,
+      "slug": "dkwatch/top-rated-indian-web-series",
+      "tags": [
+        "india",
+        "series",
+        "top-rated",
+        "web-series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.89014",
+      "name": "Latest Indian Shows: Top Rated",
+      "media": "series",
+      "items": 72,
+      "slug": "dani2819/indian-shows",
+      "tags": [
+        "india",
+        "series",
+        "top-rated",
+        "trending"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.107438",
+      "name": "Indian web series",
+      "media": "series",
+      "items": 442,
+      "slug": "sheikh-talib/indian-web-series",
+      "tags": [
+        "deep-pool",
+        "india",
+        "series",
+        "web-series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.107457",
+      "name": "indian web series latest",
+      "media": "series",
+      "items": 139,
+      "slug": "anariasheikh/indian-web-series-latest",
+      "tags": [
+        "india",
+        "series",
+        "trending",
+        "web-series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.11103",
+      "name": "Top Rated Indian Shows",
+      "media": "series",
+      "items": 1650,
+      "slug": "cakepopcorn/top-rated-indian-shows",
+      "tags": [
+        "deep-pool",
+        "india",
+        "series",
+        "top-rated"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.122391",
+      "name": "Hindi Web Series",
+      "media": "series",
+      "items": 475,
+      "slug": "zenstream/hindi-web-series",
+      "tags": [
+        "hindi",
+        "india",
+        "series",
+        "web-series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.141869",
+      "name": "Trakt Top Indian Shows",
+      "media": "series",
+      "items": 89,
+      "slug": "dajaginator/trakt-top-indian-shows",
+      "tags": [
+        "india",
+        "series",
+        "top-rated"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.173530",
+      "name": "My Popular Indian Shows",
+      "media": "series",
+      "items": 3236,
+      "slug": "akshaybholee/my-popular-indian-shows",
+      "tags": [
+        "deep-pool",
+        "india",
+        "series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.181621",
+      "name": "Trending Bollywood Series",
+      "media": "series",
+      "items": 250,
+      "slug": "lynx7288/trending-bollywood-series",
+      "tags": [
+        "bollywood",
+        "india",
+        "series",
+        "trending"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.55120",
+      "name": "New Indian Shows",
+      "media": "series",
+      "items": 149,
+      "slug": "singhtheking/new-indian-shows",
+      "tags": [
+        "india",
+        "series",
+        "trending"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.2406",
+      "name": "Documentary Movies (Top Rated From 1980 to Today)",
+      "media": "movie",
+      "items": 2000,
+      "slug": "hdlists/latest-hd-documentary-movies-1980-to-today",
+      "tags": [
+        "deep-pool",
+        "documentary",
+        "movie"
+      ],
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.24908",
+      "name": "TV Shows: Limited Series",
+      "media": "series",
+      "items": 60,
+      "slug": "hitman860/tv-shows-limited-series",
+      "tags": [
+        "limited-series",
+        "series"
+      ],
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.2618",
+      "name": "Top Movies",
+      "media": "movie",
+      "items": 300,
+      "slug": "garycrawfordgc/top-movies",
+      "tags": [
+        "global",
+        "movie"
+      ],
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.3082",
+      "name": "Netflix Shows",
+      "media": "series",
+      "items": 300,
+      "slug": "garycrawfordgc/netflix-shows",
+      "tags": [
+        "global",
+        "netflix",
+        "series"
+      ],
+      "rails": [
+        "series-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.3088",
+      "name": "Amazon Prime Shows",
+      "media": "series",
+      "items": 300,
+      "slug": "garycrawfordgc/amazon-prime-shows",
+      "tags": [
+        "amazon",
+        "global",
+        "series"
+      ],
+      "rails": [
+        "series-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.3089",
+      "name": "Hulu Shows",
+      "media": "series",
+      "items": 300,
+      "slug": "garycrawfordgc/hulu-shows",
+      "tags": [
+        "global",
+        "hulu",
+        "series"
+      ],
+      "rails": [
+        "series-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.3090",
+      "name": "Disney+ Shows",
+      "media": "series",
+      "items": 300,
+      "slug": "garycrawfordgc/disney-shows",
+      "tags": [
+        "disney",
+        "global",
+        "series"
+      ],
+      "rails": [
+        "series-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.3093",
+      "name": "Netflix Movies",
+      "media": "movie",
+      "items": 200,
+      "slug": "garycrawfordgc/netflix-movies",
+      "tags": [
+        "global",
+        "movie",
+        "netflix"
+      ],
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.3094",
+      "name": "Amazon Prime Movies",
+      "media": "movie",
+      "items": 200,
+      "slug": "garycrawfordgc/amazon-prime-movies",
+      "tags": [
+        "amazon",
+        "global",
+        "movie"
+      ],
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.3095",
+      "name": "Disney+ Movies",
+      "media": "movie",
+      "items": 200,
+      "slug": "garycrawfordgc/disney-movies",
+      "tags": [
+        "disney",
+        "global",
+        "movie"
+      ],
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.35502",
+      "name": "Best Limited TV Shows",
+      "media": "series",
+      "items": 183,
+      "slug": "slopezgarsco/best-limited-tv-shows",
+      "tags": [
+        "limited-series",
+        "series"
+      ],
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.3882",
+      "name": "Latest TV Shows",
+      "media": "series",
+      "items": 300,
+      "slug": "hdlists/latest-tv-shows",
+      "tags": [
+        "global",
+        "series",
+        "trending"
+      ],
+      "rails": [
+        "series-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.3922",
+      "name": "Nostalgic Movies From The 80s & 90s",
+      "media": "movie",
+      "items": 289,
+      "slug": "hdlists/nostalgiac-movies-from-the-80s-90s",
+      "tags": [
+        "classics",
+        "movie"
+      ],
+      "rails": [
+        "movies-classics"
+      ]
+    },
+    {
+      "id": "mdblist.45216",
+      "name": "Trending Indian Digital Release Movies",
+      "media": "movie",
+      "items": 630,
+      "slug": "strem-io06/trending-indian-digital-release-movies",
+      "tags": [
+        "india",
+        "movie",
+        "trending"
+      ],
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.61189",
+      "name": "Tv Miniseries",
+      "media": "series",
+      "items": 565,
+      "slug": "ranafahad/tv-miniseries",
+      "tags": [
+        "limited-series",
+        "series"
+      ],
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.79339",
+      "name": "Zee5 Movies",
+      "media": "movie",
+      "items": 545,
+      "slug": "damnlolkilla/zee5-movies",
+      "tags": [
+        "india",
+        "movie",
+        "zee5"
+      ],
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.79344",
+      "name": "Zee5 Series",
+      "media": "series",
+      "items": 196,
+      "slug": "damnlolkilla/zee5-series",
+      "tags": [
+        "india",
+        "series",
+        "zee5"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.8310",
+      "name": "Trending Indian TV Shows",
+      "media": "series",
+      "items": 229,
+      "slug": "apollocat/indian-tv-shows-hindi-english",
+      "tags": [
+        "hindi",
+        "india",
+        "series",
+        "trending"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.83865",
+      "name": "Miniseries",
+      "media": "series",
+      "items": 2930,
+      "slug": "inaneswine/miniseries",
+      "tags": [
+        "deep-pool",
+        "limited-series",
+        "series"
+      ],
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.87667",
+      "name": "Trakt's Trending Movies",
+      "media": "movie",
+      "items": 127,
+      "slug": "snoak/trending-movies",
+      "tags": [
+        "global",
+        "movie",
+        "trending"
+      ],
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.89085",
+      "name": "Netflix India",
+      "media": "series",
+      "items": 93,
+      "slug": "sai405/netflix-india-ott",
+      "tags": [
+        "india",
+        "netflix",
+        "series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    }
+  ]
+}

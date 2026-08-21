@@ -1,0 +1,27 @@
+services:
+  nexotv:
+    image: savibrabo/nexotv:latest
+    container_name: mango-nexotv
+    restart: unless-stopped
+    mem_limit: 768m
+    # Host network so NexoTV can fetch the curated AREA69 M3U from the Pi-local
+    # HTTP server on 127.0.0.1:7010 (bridge-network containers cannot reach host
+    # loopback). Listens on PORT from .env (default 7000).
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      # Required for curated AREA69 M3U served from localhost :7010 (NexoTV SSRF
+      # blocks 127.0.0.1/private IPs unless this is set).
+      ALLOW_LOCAL_URLS: "true"
+      # Pi-local catalog rebuild + couch play share one token; default 60/min
+      # is too low when live rails refresh fetches catalog meta per addon.
+      TOKEN_RATE_LIMIT_MAX: "300"
+    volumes:
+      - "${MANGO_NEXOTV_DATA_DIR:-/home/aman/.local/share/mango/nexotv/data}:/app/data"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s

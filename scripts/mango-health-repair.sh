@@ -1,0 +1,295 @@
+#!/usr/bin/env bash
+# Narrow self-healing pass for couch reliability. Safe for watchdog timer use.
+
+set -euo pipefail
+
+REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
+LOCK_FILE="${CACHE_DIR}/mango-health-repair.lock"
+PLAYABILITY_LOCK_FILE="${CACHE_DIR}/playability-maintenance.lock"
+RECOMMENDATION_LEASE_FILE="${MANGO_RECOMMENDATION_MAINTENANCE_LEASE:-${CACHE_DIR}/recommendation-maintenance.lease}"
+QUIET=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --quiet) QUIET=1; shift ;;
+    -h|--help)
+      echo "usage: $0 [--quiet]"
+      exit 0
+      ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+cd "$REPO_DIR"
+mkdir -p "$CACHE_DIR"
+
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  [[ "$QUIET" == "1" ]] || echo "health-repair: already running"
+  exit 0
+fi
+cleanup_lock() {
+  flock -u 9 2>/dev/null || true
+  rm -f "$LOCK_FILE"
+}
+trap cleanup_lock EXIT
+
+if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
+  # shellcheck disable=SC1091
+  source "${HOME}/.config/mango/voice.env"
+fi
+
+# shellcheck source=lib/mango-log.sh
+source "$REPO_DIR/scripts/lib/mango-log.sh" 2>/dev/null || mango_log() { :; }
+# shellcheck source=lib/catalog-service-stack.sh
+source "$REPO_DIR/scripts/lib/catalog-service-stack.sh"
+# shellcheck source=lib/launcher-power.sh
+source "$REPO_DIR/scripts/lib/launcher-power.sh" 2>/dev/null || true
+
+say() {
+  [[ "$QUIET" == "1" ]] || echo "$*"
+}
+
+repair_count=0
+fail_count=0
+
+repair_note() {
+  repair_count=$((repair_count + 1))
+  mango_log health_repair action="$1" reason="${2:-}"
+  say "health-repair: $1 ${2:-}"
+}
+
+fail_note() {
+  fail_count=$((fail_count + 1))
+  mango_log health_repair status=fail check="$1" reason="${2:-}"
+  say "health-repair: FAIL $1 ${2:-}" >&2
+}
+
+kill_safe_strays() {
+  # Always reap indexer/debug orphans.
+  pkill -f 'playability-indexer' 2>/dev/null || true
+  pkill -f 'tsx.*m3-play/playability' 2>/dev/null || true
+  pkill -f 'node --input-type=module -e.*CatalogCore' 2>/dev/null || true
+  pkill -f '[b]luetoothctl connect E4:17:D8:EB:00:44' 2>/dev/null || true
+
+  # Watchdog used to pkill gate-m3-verified-rails and in-flight /play curls every
+  # few minutes, which SIGTERM'd intentional MANGO_GATE_FULL sweeps mid-rail.
+  if intentional_pre_couch_gate_active; then
+    return 0
+  fi
+  if playback_active; then
+    return 0
+  fi
+  pkill -f 'gate-m3-verified-rails' 2>/dev/null || true
+  pkill -f 'gate-m3-verified' 2>/dev/null || true
+  # Do not pkill in-flight POST /play curls — they are bounded by curl
+  # --max-time and watchdog ticks were aborting real couch/validation plays
+  # before playback-active was set.
+}
+
+intentional_pre_couch_gate_active() {
+  pgrep -f '[p]i-pre-couch-gate|[g]ate-lite\.sh|[g]ate-lite-play\.sh' >/dev/null 2>&1
+}
+
+playability_maintenance_active() {
+  pgrep -f '[p]layability-maintenance.sh|[n]ightly-library-refresh.sh|[o]vernight-playability-grow.sh' >/dev/null 2>&1 \
+    && return 0
+  [[ -f "$PLAYABILITY_LOCK_FILE" ]] || return 1
+  (
+    exec 8>"$PLAYABILITY_LOCK_FILE"
+    ! flock -n 8
+  )
+}
+
+catalog_expected() {
+  [[ "${MANGO_CATALOG:-1}" == "1" ]] && return 0
+  systemctl --user is-enabled mango-catalog.service >/dev/null 2>&1
+}
+
+catalog_ready() {
+  local body
+  body="$(curl -sf --max-time 4 "$(catalog_service_url)/health" 2>/dev/null || true)"
+  [[ -n "$body" ]] || return 1
+  python3 - "$body" <<'PY'
+import json
+import sys
+try:
+    data = json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+ok = bool(data.get("ok")) and data.get("core") == "ready" and bool(data.get("rails_ready"))
+if "live_ready" in data:
+    ok = ok and bool(data.get("live_ready"))
+live = data.get("live")
+if isinstance(live, dict) and "ready" in live:
+    ok = ok and bool(live.get("ready"))
+raise SystemExit(0 if ok else 1)
+PY
+}
+
+catalog_live() {
+  local timeout="${1:-4}"
+  local body
+  body="$(curl -sf --max-time "$timeout" "$(catalog_service_url)/health/live" 2>/dev/null || true)"
+  [[ -n "$body" ]] || return 1
+  python3 - "$body" <<'PY'
+import json
+import sys
+try:
+    data = json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if data.get("ok") and data.get("process") == "live" else 1)
+PY
+}
+
+recommendation_lease_fresh() {
+  [[ -f "$RECOMMENDATION_LEASE_FILE" ]] || return 1
+  python3 - "$RECOMMENDATION_LEASE_FILE" <<'PY'
+import json
+import sys
+import time
+try:
+    data = json.load(open(sys.argv[1], encoding="utf-8"))
+    heartbeat = int(data.get("heartbeat_at") or 0)
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if heartbeat > 0 and int(time.time() * 1000) - heartbeat <= 30000 else 1)
+PY
+}
+
+catalog_needs_repair() {
+  # systemd inactivity is authoritative and requires immediate repair.
+  if systemctl --user is-enabled mango-catalog.service >/dev/null 2>&1 \
+    && ! systemctl --user is-active --quiet mango-catalog.service; then
+    return 0
+  fi
+  catalog_live 4 && return 1
+  sleep 5
+  catalog_live 4 && return 1
+  # Fresh maintenance may temporarily delay the event loop under reclaim.
+  # Only a current heartbeat earns one final bounded liveness probe.
+  if recommendation_lease_fresh; then
+    catalog_live 15 && return 1
+  fi
+  return 0
+}
+
+repair_catalog() {
+  repair_note restart_catalog "$1"
+  if systemctl --user is-enabled mango-catalog.service >/dev/null 2>&1; then
+    systemctl --user restart mango-catalog.service || true
+  else
+    MANGO_CATALOG=1 start_catalog_service_only || true
+  fi
+  for _ in $(seq 1 60); do
+    catalog_ready && return 0
+    sleep 1
+  done
+  return 1
+}
+
+launcher_browser_running() {
+  pgrep -f "chromium.*mango-launcher.*127.0.0.1:${MANGO_LAUNCHER_PORT:-3000}/|firefox.*127.0.0.1:${MANGO_LAUNCHER_PORT:-3000}/" >/dev/null 2>&1
+}
+
+playback_active() {
+  # Couch playback intentionally stops the Chromium launcher for a tear-free
+  # fullscreen. In that state a "missing" launcher is expected, not a fault.
+  [[ -f "${HOME}/.cache/mango/playback-active" ]] && return 0
+  pgrep -x mpv >/dev/null 2>&1 && return 0
+  return 1
+}
+
+launcher_health_ok() {
+  local body
+  body="$(curl -sf --max-time 4 "http://127.0.0.1:${MANGO_LAUNCHER_PORT:-3000}/api/health" 2>/dev/null || true)"
+  [[ -n "$body" ]] || return 1
+  python3 - "$body" <<'PY'
+import json
+import sys
+try:
+    data = json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+checks = data.get("checks") or {}
+ok = (
+    bool(checks.get("launcher_dist"))
+    and bool(checks.get("launcher_browser"))
+    and checks.get("openbox") == "active"
+)
+raise SystemExit(0 if ok else 1)
+PY
+}
+
+repair_ui() {
+  repair_note restart_launcher "$1"
+  if systemctl --user is-enabled mango-ui-server.service >/dev/null 2>&1; then
+    systemctl --user restart mango-ui-server.service || true
+  fi
+  if systemctl --user is-enabled mango-launcher-chromium.service >/dev/null 2>&1; then
+    systemctl --user restart mango-launcher-chromium.service || true
+  else
+    bash scripts/m1-foundation/ui/start-mango-ui.sh >/dev/null 2>&1 || true
+  fi
+  for _ in $(seq 1 30); do
+    launcher_health_ok && launcher_browser_running && return 0
+    sleep 1
+  done
+  return 1
+}
+
+bash scripts/lib/stale-flock-cleanup.sh >/dev/null 2>&1 || true
+
+if playability_maintenance_active; then
+  mango_log health_repair status=skipped reason=playability_maintenance_active
+  say "health-repair: skipped playability maintenance active"
+  exit 0
+fi
+
+kill_safe_strays
+
+if ! bash scripts/m1-foundation/pad/pad-health.sh --quiet; then
+  repair_note restart_pad "pad_health"
+  MANGO_PAD_REPAIR_WAIT_STEPS="${MANGO_PAD_REPAIR_WAIT_STEPS:-24}" \
+    bash scripts/m1-foundation/pad/pad-health.sh --quiet --repair \
+    || fail_note pad "repair_failed"
+fi
+
+if playback_active; then
+  # Mid-stream: never restart catalog (node restart stutters playback) or the
+  # launcher (it is intentionally hidden + frozen for a tear-free GPU).
+  mango_log health_repair status=skipped check=catalog,launcher reason=playback_active
+  say "health-repair: catalog + launcher repair skipped (playback active)"
+else
+  if catalog_expected; then
+    if catalog_needs_repair; then
+      repair_catalog "catalog_liveness" || fail_note catalog "repair_failed"
+    elif ! catalog_ready; then
+      mango_log health_repair status=degraded check=catalog_readiness action=none
+      say "health-repair: catalog live; full readiness degraded (no restart)"
+    fi
+  fi
+
+  # Safety: if a prior playback left the launcher frozen, thaw it so browse is
+  # never stuck on a stale/black surface.
+  if declare -F launcher_thaw >/dev/null 2>&1 \
+    && [[ "$(systemctl --user show "${MANGO_LAUNCHER_UNIT:-mango-launcher-chromium.service}" -p FreezerState --value 2>/dev/null)" == "frozen" ]]; then
+    repair_note thaw_launcher "frozen_outside_playback"
+    launcher_thaw
+  fi
+
+  if ! launcher_health_ok || ! launcher_browser_running; then
+    repair_ui "ui_health" || fail_note launcher "repair_failed"
+  fi
+fi
+
+if (( fail_count > 0 )); then
+  mango_log health_repair status=fail repairs="$repair_count" failures="$fail_count"
+  exit 1
+fi
+
+mango_log health_repair status=ok repairs="$repair_count"
+say "health-repair: ok repairs=${repair_count}"
+exit 0

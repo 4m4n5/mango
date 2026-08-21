@@ -1,0 +1,23 @@
+services:
+  aiostreams:
+    # v2.32.0 introduced date-based series discovery/matching. Keep the default
+    # reproducible; an operator can advance this explicit stable tag via .env.
+    image: ghcr.io/viren070/aiostreams:${MANGO_AIOSTREAMS_IMAGE_TAG:-v2.32.1}
+    container_name: mango-aiostreams
+    restart: unless-stopped
+    mem_limit: 1g
+    ports:
+      - "127.0.0.1:3035:3000"
+    env_file:
+      - .env
+    environment:
+      PORT: "3000"
+      # Daily soaps can accumulate 40+ episodes in their first season. The
+      # upstream default waits for four seasons before using release-date
+      # queries, so new daily shows such as Alliance never reach the matcher.
+      # Date matching remains exact: the requested episode air date must equal
+      # the parsed release date, while ordinary SxxExx releases still use the
+      # normal season/episode matcher.
+      BUILTIN_SCRAPE_DATE_BASED_MIN_SEASONS: "${MANGO_AIOSTREAMS_DATE_BASED_MIN_SEASONS:-1}"
+    volumes:
+      - "${MANGO_AIOSTREAMS_DATA_DIR:-/home/aman/.local/share/mango/aiostreams/data}:/app/data"

@@ -1,157 +1,108 @@
 #!/usr/bin/env bash
-# Automated pre-couch gate — run on the Pi before handoff to TV testing.
-# Mac: bash scripts/pi-exec-gate.sh
-# Pi:  cd ~/mango && bash scripts/pi-pre-couch-gate.sh
+# Pre-couch gate — run on Pi before TV testing. Deploy via git pull only (see docs/DEPLOY.md).
+# Mac: bash scripts/pi-exec-gate.sh  or  bash scripts/pi-deploy.sh --fast --gate
+#
+# Default: gate-lite (~1–2 min). Full gate: MANGO_GATE_FULL=1 (~5–8 min, 3 plays/rail).
 
 set -euo pipefail
 
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 cd "$REPO_DIR"
 
-export DISPLAY="${DISPLAY:-:0}"
-export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
+  # shellcheck disable=SC1091
+  source "${HOME}/.config/mango/voice.env"
+fi
 
-ERRORS=0
-WARNS=0
+echo "=== pre-couch $(hostname) $(git rev-parse HEAD 2>/dev/null) ==="
 
-pass() { echo "✓ $*"; }
-fail() { echo "✗ $*" >&2; ERRORS=$((ERRORS + 1)); }
-warn() { echo "! $*" >&2; WARNS=$((WARNS + 1)); }
+CACHE_MANGO="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
+MAINT_LOCK="${CACHE_MANGO}/playability-maintenance.lock"
+OVERNIGHT_PID="${CACHE_MANGO}/overnight-fill.pid"
+OVERNIGHT_RUNNING=0
+if [[ -f "$OVERNIGHT_PID" ]] && kill -0 "$(cat "$OVERNIGHT_PID")" 2>/dev/null; then
+  OVERNIGHT_RUNNING=1
+fi
+MAINT_RUNNING=0
+if [[ -f "$MAINT_LOCK" ]]; then
+  if python3 - "$MAINT_LOCK" <<'PY'
+import fcntl
+import sys
+from pathlib import Path
 
-echo "=== mango pre-couch gate ==="
-echo "host: $(hostname) · $(date -Is)"
-echo "commit: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
-echo
-
-# --- 1. Git sync ---
-echo "--- git ---"
-if git fetch origin main 2>/dev/null; then
-  LOCAL="$(git rev-parse HEAD)"
-  REMOTE="$(git rev-parse origin/main 2>/dev/null || echo "")"
-  if [[ -n "$REMOTE" && "$LOCAL" != "$REMOTE" ]]; then
-    fail "behind origin/main — run: git pull"
-  else
-    pass "in sync with origin/main"
+path = Path(sys.argv[1])
+try:
+    with path.open("a+", encoding="utf-8") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            sys.exit(0)
+        finally:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+except OSError:
+    sys.exit(0)
+sys.exit(1)
+PY
+  then
+    MAINT_RUNNING=1
   fi
 fi
-if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
-  warn "dirty working tree (local Pi edits — prefer git-only deploy)"
-fi
-
-# --- 2. TV health API ---
-echo "--- tv health ---"
-if bash scripts/verify-tv.sh --quiet; then
-  pass "verify-tv.sh"
-else
-  fail "verify-tv.sh"
-fi
-
-# --- 3. Pad router ---
-echo "--- pad ---"
-AMAN_UID="$(id -u)"
-export XDG_RUNTIME_DIR="/run/user/${AMAN_UID}"
-export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
-if systemctl --user is-active mango-tv-pad.service &>/dev/null; then
-  pass "mango-tv-pad.service active"
-elif pgrep -f '[m]ango-tv-pad\.py' >/dev/null; then
-  pass "mango-tv-pad.py running (no systemd)"
-else
-  fail "pad not running — systemctl --user start mango-tv-pad.service"
-fi
-if sudo -n true 2>/dev/null; then
-  pass "passwordless sudo for pad grab"
-else
-  warn "sudo needs password — run: sudo bash scripts/phase0/install-pad-sudoers.sh"
-fi
-if python3 -c "import evdev" 2>/dev/null; then
-  if python3 -c "
-import evdev
-for p in evdev.list_devices():
-    if evdev.InputDevice(p).name == 'Pro Controller':
-        raise SystemExit(0)
-raise SystemExit(1)
-" 2>/dev/null; then
-    pass "Pro Controller input device visible"
-  else
-    warn "Pro Controller not in evdev — press any pad button to wake BT"
-  fi
-else
-  fail "python3-evdev missing"
-fi
-
-# --- 4. Bluetooth ---
-echo "--- bluetooth ---"
-BT_MAC="E4:17:D8:EB:00:44"
-if bluetoothctl info "$BT_MAC" 2>/dev/null | grep -q "Connected: yes"; then
-  pass "Micro connected ($BT_MAC)"
-else
-  warn "Micro not connected — press any button (trusted auto-reconnect)"
-fi
-
-# --- 5. Launcher window ---
-echo "--- launcher chrome ---"
-if command -v xdotool >/dev/null 2>&1; then
-  if xdotool search --class 'mango-launcher' 2>/dev/null | head -1 | grep -q .; then
-    pass "mango-launcher window present"
-  else
-    fail "no mango-launcher window — bash scripts/phase1/restart-mango-ui.sh"
-  fi
-else
-  warn "xdotool missing — skip window check"
-fi
-
-# --- 6. Pad log sanity ---
-echo "--- pad log ---"
-if [[ -f /tmp/mango-tv-pad.log ]]; then
-  if tail -20 /tmp/mango-tv-pad.log | grep -qE 'router ready|mango-tv-pad: /dev/input'; then
-    pass "pad log shows grab or wait loop"
-  elif tail -5 /tmp/mango-tv-pad.log | grep -q 'No such device'; then
-    fail "pad log: stale disconnect — systemctl --user restart mango-tv-pad.service"
-  else
-    warn "pad log unclear — tail /tmp/mango-tv-pad.log"
-  fi
-else
-  warn "no /tmp/mango-tv-pad.log yet"
-fi
-
-# --- 7. Phase 2 (optional) ---
-echo "--- phase 2 (optional) ---"
-if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
-  orch_ok=0
-  if curl -sf --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
-    orch_ok=1
-  elif curl -skf --max-time 2 https://127.0.0.1:8765/health >/dev/null 2>&1; then
-    orch_ok=1
-  fi
-  if (( orch_ok )); then
-    pass "orchestrator /health"
-  else
-    fail "MANGO_VOICE=1 but orchestrator down — bash scripts/phase2/start-voice-stack.sh"
-  fi
-  if curl -skf --max-time 2 https://127.0.0.1:3001/ >/dev/null 2>&1; then
-    pass "companion HTTPS :3001"
-  else
-    fail "companion HTTPS down — bash scripts/phase2/start-voice-stack.sh"
-  fi
-else
-  pass "voice stack not enabled (MANGO_VOICE≠1) — overlay skipped by design"
-fi
-
-echo
-echo "=== couch scenarios (manual — not automated) ==="
-cat <<'EOF'
-| # | Flow | Pass |
-|---|------|------|
-| C1 | Launcher D-pad + B select tile | |
-| C2 | Stremio → ⌂ → YouTube → ⌂ → Stremio | |
-| C3 | Pad drop → one button → launcher works | |
-| C4 | (voice) Phone PTT → overlay states → idle | |
-EOF
-
-echo
-if (( ERRORS > 0 )); then
-  echo "GATE FAIL: $ERRORS error(s), $WARNS warning(s)"
+if [[ "$MAINT_RUNNING" -eq 1 ]] || [[ "$OVERNIGHT_RUNNING" -eq 1 ]] || pgrep -f '[p]layability-indexer.ts' >/dev/null 2>&1; then
+  echo "FAIL: playability maintenance/grow in progress — couch stack is down" >&2
+  echo "  check: python3 scripts/diag/grow_monitor.py watch --exit-when-done" >&2
+  echo "  wait for grow to finish, or abort: bash scripts/m3-play/playability/abort-maintenance-grow.sh" >&2
   exit 1
 fi
-echo "GATE PASS: automated checks ok ($WARNS warning(s)) — proceed to couch C1–C3"
+
+BRANCH="$(git branch --show-current 2>/dev/null || true)"
+[[ "$BRANCH" == "feat/native-experience" ]] || {
+  echo "FAIL: expected branch feat/native-experience, got ${BRANCH:-detached}" >&2
+  exit 1
+}
+git fetch origin feat/native-experience >/dev/null 2>&1 || {
+  echo "FAIL: could not fetch origin/feat/native-experience; exact revision is unproved" >&2
+  exit 1
+}
+LOCAL="$(git rev-parse HEAD)"
+REMOTE="$(git rev-parse origin/feat/native-experience 2>/dev/null)" || {
+  echo "FAIL: origin/feat/native-experience cannot be resolved" >&2
+  exit 1
+}
+[[ "$LOCAL" == "$REMOTE" ]] || {
+  echo "FAIL: HEAD $LOCAL differs from origin/feat/native-experience $REMOTE" >&2
+  exit 1
+}
+
+if [[ "$BRANCH" == "feat/native-experience" ]]; then
+  if [[ "${MANGO_GATE_FULL:-0}" == "1" ]]; then
+    bash scripts/pi-pre-couch-gate-full.sh
+    exit $?
+  fi
+  bash scripts/gate-lite.sh
+  bash scripts/m6-ship/gate-m6-ux-smoke.sh
+  if [[ "${MANGO_GATE_SKIP_RELIABILITY:-0}" == "1" ]]; then
+    echo "WARN: reliability proof skipped (MANGO_GATE_SKIP_RELIABILITY=1)" >&2
+  else
+    bash scripts/m6-ship/gate-m6-reliability-proof.sh
+  fi
+  if [[ "${MANGO_GATE_SKIP_YOUTUBE:-0}" == "1" ]]; then
+    echo "WARN: YouTube smoke skipped (MANGO_GATE_SKIP_YOUTUBE=1)" >&2
+  else
+    bash scripts/m6-ship/gate-m6-youtube-smoke.sh
+  fi
+  bash scripts/m6-ship/gate-m6-playback-ssot.sh
+  bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
+  bash scripts/m6-ship/gate-m6-stream-picker-smoke.sh
+  echo "PRE-COUCH: PASS"
+  exit 0
+fi
+
+bash scripts/verify-tv.sh --quiet
+systemctl --user is-active mango-tv-pad.service &>/dev/null \
+  || pgrep -f '[m]ango-tv-pad\.py' >/dev/null \
+  || { echo "FAIL: pad not running" >&2; exit 1; }
+echo "PRE-COUCH: PASS"
 exit 0

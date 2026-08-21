@@ -1,0 +1,33 @@
+[Unit]
+Description=mango launcher Chromium kiosk
+After=mango-ui-server.service mango-catalog.service network-online.target
+PartOf=graphical-session.target
+Wants=mango-ui-server.service mango-catalog.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/mango
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=%h/.Xauthority
+Environment=HOME=%h
+Environment=MANGO_SKIP_OVERLAY=1
+Environment=MANGO_LAUNCHER_PORT=3000
+Environment=MANGO_LAUNCHER_BROWSER=chromium
+Environment=MANGO_CHROMIUM_DISABLE_GPU=0
+Environment=MANGO_LAUNCHER_DISPLAY_MODE=1920x1080
+Environment=MANGO_LAUNCHER_DISPLAY_RATE=60
+ExecStartPre=/bin/mkdir -p %h/.cache/mango
+ExecStart=%h/mango/scripts/m1-foundation/ui/start-mango-launcher-chromium.sh
+Restart=on-failure
+RestartSec=5
+# Memory guards enforce only once the cgroup memory controller is enabled at boot
+# (cgroup_enable=memory in cmdline.txt). Sized generously for a UI-only kiosk; mpv
+# playback runs in a separate process, so the launcher never needs playback headroom.
+MemoryAccounting=yes
+MemoryHigh=1536M
+MemoryMax=2048M
+TasksMax=1024
+OOMScoreAdjust=800
+
+[Install]
+WantedBy=default.target

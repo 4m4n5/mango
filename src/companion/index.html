@@ -3,19 +3,130 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#121212" />
+    <meta name="theme-color" content="#050608" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>mango companion</title>
   </head>
   <body>
     <main class="app-shell">
-      <header>
-        <h1>mango</h1>
-        <p id="status">connecting…</p>
+      <header class="top-bar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">m</span>
+          <div class="brand-copy">
+            <h1>mango</h1>
+            <p class="brand-tag">TV companion</p>
+          </div>
+        </div>
+        <div class="connection" aria-live="polite">
+          <span id="status-dot" class="status-dot" data-state="connecting" aria-hidden="true"></span>
+          <p id="status">Connecting…</p>
+        </div>
       </header>
-      <section id="chat" class="chat-log" aria-live="polite" aria-label="chat"></section>
-      <p id="error" class="error" hidden></p>
-      <button id="ptt" type="button" aria-label="hold to talk">hold</button>
-      <p class="hint">HTTPS required for phone mic</p>
+
+      <div class="chat-stage">
+        <div class="context-bar" role="toolbar" aria-label="Companion panels">
+          <button
+            id="toggle-youtube"
+            class="context-chip"
+            type="button"
+            aria-expanded="false"
+            aria-controls="youtube-panel"
+          >
+            <span class="context-chip-label">YouTube</span>
+            <span id="youtube-chip-meta" class="context-chip-meta">…</span>
+          </button>
+          <button
+            id="toggle-mirror"
+            class="context-chip"
+            type="button"
+            aria-expanded="false"
+            aria-controls="mirror"
+          >
+            <span class="context-chip-label">On TV</span>
+            <span id="mirror-chip-meta" class="context-chip-meta">—</span>
+          </button>
+        </div>
+
+        <section id="youtube-panel" class="panel drawer youtube-panel" aria-label="YouTube account" hidden>
+          <div class="youtube-head">
+            <div class="youtube-account">
+              <img id="youtube-avatar" class="youtube-avatar" alt="" referrerpolicy="no-referrer" hidden>
+              <div>
+              <h2 class="panel-title panel-title--inline">YouTube</h2>
+              <p id="youtube-status" class="youtube-status">checking…</p>
+              </div>
+            </div>
+            <div class="setup-actions">
+              <button id="youtube-auth-start" class="btn btn--secondary" type="button">Connect</button>
+              <button id="youtube-auth-disconnect" class="btn btn--ghost" type="button">Disconnect</button>
+            </div>
+          </div>
+          <div id="youtube-auth-code" class="youtube-code" hidden>
+            <p>Open <a id="youtube-auth-link" href="#" target="_blank" rel="noreferrer">Google device login</a></p>
+            <strong id="youtube-user-code"></strong>
+          </div>
+        </section>
+
+        <section id="mirror" class="panel drawer mirror-panel" aria-label="TV mirror" hidden>
+          <div class="panel-head">
+            <h2 class="panel-title">On TV</h2>
+            <button id="memory-toggle" type="button" class="btn btn--chip">Memory</button>
+          </div>
+          <div class="mirror-grid">
+            <article class="mirror-stat">
+              <span class="mirror-label">Tab</span>
+              <span id="mirror-tab" class="mirror-value">—</span>
+            </article>
+            <article class="mirror-stat">
+              <span class="mirror-label">Open</span>
+              <span id="mirror-open" class="mirror-value">—</span>
+            </article>
+            <article class="mirror-stat">
+              <span class="mirror-label">Playing</span>
+              <span id="mirror-playing" class="mirror-value">—</span>
+            </article>
+            <article class="mirror-stat">
+              <span class="mirror-label">Tool</span>
+              <span id="mirror-tool" class="mirror-value">—</span>
+            </article>
+          </div>
+          <pre id="memory-panel" class="memory-panel" hidden></pre>
+        </section>
+
+        <section id="chat" class="chat-log" aria-live="polite" aria-label="Chat">
+          <div id="chat-empty" class="chat-empty">
+            <p class="chat-empty-title">Talk or type to mango</p>
+            <p class="chat-empty-copy">Hold to talk or send a message below. Voice opens on TV — press B to play.</p>
+          </div>
+        </section>
+      </div>
+
+      <footer class="bottom-dock">
+        <p id="error" class="error-banner" hidden role="alert"></p>
+        <form id="composer" class="composer">
+          <label class="sr-only" for="composer-input">Message mango</label>
+          <textarea
+            id="composer-input"
+            rows="1"
+            maxlength="500"
+            placeholder="Message mango…"
+            enterkeyhint="send"
+          ></textarea>
+          <button class="composer-send" type="submit" aria-label="Send message">
+            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M3.4 20.6 21 12 3.4 3.4l2.8 7.2L16 12l-9.8 1.4-2.8 7.2z" />
+            </svg>
+          </button>
+        </form>
+        <div class="voice-row">
+          <button id="ptt" class="ptt" type="button" aria-label="Hold to talk">
+            <span class="ptt-ring" aria-hidden="true"></span>
+            <span class="ptt-label">Hold to talk</span>
+          </button>
+        </div>
+        <p class="dock-hint">Mic requires HTTPS on your phone</p>
+      </footer>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

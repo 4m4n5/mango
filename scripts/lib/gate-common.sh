@@ -1,0 +1,365 @@
+#!/usr/bin/env bash
+# Shared gate helpers — source from phase gate scripts (do not execute directly).
+
+mango_gate_init() {
+  REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+  # Keep MANGO_REPO_DIR exported: gate_idle_hygiene and nested helpers read it under set -u.
+  export MANGO_REPO_DIR="$REPO_DIR"
+  cd "$REPO_DIR"
+  export DISPLAY="${DISPLAY:-:0}"
+  export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+  if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
+    # shellcheck disable=SC1091
+    source "${HOME}/.config/mango/voice.env"
+  fi
+  # voice.env must not clobber the repo root resolved above.
+  export MANGO_REPO_DIR="$REPO_DIR"
+  export MANGO_SKIP_OVERLAY=1
+  ERRORS=0
+  WARNS=0
+}
+
+gate_pass() {
+  [[ "${MANGO_GATE_QUIET:-0}" == "1" ]] || echo "PASS: $*"
+}
+
+gate_fail() {
+  ERRORS=$((ERRORS + 1))
+  [[ "${MANGO_GATE_QUIET:-0}" == "1" ]] || echo "FAIL: $*" >&2
+}
+
+gate_warn() {
+  WARNS=$((WARNS + 1))
+  [[ "${MANGO_GATE_QUIET:-0}" == "1" ]] || echo "WARN: $*" >&2
+}
+
+gate_header() {
+  [[ "${MANGO_GATE_QUIET:-0}" == "1" ]] && return 0
+  echo "========== $1 $(date -Iseconds) =========="
+  echo "commit: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  echo
+}
+
+gate_finish() {
+  local label="${1:-gate}"
+  if (( ERRORS > 0 )); then
+    echo "${label}: FAIL (${ERRORS} errors, ${WARNS} warnings)" >&2
+    return 1
+  fi
+  [[ "${MANGO_GATE_QUIET:-0}" == "1" ]] || echo "${label}: PASS (${WARNS} warnings)"
+  return 0
+}
+
+gate_mpv_stop() {
+  bash scripts/m2-catalog/service/mpv-stop.sh >/dev/null 2>&1 || true
+}
+
+# Wait for catalog /health after prior gate steps that can briefly saturate or
+# bounce the service. Empty curl http codes during /play were false flakes.
+gate_wait_catalog_ready() {
+  local attempts="${1:-24}"
+  local i
+  for ((i = 1; i <= attempts; i++)); do
+    if curl -sf --max-time 3 http://127.0.0.1:3020/health >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  return 1
+}
+
+gate_check_mpv_playing() {
+  local label="$1"
+  local quiet="${2:-0}"
+  for _ in $(seq 1 15); do
+    local reply playback_time
+    reply="$(curl -sf --max-time 2 http://127.0.0.1:3020/voice/now-playing 2>/dev/null || true)"
+    playback_time="$(printf '%s' "$reply" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("position_sec") or 0 if data.get("active") else 0)' 2>/dev/null || echo 0)"
+    if python3 -c "import sys; sys.exit(0 if float('${playback_time:-0}') > 0 else 1)" 2>/dev/null; then
+      gate_pass "$label playback active"
+      return 0
+    fi
+    sleep 0.2
+  done
+  if [[ "$quiet" == "1" ]]; then
+    return 1
+  fi
+  gate_fail "$label playback position > 0"
+  return 1
+}
+
+gate_check_play_json() {
+  python3 - "$1" "${2:-}" "${3:-}" <<'PY'
+import json
+import sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+max_total = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
+max_attempts = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else None
+if data.get("ok") is not True:
+    raise SystemExit("ok is not true")
+ttff = int(data.get("ttff_ms") or 0)
+total = int(data.get("total_ms") or 0)
+attempts = int(data.get("attempts") or 0)
+if ttff <= 0 or total <= 0 or attempts < 1:
+    raise SystemExit(f"bad metrics ttff={ttff} total={total} attempts={attempts}")
+if max_total is not None and total > max_total:
+    raise SystemExit(f"total_ms {total} > {max_total}")
+if max_attempts is not None and attempts > max_attempts:
+    raise SystemExit(f"attempts {attempts} > {max_attempts}")
+PY
+}
+
+gate_print_play_failure_summary() {
+  python3 - "$1" <<'PY' >&2 || true
+import json
+import math
+import re
+import sys
+
+try:
+    data = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    raise SystemExit(0)
+
+attempts = data.get("attempts") if isinstance(data.get("attempts"), list) else []
+categories = {}
+total_ms = 0
+for attempt in attempts:
+    if not isinstance(attempt, dict):
+        continue
+    error = str(attempt.get("error") or "")
+    if re.search(r"play cancelled|play epoch", error, re.I):
+        category = "cancelled"
+    elif re.search(r"debrid_(?:copyright_block|status_clip|nfo_sidecar)", error, re.I):
+        category = "garbage"
+    elif re.search(r"rate[- ]?limit|too many requests|HTTP\s*429", error, re.I):
+        category = "rate_limited"
+    elif re.search(r"no_playable_stream|no streams|no http streams|no_stream", error, re.I):
+        category = "no_stream"
+    elif re.search(r"timeout|timed out|unreadable|supplemental_or_short_release|HTTP 5\d\d|fetch failed", error, re.I):
+        category = "transient"
+    else:
+        category = "unknown"
+    categories[category] = categories.get(category, 0) + 1
+    value = attempt.get("ms")
+    if isinstance(value, (int, float)) and value > 0:
+        total_ms += round(value)
+
+def bounded_count(value, fallback):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return fallback
+    if not math.isfinite(value) or value < 0:
+        return fallback
+    return round(value)
+
+allowed_categories = {
+    "garbage",
+    "transient",
+    "rate_limited",
+    "no_stream",
+    "cancelled",
+    "unknown",
+}
+public_categories = data.get("error_categories")
+if isinstance(public_categories, dict):
+    categories = {
+        key: bounded_count(value, 0)
+        for key, value in public_categories.items()
+        if key in allowed_categories
+        and not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+        and value >= 0
+    }
+
+summary = {
+    "error_present": bool(data.get("error")),
+    "attempt_count": bounded_count(data.get("attempt_count"), len(attempts)),
+    "attempt_total_ms": bounded_count(data.get("attempt_total_ms"), total_ms),
+    "error_categories": categories,
+}
+candidate_count = data.get("candidate_count", data.get("candidates"))
+if (
+    not isinstance(candidate_count, bool)
+    and isinstance(candidate_count, (int, float))
+    and math.isfinite(candidate_count)
+    and candidate_count >= 0
+):
+    summary["candidate_count"] = bounded_count(candidate_count, 0)
+print(json.dumps(summary, sort_keys=True))
+PY
+}
+
+gate_post_play() {
+  local label="$1" type="$2" id="$3" out="$4" max_total="${5:-}" max_attempts="${6:-}" rail_id="${7:-}"
+  local severity="${8:-fail}"
+  local payload status
+  if [[ -n "$rail_id" ]]; then
+    payload="{\"type\":\"${type}\",\"id\":\"${id}\",\"rail_id\":\"${rail_id}\"}"
+  else
+    payload="{\"type\":\"${type}\",\"id\":\"${id}\"}"
+  fi
+  if ! gate_wait_catalog_ready 12; then
+    if [[ "$severity" == "attempt" ]]; then
+      return 1
+    fi
+    gate_fail "$label catalog down"
+    return 1
+  fi
+  status="$(curl -sS --max-time 100 -X POST http://127.0.0.1:3020/play \
+    -H 'content-type: application/json' \
+    -d "$payload" \
+    -o "$out" \
+    -w '%{http_code}' || true)"
+  # One reconnect after a blank transport failure (catalog still settling).
+  if [[ -z "$status" ]]; then
+    if gate_wait_catalog_ready 12; then
+      status="$(curl -sS --max-time 100 -X POST http://127.0.0.1:3020/play \
+        -H 'content-type: application/json' \
+        -d "$payload" \
+        -o "$out" \
+        -w '%{http_code}' || true)"
+    fi
+  fi
+  if [[ "$status" =~ ^2 ]] \
+    && gate_check_play_json "$out" "$max_total" "$max_attempts" \
+    && gate_check_mpv_playing "$label" "$([[ "$severity" == "attempt" ]] && echo 1 || echo 0)"; then
+    gate_pass "$label play $id"
+    return 0
+  fi
+  if [[ "$severity" == "attempt" ]]; then
+    if [[ -s "$out" && "${MANGO_GATE_QUIET:-0}" != "1" ]]; then
+      gate_print_play_failure_summary "$out"
+    fi
+    return 1
+  fi
+  if [[ "$severity" == "warn" ]]; then
+    gate_warn "$label play $id http=${status:-unknown}"
+  else
+    gate_fail "$label play $id http=${status:-unknown}"
+  fi
+  if [[ -s "$out" && "${MANGO_GATE_QUIET:-0}" != "1" ]]; then
+    gate_print_play_failure_summary "$out"
+  fi
+  return 1
+}
+
+# Quick process hygiene (replaces baseline-metrics for routine gates).
+gate_process_count() {
+  local pattern="$1"
+  local n
+  n="$(pgrep -f "$pattern" 2>/dev/null | wc -l | tr -d '[:space:]')" || true
+  echo "${n:-0}"
+}
+
+gate_display_awake() {
+  local xset_output
+  if ! command -v xset >/dev/null 2>&1; then
+    gate_warn "display awake check skipped: xset unavailable"
+    return 0
+  fi
+  if ! xset_output="$(xset q 2>/dev/null)"; then
+    gate_warn "display awake check skipped: X display ${DISPLAY:-unset} unavailable"
+    return 0
+  fi
+  if grep -q 'Monitor is Off' <<<"$xset_output"; then
+    gate_fail "X11 monitor is Off after stack start"
+  else
+    gate_pass "X11 monitor is not Off"
+  fi
+}
+
+gate_launcher_single_window() {
+  local window_repo count
+  window_repo="${MANGO_REPO_DIR:-${REPO_DIR:-}}"
+  if ! command -v xdotool >/dev/null 2>&1 || ! command -v xwininfo >/dev/null 2>&1; then
+    gate_warn "launcher window count skipped: X11 tools unavailable"
+    return 0
+  fi
+  if ! xdotool getdisplaygeometry >/dev/null 2>&1; then
+    gate_warn "launcher window count skipped: X display ${DISPLAY:-unset} unavailable"
+    return 0
+  fi
+  # shellcheck source=launcher-window.sh
+  source "$window_repo/scripts/lib/launcher-window.sh"
+  count="$(launcher_viewable_input_output_count)"
+  if [[ "$count" == "1" ]]; then
+    gate_pass "InputOutput mango-launcher window count 1"
+  else
+    gate_fail "InputOutput mango-launcher window count ${count}; restart mango-launcher-chromium.service"
+  fi
+}
+
+gate_idle_hygiene() {
+  local chromium firefox browser_apps stremio kodi mem_mb indexer orphans remapper pad
+  chromium="$(gate_process_count 'chromium.*--app=')"
+  firefox="$(gate_process_count 'firefox.*127\.0\.0\.1:3000/')"
+  browser_apps=$(( ${chromium:-0} + ${firefox:-0} ))
+  stremio="$(gate_process_count 'stremio')"
+  kodi="$(gate_process_count 'kodi')"
+  indexer="$(gate_process_count 'playability-indexer')"
+  orphans="$(gate_process_count 'node --input-type=module -e.*CatalogCore')"
+  remapper="$(gate_process_count 'input-remapper-service')"
+  pad="$(gate_process_count 'mango-tv-pad\.py')"
+  mem_mb="$(awk '/^Mem:/ {print $7}' <(free -m 2>/dev/null) || echo 0)"
+  gate_display_awake
+  gate_launcher_single_window
+  [[ "${browser_apps:-0}" -le 1 ]] && gate_pass "launcher browser apps ${browser_apps}" || gate_fail "launcher browser apps ${browser_apps} > 1"
+  [[ "${stremio:-0}" -eq 0 ]] && gate_pass "stremio idle" || gate_fail "stremio running at idle"
+  [[ "${kodi:-0}" -eq 0 ]] && gate_pass "kodi idle" || gate_fail "kodi running at idle"
+  [[ "${indexer:-0}" -eq 0 ]] && gate_pass "playability indexer idle" || gate_fail "playability indexer running at couch idle"
+  [[ "${orphans:-0}" -eq 0 ]] && gate_pass "no orphan catalog debug shells" || gate_fail "orphan node CatalogCore debug shells (${orphans})"
+  if [[ "${pad:-0}" -gt 0 && "${remapper:-0}" -gt 0 ]]; then
+    gate_fail "input-remapper active with mango-tv-pad (duplicate pad stack)"
+  elif [[ "${remapper:-0}" -gt 0 ]]; then
+    gate_warn "input-remapper active without pad"
+  else
+    gate_pass "single pad owner"
+  fi
+  local pad_repo="${MANGO_REPO_DIR:-${REPO_DIR:-}}"
+  if [[ -n "$pad_repo" && -x "$pad_repo/scripts/m1-foundation/pad/pad-health.sh" ]]; then
+    local pad_json pad_eval pad_ok pad_reason
+    pad_json="$(bash "$pad_repo/scripts/m1-foundation/pad/pad-health.sh" --quiet --json 2>/dev/null || true)"
+    pad_eval="$(python3 - "$pad_json" <<'PY'
+import json
+import shlex
+import sys
+try:
+    data = json.loads(sys.argv[1] or "{}")
+except Exception:
+    data = {}
+print(f"pad_ok={shlex.quote('1' if data.get('ok') else '0')}")
+print(f"pad_reason={shlex.quote(str(data.get('reason') or ''))}")
+PY
+)"
+    eval "$pad_eval"
+    if [[ "${pad_ok:-0}" != "1" ]]; then
+      pad_json="$(bash "$pad_repo/scripts/m1-foundation/pad/pad-health.sh" --quiet --repair --json 2>/dev/null || true)"
+      pad_eval="$(python3 - "$pad_json" <<'PY'
+import json
+import shlex
+import sys
+try:
+    data = json.loads(sys.argv[1] or "{}")
+except Exception:
+    data = {}
+print(f"pad_ok={shlex.quote('1' if data.get('ok') else '0')}")
+print(f"pad_reason={shlex.quote(str(data.get('reason') or ''))}")
+PY
+)"
+      eval "$pad_eval"
+    fi
+    if [[ "${pad_ok:-0}" == "1" && "${pad_reason:-}" == "waiting_for_controller" ]]; then
+      gate_pass "mango-tv-pad waiting for controller"
+    elif [[ "${pad_ok:-0}" == "1" ]]; then
+      gate_pass "mango-tv-pad current device"
+    else
+      gate_fail "mango-tv-pad current device"
+    fi
+  fi
+  if [[ "${mem_mb:-0}" -ge 2500 ]]; then
+    gate_pass "mem available ${mem_mb} MB"
+  else
+    gate_fail "mem available ${mem_mb} MB < 2500"
+  fi
+}

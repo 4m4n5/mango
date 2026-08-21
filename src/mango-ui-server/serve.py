@@ -10,29 +10,62 @@ import argparse
 import json
 import mimetypes
 import os
+import secrets
 import socket
 import subprocess
 import sys
+import threading
 import time
+from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Final
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 LAUNCHER_DIST: Final = REPO_ROOT / "src" / "launcher" / "dist"
-OVERLAY_DIST: Final = REPO_ROOT / "src" / "overlay" / "dist"
 LOG_DIR: Final = Path.home() / ".cache" / "mango"
 LOG_SCRIPT: Final = REPO_ROOT / "scripts" / "lib" / "mango-log.sh"
+PAD_HEALTH_SCRIPT: Final = REPO_ROOT / "scripts" / "m1-foundation" / "pad" / "pad-health.sh"
+ACTIVITY_STATE: Final = Path(os.environ.get("MANGO_COUCH_ACTIVITY_STATE", str(LOG_DIR / "couch-activity.json")))
+PERF_LOG: Final = LOG_DIR / "launcher-perf.jsonl"
+PLAYBACK_ACTIVE_FILE: Final = Path(
+    os.environ.get("MANGO_PLAYBACK_ACTIVE_FILE", str(LOG_DIR / "playback-active"))
+).expanduser()
+CATALOG_UPSTREAM: Final = os.environ.get("MANGO_CATALOG_UPSTREAM", "http://127.0.0.1:3020")
+CATALOG_PROXY_TIMEOUT_SEC: Final = 60
+CATALOG_PLAY_PROXY_TIMEOUT_SEC: Final = 90
 
 LAUNCH_SCRIPTS: Final = {
-    "/api/launch/stremio": REPO_ROOT / "scripts" / "launch-stremio.sh",
-    "/api/launch/kodi": REPO_ROOT / "scripts" / "launch-kodi.sh",
     "/api/launch/launcher": REPO_ROOT / "scripts" / "launch-launcher.sh",
 }
+MPV_STOP_SCRIPT: Final = REPO_ROOT / "scripts" / "m2-catalog" / "service" / "mpv-stop.sh"
 LAUNCH_DEBOUNCE_SEC: Final = 2.0
 _last_launch_at: dict[str, float] = {}
+
+_voice_lock: Final = threading.Lock()
+_voice_cond: Final = threading.Condition(_voice_lock)
+_voice_commands: Final = deque[dict[str, object]](maxlen=64)
+VOICE_COMMAND_TTL_SEC: Final = 45.0
+VOICE_SEQ_FILE: Final = LOG_DIR / "voice-command-seq"
+
+
+def _load_persisted_voice_seq() -> int:
+    try:
+        return max(0, int(VOICE_SEQ_FILE.read_text(encoding="utf-8").strip()))
+    except (OSError, ValueError):
+        return 0
+
+
+def _persist_voice_seq(seq: int) -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    VOICE_SEQ_FILE.write_text(f"{seq}\n", encoding="utf-8")
+
+
+_voice_command_seq: int = _load_persisted_voice_seq()
 
 
 def run_check(cmd: list[str]) -> bool:
@@ -40,6 +73,26 @@ def run_check(cmd: list[str]) -> bool:
         return subprocess.run(cmd, capture_output=True, check=False).returncode == 0
     except OSError:
         return False
+
+
+def run_json(cmd: list[str], timeout: float = 2.0) -> dict[str, object]:
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    if result.returncode != 0 and not result.stdout.strip():
+        return {}
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def mango_log(event: str, **fields: str) -> None:
@@ -50,54 +103,591 @@ def mango_log(event: str, **fields: str) -> None:
     subprocess.run(args, check=False, capture_output=True)
 
 
+def _safe_field(value: object, limit: int = 96) -> str:
+    return str(value or "")[:limit]
+
+
+def touch_couch_activity(source: str, hint: str = "") -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    ACTIVITY_STATE.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "ts": int(time.time() * 1000),
+        "source": _safe_field(source, 64),
+        "hint": _safe_field(hint, 96),
+        "pid": os.getpid(),
+    }
+    tmp = ACTIVITY_STATE.with_suffix(ACTIVITY_STATE.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
+    tmp.replace(ACTIVITY_STATE)
+
+
+def append_perf_event(payload: dict[str, object]) -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    row = {
+        "server_ts": int(time.time() * 1000),
+        "event": _safe_field(payload.get("event"), 64),
+        "tab": _safe_field(payload.get("tab"), 32),
+        "key": _safe_field(payload.get("key"), 160),
+        "state": _safe_field(payload.get("state"), 32),
+        "duration_ms": payload.get("duration_ms"),
+        "rows": payload.get("rows"),
+        "rails": payload.get("rails"),
+        "items": payload.get("items"),
+        "reshuffle": payload.get("reshuffle"),
+    }
+    with PERF_LOG.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, separators=(",", ":")) + "\n")
+
+
+def _client_is_local(handler: BaseHTTPRequestHandler) -> bool:
+    host = handler.client_address[0]
+    return host in {"127.0.0.1", "::1", "localhost"}
+
+
+def enqueue_voice_command(command: dict[str, object]) -> int:
+    global _voice_command_seq, _last_voice_ack
+    action = str(command.get("action", ""))
+    with _voice_cond:
+        _voice_command_seq += 1
+        seq = _voice_command_seq
+        entry = {"seq": seq, "issued_at": time.time(), **command}
+        _voice_commands.append(entry)
+        _voice_cond.notify_all()
+    with _voice_ack_lock:
+        _last_voice_ack = {
+            "ok": False,
+            "seq": seq,
+            "action": action,
+            "reason": "pending",
+            "at": time.time(),
+        }
+    _persist_voice_seq(seq)
+    mango_log("voice_command", seq=str(seq), action=action)
+    return seq
+
+
+def _prune_expired_voice_commands(now: float | None = None) -> None:
+    cutoff = (now or time.time()) - VOICE_COMMAND_TTL_SEC
+    fresh = deque(
+        (
+            entry
+            for entry in _voice_commands
+            if float(entry.get("issued_at", 0)) >= cutoff
+        ),
+        maxlen=_voice_commands.maxlen,
+    )
+    _voice_commands.clear()
+    _voice_commands.extend(fresh)
+
+
+def _drain_pending_locked(after: int) -> list[dict[str, object]]:
+    """Drain pending commands with seq > after. Assumes _voice_lock is held."""
+    pending = [
+        entry
+        for entry in list(_voice_commands)
+        if int(entry.get("seq", 0)) > after
+    ]
+    pending_seqs = {int(entry.get("seq", 0)) for entry in pending}
+    kept = deque(
+        (
+            entry
+            for entry in _voice_commands
+            if int(entry.get("seq", 0)) not in pending_seqs
+        ),
+        maxlen=_voice_commands.maxlen,
+    )
+    _voice_commands.clear()
+    _voice_commands.extend(kept)
+    return pending
+
+
+def drain_voice_commands(after: int) -> tuple[list[dict[str, object]], int]:
+    """Return pending commands once — never replay on later polls."""
+    with _voice_cond:
+        _prune_expired_voice_commands(time.time())
+        return _drain_pending_locked(after), _voice_command_seq
+
+
+def wait_and_drain_voice_commands(
+    after: int, timeout: float
+) -> tuple[list[dict[str, object]], int]:
+    """Long-poll variant: park up to ``timeout`` seconds waiting for new commands.
+
+    Returns as soon as pending commands exist (drain-once), or on timeout with
+    ``([], latest_seq)``. Mutually exclusive with all other _voice_lock users.
+    """
+    deadline = time.monotonic() + timeout
+    with _voice_cond:
+        while True:
+            _prune_expired_voice_commands(time.time())
+            pending = _drain_pending_locked(after)
+            if pending:
+                return pending, _voice_command_seq
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return [], _voice_command_seq
+            _voice_cond.wait(remaining)
+
+
+_voice_ack_lock: Final = threading.Lock()
+_last_voice_ack: dict[str, object] = {
+    "ok": False,
+    "seq": 0,
+    "action": "",
+    "reason": "",
+    "at": 0.0,
+}
+
+
+def latest_voice_command_seq() -> int:
+    with _voice_lock:
+        return _voice_command_seq
+
+
+def read_voice_ack() -> dict[str, object]:
+    with _voice_ack_lock:
+        return dict(_last_voice_ack)
+
+
+def record_voice_ack(payload: dict[str, object]) -> dict[str, object]:
+    global _last_voice_ack
+    with _voice_ack_lock:
+        _last_voice_ack = {
+            "ok": bool(payload.get("ok")),
+            "seq": max(0, int(payload.get("seq", 0) or 0)),
+            "action": str(payload.get("action", "")),
+            "reason": str(payload.get("reason", "")),
+            "at": time.time(),
+        }
+        mango_log(
+            "voice_ack",
+            seq=str(_last_voice_ack["seq"]),
+            action=str(_last_voice_ack["action"]),
+            ok="1" if _last_voice_ack["ok"] else "0",
+            reason=str(_last_voice_ack["reason"]),
+        )
+        return dict(_last_voice_ack)
+
+
+_pad_nav_lock: Final = threading.Lock()
+_pad_nav_cond: Final = threading.Condition(_pad_nav_lock)
+_pad_nav_commands: Final = deque[dict[str, object]](maxlen=64)
+PAD_NAV_TTL_SEC: Final = 45.0
+PAD_NAV_SEQ_FILE: Final = LOG_DIR / "pad-nav-seq"
+PAD_NAV_STALL_SEC: Final = max(
+    1.0, float(os.environ.get("MANGO_PAD_NAV_STALL_SEC", "3"))
+)
+PAD_NAV_RECOVERY_COOLDOWN_SEC: Final = max(
+    PAD_NAV_STALL_SEC,
+    float(os.environ.get("MANGO_PAD_NAV_RECOVERY_COOLDOWN_SEC", "30")),
+)
+PAD_NAV_LAUNCHER_UNIT: Final = os.environ.get(
+    "MANGO_LAUNCHER_UNIT", "mango-launcher-chromium.service"
+)
+_pad_nav_session_id: str | None = None
+_pad_nav_session_seen_at = 0.0
+_pad_nav_render_age_ms = float("inf")
+_pad_nav_last_ack_at = 0.0
+_pad_nav_last_recovery_at = 0.0
+_pad_nav_persist_lock: Final = threading.Lock()
+_pad_nav_persist_pending: int | None = None
+_pad_nav_persist_scheduled = False
+
+
+def _load_persisted_pad_nav_seq() -> int:
+    try:
+        return max(0, int(PAD_NAV_SEQ_FILE.read_text(encoding="utf-8").strip()))
+    except (OSError, ValueError):
+        return 0
+
+
+def _persist_pad_nav_seq(seq: int) -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    PAD_NAV_SEQ_FILE.write_text(f"{seq}\n", encoding="utf-8")
+
+
+def _schedule_persist_pad_nav_seq(seq: int) -> None:
+    """Write seq off the POST hot path so pad HTTP never waits on SD I/O."""
+    global _pad_nav_persist_pending, _pad_nav_persist_scheduled
+    with _pad_nav_persist_lock:
+        _pad_nav_persist_pending = max(_pad_nav_persist_pending or 0, seq)
+        if _pad_nav_persist_scheduled:
+            return
+        _pad_nav_persist_scheduled = True
+
+    def _write() -> None:
+        global _pad_nav_persist_pending, _pad_nav_persist_scheduled
+        with _pad_nav_persist_lock:
+            to_write = _pad_nav_persist_pending
+            _pad_nav_persist_pending = None
+            _pad_nav_persist_scheduled = False
+        if to_write is None:
+            return
+        try:
+            _persist_pad_nav_seq(to_write)
+        except OSError:
+            pass
+
+    threading.Thread(target=_write, name="pad-nav-seq", daemon=True).start()
+
+
+_pad_nav_seq: int = _load_persisted_pad_nav_seq()
+
+
+def register_pad_nav_session(previous_session: str | None = None) -> str | None:
+    """Acquire the TV queue lease without letting a second browser steal it.
+
+    The current owner may renew with its token. A different page can take over
+    only after the owner's one-second heartbeat has been absent for the stall
+    budget, which lets a restarted kiosk recover promptly while keeping debug
+    tabs and duplicate Chromium windows read-only.
+    """
+    global _pad_nav_session_id, _pad_nav_session_seen_at, _pad_nav_render_age_ms
+    now = time.time()
+    with _pad_nav_lock:
+        if previous_session and previous_session == _pad_nav_session_id:
+            _pad_nav_session_seen_at = now
+            return _pad_nav_session_id
+        if (
+            _pad_nav_session_id
+            and now - _pad_nav_session_seen_at <= PAD_NAV_STALL_SEC
+        ):
+            return None
+        session_id = secrets.token_urlsafe(16)
+        _pad_nav_session_id = session_id
+        _pad_nav_session_seen_at = now
+        _pad_nav_render_age_ms = 0.0
+    mango_log("pad_nav_session", session=session_id)
+    return session_id
+
+
+def active_pad_nav_session() -> str | None:
+    with _pad_nav_lock:
+        return _pad_nav_session_id
+
+
+def pad_nav_session_matches(session: str | None) -> bool:
+    with _pad_nav_lock:
+        return bool(session) and session == _pad_nav_session_id
+
+
+def heartbeat_pad_nav_session(session: str | None, render_age_ms: float) -> bool:
+    global _pad_nav_session_seen_at, _pad_nav_render_age_ms
+    with _pad_nav_lock:
+        if not session or session != _pad_nav_session_id:
+            return False
+        _pad_nav_session_seen_at = time.time()
+        _pad_nav_render_age_ms = max(0.0, min(render_age_ms, 60_000.0))
+        return True
+
+
+def enqueue_pad_nav_command(command: dict[str, object]) -> int:
+    global _pad_nav_seq
+    action = str(command.get("action", ""))
+    with _pad_nav_cond:
+        _pad_nav_seq += 1
+        seq = _pad_nav_seq
+        entry = {"seq": seq, "issued_at": time.time(), **command}
+        _pad_nav_commands.append(entry)
+        _pad_nav_cond.notify_all()
+    _schedule_persist_pad_nav_seq(seq)
+    mango_log("pad_nav_command", seq=str(seq), action=action)
+    return seq
+
+
+def _prune_expired_pad_nav_commands(now: float | None = None) -> None:
+    cutoff = (now or time.time()) - PAD_NAV_TTL_SEC
+    fresh = deque(
+        (
+            entry
+            for entry in _pad_nav_commands
+            if float(entry.get("issued_at", 0)) >= cutoff
+        ),
+        maxlen=_pad_nav_commands.maxlen,
+    )
+    _pad_nav_commands.clear()
+    _pad_nav_commands.extend(fresh)
+
+
+def _peek_pad_nav_pending_locked(after: int) -> list[dict[str, object]]:
+    """Return pad nav commands with seq > after without removing them.
+
+    Pad nav must be peek-based (not drain-once). A second localhost poller
+    (SSH tunnel + Cursor browser, second Chromium tab, curl probe) used to
+    steal the only copy of each command — the TV Chromium then saw empty
+    polls and advanced past the seq, so couch presses registered randomly.
+    Only the registered TV session may compact via ack.
+    """
+    return [
+        entry
+        for entry in list(_pad_nav_commands)
+        if int(entry.get("seq", 0)) > after
+    ]
+
+
+def drain_pad_nav_commands(after: int) -> tuple[list[dict[str, object]], int]:
+    """Return pending pad nav commands with seq > after (non-destructive peek)."""
+    with _pad_nav_cond:
+        _prune_expired_pad_nav_commands(time.time())
+        return _peek_pad_nav_pending_locked(after), _pad_nav_seq
+
+
+def wait_and_drain_pad_nav_commands(
+    after: int, timeout: float
+) -> tuple[list[dict[str, object]], int]:
+    """Long-poll variant for pad nav: park up to ``timeout`` seconds waiting for new commands.
+
+    Returns as soon as pending commands exist (peek, leave in queue), or on
+    timeout with ``([], latest_seq)``. Competing pollers cannot steal entries;
+    the TV session retires them with ack.
+    """
+    deadline = time.monotonic() + timeout
+    with _pad_nav_cond:
+        while True:
+            _prune_expired_pad_nav_commands(time.time())
+            pending = _peek_pad_nav_pending_locked(after)
+            if pending:
+                return pending, _pad_nav_seq
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return [], _pad_nav_seq
+            _pad_nav_cond.wait(remaining)
+
+
+def ack_pad_nav_commands(last_seq: int, session: str | None = None) -> tuple[int, bool]:
+    """Compact the queue when the registered TV session acks.
+
+    Foreign or missing sessions are accepted for telemetry but do not drain —
+    that used to let an SSH/Cursor poller starve the TV of presses.
+    """
+    global _pad_nav_last_ack_at
+    with _pad_nav_cond:
+        drained = bool(session) and session == _pad_nav_session_id and last_seq > 0
+        if drained:
+            kept = [
+                entry
+                for entry in _pad_nav_commands
+                if int(entry.get("seq", 0)) > last_seq
+            ]
+            _pad_nav_commands.clear()
+            _pad_nav_commands.extend(kept)
+            _pad_nav_last_ack_at = time.time()
+        return _pad_nav_seq, drained
+
+
+def latest_pad_nav_seq() -> int:
+    with _pad_nav_lock:
+        return _pad_nav_seq
+
+
+def pad_nav_pending_count() -> int:
+    with _pad_nav_lock:
+        return len(_pad_nav_commands)
+
+
+def pad_nav_recovery_reason(now: float | None = None) -> str | None:
+    """Claim one bounded kiosk recovery when an input has gone unconsumed."""
+    global _pad_nav_last_recovery_at
+    current = now or time.time()
+    # Playback deliberately stops Chromium after session acceptance. A late
+    # launcher ack must never resurrect the kiosk over mpv.
+    if PLAYBACK_ACTIVE_FILE.is_file():
+        return None
+    with _pad_nav_lock:
+        _prune_expired_pad_nav_commands(current)
+        # Recover an established kiosk that stopped consuming input. During a
+        # normal cold boot there is no lease yet, so an early button press must
+        # not create a restart loop while Chromium is still starting.
+        if not _pad_nav_session_id or not _pad_nav_commands:
+            return None
+        oldest = min(
+            float(entry.get("issued_at", current))
+            for entry in _pad_nav_commands
+        )
+        pending_age = current - oldest
+        if pending_age < PAD_NAV_STALL_SEC:
+            return None
+        if current - _pad_nav_last_recovery_at < PAD_NAV_RECOVERY_COOLDOWN_SEC:
+            return None
+        _pad_nav_last_recovery_at = current
+        heartbeat_age = (
+            current - _pad_nav_session_seen_at
+            if _pad_nav_session_seen_at > 0
+            else float("inf")
+        )
+        return (
+            f"pending_age={pending_age:.1f}s "
+            f"heartbeat_age={heartbeat_age:.1f}s "
+            f"render_age={_pad_nav_render_age_ms / 1000:.1f}s"
+        )
+
+
+def start_pad_nav_recovery_watch() -> None:
+    """Watch input progress outside Chromium so a wedged page can be replaced."""
+    active_sleep = 0.25
+    idle_sleep = min(2.0, PAD_NAV_STALL_SEC)
+
+    def _watch() -> None:
+        while True:
+            with _pad_nav_lock:
+                active = bool(_pad_nav_session_id and _pad_nav_commands)
+            time.sleep(active_sleep if active else idle_sleep)
+            reason = pad_nav_recovery_reason()
+            if reason is None:
+                continue
+            mango_log("pad_nav_recovery", action="restart_launcher", reason=reason)
+            try:
+                subprocess.Popen(
+                    ["systemctl", "--user", "restart", PAD_NAV_LAUNCHER_UNIT],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            except OSError as error:
+                mango_log(
+                    "pad_nav_recovery",
+                    action="restart_launcher_failed",
+                    reason=str(error),
+                )
+
+    threading.Thread(target=_watch, name="pad-nav-recovery", daemon=True).start()
+
+
+def pad_nav_health_snapshot() -> dict[str, object]:
+    now = time.time()
+    with _pad_nav_lock:
+        return {
+            "session": bool(_pad_nav_session_id),
+            "pending": len(_pad_nav_commands),
+            "heartbeat_age_ms": (
+                max(0, round((now - _pad_nav_session_seen_at) * 1000))
+                if _pad_nav_session_seen_at > 0
+                else None
+            ),
+            "render_age_ms": (
+                round(_pad_nav_render_age_ms)
+                if _pad_nav_render_age_ms != float("inf")
+                else None
+            ),
+            "last_ack_age_ms": (
+                max(0, round((now - _pad_nav_last_ack_at) * 1000))
+                if _pad_nav_last_ack_at > 0
+                else None
+            ),
+        }
+
+
+_pad_health_cache: dict[str, object] = {}
+_pad_health_cache_at = 0.0
+PAD_HEALTH_TTL_SEC: Final = 1.5
+
+
+def collect_pad_health_cached() -> dict[str, object]:
+    global _pad_health_cache, _pad_health_cache_at
+    now = time.time()
+    if _pad_health_cache and now - _pad_health_cache_at < PAD_HEALTH_TTL_SEC:
+        return _pad_health_cache
+    pad_health = (
+        run_json(["bash", str(PAD_HEALTH_SCRIPT), "--json", "--quiet"], timeout=3.0)
+        if PAD_HEALTH_SCRIPT.is_file()
+        else {}
+    )
+    _pad_health_cache = pad_health if isinstance(pad_health, dict) else {}
+    _pad_health_cache_at = now
+    return _pad_health_cache
+
+
 def collect_health(port: int) -> dict[str, object]:
     launcher_ok = (LAUNCHER_DIST / "index.html").is_file()
     chromium_ok = run_check(
         ["pgrep", "-f", f"chromium.*mango-launcher.*127.0.0.1:{port}/"]
     )
-    tv_pad = run_check(["pgrep", "-f", "mango-tv-pad.py"])
+    firefox_ok = run_check(["pgrep", "-f", f"firefox.*127.0.0.1:{port}/"])
+    browser_ok = chromium_ok or firefox_ok
+    pad_health = collect_pad_health_cached()
+    tv_pad = bool(pad_health.get("ok")) or run_check(["pgrep", "-f", "mango-tv-pad.py"])
+    tv_pad_ready = bool(pad_health.get("ok")) if pad_health else tv_pad
     remapper = "unknown"
-    if tv_pad:
+    if tv_pad_ready:
         remapper = "tv_pad"
     elif run_check(["systemctl", "is-active", "--quiet", "input-remapper"]):
         remapper = "active"
     elif run_check(["systemctl", "is-active", "input-remapper"]):
         remapper = "inactive"
     openbox = "active" if run_check(["pgrep", "-x", "openbox"]) else "inactive"
-    kodi = "down"
-    kodi_ping = REPO_ROOT / "scripts" / "phase0" / "lib" / "kodi-rpc.sh"
-    if kodi_ping.is_file():
-        try:
-            result = subprocess.run(
-                ["bash", "-c", f'source "{kodi_ping}" && kodi_rpc JSONRPC.Ping'],
-                capture_output=True,
-                text=True,
-                timeout=2,
-                check=False,
-            )
-            if result.returncode == 0 and '"result"' in result.stdout:
-                kodi = "up"
-        except (OSError, subprocess.TimeoutExpired):
-            kodi = "down"
+    catalog_expected = os.environ.get("MANGO_CATALOG", "1").strip() != "0"
+    catalog_health = collect_catalog_health() if catalog_expected else {"ok": True}
+    pad_nav = pad_nav_health_snapshot()
 
     input_ok = remapper in ("active", "tv_pad")
     checks = {
         "launcher_dist": launcher_ok,
-        "chromium": chromium_ok,
+        "launcher_browser": browser_ok,
+        "chromium": browser_ok,
+        "firefox": firefox_ok,
         "input_remapper": remapper,
-        "tv_pad": tv_pad,
+        "tv_pad": tv_pad_ready,
+        "tv_pad_reason": str(pad_health.get("reason", "")) if pad_health else "",
+        "tv_pad_device": str(pad_health.get("current_device_path", "")) if pad_health else "",
+        "pad_nav": pad_nav,
+        "catalog": bool(catalog_health.get("ok")),
+        "catalog_core": str(catalog_health.get("core", "")),
+        "catalog_rails_ready": bool(catalog_health.get("rails_ready", False)),
+        "catalog_live_ready": bool(catalog_health.get("live_ready", True)),
         "openbox": openbox,
-        "kodi_rpc": kodi,
     }
-    ok = launcher_ok and chromium_ok and input_ok and openbox == "active"
+    ok = (
+        launcher_ok
+        and browser_ok
+        and input_ok
+        and tv_pad_ready
+        and bool(catalog_health.get("ok"))
+        and openbox == "active"
+    )
     return {"ok": ok, "checks": checks}
+
+
+def collect_catalog_health() -> dict[str, object]:
+    try:
+        request = Request(f"{CATALOG_UPSTREAM.rstrip('/')}/health", method="GET")
+        with urlopen(request, timeout=3) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return {"ok": False, "core": "down", "rails_ready": False, "live_ready": False}
+    if not isinstance(data, dict):
+        return {"ok": False, "core": "invalid", "rails_ready": False, "live_ready": False}
+    live = data.get("live")
+    live_ready = bool(data.get("live_ready", True))
+    if isinstance(live, dict) and "ready" in live:
+        live_ready = live_ready and bool(live.get("ready"))
+    ready = (
+        bool(data.get("ok"))
+        and data.get("core") == "ready"
+        and bool(data.get("rails_ready"))
+        and live_ready
+    )
+    return {
+        "ok": ready,
+        "core": str(data.get("core", "")),
+        "rails_ready": bool(data.get("rails_ready")),
+        "live_ready": live_ready,
+    }
 
 
 class MangoUiHandler(BaseHTTPRequestHandler):
     server_version = "mango-ui-server/0.1"
+    # HTTP/1.1 keep-alive: every response path in this handler sets an accurate
+    # Content-Length (JSON senders, static file success, proxy success/HTTPError)
+    # or funnels through send_error which stdlib-guarantees Connection: close +
+    # Content-Length. Do not lower this without re-auditing framing.
+    protocol_version = "HTTP/1.1"
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
+        if path.startswith("/api/catalog/"):
+            self._proxy_catalog("GET")
+            return
         if path == "/api/info":
             self._write_json(
                 {
@@ -111,13 +701,341 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self._write_json(collect_health(self.server.server_port))
             return
+        if path == "/api/voice/commands":
+            parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+            after_values = query.get("after", ["0"])
+            try:
+                after = max(0, int(after_values[0]))
+            except (ValueError, IndexError):
+                after = 0
+            wait_values = query.get("wait", [""])
+            try:
+                wait = max(0.0, min(30.0, float(wait_values[0])))
+            except (ValueError, IndexError):
+                wait = 0.0
+            if wait > 0:
+                commands, latest_seq = wait_and_drain_voice_commands(after, wait)
+            else:
+                commands, latest_seq = drain_voice_commands(after)
+            self._write_json({"ok": True, "latest_seq": latest_seq, "commands": commands})
+            return
+        if path == "/api/voice/state":
+            self._write_json({"ok": True, "latest_seq": latest_voice_command_seq()})
+            return
+        if path == "/api/voice/ack":
+            self._write_json({"ok": True, **read_voice_ack()})
+            return
+        if path == "/api/pad/nav":
+            parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+            session_values = query.get("session", [""])
+            session = session_values[0] if session_values else ""
+            owner = pad_nav_session_matches(session)
+            if not owner:
+                self._write_json({
+                    "ok": True,
+                    "latest_seq": latest_pad_nav_seq(),
+                    "commands": [],
+                    "session": None,
+                    "owner": False,
+                })
+                return
+            after_values = query.get("after", ["0"])
+            try:
+                after = max(0, int(after_values[0]))
+            except (ValueError, IndexError):
+                after = 0
+            wait_values = query.get("wait", ["25"])
+            try:
+                wait = max(0.0, min(30.0, float(wait_values[0])))
+            except (ValueError, IndexError):
+                wait = 25.0
+            if wait > 0:
+                commands, latest_seq = wait_and_drain_pad_nav_commands(after, wait)
+            else:
+                commands, latest_seq = drain_pad_nav_commands(after)
+            self._write_json({
+                "ok": True,
+                "latest_seq": latest_seq,
+                "commands": commands,
+                "session": session,
+                "owner": True,
+            })
+            return
         if path.startswith("/overlay/"):
-            self._serve_static(OVERLAY_DIST, path.removeprefix("/overlay/"), "index.html")
+            self._write_json(
+                {"ok": False, "error": "overlay deprecated; use launcher HUD"},
+                HTTPStatus.GONE,
+            )
             return
         self._serve_static(LAUNCHER_DIST, path.removeprefix("/"), "index.html")
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        if path == "/api/activity/touch":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "activity is localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            payload = self._read_json_body()
+            touch_couch_activity(
+                _safe_field(payload.get("source"), 64) or "launcher",
+                _safe_field(payload.get("hint"), 96),
+            )
+            self._write_json({"ok": True})
+            return
+        if path == "/api/perf":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "perf logs are localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            append_perf_event(self._read_json_body())
+            self._write_json({"ok": True})
+            return
+        if path == "/api/voice/command":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "voice commands are localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            length = int(self.headers.get("content-length") or "0")
+            raw = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                command = json.loads(raw.decode("utf-8"))
+            except json.JSONDecodeError:
+                self._write_json(
+                    {"ok": False, "error": "invalid json"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            if not isinstance(command, dict) or command.get("type") != "launcher_command":
+                self._write_json(
+                    {"ok": False, "error": "expected launcher_command payload"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            seq = enqueue_voice_command(command)
+            self._write_json({"ok": True, "seq": seq})
+            return
+        if path == "/api/voice/ack":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "voice ack is localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            length = int(self.headers.get("content-length") or "0")
+            raw = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except json.JSONDecodeError:
+                self._write_json(
+                    {"ok": False, "error": "invalid json"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            if not isinstance(payload, dict):
+                self._write_json(
+                    {"ok": False, "error": "expected object"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            ack = record_voice_ack(payload)
+            self._write_json({"ok": True, **ack})
+            return
+        if path == "/api/pad/session":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "pad session is localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            payload = self._read_json_body()
+            previous = payload.get("session") if isinstance(payload, dict) else None
+            previous_session = previous if isinstance(previous, str) and previous else None
+            session_id = register_pad_nav_session(previous_session)
+            self._write_json({
+                "ok": True,
+                "owner": session_id is not None,
+                "session": session_id,
+                "latest_seq": latest_pad_nav_seq(),
+            })
+            return
+        if path == "/api/pad/heartbeat":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "pad heartbeat is localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            payload = self._read_json_body()
+            session = payload.get("session") if isinstance(payload, dict) else None
+            session_id = session if isinstance(session, str) and session else None
+            try:
+                render_age_ms = float(payload.get("render_age_ms", 0))
+            except (TypeError, ValueError):
+                render_age_ms = 0.0
+            owner = heartbeat_pad_nav_session(session_id, render_age_ms)
+            self._write_json({"ok": True, "owner": owner})
+            return
+        if path == "/api/pad/nav":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "pad nav is localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            length = int(self.headers.get("content-length") or "0")
+            raw = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except json.JSONDecodeError:
+                self._write_json(
+                    {"ok": False, "error": "invalid json"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            if not isinstance(payload, dict) or payload.get("type") != "pad_nav":
+                self._write_json(
+                    {"ok": False, "error": "expected pad_nav payload"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            action = str(payload.get("action", ""))
+            valid_actions = {"move", "select", "back", "tab", "shuffle", "secondary"}
+            if action not in valid_actions:
+                self._write_json(
+                    {"ok": False, "error": f"unknown action: {action}"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            direction = payload.get("direction")
+            if action == "move":
+                if direction not in {"up", "down", "left", "right"}:
+                    self._write_json(
+                        {"ok": False, "error": "direction required for move"},
+                        HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+            else:
+                direction = None
+            delta = payload.get("delta", 1)
+            if action == "tab":
+                if delta not in {-1, 1}:
+                    self._write_json(
+                        {"ok": False, "error": "delta must be -1 or +1"},
+                        HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+            else:
+                delta = None
+            kind = payload.get("kind")
+            if action == "secondary":
+                if kind not in {"tap", "hold"}:
+                    self._write_json(
+                        {"ok": False, "error": "kind must be tap or hold"},
+                        HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+            else:
+                kind = None
+            # Gate / diagnostic probes validate the contract without moving couch focus.
+            if payload.get("probe") is True or payload.get("probe") == 1:
+                self._write_json({
+                    "ok": True,
+                    "seq": latest_pad_nav_seq(),
+                    "probe": True,
+                    "pending": pad_nav_pending_count(),
+                })
+                return
+            command = {
+                "type": "pad_nav",
+                "action": action,
+                "direction": direction,
+                "delta": delta,
+                "kind": kind,
+            }
+            seq = enqueue_pad_nav_command(command)
+            self._write_json({"ok": True, "seq": seq})
+            return
+        if path == "/api/pad/ack":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "pad nav ack is localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            payload = self._read_json_body()
+            if not isinstance(payload, dict):
+                self._write_json(
+                    {"ok": False, "error": "expected object"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            try:
+                last_seq = max(0, int(payload.get("last_seq", 0) or 0))
+            except (TypeError, ValueError):
+                last_seq = 0
+            session = payload.get("session")
+            session_id = session if isinstance(session, str) and session else None
+            latest, drained = ack_pad_nav_commands(last_seq, session_id)
+            self._write_json({
+                "ok": True,
+                "latest_seq": latest,
+                "acked_through": last_seq,
+                "drained": drained,
+            })
+            return
+        if path == "/api/catalog/play-cancel" and not _client_is_local(self):
+            self._write_json(
+                {"ok": False, "error": "play cancellation is localhost-only"},
+                HTTPStatus.FORBIDDEN,
+            )
+            return
+        if path.startswith("/api/catalog/"):
+            self._proxy_catalog("POST")
+            return
+        if path == "/api/playback/stop":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "playback stop is localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            if not MPV_STOP_SCRIPT.is_file():
+                self._write_json(
+                    {"ok": False, "error": f"missing script: {MPV_STOP_SCRIPT}"},
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            env = os.environ.copy()
+            env["MANGO_MPV_STOP_HOME"] = "1"
+            env.setdefault("DISPLAY", ":0")
+            env.setdefault("XAUTHORITY", str(Path.home() / ".Xauthority"))
+            try:
+                subprocess.run(
+                    ["bash", str(MPV_STOP_SCRIPT)],
+                    env=env,
+                    capture_output=True,
+                    check=False,
+                    timeout=6,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                self._write_json(
+                    {"ok": False, "error": str(exc)},
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            mango_log("playback_stop", status="ok")
+            self._write_json({"ok": True, "stopped": True})
+            return
+
         script = LAUNCH_SCRIPTS.get(path)
         if script is None:
             self._write_json({"ok": False, "error": "not found"}, HTTPStatus.NOT_FOUND)
@@ -129,8 +1047,7 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         action = path.removeprefix("/api/launch/")
         now = time.monotonic()
         last = _last_launch_at.get(action, 0.0)
-        # Media apps may already be running — always allow refocus from the launcher.
-        if action not in ("stremio", "kodi") and now - last < LAUNCH_DEBOUNCE_SEC:
+        if now - last < LAUNCH_DEBOUNCE_SEC:
             mango_log("api_launch", path=action, status="debounced")
             self._write_json({"ok": True, "debounced": True})
             return
@@ -159,6 +1076,20 @@ class MangoUiHandler(BaseHTTPRequestHandler):
             )
         self._write_json({"ok": True})
 
+    def do_DELETE(self) -> None:
+        path = urlparse(self.path).path
+        if path.startswith("/api/catalog/"):
+            self._proxy_catalog("DELETE")
+            return
+        self._write_json({"ok": False, "error": "not found"}, HTTPStatus.NOT_FOUND)
+
+    def do_PUT(self) -> None:
+        path = urlparse(self.path).path
+        if path.startswith("/api/catalog/"):
+            self._proxy_catalog("PUT")
+            return
+        self._write_json({"ok": False, "error": "not found"}, HTTPStatus.NOT_FOUND)
+
     def log_message(self, fmt: str, *args: object) -> None:
         print(f"{self.address_string()} - {fmt % args}", file=sys.stderr)
 
@@ -166,9 +1097,10 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         if request_path in ("", "/"):
             request_path = default_file
         request_path = unquote(request_path)
+        root_resolved = root.resolve()
         target = (root / request_path).resolve()
         try:
-            target.relative_to(root.resolve())
+            target.relative_to(root_resolved)
         except ValueError:
             self.send_error(HTTPStatus.FORBIDDEN)
             return
@@ -177,10 +1109,22 @@ class MangoUiHandler(BaseHTTPRequestHandler):
             return
         content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
         data = target.read_bytes()
+        # Vite emits fingerprinted files under `assets/` (JS/CSS/fonts/images with
+        # a content hash in the filename). Those are safe to cache forever; a new
+        # build produces new filenames. Everything else (index.html, root-level
+        # files) stays no-store so a fresh build is picked up immediately.
+        try:
+            rel_parts = target.relative_to(root_resolved).parts
+        except ValueError:
+            rel_parts = ()
+        is_hashed_asset = len(rel_parts) >= 2 and rel_parts[0] == "assets"
+        cache_control = (
+            "public, max-age=31536000, immutable" if is_hashed_asset else "no-store"
+        )
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache_control)
         self.end_headers()
         self.wfile.write(data)
 
@@ -189,6 +1133,89 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _read_json_body(self) -> dict[str, object]:
+        length = int(self.headers.get("content-length") or "0")
+        raw = self.rfile.read(length) if length > 0 else b"{}"
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _proxy_catalog(self, method: str) -> None:
+        parsed = urlparse(self.path)
+        upstream_path = parsed.path.removeprefix("/api/catalog")
+        if not upstream_path.startswith("/"):
+            upstream_path = f"/{upstream_path}"
+        upstream_url = f"{CATALOG_UPSTREAM.rstrip('/')}{upstream_path}"
+        if parsed.query:
+            upstream_url = f"{upstream_url}?{parsed.query}"
+
+        body = None
+        headers = {"accept": "application/json"}
+        # PUT must forward JSON too — Fire/Water rating saves use PUT /library/ratings.
+        if method in {"POST", "PUT", "DELETE"}:
+            length = int(self.headers.get("content-length") or "0")
+            body = self.rfile.read(length) if length > 0 else b"{}"
+            headers["content-type"] = self.headers.get("content-type", "application/json")
+
+        request = Request(upstream_url, data=body, method=method, headers=headers)
+
+        def cancel_timed_out_play() -> None:
+            if method != "POST" or upstream_path != "/play" or not body:
+                return
+            try:
+                payload = json.loads(body.decode("utf-8"))
+                request_id = payload.get("request_id") if isinstance(payload, dict) else None
+                if not isinstance(request_id, str) or not request_id:
+                    return
+                cancel_body = json.dumps({"request_id": request_id}).encode("utf-8")
+                cancel_request = Request(
+                    f"{CATALOG_UPSTREAM.rstrip('/')}/play-cancel",
+                    data=cancel_body,
+                    method="POST",
+                    headers={"content-type": "application/json", "accept": "application/json"},
+                )
+                with urlopen(cancel_request, timeout=2):
+                    pass
+            except (OSError, ValueError, TypeError, URLError, TimeoutError):
+                pass
+        try:
+            upstream_timeout = (
+                CATALOG_PLAY_PROXY_TIMEOUT_SEC
+                if method == "POST" and upstream_path == "/play"
+                else CATALOG_PROXY_TIMEOUT_SEC
+            )
+            with urlopen(request, timeout=upstream_timeout) as response:
+                data = response.read()
+                status = response.status
+        except HTTPError as error:
+            data = error.read() or json.dumps({"error": str(error)}).encode("utf-8")
+            status = error.code
+        except URLError as error:
+            if isinstance(error.reason, TimeoutError):
+                cancel_timed_out_play()
+            self._write_json(
+                {"ok": False, "error": f"catalog-service unavailable: {error.reason}"},
+                HTTPStatus.BAD_GATEWAY,
+            )
+            return
+        except TimeoutError:
+            cancel_timed_out_play()
+            self._write_json(
+                {"ok": False, "error": "catalog-service timeout"},
+                HTTPStatus.GATEWAY_TIMEOUT,
+            )
+            return
+
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(data)
 
@@ -205,6 +1232,10 @@ def detect_ip_address() -> str:
             return "127.0.0.1"
 
 
+def env_enabled(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Serve mango Phase 1 UI")
     parser.add_argument("--host", default="127.0.0.1")
@@ -215,6 +1246,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     mango_log("server_start", host=args.host, port=str(args.port))
+    start_pad_nav_recovery_watch()
     server = ThreadingHTTPServer((args.host, args.port), MangoUiHandler)
     print(f"mango UI server listening on http://{args.host}:{args.port}")
     try:

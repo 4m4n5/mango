@@ -1,0 +1,21 @@
+[Unit]
+Description=mango voice orchestrator (WSS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/mango
+Environment=HOME=%h
+Environment=MANGO_SKIP_OVERLAY=1
+Environment=MANGO_ORCH_TLS=1
+ExecStartPre=/bin/mkdir -p %h/.cache/mango
+ExecStartPre=%h/mango/scripts/m5-voice/stack/ensure-orchestrator-venv.sh
+ExecStart=/bin/bash -lc 'source %h/.config/mango/voice.env 2>/dev/null || true; cd %h/mango && exec bash scripts/m5-voice/stack/start-orchestrator.sh'
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:%h/.cache/mango/orchestrator.log
+StandardError=append:%h/.cache/mango/orchestrator.log
+
+[Install]
+WantedBy=default.target

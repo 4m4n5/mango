@@ -3,10 +3,10 @@ from __future__ import annotations
 import numpy as np
 
 FRAME_MS = 20
-MIN_KEEP_MS = 200
-EDGE_PAD_MS = 80
-QUIET_PEAK = 0.12
-TARGET_PEAK = 0.85
+MIN_KEEP_MS = 250
+EDGE_PAD_MS = 120
+QUIET_PEAK = 0.35
+TARGET_PEAK = 0.82
 
 
 def prepare_for_stt(samples: np.ndarray, sample_rate: int = 16_000) -> np.ndarray:
@@ -33,7 +33,7 @@ def _trim_edge_silence(samples: np.ndarray, sample_rate: int) -> np.ndarray:
         return samples
 
     peak = max(energy for _, energy in energies)
-    threshold = max(peak * 0.04, 1e-5)
+    threshold = max(peak * 0.03, 1e-5)
 
     start_idx = 0
     for offset, energy in energies:

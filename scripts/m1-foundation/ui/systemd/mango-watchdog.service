@@ -1,0 +1,13 @@
+[Unit]
+Description=mango TV health watchdog
+# Do not add Wants=/Requires= for launcher/catalog here. systemd starts wanted
+# units before ExecStart, which can synthesize launcher activity during grow.
+# mango-health-repair.sh owns repair decisions after checking maintenance locks.
+
+[Service]
+Type=oneshot
+Environment=HOME=%h
+Environment=MANGO_REPO_DIR=%h/mango
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=%h/.Xauthority
+ExecStart=%h/mango/scripts/mango-health-repair.sh --quiet

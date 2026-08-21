@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "description": "Example LLM rail composition — comedy movies composite",
+  "rails": [
+    {
+      "rail_id": "movies-comedy",
+      "label": "comedy & comfort",
+      "tab": "movies",
+      "content_type": "movie",
+      "rationale": "Popular anchor + fresh latest from toplists",
+      "sources": [
+        { "catalog_id": "mdblist.91223", "weight": 0.45 },
+        { "catalog_id": "mdblist.128040", "weight": 0.35 },
+        { "catalog_id": "mdblist.3107", "weight": 0.2 }
+      ]
+    }
+  ]
+}

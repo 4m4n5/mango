@@ -1,0 +1,72 @@
+# Thematic fit profiles — shared by rail-pool-retheme (one-off prune) and
+# rail-theme-gate (grow/link/verify pool writes; on by default).
+# intent: positive keywords (tokenized like AI compose)
+# exclude: strong mismatch signals — hit removes title unless pinned
+# min_fit: optional per-rail keep threshold (default 8; anchor rails use 3)
+# max_runtime_minutes: movies only — penalize features longer than this
+# corpus_rule: closed structured-evidence rule for Browse v3 source-less admission
+
+version: 2
+
+rails:
+  movies-global-popular:
+    intent: popular worldwide mainstream blockbuster trending hit
+    min_fit: 3
+
+  movies-india-trending:
+    corpus_rule: country_india
+    intent: india hindi bollywood tamil telugu malayalam kannada bengali marathi punjabi gujarati bhojpuri desi mumbai kollywood tollywood
+    exclude: hollywood american british korean japanese french german spanish italian chinese anime marvel superhero western european
+    min_fit: 10
+
+  movies-classics:
+    intent: classic acclaimed masterpiece imdb rated timeless award
+    exclude: stand-up reality
+    min_fit: 0
+
+  movies-comedy:
+    corpus_rule: genre_comedy
+    intent: comedy funny humor laugh rom-com parody
+    exclude: horror documentary true crime
+
+  movies-quick-watches:
+    corpus_rule: quick_light_movie
+    intent: stand-up comedy special short quick easy light
+    max_runtime_minutes: 110
+    exclude: documentary epic miniseries
+
+  movies-documentaries:
+    corpus_rule: genre_documentary
+    intent: documentary true story nature crime biography investigation
+    exclude: fiction comedy horror superhero
+
+  series-global-popular:
+    intent: popular trending worldwide hit series drama
+    min_fit: 3
+
+  series-india-picks:
+    corpus_rule: country_india
+    intent: india hindi bollywood tamil telugu malayalam kannada bengali marathi punjabi desi hotstar zee sonyliv voot jio panchayat sacred games
+    exclude: hollywood american british korean japanese anime french german spanish hbo worldwide western european
+    min_fit: 10
+
+  series-classics:
+    intent: acclaimed prestige classic masterpiece award imdb top
+    exclude: reality game show
+    min_fit: 0
+
+  series-miniseries:
+    corpus_rule: format_miniseries
+    intent: miniseries limited series anthology finite season
+    exclude: reality soap opera
+    min_fit: 8
+
+  series-reality-casual:
+    corpus_rule: genre_reality
+    intent: reality game show competition dating survivor bachelor bachelorette amazing race idol talent cooking renovation housewives
+    exclude: drama sitcom scripted fiction crime documentary animation anime miniseries
+
+  series-comedy:
+    corpus_rule: genre_comedy
+    intent: comedy sitcom funny humor parody late night
+    exclude: horror reality documentary crime thriller

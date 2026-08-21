@@ -2,29 +2,50 @@
 
 llm:
   provider: anthropic  # anthropic | openai
-  model: claude-haiku-4-5-20251001  # haiku = fast; sonnet-4-6 = smarter/slower
-  max_tokens: 96
+  model: claude-sonnet-4-6  # sonnet = best Hinglish + tool use; haiku = faster/cheaper
+  max_tokens: 1024  # must exceed a full tool_use turn — open payloads echo long ids + poster URLs; 192 truncated live-channel opens → empty replies
   history_turns: 3  # user+assistant pairs kept for context
   api_key_file: /etc/mango/llm.key
 
 stt:
   provider: deepgram  # deepgram | local (on-device faster-whisper fallback)
-  model: nova-3
-  language: multi  # best Hinglish codeswitch; nova-2 + hi also works
+  model: nova-3-general  # nova-3 multilingual + per-language; best Hinglish WER (2026)
+  language: multi  # codeswitch Hindi+English in one utterance — required for Hinglish
+  # multilingual = multi only; detect = hi+en auto per utterance;
+  # multilingual_with_detect_fallback = multi first, detect retry when confidence low
+  strategy: multilingual_with_detect_fallback
+  detect_languages:
+    - hi
+    - en
   api_key_file: /etc/mango/stt.key
   timeout_seconds: 30
   prepare_audio: true  # trim edge silence + boost quiet phone mics (local, no API latency)
-  keyterms:  # nova-3 keyterm prompting — edit for your household vocabulary
+  keyterms:  # nova-3 keyterm prompting — Roman Hindi + frequent titles
     - Stremio
     - Kodi
     - YouTube
     - mango
     - movie
     - series
+    - kholo
+    - khol
+    - dikhao
+    - dikha do
+    - chalao
+    - chala do
+    - lagao
+    - laga do
+    - mujhe
+    - Shawshank
+    - Godfather
+    - Panchayat
+    - Toy Story
+    - Breaking Bad
     - aaj kya
     - dekhein
     - dekhte hain
     - kya chal raha hai
+    - kya dekhu
     - lagao
     - band karo
   # local fallback only (provider: local):
@@ -35,7 +56,8 @@ stt:
 audio:
   input_mode: phone_websocket  # phone streams mic over LAN; no USB mic required
   max_utterance_seconds: 30
-  tts_enabled: false  # true when TV/HDMI speaker is wired; false = replies on overlay only
+  tts_enabled: false  # M6.3: enable when 4K TV + soundbar validated; earlier milestones use HUD/phone text
+  # Dev lab: Pi 5 has no 3.5 mm jack — monitor HDMI out, USB DAC, or BT (scripts/audio/)
   overlay_reply_seconds: 10  # TV reply dwell before dismiss (phone keeps history)
   piper_voice: en_US-lessac-medium
   piper_data_dir: /home/aman/.local/share/piper
@@ -50,8 +72,7 @@ launcher:
   return_key: Escape
 
 overlay:
-  enabled: true
-  position: bottom-right
+  enabled: false  # N0: deprecated; launcher-embedded TV HUD is canonical
 
 companion:
   port: 3001
@@ -75,10 +96,51 @@ kodi:
 tmdb:
   api_key_file: /etc/mango/tmdb.key
 
+catalog:
+  # Optional JSON mirror — copy config/catalog-filters.example.json to
+  # /etc/mango/catalog-filters.json (catalog-service reads this file directly).
+  filters_file: /etc/mango/catalog-filters.json
+  # exclude_uncached_debrid: true   # skip RD/TB not cached on debrid (default)
+  # strict_unknown_cache: false     # also drop debrid when cache unknown
+  # max_quality: 1080p              # Pi-friendly cap until M6.3 4K
+  # exclude_remux: true             # skip Blu-ray REMUX picks
+  # Runtime override: GET /stream/...?include_uncached=1 or POST /play body
+
+youtube:
+  enabled: true
+  db_path: /etc/mango/youtube.db
+  api_key_file: /etc/mango/youtube-api.key
+  oauth_client_file: /etc/mango/youtube-oauth-client.json
+  auth_token_file: /etc/mango/youtube-auth.json
+  # Discovery locale is independent of the relevance language. The household
+  # YouTube account is India-based; operators may override both via env.
+  region_code: IN
+  relevance_language: en
+  max_results: 25
+  exclude_shorts: true
+  stale_after_hours: 24
+  playback:
+    yt_dlp_command: scripts/m6-ship/youtube-yt-dlp.sh
+    # Hard 1080p ceiling; HLS first, then adaptive DASH in service policy.
+    # Do not slash-or to progressive `best`.
+    yt_dlp_format: bv*[height<=1080][protocol^=m3u8]+ba[protocol^=m3u8]/bv*[height<=1080]+ba/b[height<=1080][protocol^=m3u8]
+    # Netscape cookies for yt-dlp GVS. If this file exists, catalog uses it
+    # even when the key below stays commented.
+    # cookies_file: /etc/mango/youtube-cookies.txt
+  # Optional MiniLM ranking. Default stays lexical/off. Enable on the Pi with
+  # scripts/m6-ship/ensure-youtube-embeddings.sh --enable (voice.env), not by
+  # copying this example.
+  # embeddings: false
+  # similarity_mode: lexical  # lexical | blend | embedding
+
 orchestrator:
   # Use 0.0.0.0 + TLS on Pi so the HTTPS phone companion can connect via WSS.
   host: 0.0.0.0
   port: 8765
-  local_ws_port: 8766  # plain WS on loopback for TV overlay Chromium
   ssl_certfile: null  # or /home/aman/.config/mango/certs/mango-companion.pem
   ssl_keyfile: null   # or /home/aman/.config/mango/certs/mango-companion-key.pem
+  local_ws_port: 8766  # plain WS on loopback for launcher TV HUD (mkcert not trusted in kiosk)
+  voice_tools_enabled: true  # M5: browse/search/open via LLM tools — no voice play
+  max_tool_rounds: 6
+  catalog_upstream: http://127.0.0.1:3020
+  launcher_ui_upstream: http://127.0.0.1:3000  # HTTP voice commands → TV Chromium

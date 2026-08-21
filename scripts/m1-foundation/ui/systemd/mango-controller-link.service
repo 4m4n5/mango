@@ -1,0 +1,16 @@
+[Unit]
+Description=Mango controller Bluetooth link supervisor (8BitDo Micro)
+After=bluetooth.service
+Wants=bluetooth.service
+
+[Service]
+Type=simple
+Environment=MANGO_TV_USER=aman
+Environment=MANGO_GAMEPAD_BT_MAC=E4:17:D8:EB:00:44
+ExecStart=/usr/bin/python3 /home/aman/mango/scripts/m1-foundation/pad/mango-controller-link.py
+Restart=always
+RestartSec=2
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target
