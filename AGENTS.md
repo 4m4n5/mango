@@ -17,6 +17,7 @@
 | [`docs/SEARCH.md`](docs/SEARCH.md) | Unified launcher Search · quota · restoration · gates |
 | [**`docs/OPS.md`**](docs/OPS.md) | **Pi ops** — bring-up, gamepad, troubleshooting |
 | [**`docs/DEPLOY.md`**](docs/DEPLOY.md) | **Pi deploy — git only, never rsync** |
+| [`docs/NEW_PI_SETUP.md`](docs/NEW_PI_SETUP.md) | Fresh independent Pi · own credentials · verified-library seed transfer |
 | [`docs/RELIABILITY.md`](docs/RELIABILITY.md) | Reliability Center · nightly proof |
 | [`docs/VOICE.md`](docs/VOICE.md) | Voice pipeline (M5) |
 | [`docs/LIVE_TV.md`](docs/LIVE_TV.md) | Live IPTV (opt-in gates) |

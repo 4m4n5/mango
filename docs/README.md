@@ -55,6 +55,7 @@ probe performed by this documentation audit.
 | See milestone order and exit criteria | [ROADMAP.md](ROADMAP.md) |
 | Understand processes, ports, state, APIs, and ownership | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Operate or deploy the Pi | [OPS.md](OPS.md) · [DEPLOY.md](DEPLOY.md) · [DEPLOY-SPLIT-MACHINE.md](DEPLOY-SPLIT-MACHINE.md) |
+| Install an independent Pi with a transferred verified library | [NEW_PI_SETUP.md](NEW_PI_SETUP.md) |
 | Verify readiness or perform couch acceptance | [RELIABILITY.md](RELIABILITY.md) · [COUCH_TEST.md](COUCH_TEST.md) |
 | Understand playback, streams, verified rails, and grow | [PLAYABILITY.md](PLAYABILITY.md) |
 | Understand Fire/Water and VOD recommendations | [FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md) |
