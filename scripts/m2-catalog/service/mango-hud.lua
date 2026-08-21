@@ -15,7 +15,7 @@
 local mp = require("mp")
 local utils = require("mp.utils")
 
-local HOME = os.getenv("HOME") or "/home/aman"
+local HOME = os.getenv("HOME") or "/tmp"
 local NORMAL_SEC = tonumber(os.getenv("MANGO_PLAYBACK_OSD_VISIBLE_SEC") or "4.0") or 4.0
 local LONG_SEC = 6.0
 local VISIBLE_FILE = os.getenv("MANGO_PLAYBACK_OSD_VISIBLE_FILE")
@@ -29,6 +29,7 @@ local PLAYBACK_KIND = os.getenv("MANGO_PLAYBACK_KIND") or "unknown"
 local START_CONFIRMATION = os.getenv("MANGO_PLAYBACK_CONFIRMATION") or ""
 local START_REOPEN_STREAMS = os.getenv("MANGO_PLAYBACK_REOPEN_STREAMS") == "1"
 local FIXTURES = os.getenv("MANGO_HUD_FIXTURES") == "1"
+local HUD_INSTANCE = os.getenv("MANGO_HUD_INSTANCE") or "fixture"
 
 local CANVAS_W, CANVAS_H = 1920, 1080
 local HUD_X, HUD_Y, HUD_W, HUD_H = 160, 728, 1600, 292
@@ -50,21 +51,22 @@ local VOL_TICK_H = 14
 
 -- ASS uses BBGGRR and 00..FF alpha (00 opaque).
 local C_PRIMARY = "&H00EAF1F4&" -- #F4F1EA
-local C_SECONDARY = "&H00818586&"
-local C_CAPTION = "&H00595C5D&"
+local C_SECONDARY = "&H00B2B2B0&"
+local C_CAPTION = "&H0092918D&"
 local C_CARD = "&H000E0C0B&" -- #0B0C0E
 local C_WHITE = "&H00FFFFFF&"
 local C_ACCENT = "&H0020A0E8&" -- Mango #e8a020, state only
 local C_ERROR = "&H00656AEB&"
 local C_INK = "&H000E0C0B&"
 local C_BLACK = "&H00000000&"
-local A_CARD = "&H5C&"
-local A_PILL = "&HE8&"
+local A_CARD = "&H48&"
+local A_PILL = "&HDC&"
 local A_PILL_ON = "&H22&"
 local A_TRACK = "&HC0&"
 local A_TICK_OFF = "&HC8&"
-local A_FOCUS = "&HEB&"
-local A_SCRIM = { "&HD8&", "&HB8&", "&H90&" }
+local A_FOCUS = "&HD4&"
+local A_SCRIM = { "&HD0&", "&HAC&", "&H84&" }
+local HIDDEN_ASS = "{\\an7\\pos(-100,-100)\\fs1\\1a&HFF&\\bord0\\shad0}."
 
 -- Deferred VOD starts under vo=null. Creating/updating an ASS overlay there can
 -- bind its id to the null VO; after the GPU VO replaces it, later updates are
@@ -82,6 +84,8 @@ local hide_timer = nil
 local tick_timer = nil
 local buffering_timer = nil
 local stream_poll_timer = nil
+local track_refresh_timer = nil
+local last_vo_configured = nil
 local buffering = false
 local stream_state = nil
 local stream_index = 1
@@ -108,6 +112,9 @@ end
 local function clean_text(value)
   return trim(tostring(value or ""):gsub("[%z\1-\31\127]", " "):gsub("%s+", " "))
 end
+
+HUD_INSTANCE = clean_text(HUD_INSTANCE):gsub("[^%w_.:%-]", "")
+if HUD_INSTANCE == "" then HUD_INSTANCE = "fixture" end
 
 local function utf8_len(value)
   local text = clean_text(value)
@@ -154,7 +161,7 @@ end
 
 local function text_ev(an, x, y, size, colour, text, bold, extra)
   return string.format(
-    "{\\an%d\\pos(%d,%d)\\fnDejaVu Sans\\fs%d\\1c%s\\bord0\\shad0%s%s\\q2}%s",
+    "{\\an%d\\pos(%d,%d)\\fnDejaVu Sans\\fs%d\\1c%s\\3c&H000000&\\3a&H58&\\bord1.2\\shad0%s%s\\q2}%s",
     an, x, y, size, colour, bold and "\\b1" or "", extra or "", ass_escape(text)
   )
 end
@@ -257,19 +264,32 @@ local function draw_legend(cx, y, items, active_label)
   return table.concat(ev, "\n")
 end
 
+local function visible_state_owned_by_other()
+  local file = io.open(VISIBLE_FILE, "r")
+  if not file then return false end
+  local parsed = utils.parse_json(file:read("*a"))
+  file:close()
+  return type(parsed) == "table" and type(parsed.instance) == "string"
+    and parsed.instance ~= "" and parsed.instance ~= HUD_INSTANCE
+end
+
 local function write_visible_state(is_visible, state_mode, seconds)
+  -- During a stream replacement the old mpv shutdown can run after the new HUD
+  -- is visible. Never let that stale process overwrite the new pad-routing state.
+  if not is_visible and visible_state_owned_by_other() then return end
   local dwell = seconds
   if dwell == nil then
     dwell = is_visible and NORMAL_SEC or 0
   end
   local payload = string.format(
-    '{"visible":%s,"mode":"%s","ts":%d,"visible_sec":%.1f}\n',
+    '{"visible":%s,"mode":"%s","ts":%d,"visible_sec":%.1f,"instance":"%s"}\n',
     is_visible and "true" or "false",
     state_mode or overlay_mode,
     os.time(),
-    dwell
+    dwell,
+    HUD_INSTANCE
   )
-  local temporary = VISIBLE_FILE .. ".hud.tmp"
+  local temporary = VISIBLE_FILE .. "." .. HUD_INSTANCE .. ".tmp"
   local file = io.open(temporary, "w")
   if not file then return end
   file:write(payload)
@@ -852,19 +872,19 @@ local function ensure_overlay()
   overlay.res_x = CANVAS_W
   overlay.res_y = CANVAS_H
   overlay.z = 10
-  overlay.hidden = true
+  overlay.data = HIDDEN_ASS
+  overlay.hidden = false
 end
 
 render = function()
   if not display_ready then return end
   ensure_overlay()
-  -- Keep the overlay id alive. Calling remove() can leave later update()
-  -- unable to put chrome back, so A/↑ keep working while the HUD stays gone.
+  -- Keep the overlay active with one transparent offscreen event. Toggling the
+  -- hidden flag or removing/blanking the overlay can intermittently strand its
+  -- libass id after track/stream reconfiguration even though IPC still works.
   if overlay_mode == "hidden" then
-    -- Preserve the last valid ASS payload while hidden. Repeatedly replacing it
-    -- with an empty payload can reproduce the same sticky libass lifecycle
-    -- failure as removing the overlay: IPC continues, but later chrome is gone.
-    overlay.hidden = true
+    overlay.data = HIDDEN_ASS
+    overlay.hidden = false
     overlay:update()
     return
   end
@@ -893,8 +913,17 @@ local function settle_after_hud()
   render()
 end
 
+local function reset_streams_state()
+  stream_poll_timer = stop_timer(stream_poll_timer)
+  request_pending = false
+  stream_state = nil
+  stream_index = 1
+end
+
 local function show_hud(reason, forced_seconds)
-  if overlay_mode == "streams" then return end
+  -- Action feedback must be a recovery path, even if a lost/stale Streams
+  -- overlay left Lua in streams mode while no drawer pixels are visible.
+  if overlay_mode == "streams" then reset_streams_state() end
   hud_reason = reason or "show"
   local seconds = forced_seconds or dwell_seconds(hud_reason)
   overlay_mode = hud_reason == "confirmation" and "confirmation" or "hud"
@@ -908,10 +937,7 @@ local function show_hud(reason, forced_seconds)
 end
 
 local function close_streams()
-  stream_poll_timer = stop_timer(stream_poll_timer)
-  request_pending = false
-  stream_state = nil
-  stream_index = 1
+  reset_streams_state()
   settle_after_hud()
 end
 
@@ -1025,6 +1051,25 @@ mp.register_script_message("mango-hud-show", function(reason)
 end)
 
 mp.register_script_message("mango-hud-hide", settle_after_hud)
+
+mp.observe_property("aid", "native", function()
+  if not display_ready or not visible then return end
+  track_refresh_timer = stop_timer(track_refresh_timer)
+  track_refresh_timer = mp.add_timeout(0.2, function()
+    track_refresh_timer = nil
+    if display_ready and visible then render() end
+  end)
+end)
+
+mp.observe_property("vo-configured", "bool", function(_, configured)
+  local previous = last_vo_configured
+  last_vo_configured = configured
+  if not display_ready or configured ~= true or previous ~= false then return end
+  -- A later VO teardown/reconfigure invalidates the ASS binding even though the
+  -- Lua script and IPC socket survive. Recreate only after the real VO returns.
+  overlay = nil
+  render()
+end)
 
 mp.register_script_message("mango-streams-toggle", function()
   if not x_supported() or request_pending then return end
@@ -1158,5 +1203,6 @@ elseif START_REOPEN_STREAMS and display_ready then
 end
 
 mp.register_event("shutdown", function()
+  track_refresh_timer = stop_timer(track_refresh_timer)
   pcall(write_visible_state, false, "hidden")
 end)

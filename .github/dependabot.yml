@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /src/catalog-service
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /src/launcher
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /src/companion
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

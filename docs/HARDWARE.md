@@ -128,7 +128,8 @@ bash scripts/diag/pi-resource-snapshot.sh
 
 Pair in **Switch mode** (hold START+Y). Linux names it **Pro Controller**.
 
-**MAC:** `E4:17:D8:EB:00:44`
+**MAC:** set `MANGO_GAMEPAD_BT_MAC` to your controller. There is no household
+default in the public repository.
 
 ### Face buttons (right cluster)
 
@@ -211,7 +212,7 @@ pairing mode, stack restart, or focus loss.
 **One-time setup** (auto-recover after this):
 
 First deploy the intended revision through the normal Git-only flow in
-[DEPLOY.md](DEPLOY.md). Then run the installer from the already-built Pi
+[OPERATIONS.md](OPERATIONS.md). Then run the installer from the already-built Pi
 checkout:
 
 ```bash
@@ -240,7 +241,7 @@ Do not unpair or enter pairing mode unless the diagnostics confirm pairing loss.
 ### Daily use
 
 Restarting daily use does not update source. A repository revision change needs
-the Git-only pull/build/restart contract in [DEPLOY.md](DEPLOY.md); a bare Pi pull
+the Git-only pull/build/restart contract in [OPERATIONS.md](OPERATIONS.md); a bare Pi pull
 can leave compiled services stale. The current deploy wrapper has an active
 branch/SHA and AIOMetadata-mutation blocker, so do not invoke it unattended.
 
@@ -252,13 +253,13 @@ bash scripts/mango-stack.sh restart    # native default
 Legacy `tv.sh stremio|kodi` helpers are retained as historical diagnostics, not
 the supported daily viewer or automatic recovery path.
 
-See [OPS.md](OPS.md) for full runbook.
+See [OPERATIONS.md](OPERATIONS.md) for full runbook.
 
 ### First-time pair
 
 1. **Unplug** the old FastPad USB dongle.
 2. Run: `bash scripts/m1-foundation/pad/setup-8bitdo-bt.sh`  
-   Or pair manually: Micro **START+Y** → `bluetoothctl pair/trust/connect E4:17:D8:EB:00:44`
+   Or pair manually: Micro **START+Y** → `bluetoothctl pair/trust/connect "$MANGO_GAMEPAD_BT_MAC"`
 
 ---
 
@@ -266,4 +267,4 @@ See [OPS.md](OPS.md) for full runbook.
 
 Unstable 2.4G dongle — replaced by 8BitDo Micro.
 
-Details: [`OPS.md`](OPS.md) · [`archive/phase0-checklist.md`](archive/phase0-checklist.md)
+Details: [OPERATIONS.md](OPERATIONS.md) · [INSTALL.md](INSTALL.md)

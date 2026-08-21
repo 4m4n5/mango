@@ -10,6 +10,7 @@ import unittest
 HUD = Path(__file__).with_name("mango-hud.lua").read_text(encoding="utf-8")
 PAD = Path(__file__).resolve().parents[2] / "m1-foundation" / "pad" / "mango-tv-pad.py"
 PAD_SRC = PAD.read_text(encoding="utf-8")
+MPV_PLAY = Path(__file__).with_name("mpv-play.sh").read_text(encoding="utf-8")
 
 
 class MangoHudContractTest(unittest.TestCase):
@@ -21,7 +22,10 @@ class MangoHudContractTest(unittest.TestCase):
         self.assertIn("CHIP_MIN_W = 276", HUD)
         self.assertIn('C_ACCENT = "&H0020A0E8&"', HUD)
         self.assertIn('C_PRIMARY = "&H00EAF1F4&"', HUD)
-        self.assertIn('A_CARD = "&H5C&"', HUD)
+        self.assertIn('A_CARD = "&H48&"', HUD)
+        self.assertIn('C_SECONDARY = "&H00B2B2B0&"', HUD)
+        self.assertIn('C_CAPTION = "&H0092918D&"', HUD)
+        self.assertIn("\\\\bord1.2", HUD)
         self.assertIn("local function rounded_rect", HUD)
         self.assertIn("local function draw_control", HUD)
         self.assertIn("local function draw_legend", HUD)
@@ -80,15 +84,32 @@ class MangoHudContractTest(unittest.TestCase):
         self.assertNotIn("volume_transient", HUD)
 
     def test_overlay_can_reshow_after_hide(self) -> None:
-        self.assertIn("overlay.hidden = true", HUD)
         self.assertIn("overlay.hidden = false", HUD)
-        self.assertIn("Keep the overlay id alive", HUD)
+        self.assertNotIn("overlay.hidden = true", HUD)
+        self.assertIn("HIDDEN_ASS", HUD)
+        self.assertIn("transparent offscreen event", HUD)
         self.assertNotIn("overlay:remove()", HUD)
         self.assertNotIn('overlay.data = ""', HUD)
         self.assertIn('mp.register_script_message("mango-hud-display-ready"', HUD)
         self.assertIn("local overlay = nil", HUD)
         self.assertIn("write_visible_state(true, overlay_mode, seconds)", HUD)
         self.assertIn("is_visible and \"true\" or \"false\"", HUD)
+        self.assertIn("visible_state_owned_by_other", HUD)
+        self.assertIn('"instance":"%s"', HUD)
+        self.assertIn('mp.observe_property("aid", "native"', HUD)
+        self.assertIn('mp.observe_property("vo-configured", "bool"', HUD)
+        self.assertIn("previous ~= false", HUD)
+
+    def test_new_player_and_action_feedback_recover_stale_streams_state(self) -> None:
+        self.assertIn("local function reset_streams_state", HUD)
+        self.assertIn('if overlay_mode == "streams" then reset_streams_state() end', HUD)
+        self.assertNotIn('if overlay_mode == "streams" then return end', HUD)
+        self.assertIn("reset_playback_hud_state", MPV_PLAY)
+        stop = MPV_PLAY.index('bash "$SCRIPT_DIR/mpv-stop.sh" 2>/dev/null || true')
+        reset = MPV_PLAY.index("reset_playback_hud_state", stop)
+        session = MPV_PLAY.index("begin_playback_session", reset)
+        self.assertLess(stop, reset)
+        self.assertLess(reset, session)
 
     def test_pause_buffering_live_and_clean_start_contracts(self) -> None:
         self.assertIn('overlay_mode = "hidden"', HUD)

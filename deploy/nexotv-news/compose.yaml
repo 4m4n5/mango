@@ -11,7 +11,7 @@ services:
     environment:
       TOKEN_RATE_LIMIT_MAX: "300"
     volumes:
-      - "${MANGO_NEXOTV_NEWS_DATA_DIR:-/home/aman/.local/share/mango/nexotv-news/data}:/app/data"
+      - "${MANGO_NEXOTV_NEWS_DATA_DIR:-$HOME/.local/share/mango/nexotv-news/data}:/app/data"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:7000/health"]
       interval: 30s

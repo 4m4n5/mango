@@ -33,7 +33,9 @@ clean_pattern 'gate-m3-verified-rails'
 clean_pattern 'gate-m3-verified'
 clean_pattern 'curl.*127.0.0.1:3020/play'
 clean_pattern 'node --input-type=module -e.*CatalogCore'
-clean_pattern '^bluetoothctl connect E4:17:D8:EB:00:44$'
+if [[ -n "${MANGO_GAMEPAD_BT_MAC:-}" ]]; then
+  clean_pattern "^bluetoothctl connect ${MANGO_GAMEPAD_BT_MAC}$"
+fi
 
 if (( DRY_RUN == 0 )) && [[ -x "$REPO_DIR/scripts/m2-catalog/service/mpv-stop.sh" ]]; then
   bash "$REPO_DIR/scripts/m2-catalog/service/mpv-stop.sh" 2>/dev/null || true
@@ -58,9 +60,9 @@ if pgrep -f 'node --input-type=module -e.*CatalogCore' >/dev/null 2>&1; then
   remaining=1
   pgrep -af 'node --input-type=module' 2>/dev/null || true
 fi
-if pgrep -f '^bluetoothctl connect E4:17:D8:EB:00:44$' >/dev/null 2>&1; then
+if [[ -n "${MANGO_GAMEPAD_BT_MAC:-}" ]] && pgrep -f "^bluetoothctl connect ${MANGO_GAMEPAD_BT_MAC}$" >/dev/null 2>&1; then
   remaining=1
-  pgrep -af '^bluetoothctl connect E4:17:D8:EB:00:44$' 2>/dev/null || true
+  pgrep -af "^bluetoothctl connect ${MANGO_GAMEPAD_BT_MAC}$" 2>/dev/null || true
 fi
 
 if (( remaining != 0 && DRY_RUN == 0 )); then

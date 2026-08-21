@@ -1906,9 +1906,9 @@ async function loadInfo(): Promise<void> {
     setText("companion-url", `https://${info.ip}:${info.companion_port}`);
   } catch {
     setText("hostname", "mango");
-    setText("ip-address", "10.0.0.174");
-    setText("launcher-url", "http://10.0.0.174:3000");
-    setText("companion-url", "https://10.0.0.174:3001");
+    setText("ip-address", "mango.local");
+    setText("launcher-url", "http://mango.local:3000");
+    setText("companion-url", "https://mango.local:3001");
   }
 }
 

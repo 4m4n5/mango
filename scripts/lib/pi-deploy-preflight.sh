@@ -3,7 +3,7 @@
 # and pi-exec-gate.sh. Never rsync.
 
 mango_required_deploy_branch() {
-  printf '%s\n' "${MANGO_REQUIRED_BRANCH:-feat/native-experience}"
+  printf '%s\n' "${MANGO_REQUIRED_BRANCH:-main}"
 }
 
 mango_refuse_unexpected_dirty() {

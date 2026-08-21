@@ -6,7 +6,7 @@ set -euo pipefail
 
 KEY="${HOME}/.ssh/id_ed25519_mango"
 SSH_CONFIG="${HOME}/.ssh/config"
-MARKER="# mango Pi — aaam.dev personal"
+MARKER="# mango Pi SSH"
 
 echo "=== mango: Mac → Pi SSH setup ==="
 
@@ -25,8 +25,8 @@ if ! grep -qF "$MARKER" "$SSH_CONFIG" 2>/dev/null; then
 
 $MARKER
 Host mango mango-pi pi
-    HostName 10.0.0.174
-    User aman
+    HostName ${MANGO_PI_HOST:-mango.local}
+    User ${MANGO_PI_USER:-pi}
     IdentityFile ${HOME}/.ssh/id_ed25519_mango
     IdentitiesOnly yes
     ConnectTimeout 10
@@ -38,7 +38,7 @@ Host mango mango-pi pi
 EOF
   echo "Appended mango host block to $SSH_CONFIG"
 else
-  echo "SSH config already has mango block (edit HostName to 10.0.0.174 if mango.local hangs)"
+  echo "SSH config already has mango block (edit HostName to ${MANGO_PI_HOST:-mango.local} if mango.local hangs)"
 fi
 
 PUB=$(cat "${KEY}.pub")
@@ -47,7 +47,7 @@ echo
 echo "=== Authorize this Mac on the Pi (one time) ==="
 echo
 echo "SSH to the Pi (use IP if mango.local hangs):"
-echo "  ssh aman@10.0.0.174"
+echo "  ssh \"${MANGO_PI_USER:-pi}@${MANGO_PI_HOST:-mango.local}\""
 echo
 echo "Then paste on the Pi:"
 echo

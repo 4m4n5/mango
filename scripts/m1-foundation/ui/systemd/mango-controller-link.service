@@ -5,9 +5,11 @@ Wants=bluetooth.service
 
 [Service]
 Type=simple
-Environment=MANGO_TV_USER=aman
-Environment=MANGO_GAMEPAD_BT_MAC=E4:17:D8:EB:00:44
-ExecStart=/usr/bin/python3 /home/aman/mango/scripts/m1-foundation/pad/mango-controller-link.py
+Environment=MANGO_TV_USER=%u
+# Set MANGO_GAMEPAD_BT_MAC in the drop-in or environment. There is no
+# household default in the public unit.
+Environment=MANGO_GAMEPAD_BT_MAC=
+ExecStart=/usr/bin/python3 %h/mango/scripts/m1-foundation/pad/mango-controller-link.py
 Restart=always
 RestartSec=2
 TimeoutStopSec=5

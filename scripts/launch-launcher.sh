@@ -11,8 +11,8 @@ source "$REPO_DIR/scripts/m1-foundation/pad/lib/irctl.sh"
 source "$REPO_DIR/scripts/lib/launcher-window.sh"
 
 export DISPLAY=":0"
-export XAUTHORITY="/home/aman/.Xauthority"
-export HOME="/home/aman"
+export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+# HOME comes from the service user; do not hardcode.
 if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
   # shellcheck disable=SC1091
   source "${HOME}/.config/mango/voice.env"

@@ -40,7 +40,7 @@ MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh  # 3 plays/rail
 | M5 | `m5-voice/ai/gate-m5-ai-catalogs.sh`, `gate-m5-voice.sh` (if voice) |
 | M6 | `m6-ship/gate-m6-*.sh` (select the feature-specific gates below) |
 
-Full gate play sample: `gate-m3-verified-rails.sh` (3/rail) · `gate-m3-play.sh` · grow regression: `m3-play/playability/gate-m3-library-grow.sh` · ops: [docs/PLAYABILITY.md](../docs/PLAYABILITY.md)
+Full gate play sample: `gate-m3-verified-rails.sh` (3/rail) · `gate-m3-play.sh` · grow regression: `m3-play/playability/gate-m3-library-grow.sh` · ops: [docs/features/content-and-playback.md](../docs/features/content-and-playback.md)
 
 ## M6 ship polish
 

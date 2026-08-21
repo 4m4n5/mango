@@ -18,7 +18,7 @@ services:
       # is too low when live rails refresh fetches catalog meta per addon.
       TOKEN_RATE_LIMIT_MAX: "300"
     volumes:
-      - "${MANGO_NEXOTV_DATA_DIR:-/home/aman/.local/share/mango/nexotv/data}:/app/data"
+      - "${MANGO_NEXOTV_DATA_DIR:-$HOME/.local/share/mango/nexotv/data}:/app/data"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:7000/health"]
       interval: 30s

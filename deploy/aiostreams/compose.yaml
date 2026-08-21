@@ -20,4 +20,4 @@ services:
       # normal season/episode matcher.
       BUILTIN_SCRAPE_DATE_BASED_MIN_SEASONS: "${MANGO_AIOSTREAMS_DATE_BASED_MIN_SEASONS:-1}"
     volumes:
-      - "${MANGO_AIOSTREAMS_DATA_DIR:-/home/aman/.local/share/mango/aiostreams/data}:/app/data"
+      - "${MANGO_AIOSTREAMS_DATA_DIR:-$HOME/.local/share/mango/aiostreams/data}:/app/data"

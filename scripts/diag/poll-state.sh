@@ -24,7 +24,7 @@ while true; do
 import json, os, subprocess, time
 from pathlib import Path
 
-home = Path(os.environ.get("HOME", "/home/aman"))
+home = Path(os.environ.get("HOME", "${HOME}"))
 env = {
     "DISPLAY": os.environ.get("DISPLAY", ":0"),
     "XAUTHORITY": os.environ.get("XAUTHORITY", str(home / ".Xauthority")),

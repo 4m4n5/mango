@@ -1,6 +1,6 @@
 # Mango source
 
-Native TV stack on `feat/native-experience`. Mac source ships by Git; Pi runtime
+Native TV stack on `main`. Mac source ships by Git; Pi runtime
 state and physical couch proof remain separate.
 
 | Path | Purpose |
@@ -37,4 +37,4 @@ bash scripts/pi-pre-couch-gate.sh
 
 See [architecture](../docs/ARCHITECTURE.md),
 [status](../docs/STATUS.md), [catalog-service](catalog-service/README.md),
-[operations](../docs/OPS.md), and [deployment](../docs/DEPLOY.md).
+and [operations](../docs/OPERATIONS.md).

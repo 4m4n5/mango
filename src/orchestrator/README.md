@@ -3,8 +3,8 @@
 Optional FastAPI hub for the phone librarian and bounded local AI helpers. It
 accepts text or push-to-talk, runs the tool loop, and dispatches navigation to
 the TV; it never starts playback directly. See
-[`docs/VOICE.md`](../../docs/VOICE.md) and
-[`docs/AI_LAYER.md`](../../docs/AI_LAYER.md).
+[`docs/features/search-and-librarian.md`](../../docs/features/search-and-librarian.md) and
+[`docs/features/search-and-librarian.md`](../../docs/features/search-and-librarian.md).
 
 ```bash
 source "${HOME}/.config/mango/voice.env"

@@ -1,12 +1,13 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { mangoCachePath } from './paths.js';
 
 let memoryEpoch = 0;
 let epochWriteChain: Promise<void> = Promise.resolve();
 
 function cancelPath(): string {
   return process.env.MANGO_PLAY_CANCEL_PATH
-    || `${process.env.HOME || '/home/aman'}/.cache/mango/play-cancel.epoch`;
+    || mangoCachePath('play-cancel.epoch');
 }
 
 export async function readPlayEpoch(): Promise<number> {

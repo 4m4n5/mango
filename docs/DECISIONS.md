@@ -9,7 +9,7 @@ source-complete, local-pass, Pi-deployed, Pi-gated, couch-observed, or deferred.
 | Decision | Locked choice |
 |----------|---------------|
 | Product direction | Mango-owned TV-first UX, playback chrome, library, and recommendations |
-| Development branch | `feat/native-experience` |
+| Development branch | `main` |
 | Host | Raspberry Pi 5 / Raspberry Pi OS Desktop |
 | Display stack | X11 + Openbox for the current product; no implied Wayland/HDR support |
 | TV UI | Vite + vanilla TypeScript in one Chromium kiosk at idle |
@@ -187,9 +187,9 @@ explicit product approval.
 | Safe repair | Idle-only allowlist: stale locks, safe strays, controller, catalog, launcher |
 | Deploy | Git push/pull only; never rsync/scp/hand-copy repository files |
 | Pi precondition | Couch idle and dirty state inventoried/preserved before deploy; do not stash/reset operator changes by default |
-| Revision identity | Required branch is `feat/native-experience`; freshly fetched origin, Mac HEAD, and post-deploy Pi HEAD must match. `pi-deploy.sh` / `pi-exec-gate.sh` fail closed on that contract |
+| Revision identity | Required branch is `main`; freshly fetched origin, Mac HEAD, and post-deploy Pi HEAD must match. `pi-deploy.sh` / `pi-exec-gate.sh` fail closed on that contract |
 | Stateful config | AIO `userData`, AIOMetadata config, credentials, seeds, and runtime DBs use explicit separate workflows; deploy AIOMetadata rail sync is opt-in via `MANGO_SYNC_AIOMETADATA=1`. Direct mutation helpers still need secure-temp/redaction hardening |
 | First boot | `install.sh`/wizard with no SSH is a target, not current functionality |
 
-See [OPS.md](OPS.md). Never commit API keys, OAuth material, debrid secrets,
+See [OPERATIONS.md](OPERATIONS.md). Never commit API keys, OAuth material, debrid secrets,
 signed URLs, cookies, or private companion state.

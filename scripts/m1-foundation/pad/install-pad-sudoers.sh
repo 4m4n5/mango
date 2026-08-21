@@ -9,10 +9,11 @@ if [[ "$(id -u)" -ne 0 ]]; then
   exit 1
 fi
 
-USER_NAME="${SUDO_USER:-aman}"
-USER_NAME="${MANGO_TV_USER:-$USER_NAME}"
-PAD_RUN="/home/${USER_NAME}/mango/scripts/m1-foundation/pad/run-mango-tv-pad.sh"
-PAD_PY="/home/${USER_NAME}/mango/scripts/m1-foundation/pad/mango-tv-pad.py"
+USER_NAME="${MANGO_TV_USER:-${SUDO_USER:-${USER:?set MANGO_TV_USER}}}"
+USER_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
+USER_HOME="${USER_HOME:-/home/${USER_NAME}}"
+PAD_RUN="${USER_HOME}/mango/scripts/m1-foundation/pad/run-mango-tv-pad.sh"
+PAD_PY="${USER_HOME}/mango/scripts/m1-foundation/pad/mango-tv-pad.py"
 FILE="/etc/sudoers.d/mango-tv-pad"
 
 cat >"$FILE" <<EOF

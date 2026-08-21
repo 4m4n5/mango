@@ -52,10 +52,10 @@ class GrowMonitorTests(unittest.TestCase):
 
     def test_count_active_probes_counts_timeout_wrappers_only(self) -> None:
         lines = [
-            "100 timeout --kill-after=3 33 /home/aman/mango/scripts/m3-play/playability/mpv-probe-ipc.sh --worker-id 0",
-            "101 bash /home/aman/mango/scripts/m3-play/playability/mpv-probe-ipc.sh --worker-id 0",
-            "102 bash /home/aman/mango/scripts/m3-play/playability/mpv-probe-ipc.sh --worker-id 0",
-            "200 timeout --kill-after=3 33 /home/aman/mango/scripts/m3-play/playability/mpv-probe-ipc.sh --worker-id 1",
+            "100 timeout --kill-after=3 33 ${MANGO_REPO_DIR}/scripts/m3-play/playability/mpv-probe-ipc.sh --worker-id 0",
+            "101 bash ${MANGO_REPO_DIR}/scripts/m3-play/playability/mpv-probe-ipc.sh --worker-id 0",
+            "102 bash ${MANGO_REPO_DIR}/scripts/m3-play/playability/mpv-probe-ipc.sh --worker-id 0",
+            "200 timeout --kill-after=3 33 ${MANGO_REPO_DIR}/scripts/m3-play/playability/mpv-probe-ipc.sh --worker-id 1",
         ]
         with patch("grow_monitor._pgrep", return_value=lines):
             self.assertEqual(_count_active_probes(), 2)

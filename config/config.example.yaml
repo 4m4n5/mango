@@ -60,7 +60,7 @@ audio:
   # Dev lab: Pi 5 has no 3.5 mm jack — monitor HDMI out, USB DAC, or BT (scripts/audio/)
   overlay_reply_seconds: 10  # TV reply dwell before dismiss (phone keeps history)
   piper_voice: en_US-lessac-medium
-  piper_data_dir: /home/aman/.local/share/piper
+  piper_data_dir: $HOME/.local/share/piper
   tts_player: auto  # auto | paplay | aplay
   tts_async: true  # show phone reply immediately; TV audio in background
   duck_volume_while_listening: true
@@ -137,8 +137,8 @@ orchestrator:
   # Use 0.0.0.0 + TLS on Pi so the HTTPS phone companion can connect via WSS.
   host: 0.0.0.0
   port: 8765
-  ssl_certfile: null  # or /home/aman/.config/mango/certs/mango-companion.pem
-  ssl_keyfile: null   # or /home/aman/.config/mango/certs/mango-companion-key.pem
+  ssl_certfile: null  # or $HOME/.config/mango/certs/mango-companion.pem
+  ssl_keyfile: null   # or $HOME/.config/mango/certs/mango-companion-key.pem
   local_ws_port: 8766  # plain WS on loopback for launcher TV HUD (mkcert not trusted in kiosk)
   voice_tools_enabled: true  # M5: browse/search/open via LLM tools — no voice play
   max_tool_rounds: 6

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 
-HOME = Path(os.environ.get("HOME") or "/home/aman")
+HOME = Path(os.environ.get("HOME") or str(Path.home()))
 REPO = Path(os.environ.get("MANGO_REPO_DIR", HOME / "mango"))
 CACHE_DIR = HOME / ".cache" / "mango"
 MPV_SOCKET = Path(os.environ.get("MANGO_MPV_SOCKET", CACHE_DIR / "mpv.sock"))

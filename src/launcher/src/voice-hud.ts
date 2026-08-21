@@ -3,6 +3,8 @@
  * loopback plain WS on :8766 because mkcert is not trusted in the launcher profile.
  */
 
+import { resolveVoiceWsUrls } from "./voice-ws";
+
 type VoiceMessage =
   | { type: "status"; state?: string; text?: string }
   | { type: "chat"; role?: string; text?: string; partial?: boolean }
@@ -41,22 +43,6 @@ export function startVoiceHud(): void {
     toolLine: document.getElementById("voice-tool-line"),
     toolText: document.getElementById("voice-tool-text"),
   });
-}
-
-function resolveVoiceWsUrls(): string[] {
-  const env = import.meta.env as Record<string, string | undefined>;
-  const explicit = env.VITE_ORCH_WS?.trim();
-  if (explicit !== undefined && explicit.length > 0) {
-    const urls = explicit.split(",").map((url) => url.trim()).filter(Boolean);
-    if (urls.length > 0) {
-      return urls;
-    }
-  }
-  const host = window.location.hostname || "127.0.0.1";
-  if (window.location.protocol === "https:") {
-    return [`wss://${host}:8765/ws`];
-  }
-  return [`ws://127.0.0.1:8766/ws`, `ws://${host}:8766/ws`];
 }
 
 function connectVoiceHud(wsUrls: string[], els: VoiceHudElements): void {

@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-USER_NAME="${MANGO_TV_USER:-aman}"
+USER_NAME="${MANGO_TV_USER:-${USER:?set MANGO_TV_USER}}"
 HOME_DIR="/home/${USER_NAME}"
 REPO="${HOME_DIR}/mango"
 LOCK="${HOME_DIR}/.cache/mango/pad-udev.lock"

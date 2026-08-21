@@ -1,14 +1,16 @@
 {
   "name": "mango-launcher",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
+    "test": "tsx --test src/*.test.ts",
     "preview": "vite preview --host 127.0.0.1"
   },
   "devDependencies": {
+    "tsx": "^4.23.12",
     "typescript": "^5.8.3",
     "vite": "^6.3.5"
   }

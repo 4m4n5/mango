@@ -71,7 +71,9 @@ kill_safe_strays() {
   pkill -f 'playability-indexer' 2>/dev/null || true
   pkill -f 'tsx.*m3-play/playability' 2>/dev/null || true
   pkill -f 'node --input-type=module -e.*CatalogCore' 2>/dev/null || true
-  pkill -f '[b]luetoothctl connect E4:17:D8:EB:00:44' 2>/dev/null || true
+  if [[ -n "${MANGO_GAMEPAD_BT_MAC:-}" ]]; then
+    pkill -f "[b]luetoothctl connect ${MANGO_GAMEPAD_BT_MAC}" 2>/dev/null || true
+  fi
 
   # Watchdog used to pkill gate-m3-verified-rails and in-flight /play curls every
   # few minutes, which SIGTERM'd intentional MANGO_GATE_FULL sweeps mid-rail.

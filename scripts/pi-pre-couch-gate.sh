@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-couch gate — run on Pi before TV testing. Deploy via git pull only (see docs/DEPLOY.md).
+# Pre-couch gate — run on Pi before TV testing. Deploy via git pull only (see docs/OPERATIONS.md).
 # Mac: bash scripts/pi-exec-gate.sh  or  bash scripts/pi-deploy.sh --fast --gate
 #
 # Default: gate-lite (~1–2 min). Full gate: MANGO_GATE_FULL=1 (~5–8 min, 3 plays/rail).
@@ -58,25 +58,25 @@ if [[ "$MAINT_RUNNING" -eq 1 ]] || [[ "$OVERNIGHT_RUNNING" -eq 1 ]] || pgrep -f 
 fi
 
 BRANCH="$(git branch --show-current 2>/dev/null || true)"
-[[ "$BRANCH" == "feat/native-experience" ]] || {
-  echo "FAIL: expected branch feat/native-experience, got ${BRANCH:-detached}" >&2
+[[ "$BRANCH" == "main" ]] || {
+  echo "FAIL: expected branch main, got ${BRANCH:-detached}" >&2
   exit 1
 }
-git fetch origin feat/native-experience >/dev/null 2>&1 || {
-  echo "FAIL: could not fetch origin/feat/native-experience; exact revision is unproved" >&2
+git fetch origin main >/dev/null 2>&1 || {
+  echo "FAIL: could not fetch origin/main; exact revision is unproved" >&2
   exit 1
 }
 LOCAL="$(git rev-parse HEAD)"
-REMOTE="$(git rev-parse origin/feat/native-experience 2>/dev/null)" || {
-  echo "FAIL: origin/feat/native-experience cannot be resolved" >&2
+REMOTE="$(git rev-parse origin/main 2>/dev/null)" || {
+  echo "FAIL: origin/main cannot be resolved" >&2
   exit 1
 }
 [[ "$LOCAL" == "$REMOTE" ]] || {
-  echo "FAIL: HEAD $LOCAL differs from origin/feat/native-experience $REMOTE" >&2
+  echo "FAIL: HEAD $LOCAL differs from origin/main $REMOTE" >&2
   exit 1
 }
 
-if [[ "$BRANCH" == "feat/native-experience" ]]; then
+if [[ "$BRANCH" == "main" ]]; then
   if [[ "${MANGO_GATE_FULL:-0}" == "1" ]]; then
     bash scripts/pi-pre-couch-gate-full.sh
     exit $?

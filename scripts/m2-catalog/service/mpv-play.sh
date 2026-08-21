@@ -7,6 +7,7 @@ SOCKET="${MANGO_MPV_SOCKET:-${HOME}/.cache/mango/mpv.sock}"
 MPV_LOG="${MANGO_MPV_LOG:-${HOME}/.cache/mango/mpv-play.log}"
 PLAYBACK_OSD_PID_FILE="${MANGO_PLAYBACK_OSD_PID_FILE:-${HOME}/.cache/mango/playback-osd.pid}"
 PLAYBACK_OSD_LOG="${MANGO_PLAYBACK_OSD_LOG:-${HOME}/.cache/mango/playback-osd.log}"
+PLAYBACK_OSD_VISIBLE_FILE="${MANGO_PLAYBACK_OSD_VISIBLE_FILE:-${HOME}/.cache/mango/playback-osd.visible}"
 PLAY_CANCEL_FILE="${MANGO_PLAY_CANCEL_PATH:-${HOME}/.cache/mango/play-cancel.epoch}"
 PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
 PLAYBACK_DISPLAY_MATCHED_FILE="${MANGO_PLAYBACK_DISPLAY_MATCHED_FILE:-${HOME}/.cache/mango/playback-display-matched}"
@@ -148,6 +149,18 @@ mpv_ipc_data() {
 # before lock wait, ffprobe, mpv startup, handoff, and playback confirmation.
 START_MS="$(now_ms)"
 DEADLINE_MS=$((START_MS + TIMEOUT_MS))
+export MANGO_HUD_INSTANCE="${MANGO_HUD_INSTANCE:-${MANGO_PLAY_EPOCH:-play}-${START_MS}-$$}"
+
+reset_playback_hud_state() {
+  local temporary="${PLAYBACK_OSD_VISIBLE_FILE}.${MANGO_HUD_INSTANCE}.start.tmp"
+  mkdir -p "$(dirname "$PLAYBACK_OSD_VISIBLE_FILE")"
+  (
+    umask 077
+    printf '{"visible":false,"mode":"hidden","ts":%s,"visible_sec":0.0,"instance":"%s"}\n' \
+      "$(date +%s)" "$MANGO_HUD_INSTANCE" >"$temporary"
+  )
+  mv -f "$temporary" "$PLAYBACK_OSD_VISIBLE_FILE"
+}
 
 remaining_budget_ms() {
   local remaining=$((DEADLINE_MS - $(now_ms)))
@@ -475,7 +488,7 @@ detect_hwdec() {
   # gives HEVC zero-copy drm-prime and cleanly falls back to software for
   # H.264/AV1 — unlike drm-copy, which copies every frame back and stutters at
   # 4K, and unlike forcing hwdec=drm, which cannot map software yuv420p frames
-  # (the "blue screen with audio" failure). See docs/PLAYABILITY.md playback.
+  # (the "blue screen with audio" failure). See docs/features/content-and-playback.md playback.
   if grep -qi 'raspberry pi' /proc/device-tree/model 2>/dev/null; then
     printf '%s\n' "auto-safe"
     return
@@ -767,6 +780,10 @@ append_mpv_subtitle_startup_args() {
 # Non-display-sensitive VOD policy shared by immediate and vo=null deferred
 # startup. Handoff changes only VO/AO/fullscreen and display-sensitive sync.
 append_mpv_vod_startup_policy_args() {
+  # Keep mpv's timestamp reconciliation explicit. Split YouTube A/V commonly
+  # starts on different timestamps; mpv must trim/insert audio at startup/seek
+  # instead of gradually drifting into sync after the first visible frame.
+  mpv_args+=(--initial-audio-sync=yes)
   if [[ -n "${MANGO_MPV_TONE_MAPPING:-}" ]]; then
     mpv_args+=("--tone-mapping=${MANGO_MPV_TONE_MAPPING}")
   fi
@@ -985,6 +1002,38 @@ rewind_null_buffer_to_intended_start() {
   return 1
 }
 
+wait_mpv_split_audio_ready() {
+  $NULL_BUFFER || return 0
+  [[ -n "$AUDIO_URL" ]] || return 0
+  local target="${START_SEC:-0}"
+  local timeout_ms="${MANGO_MPV_SPLIT_AUDIO_READY_TIMEOUT_MS:-5000}"
+  [[ "$target" =~ ^[0-9]+$ ]] || target=0
+  [[ "$timeout_ms" =~ ^[0-9]+$ ]] || timeout_ms=5000
+  local started current_ao aid audio_pts position
+  started="$(now_ms)"
+  while (( $(now_ms) - started < timeout_ms )); do
+    current_ao="$(mpv_property current-ao 2>/dev/null || true)"
+    aid="$(mpv_property aid 2>/dev/null || true)"
+    audio_pts="$(mpv_property audio-pts 2>/dev/null || true)"
+    position="$(mpv_property playback-time 2>/dev/null || true)"
+    if [[ -n "$current_ao" && "$current_ao" != "null" && "$current_ao" != "false" && "$current_ao" != "0" ]] \
+      && [[ "$aid" =~ ^[1-9][0-9]*$ ]] \
+      && awk -v a="${audio_pts:-x}" -v p="${position:-x}" -v t="$target" '
+        BEGIN {
+          if (a !~ /^-?[0-9]+([.][0-9]+)?$/ || p !~ /^-?[0-9]+([.][0-9]+)?$/) exit 1
+          ap=(a+0)-(p+0); if (ap<0) ap=-ap
+          at=(a+0)-(t+0); if (at<0) at=-at
+          exit !(ap<=0.25 && at<=0.75)
+        }'; then
+      echo "handoff: split_av_ready audio_pts=${audio_pts} video_clock=${position} ao=${current_ao}" >&2
+      return 0
+    fi
+    sleep 0.05
+  done
+  echo "WARN: split audio readiness timed out audio_pts=${audio_pts:-none} video_clock=${position:-none} ao=${current_ao:-none} aid=${aid:-none}" >&2
+  return 1
+}
+
 release_null_buffer_start() {
   $NULL_BUFFER || return 0
   if play_cancelled; then
@@ -1151,6 +1200,10 @@ foreground_handoff() {
       echo "FAIL: mpv could not restore the intended start position" >&2
       return 1
     fi
+    if ! wait_mpv_split_audio_ready; then
+      echo "FAIL: mpv split audio was not synchronized at the intended start" >&2
+      return 1
+    fi
   fi
   raise_mpv_window
   apply_4k_video_sync || true
@@ -1212,6 +1265,10 @@ mkdir -p "$(dirname "$MPV_LOG")"
 if [[ "$REQUEST_CLASS" == "user" ]] && ! $ISOLATED_PROBE; then
   MANGO_MPV_STOP_NO_CANCEL=1 MANGO_MPV_STOP_NO_DISPLAY=1 \
     bash "$SCRIPT_DIR/mpv-stop.sh" 2>/dev/null || true
+  # mpv-stop intentionally preserves display state during replacement. HUD
+  # routing is different: every new player must claim a known-hidden generation
+  # before pad input can observe stale Streams state from the outgoing process.
+  reset_playback_hud_state
 fi
 if [[ "$REQUEST_CLASS" == "user" ]] && ! $PROBE && ! $ISOLATED_PROBE; then
   begin_playback_session

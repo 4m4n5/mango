@@ -78,7 +78,7 @@ Resolve ad-hoc list URLs: `python3 scripts/diag/mdblist-inventory.py resolve use
 
 India rails use **strict** profiles (`min_fit: 14`) — Indian titles only, not western hits popular in India.
 
-Full detail: [docs/PLAYABILITY.md](../docs/PLAYABILITY.md)
+Full detail: [docs/features/content-and-playback.md](../docs/features/content-and-playback.md)
 
 ## Manual rail curation (pins / blocks)
 

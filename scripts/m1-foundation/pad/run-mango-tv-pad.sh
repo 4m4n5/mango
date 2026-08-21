@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Run mango-tv-pad as root for evdev grab — fixed paths (no sudo -E).
 export DISPLAY="${DISPLAY:-:0}"
-export XAUTHORITY="${XAUTHORITY:-/home/aman/.Xauthority}"
-export HOME="/home/aman"
+export XAUTHORITY="${XAUTHORITY:-${HOME}/.Xauthority}"
+# HOME comes from the service user; do not hardcode.
 export USER="aman"
 export SUDO_USER="aman"
 

@@ -1,0 +1,36 @@
+Mango
+Copyright 2026 Mango contributors
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full text.
+
+Mango is an independent self-hosted project. It is not affiliated with,
+endorsed by, or sponsored by YouTube, Google, Stremio, Kodi, Real-Debrid,
+TorBox, TMDB, TVDB, Hugging Face, Raspberry Pi Ltd, 8BitDo, NexoTV,
+MediaFusion, AIOStreams, AIOMetadata, or any broadcaster, studio, or
+indexer named in documentation or example configuration.
+
+You supply your own accounts, API keys, OAuth clients, addon manifests,
+playlists, and media entitlements. This repository does not grant rights
+to third-party media, metadata artwork, live streams, or paid services.
+
+Third-party software and protocols used by Mango include:
+
+- Node.js packages declared in src/catalog-service/package.json,
+  src/launcher/package.json, and src/companion/package.json, including
+  @stremio/stremio-core-web (Stremio-compatible addon client) and
+  @huggingface/transformers (optional local embeddings).
+- Python packages declared in src/orchestrator/requirements.txt and
+  src/orchestrator/requirements-local-stt.txt.
+- Optional Docker images referenced by deploy/*/compose.yaml for
+  self-hosted addon helpers. Those images keep their upstream licenses.
+- mpv, yt-dlp, Chromium, Openbox, and Raspberry Pi OS, each under their
+  own licenses.
+
+Optional embedding models such as Xenova/all-MiniLM-L6-v2 are downloaded
+only when an operator enables that feature and remain subject to their
+upstream model licenses.
+
+Do not commit credentials, runtime databases, OAuth tokens, debrid URLs,
+or household viewing data. Example files under config/ and deploy/ are
+placeholders only.

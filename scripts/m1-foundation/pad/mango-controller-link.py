@@ -37,11 +37,13 @@ from controller_link_state import (
     LinkRetryState,
 )
 
-TV_USER = os.environ.get("MANGO_TV_USER", "aman")
-BT_MAC = os.environ.get("MANGO_GAMEPAD_BT_MAC", "E4:17:D8:EB:00:44").upper()
+TV_USER = os.environ.get("MANGO_TV_USER") or os.environ.get("USER") or pwd.getpwuid(os.getuid()).pw_name
+BT_MAC = os.environ.get("MANGO_GAMEPAD_BT_MAC", "").upper()
+if not BT_MAC:
+    sys.exit("mango-controller-link: set MANGO_GAMEPAD_BT_MAC to the pad Bluetooth address")
 ADAPTER_PATH = os.environ.get("MANGO_BT_ADAPTER_PATH", "/org/bluez/hci0")
 DEVICE_PATH = f"{ADAPTER_PATH}/dev_{BT_MAC.replace(':', '_')}"
-CACHE_DIR = Path(f"/home/{TV_USER}/.cache/mango")
+CACHE_DIR = Path.home() / ".cache" / "mango"
 STATUS_PATH = CACHE_DIR / "mango-controller-link-status.json"
 STATUS_HEARTBEAT_SEC = 2.0
 AUTO_REPAIR_COOLDOWN_SEC = 15 * 60.0

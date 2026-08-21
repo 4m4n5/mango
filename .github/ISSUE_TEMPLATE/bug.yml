@@ -1,0 +1,29 @@
+name: Bug
+description: Something is broken in Mango
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: input
+    id: sha
+    attributes:
+      label: Source SHA
+      description: git rev-parse HEAD
+  - type: dropdown
+    id: evidence
+    attributes:
+      label: Highest evidence you have
+      options:
+        - Source-complete
+        - Local-pass
+        - Pi-gated
+        - Couch-observed
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: No secrets, signed URLs, or household credentials

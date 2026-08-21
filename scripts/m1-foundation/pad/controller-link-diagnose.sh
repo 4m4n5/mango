@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-BT_MAC="${MANGO_GAMEPAD_BT_MAC:-E4:17:D8:EB:00:44}"
+BT_MAC="${MANGO_GAMEPAD_BT_MAC:?set MANGO_GAMEPAD_BT_MAC to the pad Bluetooth address}"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
 
 echo "mango controller link diagnostics"

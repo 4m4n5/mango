@@ -7,6 +7,7 @@ import { emitPlaybackTelemetry } from './playback-telemetry.js';
 import { PlayCancelledError } from './play-cancel.js';
 import { runScopedCommand, ScopedChildTimeoutError } from './scoped-child.js';
 import type { StreamTechnicalProfile } from './playback-capability.js';
+import { mangoHome } from './paths.js';
 
 export type PlayResult = {
   ok: true;
@@ -75,7 +76,7 @@ export function extractMpvFailureReason(
 }
 
 function displayEnv(): NodeJS.ProcessEnv {
-  const home = process.env.HOME || '/home/aman';
+  const home = mangoHome();
   return {
     ...process.env,
     DISPLAY: process.env.DISPLAY || ':0',
@@ -303,7 +304,7 @@ export async function playUrl(
 }
 
 function mpvSocketPath(): string {
-  const home = process.env.HOME || '/home/aman';
+  const home = mangoHome();
   return process.env.MANGO_MPV_SOCKET || `${home}/.cache/mango/mpv.sock`;
 }
 

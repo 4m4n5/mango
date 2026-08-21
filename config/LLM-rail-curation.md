@@ -6,7 +6,7 @@ recommendation system, does not read Fire/Water ratings, and must not mutate a
 live Pi automatically.
 
 Canonical runtime policy and current source-yield challenges live in
-[`docs/PLAYABILITY.md`](../docs/PLAYABILITY.md). The tagged catalog inventory is
+[`docs/features/content-and-playback.md`](../docs/features/content-and-playback.md). The tagged catalog inventory is
 `config/mdblist-inventory.json`.
 
 ## Measure and export evidence

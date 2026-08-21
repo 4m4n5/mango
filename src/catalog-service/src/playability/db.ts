@@ -723,7 +723,7 @@ function ensurePlayabilitySchemaInitialized(): void {
   if (schemaInitialized) {
     return;
   }
-  db.exec(`
+    db.exec(`
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
 
@@ -2403,7 +2403,7 @@ export async function getPlayabilityStatus(railIds: string[]): Promise<Playabili
   await initPlayabilityDb();
   const db = openDb();
   const statusNow = nowMs();
-  const rows = db.prepare(`
+    const rows = db.prepare(`
 SELECT
   rp.rail_id AS rail_id,
   COUNT(*) AS pool_depth,
@@ -2417,7 +2417,7 @@ LEFT JOIN titles t ON t.type = rp.type AND t.id = rp.id
 GROUP BY rp.rail_id
 ORDER BY rp.rail_id;
 `).all() as StatusRow[];
-  const lastRun = db.prepare(`
+    const lastRun = db.prepare(`
 SELECT MAX(started_at) AS last_indexer_run_at
 FROM verify_log;
 `).all() as IndexerRow[];
@@ -2565,37 +2565,37 @@ FROM (
 );
 `).get() as { count: number | null }).count);
 
-  const byRail = new Map(rows.map((row) => [row.rail_id, row]));
-  const allRailIds = [...new Set([...railIds, ...rows.map((row) => row.rail_id)])].sort();
-  const rails = allRailIds.map((railId) => {
-    const row = byRail.get(railId);
-    if (!row) return emptyRailStatus(railId);
-    return {
-      rail_id: railId,
-      pool_depth: toNumber(row.pool_depth),
-      verified_pool: toNumber(row.verified_pool),
-      pending: toNumber(row.pending),
-      stale: toNumber(row.stale),
-      failed: toNumber(row.failed),
-      last_verified_at: row.last_verified_at ?? null,
-    };
-  });
+    const byRail = new Map(rows.map((row) => [row.rail_id, row]));
+    const allRailIds = [...new Set([...railIds, ...rows.map((row) => row.rail_id)])].sort();
+    const rails = allRailIds.map((railId) => {
+      const row = byRail.get(railId);
+      if (!row) return emptyRailStatus(railId);
+      return {
+        rail_id: railId,
+        pool_depth: toNumber(row.pool_depth),
+        verified_pool: toNumber(row.verified_pool),
+        pending: toNumber(row.pending),
+        stale: toNumber(row.stale),
+        failed: toNumber(row.failed),
+        last_verified_at: row.last_verified_at ?? null,
+      };
+    });
 
-  return {
-    ok: true,
-    db_path: dbPath(),
+    return {
+      ok: true,
+      db_path: dbPath(),
     schema_version: schemaVersion,
-    rails,
-    totals: rails.reduce(
-      (totals, rail) => ({
-        pool_depth: totals.pool_depth + rail.pool_depth,
-        verified_pool: totals.verified_pool + rail.verified_pool,
-        pending: totals.pending + rail.pending,
-        stale: totals.stale + rail.stale,
-        failed: totals.failed + rail.failed,
-      }),
-      { pool_depth: 0, verified_pool: 0, pending: 0, stale: 0, failed: 0 },
-    ),
+      rails,
+      totals: rails.reduce(
+        (totals, rail) => ({
+          pool_depth: totals.pool_depth + rail.pool_depth,
+          verified_pool: totals.verified_pool + rail.verified_pool,
+          pending: totals.pending + rail.pending,
+          stale: totals.stale + rail.stale,
+          failed: totals.failed + rail.failed,
+        }),
+        { pool_depth: 0, verified_pool: 0, pending: 0, stale: 0, failed: 0 },
+      ),
     verification: {
       legacy_verified: toNumber(verification.legacy_verified),
       exact_main_verified: toNumber(verification.exact_main_verified),
@@ -2611,7 +2611,7 @@ FROM (
       },
     },
     vod_browse_v3: browse,
-    last_indexer_run_at: lastRun[0]?.last_indexer_run_at ?? null,
+      last_indexer_run_at: lastRun[0]?.last_indexer_run_at ?? null,
     retry_queue: {
       total: toNumber(retryQueue.total),
       due: toNumber(retryQueue.due),
@@ -2633,8 +2633,8 @@ export async function recordVerifyResult(record: PlayabilityVerifyRecord): Promi
     ? record.expires_at ?? timestamp + DEFAULT_VERIFY_TTL_MS
     : record.expires_at ?? null;
 
-  const transaction = db.transaction(() => {
-    db.prepare(`
+    const transaction = db.transaction(() => {
+      db.prepare(`
 INSERT INTO titles (
   type, id, status, verified_at, expires_at, fail_reason, best_source,
   cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step,
@@ -2664,22 +2664,22 @@ ON CONFLICT(type, id) DO UPDATE SET
   END,
   updated_at = excluded.updated_at;
 `).run({
-      type: record.type,
-      id: record.id,
-      status: record.status,
-      verified_at: verifiedAt,
-      expires_at: expiresAt,
-      fail_reason: record.fail_reason ?? null,
-      best_source: record.best_source ?? null,
-      cache_status: record.cache_status ?? null,
-      debrid_service: record.debrid_service ?? null,
-      probe_ms: record.probe_ms ?? null,
-      win_url_hash: record.win_url_hash ?? null,
+        type: record.type,
+        id: record.id,
+        status: record.status,
+        verified_at: verifiedAt,
+        expires_at: expiresAt,
+        fail_reason: record.fail_reason ?? null,
+        best_source: record.best_source ?? null,
+        cache_status: record.cache_status ?? null,
+        debrid_service: record.debrid_service ?? null,
+        probe_ms: record.probe_ms ?? null,
+        win_url_hash: record.win_url_hash ?? null,
       win_ladder_step: record.win_ladder_step ?? null,
       ...proof,
       first_verified_at: firstVerifiedAt,
-      updated_at: timestamp,
-    });
+        updated_at: timestamp,
+      });
     if (shouldMirrorSeriesGateRecord(record.type, record.id)) {
       db.prepare(`
 INSERT INTO titles (
@@ -2729,7 +2729,7 @@ ON CONFLICT(type, id) DO UPDATE SET
       });
     }
 
-    db.prepare(`
+      db.prepare(`
 INSERT INTO verify_log (
   started_at, rail_id, type, id_value, stage, ms, outcome, run_id,
   request_id, request_title_id, request_title, request_year, source_key,
@@ -2741,18 +2741,18 @@ VALUES (
   @attempt_kind, @proof_exact_main, @proof_version
 );
 `).run({
-      started_at: timestamp,
-      rail_id: record.rail_id ?? null,
-      type: record.type,
-      id_value: record.id,
-      stage: record.stage ?? 'verify',
-      ms: record.probe_ms ?? 0,
-      outcome: record.outcome ?? record.status,
+        started_at: timestamp,
+        rail_id: record.rail_id ?? null,
+        type: record.type,
+        id_value: record.id,
+        stage: record.stage ?? 'verify',
+        ms: record.probe_ms ?? 0,
+        outcome: record.outcome ?? record.status,
       ...proof,
-    });
+      });
     updateRetryQueueForVerifyRecord(db, record, timestamp);
-  });
-  transaction();
+    });
+    transaction();
   // Verification metadata is included in rail snapshots even when status is
   // unchanged and the semantic corpus revision correctly stays stable.
   invalidateRailPoolCache();
@@ -2781,30 +2781,30 @@ export async function getTitlesPlayabilityBulk(
 
   await initPlayabilityDb();
   const db = openDb();
-  const unique = new Map<string, { type: string; id: string }>();
-  for (const key of keys) {
+    const unique = new Map<string, { type: string; id: string }>();
+    for (const key of keys) {
     unique.set(titleKey(key.type, key.id), key);
-  }
-  const values = [...unique.values()];
-  const chunkSize = 200;
-  for (let offset = 0; offset < values.length; offset += chunkSize) {
-    const chunk = values.slice(offset, offset + chunkSize);
-    const placeholders = chunk.map((_, index) => `( @type_${index}, @id_${index} )`).join(', ');
-    const params: Record<string, string> = {};
-    chunk.forEach((entry, index) => {
-      params[`type_${index}`] = entry.type;
-      params[`id_${index}`] = entry.id;
-    });
-    const rows = db.prepare(`
+    }
+    const values = [...unique.values()];
+    const chunkSize = 200;
+    for (let offset = 0; offset < values.length; offset += chunkSize) {
+      const chunk = values.slice(offset, offset + chunkSize);
+      const placeholders = chunk.map((_, index) => `( @type_${index}, @id_${index} )`).join(', ');
+      const params: Record<string, string> = {};
+      chunk.forEach((entry, index) => {
+        params[`type_${index}`] = entry.type;
+        params[`id_${index}`] = entry.id;
+      });
+      const rows = db.prepare(`
 SELECT type, id, status, fail_reason, expires_at, updated_at
 FROM titles
 WHERE (type, id) IN ( VALUES ${placeholders} );
 `).all(params) as TitleRow[];
-    for (const row of rows) {
+      for (const row of rows) {
       result.set(titleKey(row.type, row.id), row);
+      }
     }
-  }
-  return result;
+    return result;
 }
 
 export type PlayabilityRetryCandidate = {
@@ -2925,7 +2925,7 @@ SELECT DISTINCT
   COALESCE(
     (
       SELECT rp.rail_id
-      FROM rail_pool rp
+FROM rail_pool rp
       WHERE rp.type = q.type AND rp.id = q.id
       LIMIT 1
     ),
@@ -3012,22 +3012,22 @@ export async function getRailPoolTitleKeysBulk(
 
   await initPlayabilityDb();
   const db = openDb();
-  const placeholders = railIds.map((_, index) => `@rail_${index}`).join(', ');
-  const params: Record<string, string> = {};
-  railIds.forEach((railId, index) => {
-    params[`rail_${index}`] = railId;
-  });
-  const rows = db.prepare(`
+    const placeholders = railIds.map((_, index) => `@rail_${index}`).join(', ');
+    const params: Record<string, string> = {};
+    railIds.forEach((railId, index) => {
+      params[`rail_${index}`] = railId;
+    });
+    const rows = db.prepare(`
 SELECT rail_id, type, id
 FROM rail_pool
 WHERE rail_id IN (${placeholders});
 `).all(params) as Array<{ rail_id: string; type: string; id: string }>;
-  for (const row of rows) {
-    const keys = result.get(row.rail_id) ?? new Set<string>();
+    for (const row of rows) {
+      const keys = result.get(row.rail_id) ?? new Set<string>();
     keys.add(titleKey(row.type, canonicalBrowseId(row.type, row.id)));
-    result.set(row.rail_id, keys);
-  }
-  return result;
+      result.set(row.rail_id, keys);
+    }
+    return result;
 }
 
 export async function getTitleVerifyProfile(
@@ -3036,7 +3036,7 @@ export async function getTitleVerifyProfile(
 ): Promise<TitleVerifyProfile | null> {
   await initPlayabilityDb();
   const db = openDb();
-  const row = db.prepare(`
+    const row = db.prepare(`
 SELECT
   type,
   id,
@@ -3052,25 +3052,25 @@ SELECT
 FROM titles
 WHERE type = @type AND id = @id;
 `).get({ type, id }) as {
-    type: string;
-    id: string;
-    status: TitleVerifyProfile['status'];
+      type: string;
+      id: string;
+      status: TitleVerifyProfile['status'];
     first_verified_at: number | null;
-    best_source: string | null;
-    cache_status: string | null;
-    debrid_service: string | null;
-    win_url_hash: string | null;
+      best_source: string | null;
+      cache_status: string | null;
+      debrid_service: string | null;
+      win_url_hash: string | null;
     win_ladder_step: string | null;
     probe_ms: number | null;
-    expires_at: number | null;
-  } | undefined;
-  return row ?? null;
+      expires_at: number | null;
+    } | undefined;
+    return row ?? null;
 }
 
 export async function getRailPoolTitleKeys(railId: string): Promise<Set<string>> {
   await initPlayabilityDb();
   const db = openDb();
-  const rows = db.prepare(`
+    const rows = db.prepare(`
 SELECT type, id
 FROM rail_pool
 WHERE rail_id = @rail_id;
@@ -3790,7 +3790,7 @@ INSERT INTO vod_browse_reservoir_rails_v3(
           JSON.stringify(payload.items),
         );
       }
-      db.prepare(`
+    db.prepare(`
 UPDATE vod_browse_reservoir_generations_v3
 SET state = 'ready', rail_count = ?, candidate_count = ?, trusted_count = ?,
     excluded_count = ?, published_at = ?, error = NULL
@@ -3902,11 +3902,11 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
     ELSE rail_pool.evidence_retrieved_at
   END;
 `).run({
-    rail_id: entry.rail_id,
-    type: entry.type,
+      rail_id: entry.rail_id,
+      type: entry.type,
     id: canonicalBrowseId(entry.type, entry.id),
-    score: entry.score,
-    ingested_at: nowMs(),
+      score: entry.score,
+      ingested_at: nowMs(),
     title: entry.title ?? null,
     poster_url: entry.poster_url ?? null,
     year: entry.year ?? null,
@@ -4086,7 +4086,7 @@ WHERE semantic_evidence_hash IS NOT excluded.semantic_evidence_hash
 // relation rather than counting the physical gate rows.
 const VERIFIED_RECOMMENDATION_CORPUS_CTE = `
 WITH verified_recommendation_sources AS (
-  SELECT
+SELECT
     t.*,
     CASE
       WHEN t.type = 'series'
@@ -4244,14 +4244,14 @@ WITH memberships AS (
     AND (@content_type IS NULL OR rp.type = @content_type)
   GROUP BY rp.type, rp.id
 ), ranked AS (
-  SELECT
-    rp.rail_id,
-    rp.type,
-    rp.id,
+SELECT
+  rp.rail_id,
+  rp.type,
+  rp.id,
     rp.title,
     rp.poster_url AS poster,
     rp.year,
-    t.verified_at,
+  t.verified_at,
     ROW_NUMBER() OVER (
       PARTITION BY rp.type, rp.id
       ORDER BY
@@ -4259,8 +4259,8 @@ WITH memberships AS (
         rp.ingested_at DESC,
         rp.rail_id ASC
     ) AS row_rank
-  FROM rail_pool rp
-  JOIN titles t ON t.type = rp.type AND t.id = rp.id
+FROM rail_pool rp
+JOIN titles t ON t.type = rp.type AND t.id = rp.id
   WHERE t.status = 'verified'
     AND (@content_type IS NULL OR rp.type = @content_type)
     AND rp.title IS NOT NULL
@@ -4593,12 +4593,12 @@ export async function allocateTabRailSessions(
         verified_pool: pool.length,
       });
     }
-  };
+      };
 
   if (options.browseV3) {
     dealBrowseSessions();
     return snapshots;
-  }
+    }
 
   const transaction = db.transaction(() => {
     for (const rail of options.rails) {
@@ -4734,7 +4734,7 @@ FROM vod_tab_deals_v3 WHERE tab = ? AND state = 'active'
       db.prepare("UPDATE vod_tab_deals_v3 SET state = 'previous' WHERE tab = ? AND state = 'active'")
         .run(input.tab);
     }
-    db.prepare(`
+      db.prepare(`
 INSERT INTO vod_tab_deals_v3(
   tab, deal_epoch, state, session_id, recommendation_revision, payload_json, created_at
 ) VALUES (?, ?, 'active', ?, ?, ?, ?)
@@ -4785,8 +4785,8 @@ export async function getOrCreateRailSession(
     && !sessionItemsConflictWithOccupied(existing, siblingOccupied)
   ) {
     return {
-      rail_id: options.railId,
-      session_id: options.sessionId,
+        rail_id: options.railId,
+        session_id: options.sessionId,
       items: existing,
       verified_pool: pool.length,
     };
@@ -4819,7 +4819,7 @@ export async function getOrCreateRailSession(
 
   const transaction = db.transaction(() => {
     writeRailSessionRows(db, options.railId, options.sessionId, rows, now);
-    db.prepare(`
+      db.prepare(`
 DELETE FROM recently_shown
 WHERE shown_at < @prune_before;
 `).run({ prune_before: now - 14 * 24 * 60 * 60 * 1000 });
@@ -4829,15 +4829,15 @@ WHERE shown_at < @prune_before;
 DELETE FROM rail_session
 WHERE created_at < @prune_before;
 `).run({ prune_before: now - 2 * 24 * 60 * 60 * 1000 });
-  });
-  transaction();
+    });
+    transaction();
 
-  return {
-    rail_id: options.railId,
-    session_id: options.sessionId,
-    items: rows,
-    verified_pool: pool.length,
-  };
+    return {
+      rail_id: options.railId,
+      session_id: options.sessionId,
+      items: rows,
+      verified_pool: pool.length,
+    };
 }
 
 function shufflePoolRows<T>(items: T[]): T[] {
@@ -4870,20 +4870,20 @@ export async function pickRailRelatedFromPool(
 export async function enqueuePlayabilityTrigger(record: PlayabilityTriggerRecord): Promise<void> {
   await initPlayabilityDb();
   const db = openDb();
-  db.prepare(`
+    db.prepare(`
 INSERT INTO playability_triggers (
   created_at, trigger_type, rail_id, type, id_value, reason, handled_at
 ) VALUES (
   @created_at, @trigger_type, @rail_id, @type, @id_value, @reason, NULL
 );
 `).run({
-    created_at: nowMs(),
-    trigger_type: record.trigger_type,
-    rail_id: record.rail_id ?? null,
-    type: record.type ?? null,
-    id_value: record.id ?? null,
-    reason: record.reason ?? null,
-  });
+      created_at: nowMs(),
+      trigger_type: record.trigger_type,
+      rail_id: record.rail_id ?? null,
+      type: record.type ?? null,
+      id_value: record.id ?? null,
+      reason: record.reason ?? null,
+    });
 }
 
 /**
@@ -5018,8 +5018,8 @@ export async function invalidateTitle(record: {
   const status = reason === 'play_failure' ? 'failed' : 'stale';
   const confirmedFailure = status === 'failed';
   const preserveSession = record.preserve_session === true || reason === 'play_miss';
-  const transaction = db.transaction(() => {
-    db.prepare(`
+    const transaction = db.transaction(() => {
+      db.prepare(`
 INSERT INTO titles (
   type, id, status, verified_at, expires_at, fail_reason, best_source,
   cache_status, debrid_service, probe_ms, win_url_hash, updated_at
@@ -5032,12 +5032,12 @@ ON CONFLICT(type, id) DO UPDATE SET
   fail_reason = @reason,
   updated_at = @updated_at;
 `).run({
-      type: record.type,
-      id: record.id,
+        type: record.type,
+        id: record.id,
       status,
       reason,
-      updated_at: timestamp,
-    });
+        updated_at: timestamp,
+      });
 
     if (confirmedFailure) {
       db.prepare(`
@@ -5063,14 +5063,14 @@ WHERE ${sessionWhere};
       });
     }
 
-    db.prepare(`
+      db.prepare(`
 INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)
 VALUES (@started_at, @rail_id, @type, @id_value, 'invalidate', 0, @outcome);
 `).run({
-      started_at: timestamp,
-      rail_id: record.rail_id ?? null,
-      type: record.type,
-      id_value: record.id,
+        started_at: timestamp,
+        rail_id: record.rail_id ?? null,
+        type: record.type,
+        id_value: record.id,
       outcome: reason,
     });
     scheduleRetry(db, {
@@ -5080,9 +5080,9 @@ VALUES (@started_at, @rail_id, @type, @id_value, 'invalidate', 0, @outcome);
       now: timestamp,
       delay_ms: reason === 'play_miss' ? 0 : playabilityFailedRetryMsForReason(reason),
       priority: retryPriority(reason, true),
+      });
     });
-  });
-  transaction();
+    transaction();
   invalidateRailPoolCache();
   await enqueuePlayabilityTrigger({
     trigger_type: reason === 'play_failure' ? 'play_failure' : 'stale',

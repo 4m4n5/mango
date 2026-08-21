@@ -8,7 +8,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
-export HOME="${HOME:-/home/aman}"
+export HOME="${HOME:?HOME must be set}"
 
 cd "$REPO_DIR"
 

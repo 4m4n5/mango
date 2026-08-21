@@ -23,7 +23,7 @@ import json, os, subprocess, sys, time
 from pathlib import Path
 
 label = sys.argv[1]
-home = Path(os.environ.get("HOME", "/home/aman"))
+home = Path(os.environ.get("HOME", str(Path.home())))
 display = os.environ.get("DISPLAY", ":0")
 xauth = os.environ.get("XAUTHORITY", str(home / ".Xauthority"))
 env = {"DISPLAY": display, "XAUTHORITY": xauth, "HOME": str(home)}
@@ -91,7 +91,7 @@ data = {
         "mango_log": run(["bash", "-c", f"tail -8 {home}/.cache/mango/mango.log 2>/dev/null | tr '\\n' ' | '"]),
         "launch_log": run(["bash", "-c", f"tail -8 {home}/.cache/mango/mango-ui-launch.log 2>/dev/null | tr '\\n' ' | '"]),
     },
-    "bluetooth": run(["bluetoothctl", "info", "E4:17:D8:EB:00:44"])[:400],
+    "bluetooth": run(["bluetoothctl", "info", os.environ.get("MANGO_GAMEPAD_BT_MAC", "")])[:400] if os.environ.get("MANGO_GAMEPAD_BT_MAC") else "unset MANGO_GAMEPAD_BT_MAC",
 }
 print(json.dumps(data, indent=2))
 PY

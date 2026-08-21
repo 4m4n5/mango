@@ -902,7 +902,7 @@ SELECT id, kind, title, subtitle, description, thumbnail, channel_id, channel_ti
 FROM youtube_items
 WHERE (@kind IS NULL OR kind = @kind)
 ORDER BY updated_at DESC
-  LIMIT @limit;
+LIMIT @limit;
 `).all({ kind, limit: Math.max(1, Math.min(20_000, limit)) }) as YoutubeItem[];
   return rows.map((row) => youtubeItemFromRow(row as YoutubeItem & { tags_json?: string }));
 }
@@ -1069,8 +1069,8 @@ ON CONFLICT(profile_id, rail_id, context_id, kind, id) DO UPDATE SET
       ? Math.max(0, Math.trunc(input.quick_stop_count))
       : current?.quick_stop_count ?? 0,
     created_at: current?.created_at ?? timestamp,
-    updated_at: timestamp,
-  });
+        updated_at: timestamp,
+      });
 }
 
 /**

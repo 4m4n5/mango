@@ -1192,11 +1192,11 @@ export class YoutubeService {
           : await this.api.searchRecommendationVideos(entry.spec.query, {
               limit: entry.spec.limit,
               order: entry.spec.order,
-              type: 'video',
+          type: 'video',
               publishedAfter: entry.spec.publishedAfterDays
                 ? rfc3339DaysAgo(entry.spec.publishedAfterDays) : undefined,
               videoDuration: entry.spec.videoDuration,
-              safeSearch: 'moderate',
+          safeSearch: 'moderate',
               deadline_at: acquisitionDeadlineAt,
             });
         if (nowMs() >= acquisitionDeadlineAt) {
@@ -1781,15 +1781,15 @@ export class YoutubeService {
     for (let index = 0; index < channels.length; index += SUBSCRIPTION_CHANNELS_PER_REFRESH) {
       const batch = channels.slice(index, index + SUBSCRIPTION_CHANNELS_PER_REFRESH);
       try {
-        const uploadPlaylists = await this.api.channelUploadPlaylists(
+    const uploadPlaylists = await this.api.channelUploadPlaylists(
           batch.map((channel) => channel.id),
-          token,
+      token,
           false,
         );
         for (let offset = 0; offset < batch.length; offset += SUBSCRIPTION_PLAYLIST_CONCURRENCY) {
           const slice = batch.slice(offset, offset + SUBSCRIPTION_PLAYLIST_CONCURRENCY);
           const results = await Promise.allSettled(slice.map(async (channel) => {
-            const playlistId = uploadPlaylists.get(channel.id);
+        const playlistId = uploadPlaylists.get(channel.id);
             if (!playlistId) return { channel, items: [] as YoutubeRankedVideo[], unavailable: true };
             try {
               const items = await this.api.playlistRecommendationVideos(
@@ -1851,7 +1851,7 @@ export class YoutubeService {
           return [];
         }
         return [{
-          item,
+      item,
           provenance: isLiveVideo(item) ? 'subscription_live' as const : 'subscription_upload' as const,
           provenance_ref: channel.id,
           source_generation: sourceGeneration,
@@ -2401,20 +2401,20 @@ export class YoutubeService {
     ).source;
     const cached = getYoutubeItem('video', id);
     const item: YoutubeItem = cached ?? {
-      id,
-      kind: 'video',
-      title: input.title || id,
-      subtitle: 'YouTube',
-      description: null,
-      thumbnail: input.poster || null,
-      channel_id: null,
-      channel_title: null,
-      published_at: null,
-      duration_sec: null,
-      live_status: 'none',
-      playlist_id: null,
-      updated_at: nowMs(),
-    };
+        id,
+        kind: 'video',
+        title: input.title || id,
+        subtitle: 'YouTube',
+        description: null,
+        thumbnail: input.poster || null,
+        channel_id: null,
+        channel_title: null,
+        published_at: null,
+        duration_sec: null,
+        live_status: 'none',
+        playlist_id: null,
+        updated_at: nowMs(),
+      };
     if (!cached) {
       upsertYoutubeItems([item]);
     }
@@ -2452,8 +2452,8 @@ export class YoutubeService {
       playbackResolved.url,
       90000,
       {
-        live,
-        playEpoch,
+      live,
+      playEpoch,
         minDurationSec: 1,
         startSec,
         audioUrl: playbackResolved.audio_url,

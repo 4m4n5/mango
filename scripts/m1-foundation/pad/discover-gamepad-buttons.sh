@@ -20,7 +20,7 @@ for path in evdev.list_devices():
         break
 
 if dev is None:
-    raise SystemExit("Pro Controller not found — bluetoothctl connect E4:17:D8:EB:00:44")
+    raise SystemExit("Pro Controller not found — set MANGO_GAMEPAD_BT_MAC and run connect-gamepad.sh")
 
 print(f"Listening on {dev.path} ({dev.name}) for {duration}s — press each button once.")
 print("Codes: 304=B 307=X secondary 308=Y 310=L tab− 311=R tab+ 314=− volume down 315=+ volume up 316=HOME 311=home alt")

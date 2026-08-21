@@ -19,7 +19,7 @@ fi
 TV_USER="${SUDO_USER:-aman}"
 TV_HOME="/home/${TV_USER}"
 REPO_DIR="${MANGO_REPO_DIR:-${TV_HOME}/mango}"
-BT_MAC="${MANGO_GAMEPAD_BT_MAC:-E4:17:D8:EB:00:44}"
+BT_MAC="${MANGO_GAMEPAD_BT_MAC:?set MANGO_GAMEPAD_BT_MAC to the pad Bluetooth address}"
 MAIN_CONF="/etc/bluetooth/main.conf"
 STATE_DIR="/etc/mango/controller-reliability"
 STATE_FILE="${STATE_DIR}/install-state.json"

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { parse as parseYaml } from 'yaml';
 
-export type RailType = 'addon_catalog' | 'composite_list' | 'stremio_library' | 'tmdb_list' | 'static_ids';
+export type RailType = 'addon_catalog' | 'composite_list' | 'tmdb_list' | 'static_ids';
 
 export type CatalogTab = 'movies' | 'series' | 'live' | 'youtube';
 

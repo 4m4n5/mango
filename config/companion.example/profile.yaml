@@ -1,13 +1,13 @@
 version: 2
-updated_at: 2026-07-25T13:14:01.024Z
+updated_at: 2026-01-01T00:00:00.000Z
 familiarity:
-  stage: regular
-  score: 1
-  sessions: 15
-  completed_watches: 17
+  stage: new
+  score: 0
+  sessions: 0
+  completed_watches: 0
 identity:
   languages:
-    - hinglish
+    - english
   reply_style: contextual
 taste:
   loves: []
@@ -17,40 +17,13 @@ taste:
   mood_defaults:
     weeknight: null
     weekend: null
-facts:
-  - Tried to watch 'Adarsh Baal Vidyalaya' (Amazon Prime show); content did not
-    load and was queued for verification
+facts: []
 open_questions:
   - What genres or moods do you usually enjoy watching?
   - Do you prefer watching alone or with someone?
-  - Any languages you prefer for content — Hindi, English, or both?
+  - Any languages you prefer for content?
   - Are there any shows or films you've loved recently?
-  - Do you have a usual time you like to watch — weeknights, weekends, or both?
+  - Do you have a usual time you like to watch?
 behavior:
   proactive_opt_in: false
-session_notes:
-  - No new voice turns or session activity detected in this consolidation pass.
-    Profile remains at early regular stage with no taste signals, facts, or
-    behavioral preferences captured. All five foundational open questions remain
-    active and unanswered. Awaiting meaningful user interaction to begin
-    building profile substance.
-  - No new voice turns or session activity detected in this consolidation pass.
-    Profile continues at early regular stage with no taste signals, facts, or
-    behavioral preferences captured. All five foundational open questions remain
-    active and unanswered. Awaiting meaningful user interaction to begin
-    building profile substance.
-  - "Consolidation pass 4: No new voice turns or session activity detected.
-    Profile remains at early regular stage with no taste signals, facts, or
-    behavioral preferences captured. All five foundational open questions remain
-    active and unanswered. Awaiting meaningful user interaction to begin
-    building profile substance."
-  - "Consolidation pass 5: No new voice turns or session activity detected.
-    Profile remains at early regular stage with no taste signals, facts, or
-    behavioral preferences captured. All five foundational open questions remain
-    active and unanswered. Awaiting meaningful user interaction to begin
-    building profile substance."
-  - "Consolidation pass 6: User searched for 'Adarsh Baal Vidyalaya', an Amazon
-    Prime show. Content was found via Cinemeta but failed to load and was queued
-    for verification. No taste signals, genre preferences, or behavioral data
-    captured yet. All five foundational open questions remain unanswered."
-
+session_notes: []

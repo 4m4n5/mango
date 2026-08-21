@@ -10,12 +10,12 @@ source "$ROOT/scripts/lib/pi-deploy-preflight.sh"
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
-if mango_require_deploy_branch "main" 2>/dev/null; then
+if mango_require_deploy_branch "feat/native-experience" 2>/dev/null; then
   fail "wrong branch was accepted"
 fi
 pass "wrong branch refused"
 
-mango_require_deploy_branch "feat/native-experience"
+mango_require_deploy_branch "main"
 pass "required branch accepted"
 
 tmp="$(mktemp -d)"

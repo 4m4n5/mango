@@ -14,7 +14,7 @@ DIR="$(diag_session_dir)" || {
 
 LOGS="${DIR}/logs"
 mkdir -p "$LOGS"
-HOME="${HOME:-/home/aman}"
+HOME="${HOME:?HOME must be set}"
 
 copy_if() {
   local src=$1

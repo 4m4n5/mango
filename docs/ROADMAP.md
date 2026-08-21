@@ -1,10 +1,9 @@
 # mango — implementation roadmap
 
-**Branch:** `feat/native-experience` · **Vision:** [VISION.md](VISION.md) · **Current truth:** [STATUS.md](STATUS.md)
+**Branch:** `main` · **Product:** [PRODUCT.md](PRODUCT.md) · **Current truth:** [STATUS.md](STATUS.md)
 
 This file describes remaining outcomes and their dependency order. Completed
-implementation detail belongs in [STATUS.md](STATUS.md) and subsystem docs;
-exact historical proof belongs in task reports.
+implementation detail belongs in [STATUS.md](STATUS.md) and feature docs.
 
 ## At a glance
 
@@ -75,7 +74,7 @@ Before promotion work, first harden the deployment helpers, then deploy the
 exact intended branch revision through Git,
 inventory and preserve Pi-owned state, and record:
 
-- fail-closed enforcement of `feat/native-experience`, a successful origin
+- fail-closed enforcement of `main`, a successful origin
   fetch, and exact requested-SHA pin/readback on Mac and Pi;
 - removal or default-disable of the implicit AIOMetadata rail mutation from
   ordinary deploy; any explicit state workflow must use private temp files,
@@ -134,10 +133,9 @@ Required outcomes:
    any future bulk artifact/importer is justified. It is absent, not a rollout
    prerequisite, and must not reintroduce a corpus-wide online teacher loop.
 
-Current design: [FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md) ·
-[YOUTUBE.md](YOUTUBE.md). The older
-[bulk-work prompt](tasks/RECOMMENDATIONS_STORYDNA_BULK_WORK_AGENT_PROMPT.md) is
-planning input only until progressive measurements justify that architecture.
+Current design: [features/content-and-playback.md](features/content-and-playback.md) ·
+[features/youtube.md](features/youtube.md). Whole-corpus bulk teacher work is
+absent and must stay absent until progressive measurements justify it.
 
 ### P2 — implement intentional display sleep
 
@@ -223,7 +221,7 @@ Required outcomes:
 
 ### P5 — finish product acceptance and first boot
 
-- Run the consolidated current [COUCH_TEST.md](COUCH_TEST.md) against one exact
+- Run the consolidated current [TESTING.md](TESTING.md) against one exact
   release revision: browse/Detail, Search, playback/HUD/Streams, ratings and
   recommendation quality, YouTube, Live, controller, phone/voice, offline and
   restart behavior, display sleep, and target-TV fidelity.
@@ -256,7 +254,7 @@ Required outcomes:
 | Resolver fan-out is slow or contradictory | AIO-only target, close the legacy direct-MediaFusion exception, single flights, classified retries, shared deadline, provider topology diagnostics |
 | Thin rails starve | Source-yield accounting and targeted curation without weakening theme/playability contracts |
 | Deploy disrupts active viewing or operator state | Idle preflight, dirty-state inventory, Git-only pull, stateful config handled separately |
-| Deploy helper selects/moves the wrong revision | Enforce `feat/native-experience`, fail closed on fetch, pin requested SHA, read back origin/Mac/Pi hashes |
+| Deploy helper selects/moves the wrong revision | Enforce `main`, fail closed on fetch, pin requested SHA, read back origin/Mac/Pi hashes |
 | Ordinary deploy mutates AIOMetadata private state | Remove/default-disable implicit sync; explicit human-authorized workflow with secure temp, cleanup, redaction and surfaced failure |
 | Optional Live makes a Live-off box falsely red | Neutral disabled state plus configured-no-cache red regression tests |
 | Automatic repair destroys useful evidence/state | Safe repair allowlist; never routine DB/cache/history/credential deletion |
@@ -275,4 +273,4 @@ bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-reliability-
 ```
 
 Add the subsystem gates named in [STATUS.md](STATUS.md) and complete the human
-checks in [COUCH_TEST.md](COUCH_TEST.md). Live remains explicitly opt-in.
+checks in [TESTING.md](TESTING.md). Live remains explicitly opt-in.

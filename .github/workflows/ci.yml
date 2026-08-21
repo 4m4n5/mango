@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  mac-pr:
+    name: local-pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install catalog-service
+        run: npm ci
+        working-directory: src/catalog-service
+      - name: Install launcher
+        run: npm ci
+        working-directory: src/launcher
+      - name: Install companion
+        run: npm ci
+        working-directory: src/companion
+      - name: Public surface and docs
+        run: |
+          python3 scripts/check-doc-links.py
+          python3 scripts/check-public-surface.py
+      - name: Catalog unit gate
+        run: bash scripts/lib/gate-catalog-unit.sh src/catalog-service
+      - name: Launcher build and tests
+        run: |
+          npm run build
+          npm test
+        working-directory: src/launcher
+      - name: Companion build
+        run: npm run build
+        working-directory: src/companion
+      - name: HUD and deploy contracts
+        run: |
+          python3 scripts/m2-catalog/service/test_mango_hud_contract.py
+          bash scripts/m6-ship/gate-m6-stream-picker-source.sh
+          bash scripts/m6-ship/test-pi-deploy-hardening.sh
+
+  notice:
+    name: evidence-boundary
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "This workflow is local-pass only. Pi-gated and couch-observed proof stay on the device."

@@ -1,7 +1,7 @@
 # M5 voice — stack scripts
 
 Text/PTT librarian orchestrator + companion HTTPS. See
-[`docs/VOICE.md`](../../../docs/VOICE.md). The supported Pi path returns text;
+[`docs/features/search-and-librarian.md`](../../../docs/features/search-and-librarian.md). The supported Pi path returns text;
 TTS remains disabled until TV audio/ducking is physically accepted.
 
 | Script | When |

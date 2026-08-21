@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Mac: verify the Pi is on the expected SHA and run pre-couch gate.
-# Never rsync — see docs/DEPLOY.md
+# Never rsync — see docs/OPERATIONS.md
 # Usage: bash scripts/pi-exec-gate.sh
 
 set -euo pipefail

@@ -34,4 +34,4 @@ remains the sole input owner; the UI server only serializes browser navigation
 and acknowledgements.
 
 See [architecture](../../docs/ARCHITECTURE.md),
-[operations](../../docs/OPS.md), and [Search](../../docs/SEARCH.md).
+[operations](../../docs/OPERATIONS.md), and [Search](../../docs/features/search-and-librarian.md).

@@ -25,7 +25,7 @@ usage:
 Auto-import (Pi, Stremio already logged in):
   bash $0 --from-local
 
-Manual addon export from Stremio desktop (secrets file only — not repo deploy; see docs/DEPLOY.md):
+Manual addon export from Stremio desktop (secrets file only — not repo deploy; see docs/OPERATIONS.md):
   1. Open Stremio → ⚙ Settings → Export
   2. Save the JSON file
   3. scp export.json mango:/tmp/stremio-export.json   # /etc/mango secret, not git

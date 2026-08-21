@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/irctl.sh
 source "$SCRIPT_DIR/lib/irctl.sh"
 
-BT_MAC="E4:17:D8:EB:00:44"
+BT_MAC="${MANGO_GAMEPAD_BT_MAC:?set MANGO_GAMEPAD_BT_MAC to the pad Bluetooth address}"
 DEVICE_NAME="Pro Controller"
 
 find_pro_controller_event() {

@@ -35,7 +35,7 @@ if start_via_systemd; then
   systemctl --user start mango-orchestrator.service mango-companion.service
   if wait_voice_healthy; then
     echo "✓ voice stack up (systemd: mango-orchestrator, mango-companion; launcher HUD only)"
-    echo "  phone: https://${MANGO_PI_IP:-10.0.0.174}:3001"
+    echo "  phone: https://${MANGO_PI_IP:-${MANGO_PI_HOST:-mango.local}}:3001"
     exit 0
   fi
   echo "voice systemd units started but health check timed out" >&2
@@ -58,7 +58,7 @@ tmux new-session -d -s mango-companion \
 
 if wait_voice_healthy; then
   echo "✓ voice stack up (tmux: mango-orch, mango-companion; launcher HUD only)"
-  echo "  phone: https://${MANGO_PI_IP:-10.0.0.174}:3001"
+  echo "  phone: https://${MANGO_PI_IP:-${MANGO_PI_HOST:-mango.local}}:3001"
   exit 0
 fi
 

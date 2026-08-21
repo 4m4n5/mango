@@ -19,7 +19,7 @@ fi
 python_prune="$REPO_DIR/scripts/m6-ship/prune-mango-sqlite.py"
 node_prune="$REPO_DIR/src/catalog-service/dist/library/prune-cli.js"
 if [[ ! -f "$python_prune" && ! -f "$node_prune" ]]; then
-  echo "prune helper missing; pull feat/native-experience or build catalog-service" >&2
+  echo "prune helper missing; pull main or build catalog-service" >&2
   exit 1
 fi
 

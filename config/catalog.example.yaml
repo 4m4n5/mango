@@ -401,5 +401,5 @@ rails:
       ingest_multiplier: 10
   - id: continue
     label: continue watching
-    type: stremio_library
+    type: addon_catalog
     enabled: false

@@ -87,7 +87,7 @@ loopback-only.
 The base filter default uses a 90-second automatic wall. The current `4k-hifi`
 profile deliberately uses 120 seconds and can select compatible 4K SDR HEVC;
 native HDR through X11/mpv is not a supported claim. See
-[`docs/PLAYABILITY.md`](../../docs/PLAYABILITY.md).
+[`docs/features/content-and-playback.md`](../../docs/features/content-and-playback.md).
 
 ## Library and recommendations
 
@@ -120,8 +120,8 @@ ownership/HTTP 409, VOD shadow identity/Saved inconsistency, false Shuffle
 success in VOD off/shadow, incomplete active-pointer diagnostics, and missing
 focused replacements for removed legacy service tests. [STATUS](../../docs/STATUS.md)
 owns those blockers. See
-[`docs/FIRE_WATER_RATINGS.md`](../../docs/FIRE_WATER_RATINGS.md) and
-[`docs/YOUTUBE.md`](../../docs/YOUTUBE.md).
+[`docs/features/content-and-playback.md`](../../docs/features/content-and-playback.md) and
+[`docs/features/youtube.md`](../../docs/features/youtube.md).
 
 ## Development
 
@@ -146,4 +146,4 @@ idempotence proof.
 
 Pi verification is Git-only and exact-SHA. Run the relevant gates in
 [`docs/STATUS.md`](../../docs/STATUS.md#verification) and complete
-[`docs/COUCH_TEST.md`](../../docs/COUCH_TEST.md); local tests do not prove the TV.
+[`docs/TESTING.md`](../../docs/TESTING.md); local tests do not prove the TV.

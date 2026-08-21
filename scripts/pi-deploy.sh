@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mac: git pull on Pi, build, restart. Never rsync — see docs/DEPLOY.md
+# Mac: git pull on Pi, build, restart. Never rsync — see docs/OPERATIONS.md
 #
 # Usage:
 #   bash scripts/pi-deploy.sh [--fast] [--full] [--gate]
