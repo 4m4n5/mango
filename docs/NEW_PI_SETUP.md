@@ -5,8 +5,10 @@ provider, Google, voice, and Live credentials while seeding only the donor
 box's verified VOD playability library.
 
 This is an operator installation. The M6.4 no-SSH installer does not exist yet.
-Do not use `pi-deploy.sh` or `pi-exec-gate.sh` for first boot: they currently do
-not pin `feat/native-experience` safely and can mutate AIOMetadata state.
+Do not use `pi-deploy.sh` or `pi-exec-gate.sh` as a first-boot installer: they
+are update/gate wrappers, not a replacement for the setup phases below. Current
+wrappers fail closed on branch, fetch, dirty state, and expected SHA; automated
+AIOMetadata mutation is opt-in.
 
 ## Result and trust boundary
 
@@ -770,5 +772,6 @@ It probes only due/stale evidence; it is not a full rebuild from scratch.
 The Pi remains a Git checkout. Future source changes move by commit/push/pull
 and a dependency-aware build—never by copying repository files. Keep all
 credentials, manifests, databases, cookies, certificates, and provider state
-on the recipient device. Follow [DEPLOY.md](DEPLOY.md); its unattended wrapper
-blocker remains binding until the helper is hardened.
+on the recipient device. Follow [DEPLOY.md](DEPLOY.md): its wrappers now enforce
+branch/SHA/fetch preconditions and leave AIOMetadata sync disabled unless an
+operator explicitly opts in.
