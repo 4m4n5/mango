@@ -45,4 +45,6 @@ SHA, generation counts, or “Pi serves” claims.
 | Check pad and display contracts | [HARDWARE.md](HARDWARE.md) · [DECISIONS.md](DECISIONS.md) |
 
 Reference configuration lives in [reference/](reference/). Agent invariants
-live in [`../AGENTS.md`](../AGENTS.md).
+live in [`../AGENTS.md`](../AGENTS.md). Open incident evidence (facts only; not
+current product spec):
+[`tasks/NIGHTLY_WAKE_GROW_RECS_INCIDENT_2026-08-21.md`](tasks/NIGHTLY_WAKE_GROW_RECS_INCIDENT_2026-08-21.md).
