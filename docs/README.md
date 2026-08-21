@@ -50,3 +50,5 @@ current product spec):
 [`tasks/NIGHTLY_WAKE_GROW_RECS_INCIDENT_2026-08-21.md`](tasks/NIGHTLY_WAKE_GROW_RECS_INCIDENT_2026-08-21.md).
 Independent diagnosis and local patch evidence:
 [`tasks/NIGHTLY_WAKE_GROW_RECS_DIAGNOSIS_2026-08-21.md`](tasks/NIGHTLY_WAKE_GROW_RECS_DIAGNOSIS_2026-08-21.md).
+Pi proof plus outstanding recs/grow/ranking failures (handoff):
+[`tasks/RECS_GROW_HANDOFF_2026-08-21.md`](tasks/RECS_GROW_HANDOFF_2026-08-21.md).
