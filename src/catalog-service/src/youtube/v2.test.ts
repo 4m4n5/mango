@@ -3328,6 +3328,49 @@ test('Not-for-me applies a decaying channel penalty while exact video veto stays
   assert.ok(generation.items.some((item) => item.score_breakdown && item.score_breakdown.penalty < 1));
 }));
 
+test('diagnostics report a retained populated More Like allocation after a zero-budget attempt', () => withTempState(() => {
+  const now = Date.now();
+  const items = Array.from({ length: 4 }, (_, index) => video(
+    `RetainedMoreLike${index}`,
+    `Retained More Like ${index}`,
+    `retained-channel-${index}`,
+  ));
+  const generation = publishYoutubeV2Generation({
+    model_version: YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION,
+    source_hash: 'retained-more-like-source',
+    watch_count: 1,
+    subscription_count: 0,
+    generated_at: now,
+    items: items.map((item, index) => ({
+      rail_id: 'more_like',
+      item,
+      score: 1 - index * 0.01,
+      reason: 'same topic',
+      provenance: 'history_topic',
+      provenance_ref: 'retained-seed',
+      source_expires_at: now + 60_000,
+    })),
+  });
+  setYoutubeState('youtube_v2_more_like_status', {
+    status: 'not_applicable',
+    seed_refs: [],
+    attempted_seed_count: 0,
+    contributing_seed_count: 0,
+    candidate_count: 0,
+    target: YOUTUBE_V2_MORE_LIKE_TARGET,
+    target_reached: false,
+    at: now,
+  });
+
+  const status = youtubeV2Diagnostics().more_like_status as Record<string, unknown>;
+  assert.equal(status.status, 'thematic');
+  assert.equal(status.candidate_count, 4);
+  assert.equal(status.allocated_seed_count, 1);
+  assert.equal(status.retained_last_good, true);
+  assert.equal(status.allocated_generation, generation);
+  assert.equal(status.attempted_seed_count, 0);
+}));
+
 test('v3 diagnostics keep impression-free sampling and embeddings off by default', () => withTempState(() => {
   seedV2();
   rebuildYoutubeV2Generation({ force: true });
