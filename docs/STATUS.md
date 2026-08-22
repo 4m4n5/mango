@@ -6,29 +6,31 @@ Historical.
 
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [TESTING.md](TESTING.md)
 
-Latest recorded Pi deployment: **2026-08-20**,
-`28f2e1cd76cf288112dd5e77f9004ac9053e8fdd`. Re-authorized OAuth refresh
-published generation 50 with every phase `ok`; proof plays advanced the local
-generation to **53**, still with `source_stale=false`. YouTube now has a hard
-1080p ceiling while retaining one HLS-first/https-DASH resolve. The final
-play-session matrix passed six populated recommendation/history rails plus the
-corpus and cancel route at 240p–1080p; Saved and Live Now were empty/deferred.
-The exact-SHA playback gate passed. A synchronized-start probe reached intended
-1s at 1.667s with ALSA/GPU active and 9.091ms A/V skew; a 20-cycle HUD
-hide/show render proof changed 468,411 bottom-screen pixels and retained visible
-HUD state. The broad pre-couch gate remains incomplete only because a retained
-More Like rail and its zero-budget `not_applicable` diagnostic disagree.
-Reliability remains usable-yellow. Human couch verdict remains **DEFERRED** for
-picture, audio, lip-sync, controller feel, recommendations, and VOD poster fill.
+Latest recorded Pi deployment: **2026-08-21**,
+`d09f4dc493e58d7575809f6e0d014340d1430384`. The Trustworthy Recommendation
+Refactor is deployed and the exact-SHA pre-couch gate passes. A full staged
+nightly at `6d5d479` (the same recommendation/playability code) passed
+integrity, publication, recommendation enqueue, YouTube refresh, and proof:
+verified titles grew **9,959 → 10,170**, strict verified **1,870 → 2,081**,
+and the publication read back schema 19 at the recorded Git SHA. Final
+`d09f4dc` readback has both desired revisions fully acknowledged, six-card
+Movies and Series **For You**, fresh Live rails, the launcher focused at
+1920×1080, and the isolated worker active with zero restarts. The deployed
+follow-ups bound persisted Fire/Water uplift, restart the worker on every
+deploy, and report retained YouTube More Like state from the allocated
+generation; the targeted YouTube smoke and broad pre-couch gate both pass.
+Reliability remains usable-yellow for historical rail-growth/nightly trend
+warnings; one of 32 sampled served titles was broken and retained as honest
+evidence. Human couch verdict remains **DEFERRED** for picture, audio,
+lip-sync, controller feel, recommendation relevance, and VOD poster fill.
 Use `git status`, `git rev-parse HEAD`, and the Pi commands below before acting.
 
-## Current local-source — 2026-08-21 (Trustworthy Recommendation Refactor)
+## Current deployed source — 2026-08-21 (Trustworthy Recommendation Refactor)
 
-**Evidence level:** source-complete + local-pass only. **Not** Pi-deployed,
-Pi-gated, or couch-observed. Workstation HEAD at documentation time:
-`293f8ec3b25fec26b5eab4d727c81dfe8bd09a3b` (uncommitted on
-`feat/native-experience`). Latest recorded Pi deployment below remains
-**2026-08-20** at `28f2e1cd76cf288112dd5e77f9004ac9053e8fdd`.
+**Evidence level:** source-complete + local-pass + Pi-deployed + Pi-gated.
+**Not couch-observed.** Final tested Pi SHA:
+`d09f4dc493e58d7575809f6e0d014340d1430384` on
+`feat/native-experience`.
 
 ### VOD rank and serve contract (local source)
 
@@ -79,7 +81,7 @@ Pi-gated, or couch-observed. Workstation HEAD at documentation time:
 
 | Check | Result |
 |-------|--------|
-| catalog-service `npm test` | **1163/1163** pass |
+| catalog-service `npm test` | **1165/1165** pass |
 | launcher `npm test` | **141/141** pass |
 | launcher `npm run build` | pass |
 | catalog-service `npm run build` | pass |
@@ -87,15 +89,26 @@ Pi-gated, or couch-observed. Workstation HEAD at documentation time:
 | `test_ops_grow_sla.py` | 12/12 pass |
 | `test_playability_refresh_decision.py` | 5/5 pass |
 
-### Still unproven without Pi / couch
+### Pi verification (2026-08-21)
 
-- Isolated worker rank **duration**, **peak RSS**, and catalog **serve latency**
-  under real corpus load on Pi 5.
+- Full staged nightly publication passed at `6d5d479`: `quick_check=ok`, zero
+  foreign-key errors, schema 19, **10,170** verified titles, **2,081** strict
+  verified, +49 unique grow titles and +53 rail placements after stale refresh.
+- Worker revisions converged after transactional stale-build discard; final
+  `d09f4dc` readback is Movies **6/6** and Series **5/5** acknowledged with
+  zero attempts/errors. The observed peak was ~338 MB under the 384 MiB hard
+  envelope with zero restarts; final settled process peak after deploy was
+  ~217 MB.
+- Active generations have complete accounting, two taste lanes, reserve depth
+  **1,255 Movies / 1,094 Series**, cached serving p95 **6.9 / 5.0 ms**, and
+  `serve_basis=evidence_cold_start` because stratified ratings remain sparse.
+- Final `d09f4dc` broad pre-couch gate passed. Targeted YouTube smoke passed
+  after diagnostics were tied to the allocated retained More Like generation.
+
+### Still unproven without couch / repeated unattended runs
+
 - **Three unattended nights** with the new enqueue-only grow path and separate
   `recommendation_rc` reporting.
-- **Original 522 expired-verified demotion count** on first staged stale refresh
-  after deferring live pre-stage sweeps (local source moves demotion to stale
-  only; Pi magnitude not measured here).
 - Human **couch relevance**, **focus/Back**, and **playability** for For You /
   Top Picks / Related / YouTube More to watch on a deployed SHA.
 
@@ -122,16 +135,16 @@ may still contain retired task reports; they prove only their exact revision.
 | Native mpv playback | Complete; proof-v2 identity and exact-episode failure tracking at `aac293d` | My Next Guest and Dead Silent played; Alliance E37/E44 reached exact-main proof-v2, while the other E36+ episodes had no accepted current source result after TVDB correction | Target-TV/audio proof; proof-v2 Home admission policy after natural legacy renewal |
 | HUD and Streams drawer | Complete; overlay binds only after real VO and survives hide/show without payload removal | Pi `28f2e1c`: source/runtime gates passed; 20-cycle screenshot-difference proof retained a visible HUD with 468,411 changed bottom-screen pixels | Human Streams switch/Undo and 4K dropped-frame/no-regression couch pass |
 | Mango library and Fire/Water input | Canonical Saved placement and tab-only library migration 18; ratings remain complete | Final Pi migration/readback passed: 12 misclassified tabs repaired to 0, user-state keys/counts preserved, Movies Saved 6 / Series Saved 8 / wrong-tab 0 | Human Dune-from-TV-Search placement and physical UI check |
-| VOD recommendations | Local 2026-08-21: deterministic IDF-weighted 0/1/2 lanes, desired-revision worker, truthful Top Picks, enqueue-only grow; legacy LOAO quarantined | **Historical Pi** (`fb20baa` / `28f2e1c`): complete 5,930/3,974 accounting, browse reservoirs, cached X p95 ~120 ms, zero inline rank work on shuffle | Pi deploy + rank duration/RSS proof; three unattended nights; couch relevance/focus/playability; staged stale demotion magnitude |
+| VOD recommendations | Deterministic IDF-weighted 0/1/2 lanes, desired-revision worker, truthful Top Picks, enqueue-only grow; legacy LOAO quarantined | Pi `d09f4dc`: Movies/Series desired revisions fully acknowledged; active complete accounting, two lanes, 1,255/1,094 reserves, cached p95 6.9/5.0 ms, zero worker restarts | Three unattended nights; couch relevance/focus/playability |
 | Native YouTube base | Complete; hard 1080p ceiling, single HLS-first/https-DASH selector, play-session proof metadata, synchronized real-VO/AO release | Pi `28f2e1c`: full matrix PASS on For You, Subscriptions, Regulars, More Like, Beyond, History, corpus VOD, and cancel-interrupt at 240p–1080p. Saved and Live Now empty/deferred. Resolver 4.584–5.269s and TTFF 4.044–7.903s in the final run | Human YT4 picture, audio, lip-sync, and perceived latency |
-| YouTube recommendations | `youtube-household-v3.0`: Takeout + local meaningful watches, channel affinity, decaying channel Not-for-me, Your regulars 2+2; MiniLM on (`Xenova/all-MiniLM-L6-v2`, blend). Nightly Live probes skip cleanly when background Search is exhausted instead of painting every rail stale | OAuth re-authorized; full refresh generation 50 completed every phase `ok`; proof plays advanced generation to 53 with `source_stale=false`. Broad smoke found a retained More Like rail/zero-budget diagnostic mismatch only | Human Regulars mix, MiniLM relevance, focus/Back, offline, picture/audio; reconcile More Like diagnostic |
+| YouTube recommendations | `youtube-household-v3.0`: Takeout + local meaningful watches, channel affinity, decaying channel Not-for-me, Your regulars 2+2; MiniLM on (`Xenova/all-MiniLM-L6-v2`, blend). Nightly Live probes skip cleanly when background Search is exhausted instead of painting every rail stale | Pi `d09f4dc`: full nightly refresh passed; retained More Like diagnostics now derive from allocated generation; targeted and broad smoke pass | Human Regulars mix, MiniLM relevance, focus/Back, offline, picture/audio |
 | Voice/phone companion | Complete for trusted-LAN development contract | Automated corpus/memory/UX gates on earlier revisions; partial couch work | Full V1–V12/current coherence plus per-device client auth/pairing before appliance release |
-| Reliability Center/nightly proof | Implemented; sanitized launcher terminal outcomes and proof-version/type-conflict/episode counts added at `275ceb2` | Final Pi state is usable-yellow; terminal fixture recorded 2 playing and 2 `resolve/no_stream` failures, and the served-card sample found 16/32 legacy proof-v1 misses | Three clean nightly proofs, intentionally-disabled-Live policy, controller-action UI mismatch |
+| Reliability Center/nightly proof | Implemented; sanitized launcher terminal outcomes and proof-version/type-conflict/episode counts added at `275ceb2` | Pi `d09f4dc` usable-yellow only for historical nightly/rail-growth trend warnings; final broad gate passed, with 1/32 broken served-title sample retained honestly | Three clean unattended proofs, intentionally-disabled-Live policy, controller-action UI mismatch |
 | Controller reconnect | Source-complete | Automated gate exists; normal-wake behavior partially exercised | Five physical power-on reconnect cycles without pairing mode |
 | Display sleep | **Not implemented** | Recorded Pi still exposed accidental Xorg 600-second DPMS values | Implement locked Settings/idle/mpv/DPMS/CEC contract and prove on TV |
-| Library grow | Complete, hardening | Ordinary nightly timer no longer enables the non-causal source-hitrate benchmark; schema 19 and the fixed 30-second user resolve budget were read back on Pi | Three clean unattended nights, causal thin-rail yield, then evidence-backed source expansion |
+| Library grow | Complete, hardening | Full staged Pi nightly passed: 9,959 → 10,170 verified, 1,870 → 2,081 strict verified, schema 19 readback; 7/12 rails met per-run target and five honest source/theme shortfalls retained | Three clean unattended nights; causal yield repair for exhausted thin rails |
 | 4K SDR / HDR | 4K SDR path implemented; native HDR unsupported | Older experiment proved smooth source-matched 4K SDR HEVC; HDR/X11 was not usable | Final-TV SDR/audio matrix; either credible HDR integration or explicit no-HDR ship boundary |
-| Deployment | Git-only; wrappers fail closed on branch/SHA/fetch; AIOMetadata sync opt-in | Pi `28f2e1c` deployed with hardened `pi-deploy.sh` (AIOMetadata skipped); two inspected runtime-owned companion profile files were preserved via explicit dirty override | Human picture/audio still distinct from this exact-SHA git proof |
+| Deployment | Git-only; wrappers fail closed on branch/SHA/fetch; AIOMetadata sync opt-in | Pi `d09f4dc` deployed with AIOMetadata skipped; two inspected runtime-owned Companion outputs preserved via explicit dirty override; exact-SHA pre-couch passed | Human picture/audio still distinct from this exact-SHA git proof |
 | First boot | Not implemented | Operator-installed system | M6.4 no-SSH installer/wizard |
 
 ## Recorded source and Pi baseline

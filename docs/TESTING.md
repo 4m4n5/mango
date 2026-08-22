@@ -62,23 +62,25 @@ Minimum human matrix:
 Do not inherit PASS from older screenshots or task reports. Update
 [STATUS.md](STATUS.md) only after a named SHA observation.
 
-### Local-source snapshot — 2026-08-21 (Trustworthy Recommendation Refactor)
+### Verified snapshot — 2026-08-21 (Trustworthy Recommendation Refactor)
 
-Workstation-only evidence for the deterministic-lane + isolated-worker
-refactor. **Not** Pi or couch proof.
+Local and Pi evidence for the deterministic-lane + isolated-worker refactor.
+Human couch quality remains separate.
 
 | Check | Result |
 |-------|--------|
-| `cd src/catalog-service && npm test` | 1163/1163 |
+| `cd src/catalog-service && npm test` | 1165/1165 |
 | `cd src/launcher && npm test` | 141/141 |
 | launcher / catalog-service `npm run build` | pass |
 | `gate-m3-library-grow.sh` | pass |
 | `test_ops_grow_sla.py` | 12/12 |
 | `test_playability_refresh_decision.py` | 5/5 |
+| Full staged Pi nightly at `6d5d479` | pass; 9,959 → 10,170 verified |
+| Final exact-SHA Pi pre-couch at `d09f4dc` | pass |
+| Final targeted YouTube smoke | pass |
 
-Still unproven without Pi deploy: worker rank duration and peak RSS, catalog
-serve latency under load, three unattended nights, staged stale demotion
-magnitude (original 522 estimate), and couch relevance/focus/playability.
+Still unproven: three unattended nights and human couch
+relevance/focus/playability, picture, audio, lip-sync, and controller feel.
 
 ## Reliability Center
 
