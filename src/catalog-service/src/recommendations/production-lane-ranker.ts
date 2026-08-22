@@ -58,6 +58,9 @@ import {
 } from './story-graph-v1.js';
 
 export const VOD_DETERMINISTIC_LANE_RANK_KIND = 'deterministic-lanes-v1' as const;
+// Keep persisted thread diagnostics compatible with the historical [0, 1]
+// posterior contract and its small neutral prior.
+const THREAD_AXIS_PRIOR_STRENGTH = 0.25;
 
 /** Preserve legacy `total_implicit_mass` semantics for diagnostic parity. */
 function legacyImplicitSignalStrength(signal: StoryGraphImplicitSignal, asOf: number): number {
@@ -178,12 +181,12 @@ function synthesizeThread(
     (sum, signal) => sum + legacyImplicitSignalStrength(signal, asOf),
     0,
   );
-  const fireMean = explicitAnchors.length > 0
-    ? explicitAnchors.reduce((sum, r) => sum + r.fire, 0) / explicitAnchors.length
-    : 3.5;
-  const waterMean = explicitAnchors.length > 0
-    ? explicitAnchors.reduce((sum, r) => sum + r.water, 0) / explicitAnchors.length
-    : 3.5;
+  const fireNumerator = explicitAnchors.reduce((sum, rating) => (
+    sum + storyRatingAnchorStrength(rating.fire, rating.water) * positiveRatingEvidence(rating.fire)
+  ), 0);
+  const waterNumerator = explicitAnchors.reduce((sum, rating) => (
+    sum + storyRatingAnchorStrength(rating.fire, rating.water) * positiveRatingEvidence(rating.water)
+  ), 0);
   const uncertainty = Math.max(0.1, 1 / (1 + explicitAnchors.length));
   return {
     thread_id: threadIdForLane(index),
@@ -192,8 +195,8 @@ function synthesizeThread(
     effective_evidence_mass: explicitMass + implicitMass,
     explicit_evidence_mass: explicitMass,
     implicit_evidence_mass: implicitMass,
-    fire_uplift: Math.max(-2, Math.min(2, (fireMean - 3.5) / 1.5)),
-    water_uplift: Math.max(-2, Math.min(2, (waterMean - 3.5) / 1.5)),
+    fire_uplift: Math.max(0, Math.min(1, fireNumerator / (explicitMass + THREAD_AXIS_PRIOR_STRENGTH))),
+    water_uplift: Math.max(0, Math.min(1, waterNumerator / (explicitMass + THREAD_AXIS_PRIOR_STRENGTH))),
     fire_uncertainty: uncertainty,
     water_uncertainty: uncertainty,
     explicit_profile: { total_mass: explicitMass, families: {} },
