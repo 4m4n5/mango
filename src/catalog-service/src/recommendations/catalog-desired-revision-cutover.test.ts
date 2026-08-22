@@ -54,6 +54,8 @@ test('setup script installs and enables the isolated VOD recs worker unit', () =
     'install-systemd-units.sh must install mango-vod-recs-worker.service');
   assert.ok(/systemctl.*enable[^\n]*mango-vod-recs-worker/.test(setupSource),
     'install-systemd-units.sh must enable mango-vod-recs-worker');
+  assert.ok(/systemctl.*restart mango-vod-recs-worker/.test(setupSource),
+    'deploy must restart mango-vod-recs-worker so it loads the current compiled ranker');
 });
 
 test('systemd unit caps memory at <= 384M for the isolated worker', () => {
