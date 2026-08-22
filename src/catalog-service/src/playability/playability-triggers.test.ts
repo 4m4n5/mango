@@ -7,10 +7,12 @@ import test from 'node:test';
 import {
   enqueuePlayabilityTrigger,
   getPlayFailureTitlesForReverify,
+  getStaleTitlesForRefresh,
   getTitlePlayability,
   invalidateTitle,
   listUnhandledPlayabilityTriggers,
   markPlayabilityTriggersHandled,
+  queueProactiveRenewalsBeforeExpiry,
   recordVerifyResult,
   resetPlayabilityDbForTests,
   sweepExpiredVerified,
@@ -152,5 +154,51 @@ test('H3: sweepExpiredVerified demotes expired verified rows to stale, idempoten
     // Idempotent: the row is no longer status='verified', so a second sweep finds nothing.
     const second = await sweepExpiredVerified(now);
     assert.equal(second.swept, 0);
+  });
+});
+
+test('proactive renewal queues near-expiry verified titles without demoting them', async () => {
+  await withTempDb(async () => {
+    const oldLead = process.env.MANGO_PLAYABILITY_PROACTIVE_RENEW_LEAD_MS;
+    const oldLimit = process.env.MANGO_PLAYABILITY_PROACTIVE_RENEW_LIMIT;
+    process.env.MANGO_PLAYABILITY_PROACTIVE_RENEW_LEAD_MS = String(60 * 60 * 1000);
+    process.env.MANGO_PLAYABILITY_PROACTIVE_RENEW_LIMIT = '10';
+    try {
+      const now = Date.now();
+      await recordVerifyResult({
+        type: 'movie',
+        id: 'tt-near-expiry',
+        status: 'verified',
+        expires_at: now + 5 * 60 * 1000,
+      });
+      await recordVerifyResult({
+        type: 'movie',
+        id: 'tt-far-expiry',
+        status: 'verified',
+        expires_at: now + 48 * 60 * 60 * 1000,
+      });
+
+      const queued = await queueProactiveRenewalsBeforeExpiry(now);
+      assert.equal(queued.queued, 1);
+      assert.equal(queued.considered, 1);
+
+      const due = await getStaleTitlesForRefresh(10, now);
+      assert.equal(due.some((row) => row.id === 'tt-near-expiry' && row.reason === 'pre_expiry_renewal'), true);
+      assert.equal(due.some((row) => row.id === 'tt-far-expiry'), false);
+
+      const near = await getTitlePlayability('movie', 'tt-near-expiry');
+      assert.equal(near?.status, 'verified');
+    } finally {
+      if (oldLead === undefined) {
+        delete process.env.MANGO_PLAYABILITY_PROACTIVE_RENEW_LEAD_MS;
+      } else {
+        process.env.MANGO_PLAYABILITY_PROACTIVE_RENEW_LEAD_MS = oldLead;
+      }
+      if (oldLimit === undefined) {
+        delete process.env.MANGO_PLAYABILITY_PROACTIVE_RENEW_LIMIT;
+      } else {
+        process.env.MANGO_PLAYABILITY_PROACTIVE_RENEW_LIMIT = oldLimit;
+      }
+    }
   });
 });

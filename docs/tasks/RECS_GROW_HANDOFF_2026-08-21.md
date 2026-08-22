@@ -4,6 +4,13 @@ Work contract for an independent diagnosis and a principled redesign of how
 Household VOD recommendations interact with playability grow, catalog liveness,
 and nightly maintenance.
 
+**Status (local source 2026-08-21):** the **Trustworthy Recommendation
+Refactor** is source-complete on workstation HEAD `293f8ec3` (uncommitted).
+See [STATUS.md](../STATUS.md#current-local-source--2026-08-21-trustworthy-recommendation-refactor)
+for the current contract and local test matrix. **Not** Pi-deployed or
+couch-observed. Historical observation windows below remain intact evidence for
+the pre-refactor failure class.
+
 This file is an **observation log plus product ask**. It is not a root-cause
 analysis and not a patch plan. Prior chats, the local diagnosis at
 [`NIGHTLY_WAKE_GROW_RECS_DIAGNOSIS_2026-08-21.md`](NIGHTLY_WAKE_GROW_RECS_DIAGNOSIS_2026-08-21.md),
@@ -16,6 +23,7 @@ extend. Re-read source. Re-derive conclusions. Invent the architecture.
 | Pi SHA at proof | `ad73f1032db16b6d50c9d0d7cce8fd09f6f59188` |
 | Incident evidence | [`NIGHTLY_WAKE_GROW_RECS_INCIDENT_2026-08-21.md`](NIGHTLY_WAKE_GROW_RECS_INCIDENT_2026-08-21.md) |
 | Local diagnosis (no Pi) | [`NIGHTLY_WAKE_GROW_RECS_DIAGNOSIS_2026-08-21.md`](NIGHTLY_WAKE_GROW_RECS_DIAGNOSIS_2026-08-21.md) |
+| Local refactor complete | workstation `293f8ec3` — deterministic lanes, desired-revision worker, enqueue-only grow (see STATUS) |
 | Household Pi | hostname `mango`, SSH host `mango` |
 | Proof window | 2026-08-21 10:43–12:17 PDT |
 | Proof operator | home agent after `ad73f10` was already pushed |
@@ -58,14 +66,27 @@ absorb the new corpus, then YouTube refresh, then SQLite maintenance, then
 reliability proof.
 
 Browse v3 X-shuffle is a cached weighted sample with **no provider or rank
-work**. That path is not the failure under study. The failure is the **heavy
-background rank / refresh** that runs at catalog startup, after playability
-publication, and on couch-preempted resume — and how nightly grow couples to it.
+work**. That path is not the failure under study. The failure was the **heavy
+background rank / refresh** that ran inside catalog at startup, after playability
+publication, and on couch-preempted resume — and how nightly grow coupled to it.
+
+**Local refactor (2026-08-21) addresses the coupling class in source:** rank
+work moved to `mango-vod-recs-worker.service` (ignores couch preemption,
+low-priority/≤384 MiB); grow enqueues `vod_desired_revisions` with the live
+household taste/exclusion hash; only **activated** ranks ack — failures stay
+pending with 1m–1h retry; pointer swap checks stale revision transactionally;
+playability/compaction stop the enabled worker before exclusive DB work and
+restore after; nightly records separate `recommendation_rc`; full VACUUM
+deferred to offline compaction; POT fd 200 closed; staged stale owns expiry
+demotion; grow pre-stage is trigger drain only. Pi proof of duration/RSS/latency
+and couch quality remains open.
 
 Current documented knobs: `MANGO_VOD_RECS_V2=off|shadow|serve`; Fire/Water
-ratings; last-good rails while a refresh is in flight. Default story-graph rank
-timeout is **15 minutes** (`MANGO_STORY_GRAPH_RANK_TIMEOUT_MS`). VOD rec waiter
-budget is **900 seconds**. Library SQLite `busy_timeout` is **5000 ms**.
+ratings; last-good rails while a refresh is in flight. Legacy story-graph rank
+timeout (`MANGO_STORY_GRAPH_RANK_TIMEOUT_MS`, default 15 minutes) applies only
+when `MANGO_VOD_LEGACY_LOAO_RANK=1`. The enqueue-only grow path no longer waits
+on a 900-second job-completion budget. Library SQLite `busy_timeout` is **5000
+ms**.
 
 ## Two observation windows
 
@@ -505,6 +526,25 @@ After an independent deep dive:
 5. Summarize remaining risk, including the discarded Window-1 +40 titles (gone
    from live) and the Window-2 unique count still below the 10233 catalog-up
    baseline.
+
+### Local refactor delivered (2026-08-21, workstation only)
+
+| Target contract item | Local source implementation |
+|----------------------|----------------------------|
+| Process isolation | `mango-vod-recs-worker.service`; catalog enqueue-only; ignores couch preemption; low-priority/≤384 MiB |
+| Desired revision ack | `vod_desired_revisions` (migration 19); household taste/exclusion hash; **activated-only** ack; failures pending with 1m–1h retry |
+| Stale before pointer swap | `updateActiveGeneration` transactional desired-revision check |
+| Grow does not wait on rank | `playability-maintenance.sh` queues revision; no waiter on critical path |
+| Exclusive DB windows | playability-maintenance + offline compaction stop enabled worker before publish/VACUUM; restore after |
+| Deterministic rank within Pi envelope | 0/1/2 IDF-weighted lanes; full-corpus centroids |
+| Truthful serve | Top Picks fallback; activation gates; last-good retention without false ack |
+| Nightly VACUUM decoupled | removed from `nightly-library-refresh.sh`; `library-offline-compaction.sh` |
+| fd leak class | `youtube-pot-server.sh` closes fd 200 before detach |
+| Staged stale demotion | expiry sweep on stale refresh only; grow pre-stage trigger drain only |
+
+**Still unproven on Pi:** rank duration/RSS, catalog latency, three unattended
+nights, original ~522 demotion magnitude on first staged stale sweep, couch
+relevance/focus/playability. Deploy and gate before treating handoff as closed.
 
 Pi artifacts already captured (do not fetch):
 

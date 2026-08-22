@@ -193,7 +193,7 @@ the table and API on the Pi.
 ### Mango library state
 
 Mango is the user-library source of truth. `progress.db` v2 owns profile-exact
-Continue/resume, while `/etc/mango/library.db` is deployed through v18. The latest
+Continue/resume, while `/etc/mango/library.db` is deployed through v19. The latest
 recorded Pi deployment is in [STATUS.md](STATUS.md). At historical SHA `04171bb`,
 migration 18 repaired 12 noncanonical tabs to zero, all live
 databases passed `quick_check`, audited user-state keys/counts were preserved,
@@ -299,7 +299,12 @@ progressive/frontier/calibration/usage state; library migration 16 adds immutabl
 StoryDNA overlays keyed by content plus semantic-evidence hash; library
 migration 17 adds immutable per-content-generation priors and refresh phase,
 cursor, heartbeat, deadline, generation-link, typed-error, successor, and
-phase/peak-memory diagnostics; playability
+phase/peak-memory diagnostics; library migration 19 adds `vod_desired_revisions`
+(stored `taste_signature` from `currentStoryGraphTasteRevision`: household
+ratings, Saved, meaningful watches, hidden/blocked/Not-for-me, daily decay)
+for enqueue-only catalog triggers; worker advances `acknowledged_revision` only
+on **activated** outcomes — failed/non-activating ranks stay pending with 1m–1h
+bounded retry; playability
 migration 14 adds semantic revisions. The exact executable target
 `7a8bc1bd6f08928270ff092a8a9dad26c02419bf` passes the recorded focused and
 full Mac/Pi suites plus the aggregate pre-couch gate; human thematic and
@@ -308,40 +313,57 @@ rollback disables exposure (`shadow`/`off`);
 older ranking code requires a reviewed Git rollback and can read preserved
 historical rows.
 
-The local model learns up to three supported Household taste threads from
-positive Fire/Water, Saved, and meaningful VOD viewing. Ratings below `1` are
-negative, `1–2` is neutral, and values above `2` contribute quadratically
-increasing positive evidence. Negative ratings exclude the exact title but do
-not propagate a broad thematic veto. Where explicit evidence exists it owns 85% of
-affinity; Saved (`0.8`) and meaningful partial/completed viewing (`0.55`/`1.0`)
-share at most 15% and renormalize for cold start. A meaningful watch reaches
+The local model learns Household taste from positive Fire/Water, Saved, and
+meaningful VOD viewing. Ratings below `1` are negative, `1–2` is neutral, and
+values above `2` contribute quadratically increasing positive evidence. Negative
+ratings exclude the exact title but do not propagate a broad thematic veto.
+Where explicit evidence exists it owns 85% of affinity; Saved (`0.8`) and
+meaningful partial/completed viewing (`0.55`/`1.0`) share at most 15% and
+renormalize for cold start. A meaningful watch reaches
 `min(25% of duration, 5 minutes)`, or two minutes when duration is unknown;
 watch influence has a 180-day half-life while ratings do not decay. Rated,
 Saved, meaningfully watched, hidden, blocked, exact Not-for-me,
 artwork-deficient, and currently unverified titles
 cannot render, although retained evidence may still inform taste where the
-contract permits. A six-card cached dealer allocates strongest fits `2/2/2`,
-`3/3`, or all six across the supported threads and samples within fit using a
-bounded 1x–32x quadratic relevance weight. It uses the absolute 2.5 risk-score
-floor when that supplies the 200-title reserve; otherwise it calibrates to the
-200th-strongest finite risk score because uncertainty-adjusted rank scores are
-not on the predicted-axis scale. It avoids the preceding four slates when
-supply permits. There is no close/adjacent/surprise slot, bridge,
-cooled-rewatch lane, MMR repair, or
-visible explanation. If six cards cannot be healed, the prior valid slate stays
-active.
+contract permits.
+
+**Current local rank path (2026-08-21):** deterministic sparse IDF-weighted
+0/1/2 taste lanes over content-profile features. Primary and optional secondary
+seeds are dissimilar positive anchors; each candidate is lane-assigned, scored
+against weighted lane centroids over the **full verified corpus**, and slotted
+3+3 (two lanes with ≥2 anchors each) or all-six (one lane). Portfolio and
+dealer caches come from the canonical story-graph helpers. When no generation
+is activatable, Home shows an honest **Top Picks** rail instead of **For You**.
+The legacy Bayesian K=1..3 / LOAO ranker remains quarantined behind
+`MANGO_VOD_LEGACY_LOAO_RANK=1` and is off by default.
+
+**Historical rank path (Pi through `28f2e1c` and earlier):** uncertainty-aware
+posterior graph matching with up to three positive taste threads, 128-title
+worker pages, and in-catalog 15-minute maintenance lease flights. See
+historical sections in [STATUS.md](STATUS.md).
 
 Compatible content generations and their immutable corpus priors are reused for
 taste-only changes. Profile compilation and rank persistence use deterministic
-128-title pages (configurable 32–256). One Movies/TV worker is initialized with
-compact priors plus positive anchors and scores bounded pages; the full corpus
-is never passed through `workerData`. Insufficient-label evaluation returns
-without empty five-fold corpus replay.
+128-title pages (configurable 32–256) when the legacy LOAO path is enabled;
+the default deterministic lane ranker scores the full corpus in the isolated
+worker without paging the universe through `workerData`.
 
-Heavy work owns a 15-minute cache lease with a ten-second heartbeat and checks
-authoritative couch/playback activity at page boundaries. Couch activity keeps
-last-good, coalesces the job as `couch_preempted`, and links a successor for the
-next idle window.
+**Heavy work (local 2026-08-21):** `mango-vod-recs-worker.service` owns rank
+flights. It holds a filesystem lease with heartbeat, reads pending rows from
+`vod_desired_revisions` when `retry_due`, and runs with
+`ignore_couch_preemption` under low priority and a ≤384 MiB envelope. Only
+**activated** ranks advance `acknowledged_revision`; `last_good_retained` and
+transient failures stay **pending** with exponential retry (1 minute → 1 hour).
+`updateActiveGeneration` re-checks desired revision **inside its transaction**
+before swapping the active pointer. Catalog boot reconciles desired revisions,
+serves cache-only slates, and enqueues only. Playability maintenance and offline
+compaction stop the enabled worker before exclusive DB publication/VACUUM and
+restart it afterward.
+
+**Historical heavy work:** one Movies/TV in-catalog worker initialized with
+compact priors plus positive anchors, a 15-minute cache lease with ten-second
+heartbeat, and couch-preempt yield at page boundaries. Two-cycle Pi stability
+passed under 1280M/1536M limits on earlier SHA.
 
 Rating/Save/meaningful-watch mutations commit first, immediately evict the exact
 known item, and enqueue a serialized/coalesced rescore followed by a full scan.
@@ -362,8 +384,9 @@ Detail uses `vod-related-v1`: it admits enriched candidates only on direct
 genre plus strong direct StoryDNA-family overlap, bounds weighted rotation to
 the strongest 64 qualified matches, and uses Household affinity only as a
 tie-break. Sparse anchors require exact thematic/category overlap plus an
-independent factual family; insufficient evidence omits Related honestly. An
-opaque server-issued token binds the immutable served Household owner,
+independent factual family; insufficient evidence omits Related honestly. On
+YouTube Detail, the resample rail label is **More to watch**; VOD Detail keeps
+**Related**. An opaque server-issued token binds the immutable served Household owner,
 domain, rail, served revision, exact membership, source revision, and bounded
 context. Public cards carry opaque content IDs needed for actions, but the TV
 never renders them; predictions, private tags/prompts, URLs, credentials, and AI

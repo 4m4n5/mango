@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { isCouchIdleForTriggerConsumer } from '../playability/trigger-consumer.js';
 
 export const RECOMMENDATION_MAINTENANCE_LEASE_STALE_MS = 30_000;
-export const RECOMMENDATION_MAINTENANCE_DEADLINE_MS = 15 * 60_000;
+export const RECOMMENDATION_MAINTENANCE_DEADLINE_MS = 5 * 60_000;
 
 export type RecommendationMemorySnapshot = {
   rss: number;

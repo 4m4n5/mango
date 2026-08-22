@@ -74,6 +74,8 @@ mkdir -p "$CACHE"
 (
   cd "$DEST/node_modules"
   PATH="$(dirname "$DENO_BIN"):$PATH"
+  # playability-maintenance lock fd; must never leak into detached Deno.
+  exec 200>&- || true
   nohup "$DENO_BIN" run --allow-env --allow-net --allow-ffi=. --allow-read=. \
     ../src/main.ts --port "$PORT" >>"$LOG_FILE" 2>&1 &
   echo $! >"$PID_FILE"

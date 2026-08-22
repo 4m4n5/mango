@@ -22,6 +22,83 @@ Reliability remains usable-yellow. Human couch verdict remains **DEFERRED** for
 picture, audio, lip-sync, controller feel, recommendations, and VOD poster fill.
 Use `git status`, `git rev-parse HEAD`, and the Pi commands below before acting.
 
+## Current local-source — 2026-08-21 (Trustworthy Recommendation Refactor)
+
+**Evidence level:** source-complete + local-pass only. **Not** Pi-deployed,
+Pi-gated, or couch-observed. Workstation HEAD at documentation time:
+`293f8ec3b25fec26b5eab4d727c81dfe8bd09a3b` (uncommitted on
+`feat/native-experience`). Latest recorded Pi deployment below remains
+**2026-08-20** at `28f2e1cd76cf288112dd5e77f9004ac9053e8fdd`.
+
+### VOD rank and serve contract (local source)
+
+- **Deterministic sparse IDF-weighted 0/1/2 taste lanes** replace the runtime
+  Bayesian K=1–3 / LOAO-fitted model. Fire/Water `>2` contributes quadratically
+  increasing positive evidence; `1–2` is neutral; exact `<1` titles are vetoed
+  upstream before rank. Two lanes activate only when each has **≥2 anchors**;
+  otherwise one lane carries the slate.
+- **Full-corpus centroid scoring** ranks every eligible verified title; portfolio
+  and dealer selection use the canonical story-graph helpers (not a truncated
+  worker page).
+- **Legacy LOAO** (`rankStoryGraphRecommendationsOffThread`, K=1..3 fitting) is
+  **quarantined** behind `MANGO_VOD_LEGACY_LOAO_RANK=1` and **absent by default**.
+- **Library migration 19** (`vod_desired_revisions`) is the latest schema
+  marker: durable per-tab desired revisions keyed by the **actual current
+  household taste/exclusion hash** (`currentStoryGraphTasteRevision`: Fire/Water
+  ratings, Saved, meaningful watches, hidden/blocked/Not-for-me, daily decay
+  bucket) plus corpus/semantic generation inputs.
+- **Desired-revision lifecycle:** `acknowledged_revision` advances **only** on
+  successful **activation** (transactional pointer swap). Failed or
+  non-activating ranks (`last_good_retained`) **remain pending** with bounded
+  exponential retry (1 minute → 1 hour cap). Stale builds (`discarded_stale`)
+  never ack. Pointer swap re-checks desired revision **inside the activation
+  transaction** so a superseded build cannot publish.
+- **Isolated `mango-vod-recs-worker.service`** runs rank work outside catalog
+  with a file lease, heartbeat, and stale-build detection; **ignores couch
+  preemption** (`ignore_couch_preemption`) but runs **low-priority and
+  resource-bounded** (`Nice=10`, `CPUWeight=20`, ≤384 MiB envelope target — design
+  ceiling, not measured Pi RSS).
+- **Catalog only enqueues**: signal handlers and grow publication persist desired
+  revisions and return HTTP 202 job IDs; they do not run rank flights or hold the
+  old in-catalog 15-minute maintenance lease for heavy work.
+- **Truthful Top Picks**: when no personalized generation is activatable, Home
+  shows a labelled **Top Picks** rail (never a false **For You**).
+- **VOD Detail Related** contract unchanged (`vod-related-v1`). **YouTube
+  Detail** resample label is **More to watch** (VOD stays **Related**).
+- **Playability maintenance:** staged **stale** refresh owns expired-verified
+  demotion and proactive near-expiry renewal; **grow-only** pre-stage is trigger
+  drain + migrate only (no live expiry sweep). Exclusive publish windows **stop
+  the enabled worker** (and catalog) before DB publication, then **restore** it.
+- **Offline compaction:** `library-offline-compaction.sh` backs up state, stops
+  worker + catalog, runs VACUUM/`quick_check`, restores services. Nightly records
+  separate `recommendation_rc`; no full `library.db` VACUUM on the critical path.
+- **YouTube POT fd 200 closure**: `youtube-pot-server.sh` closes inherited fd 200
+  before detached Deno start so grow maintenance flock cannot leak.
+
+### Local verification (2026-08-21)
+
+| Check | Result |
+|-------|--------|
+| catalog-service `npm test` | **1163/1163** pass |
+| launcher `npm test` | **141/141** pass |
+| launcher `npm run build` | pass |
+| catalog-service `npm run build` | pass |
+| `gate-m3-library-grow.sh` | pass (grow SLA, waiter-not-on-critical-path, POT fd, offline compaction) |
+| `test_ops_grow_sla.py` | 12/12 pass |
+| `test_playability_refresh_decision.py` | 5/5 pass |
+
+### Still unproven without Pi / couch
+
+- Isolated worker rank **duration**, **peak RSS**, and catalog **serve latency**
+  under real corpus load on Pi 5.
+- **Three unattended nights** with the new enqueue-only grow path and separate
+  `recommendation_rc` reporting.
+- **Original 522 expired-verified demotion count** on first staged stale refresh
+  after deferring live pre-stage sweeps (local source moves demotion to stale
+  only; Pi magnitude not measured here).
+- Human **couch relevance**, **focus/Back**, and **playability** for For You /
+  Top Picks / Related / YouTube More to watch on a deployed SHA.
+
 ## How to read this page
 
 | Evidence | What it proves |
@@ -45,7 +122,7 @@ may still contain retired task reports; they prove only their exact revision.
 | Native mpv playback | Complete; proof-v2 identity and exact-episode failure tracking at `aac293d` | My Next Guest and Dead Silent played; Alliance E37/E44 reached exact-main proof-v2, while the other E36+ episodes had no accepted current source result after TVDB correction | Target-TV/audio proof; proof-v2 Home admission policy after natural legacy renewal |
 | HUD and Streams drawer | Complete; overlay binds only after real VO and survives hide/show without payload removal | Pi `28f2e1c`: source/runtime gates passed; 20-cycle screenshot-difference proof retained a visible HUD with 468,411 changed bottom-screen pixels | Human Streams switch/Undo and 4K dropped-frame/no-regression couch pass |
 | Mango library and Fire/Water input | Canonical Saved placement and tab-only library migration 18; ratings remain complete | Final Pi migration/readback passed: 12 misclassified tabs repaired to 0, user-state keys/counts preserved, Movies Saved 6 / Series Saved 8 / wrong-tab 0 | Human Dune-from-TV-Search placement and physical UI check |
-| VOD recommendations | `fb20baa` progressive profiles + Household Story Frontier + Browse v3 + StoryDNA Related; all historical data preserved | Pi serves complete 5,930/3,974 accounting with 720/675 rank reserves. Two active atomic browse reservoirs contain 19,950 candidate rows. Forty X presses per tab yielded 2,121/1,897 unique cards at p95 121.9/119.5 ms with global dedupe and zero provider/rank work | Human For You/category/Related verdict and physical focus/picture/audio checks |
+| VOD recommendations | Local 2026-08-21: deterministic IDF-weighted 0/1/2 lanes, desired-revision worker, truthful Top Picks, enqueue-only grow; legacy LOAO quarantined | **Historical Pi** (`fb20baa` / `28f2e1c`): complete 5,930/3,974 accounting, browse reservoirs, cached X p95 ~120 ms, zero inline rank work on shuffle | Pi deploy + rank duration/RSS proof; three unattended nights; couch relevance/focus/playability; staged stale demotion magnitude |
 | Native YouTube base | Complete; hard 1080p ceiling, single HLS-first/https-DASH selector, play-session proof metadata, synchronized real-VO/AO release | Pi `28f2e1c`: full matrix PASS on For You, Subscriptions, Regulars, More Like, Beyond, History, corpus VOD, and cancel-interrupt at 240p–1080p. Saved and Live Now empty/deferred. Resolver 4.584–5.269s and TTFF 4.044–7.903s in the final run | Human YT4 picture, audio, lip-sync, and perceived latency |
 | YouTube recommendations | `youtube-household-v3.0`: Takeout + local meaningful watches, channel affinity, decaying channel Not-for-me, Your regulars 2+2; MiniLM on (`Xenova/all-MiniLM-L6-v2`, blend). Nightly Live probes skip cleanly when background Search is exhausted instead of painting every rail stale | OAuth re-authorized; full refresh generation 50 completed every phase `ok`; proof plays advanced generation to 53 with `source_stale=false`. Broad smoke found a retained More Like rail/zero-budget diagnostic mismatch only | Human Regulars mix, MiniLM relevance, focus/Back, offline, picture/audio; reconcile More Like diagnostic |
 | Voice/phone companion | Complete for trusted-LAN development contract | Automated corpus/memory/UX gates on earlier revisions; partial couch work | Full V1–V12/current coherence plus per-device client auth/pairing before appliance release |
@@ -96,12 +173,11 @@ may still contain retired task reports; they prove only their exact revision.
   scoring, generic reservoirs, AI Home rails, chart/legacy-live acquisition,
   and destructive fresh-start/reset APIs. Search and user-created AI catalog
   seeds remain separate and cannot establish recommendation provenance.
-- At final release SHA `04171bb`, the catalog-service suite passes `969/969`.
-  The launcher and Companion production builds passed on the feature release;
-  final follow-ups touch only catalog diagnostics/cache/Reliability code. The
-  final Pi also passed targeted library and YouTube smoke plus one real Movie
-  and Series lite play. Historical target `fb20baa` passed all 87 launcher
-  deterministic tests and both launcher and
+- At final release SHA `04171bb`, the catalog-service suite passed `969/969`.
+  **Local source 2026-08-21:** `1163/1163` catalog tests, launcher `141/141`,
+  both production builds pass. The final Pi also passed targeted library and
+  YouTube smoke plus one real Movie and Series lite play. Historical target
+  `fb20baa` passed all 87 launcher deterministic tests and both launcher and
   Companion production builds pass on the same exact revision. The
   cleanup intentionally removed a large legacy implementation/test surface, so
   Pi migration/state-preservation proof, mode-aware gates, and generated reserve
@@ -109,7 +185,8 @@ may still contain retired task reports; they prove only their exact revision.
   count alone.
 - Migrations 15–17 retain the additive progressive/overlay/runtime schema, and
   playability migration 15 narrows corpus invalidation to semantic/eligibility
-  changes. Focused runtime proof is still needed for
+  changes. Library migration 19 adds `vod_desired_revisions` (local source
+  2026-08-21; Pi readback **DEFERRED**). Focused runtime proof is still needed for
   upgrade/preservation/rollback, frontier lease/retry/rolling-window/
   coalescing/concurrency/restart behavior, TMDB failure/rate/credential/series
   cases, and exact Pi activation/staleness behavior.
@@ -117,6 +194,10 @@ may still contain retired task reports; they prove only their exact revision.
   Final Pi readback repaired 12 stale classifications to zero, preserved the
   audited user-state keys/counts, and found Movies Saved 6 / Series Saved 8 /
   wrong-tab 0. The physical Dune-from-TV-Search check remains **DEFERRED**.
+- Library migration 19 adds `vod_desired_revisions`: durable latest desired
+  revision per Movies/TV tab with household taste/exclusion hash, worker
+  activation-only ack, and enqueue-only catalog triggers. Local source
+  2026-08-21; Pi migration readback **DEFERRED**.
 - The orphaned orchestrator `/recommendations/enrich` v4 compatibility route
   and implementation are removed. Only the strict content-only StoryDNA
   teacher endpoint remains; it is off for the current couch round.
@@ -158,13 +239,15 @@ may still contain retired task reports; they prove only their exact revision.
   recommendation epoch but can honestly reshuffle cached category rails; and
   diagnostics distinguish newest rows from active/previous,
   promotion, and public pointers. Pi serve proof now passes for both domains.
-- **Heavy VOD refresh ownership is now bounded and recoverable in source.** A
-  single worker scores deterministic 128-title pages from compact priors and
-  positive anchors; taste-only changes reuse complete content generations and
-  persisted priors. Jobs checkpoint phase/cursor/revisions, publish memory
-  diagnostics, and yield at a page boundary when authoritative couch/playback
-  activity begins. Two-cycle Pi stability, preemption, liveness, and cache-only
-  serving passed at the deployed target under 1280M/1536M limits.
+- **Heavy VOD refresh ownership is isolated from catalog (local 2026-08-21).**
+  Rank work runs in `mango-vod-recs-worker.service` (file lease, ignores couch
+  preemption, low-priority/≤384 MiB envelope). Desired state carries the live
+  household taste/exclusion hash; only **activated** ranks advance
+  `acknowledged_revision`; failures stay **pending** with 1m–1h retry. Grow
+  enqueues revisions only. Playability/compaction stop the enabled worker before
+  exclusive DB work and restore it afterward. **Historical:** in-catalog
+  15-minute lease flights with 128-title pages passed two-cycle Pi stability at
+  1280M/1536M on earlier SHA — not re-proven for the isolated worker envelope.
 - **YouTube More Like is conditional rather than a false rollout blocker.**
   Current source tries up to ten daily-stable official-history seeds with 50
   results each, seeks at least eight contributing topics, and continues its
@@ -477,10 +560,10 @@ open human relevance verdict.
 | Identity | Household-only served experience; preserved personal data remains dormant |
 | Content model | Always `vod-content-profile-v2`: deterministic metadata/rule profiles plus immutable compatible StoryDNA overlays |
 | AI boundary | Stateless content teacher sees canonical title evidence only; no Household/companion state and no score/rank/publish authority |
-| Ranker | Deterministic local uncertainty-aware story graph with up to three positive taste threads |
-| Signals | Fire/Water dominates; Saved and meaningful viewing support sparse/cold start; `<1` is negative, `1–2` is neutral, and `>2` contributes quadratically increasing positive evidence. Negative ratings exclude the exact title without becoming broad thematic vetoes |
+| Ranker | Deterministic sparse IDF-weighted 0/1/2 taste lanes with full-corpus centroid scoring; ≥2 anchors per lane for two lanes else one; legacy Bayesian K=1..3 / LOAO quarantined off by default |
+| Signals | Fire/Water dominates; Saved and meaningful viewing support sparse/cold start; `<1` exact-title veto upstream; `1–2` is neutral; `>2` contributes quadratically increasing positive evidence |
 | Eligibility | Current verified-playable, poster-bearing titles only; exact rated, Saved, meaningful watch, hidden, blocked, and Not-for-me are excluded |
-| Rail | One six-card For You rail per Movies/TV tab after Continue/Saved; allocation 6, 3+3, or 2+2+2 across active threads |
+| Rail | One six-card For You rail per Movies/TV tab after Continue/Saved when a generation is activatable; labelled **Top Picks** otherwise; allocation 3+3 or all-six across active 0/1/2 lanes (two lanes only with ≥2 anchors each) |
 | Removed behavior | No executable 4/1/1 buckets, forced surprise, bridge, semantic-hash v4, cosine/KNN/MMR, cooled rewatch lane, or strict-only publication path |
 | Serving | Atomic current/previous generations, cached slates, stale/tamper-safe opaque attribution, last-good fallback, cache-only X response with separately observable asynchronous low-water recovery |
 | Rollout | `MANGO_VOD_RECS_V2=off\|shadow\|serve`, independent of YouTube |
@@ -637,10 +720,12 @@ Detail: [features/search-and-librarian.md](features/search-and-librarian.md) · 
 - Remaining hardening is repeated unattended completion and better yield on
   thin TV/India sources—not merely another one-off top-up.
 
-The 03:00 playability/recommendation/YouTube/proof timer and 06:00 companion
-timer are persistent calendar timers. A missed event can run after boot, subject
-to playback/idle/overlap guards. There is no separate uncontrolled daytime
-retry watcher.
+The 03:00 playability/YouTube/proof timer and 06:00 companion timer are
+persistent calendar timers. A missed event can run after boot, subject to
+playback/idle/overlap guards. Grow publication enqueues VOD desired revisions
+asynchronously; nightly no longer blocks on rank completion or runs full
+`library.db` VACUUM (offline compaction hook instead). There is no separate
+uncontrolled daytime retry watcher.
 
 Detail: [features/content-and-playback.md](features/content-and-playback.md) · [OPERATIONS.md](OPERATIONS.md).
 

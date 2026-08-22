@@ -1379,9 +1379,8 @@ button {
   font-size: var(--text-body);
   font-weight: 700;
   letter-spacing: 0.04em;
-  /* Rail labels arrive from the catalog with mixed casing ("continue watching"
-     next to "Saved"), so normalise here rather than trusting the source. */
-  text-transform: lowercase;
+  /* Catalog labels are the source of truth for casing ("For You", "Top Picks");
+     hardcoded launcher chrome is authored in the casing it intends to show. */
 }
 
 .rail-track--posters {
@@ -2454,7 +2453,6 @@ h1 {
   font-size: var(--text-control);
   font-weight: 700;
   letter-spacing: 0.04em;
-  text-transform: lowercase;
 }
 
 .detail-related-context {

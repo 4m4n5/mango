@@ -27,7 +27,7 @@ import {
   type PlaybackOrigin,
 } from "./playback-return";
 import { armDeferredPosterSources, bindPosterImage, resolveCardPosterUrl } from "./poster";
-import { formatRailLabel, isLandscapeCard, posterRevealMeta, shouldShowLivePill } from "./home";
+import { isLandscapeCard, posterRevealMeta, shouldShowLivePill } from "./home";
 import { MINIMAL_VOD_POSTER_LABELS } from "./ui-flags";
 import { CatalogOwnershipChangedError, playErrorMessage } from "./catalog-errors";
 import { reconcileEpisodePlayTimeout } from "./playback-reconciliation";
@@ -51,6 +51,12 @@ const YOUTUBE_RELATED_DISPLAY_LIMIT = 4;
 export function relatedTitlesLimit(tab: BrowseTab): { display: number; fetch: number } {
   const display = tab === "youtube" ? YOUTUBE_RELATED_DISPLAY_LIMIT : RELATED_DISPLAY_LIMIT;
   return { display, fetch: display + 1 };
+}
+
+export function relatedLabelForTab(tab: BrowseTab): string {
+  // YouTube detail resamples the same rail, so "Related" is misleading; VOD
+  // cross-rail suggestions stay "Related".
+  return tab === "youtube" ? "More to watch" : "Related";
 }
 
 export function cardHasCompleteDetailMeta(card: ContentCard): boolean {
@@ -305,7 +311,9 @@ export class DetailController {
     this.streamsWrap.hidden = true;
     this.episodesWrap.hidden = true;
     this.setListLabel("episodes");
-    this.eyebrow.textContent = formatRailLabel(railLabel);
+    // The eyebrow echoes the rail label the card came from ("For You", "Top Picks");
+    // preserve the catalog's casing rather than reformatting it.
+    this.eyebrow.textContent = railLabel.trim();
     this.renderRelated([], railLabel, canonicalTab);
     void this.loadRelated(card, railLabel, canonicalTab);
     this.title.textContent = card.title;
@@ -969,7 +977,7 @@ export class DetailController {
       this.relatedWrap.classList.add("hidden");
       return;
     }
-    this.relatedLabel.textContent = "related titles";
+    this.relatedLabel.textContent = relatedLabelForTab(tab);
     // The provenance line ("from continue watching") is deliberately gone. It was
     // restating where the user just came from, which they know, and its 28px was
     // taken out of the stream/episode panel directly above — the one place on this

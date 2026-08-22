@@ -126,6 +126,9 @@ export type ReliabilityFacts = {
   playability: {
     ok: boolean;
     rail_count: number;
+    /** Distinct verified titles in titles table (when available). */
+    verified_distinct?: number;
+    /** Verified rail placements (sum of per-rail pools). */
     verified_total: number;
     thin_rails: Array<{ rail_id: string; verified_pool: number }>;
     last_indexer_run_at: number | null;

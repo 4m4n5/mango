@@ -565,3 +565,94 @@ test('progressive indexing accounts for the complete large Movies and TV corpora
     }
   });
 });
+
+test('loadForYouRail falls back to truthful Top Picks when serve is unauthorized', async () => {
+  await withProgressiveDatabases(async () => {
+    process.env.MANGO_VOD_RECS_V2 = 'serve';
+    seedTitles('movie', 205);
+    saveLibraryItem({
+      source: 'mango', type: 'movie', id: 'm000', title: 'Movie 0',
+      poster: 'https://example.test/m000.jpg', tab: 'movies', profile_id: 'household',
+    });
+    const result = await refreshStoryGraphForYou('movies', {
+      bootstrap_minimum: 200,
+      cached_service_p95_ms: 1,
+      dependencies: { evaluate: labelSparseEvaluation },
+    });
+    assert.equal(result.activated, true);
+    const served = await loadForYouRail('movies', { profileId: 'household' });
+    assert.equal(served?.items.length, 6,
+      'sanity check: household serve renders 6-card rail while authorized');
+    // Simulate a subsequent state where the active generation is no longer
+    // serve-authorized (e.g. rank rebuild left a `stale` status). Previously
+    // this returned null and the couch saw an empty For You slot; now the
+    // couch gets a labelled truthful Top Picks rail drawn from the verified
+    // corpus so it never sees an empty personalized promise.
+    libraryDatabase().prepare(`
+UPDATE vod_rank_generations SET status = 'stale'
+WHERE rank_generation_id = ?
+`).run(result.rank_generation_id);
+    const fallback = await loadForYouRail('movies', { profileId: 'household' });
+    assert.ok(fallback, 'unauthorized state must not return null');
+    assert.equal(fallback?.label, 'Top Picks',
+      'unauthorized state must render a truthful Top Picks rail, not For You');
+    assert.equal(fallback?.rail_id, 'for-you-movies');
+    assert.equal(fallback?.items.length, 6);
+    for (const item of fallback!.items) {
+      assert.equal(item.source, 'cold-start-top-picks');
+    }
+  });
+});
+
+test('worker refresh does NOT activate when desired revision advances before pointer', async () => {
+  await withProgressiveDatabases(async () => {
+    process.env.MANGO_VOD_RECS_V2 = 'serve';
+    seedTitles('movie', 205);
+    putRating({
+      profile_id: 'household', type: 'movie', id: 'm000', title: 'Movie 0',
+      fire: 5, water: 4.5, expected_revision: 0, origin: 'couch', taste_tags: [],
+    });
+    // Seed the desired-revision row at revision=1 so the pre-activation
+    // recheck has a durable value to compare against.
+    const { updateDesiredRevision } = await import('./desired-revision.js');
+    updateDesiredRevision({
+      content_type: 'movie',
+      reason: 'seed',
+      corpus_generation: 1,
+      now: 1_000,
+    });
+    // Refresh with `expected_desired_revision=1`; the dependency injection
+    // advances the desired revision to 2 mid-build (simulates a crash /
+    // pointer race where a fresh signal lands during rank). The activation
+    // must NOT happen — the completed build is a superseded artifact.
+    const result = await refreshStoryGraphForYou('movies', {
+      bootstrap_minimum: 200,
+      cached_service_p95_ms: 1,
+      expected_desired_revision: 1,
+      ignore_couch_preemption: true,
+      dependencies: {
+        evaluate: (input) => {
+          // At evaluate-time (before pre-activation recheck), bump the
+          // durable desired revision to 2. `refreshStoryGraphForYouUnserialized`
+          // re-reads it right before `updateActiveGeneration`.
+          updateDesiredRevision({
+            content_type: 'movie',
+            reason: 'signal_change_during_build',
+            corpus_generation: 1,
+            taste_signature: 'race',
+            now: 2_000,
+          });
+          return passingEvaluation(input);
+        },
+      },
+    });
+    assert.equal(result.published, true, 'the completed build is still published for audit');
+    assert.equal(result.activated, false,
+      'a superseded build must never move the active pointer');
+    const active = libraryDatabase().prepare(`
+SELECT active_rank_generation_id FROM vod_active_generations WHERE content_type = 'movie'
+`).get() as { active_rank_generation_id: number | null } | undefined;
+    assert.equal(active?.active_rank_generation_id ?? null, null,
+      'pointer stays at last-good when desired revision advances mid-build');
+  });
+});

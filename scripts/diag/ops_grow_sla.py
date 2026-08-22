@@ -24,6 +24,7 @@ THIN_POOL_FILL_RATIO = 0.50
 THIN_POOL_ALERT_MS = 48 * 60 * 60 * 1000
 ANCHOR_RAIL_IDS = frozenset({"movies-global-popular", "series-global-popular"})
 GROW_EVENT_KINDS = frozenset({"playability_growth", "playability_maintenance"})
+NON_VOD_TABS = frozenset({"live", "youtube"})
 
 
 @dataclass(frozen=True)
@@ -125,6 +126,11 @@ def _iter_ai_slot_paths(ai_dir: Path) -> list[Path]:
     return sorted(paths)
 
 
+def _is_vod_grow_rail(rail: dict[str, Any]) -> bool:
+    tab = str(rail.get("tab") or "").strip().lower()
+    return tab not in NON_VOD_TABS
+
+
 def _read_ai_slot_file(slot_path: Path) -> dict[str, Any] | None:
     try:
         raw = slot_path.read_text(encoding="utf-8")
@@ -146,6 +152,8 @@ def _ai_slot_configs(ai_dir: Path) -> dict[str, RailPlayabilityConfig]:
     for slot_path in _iter_ai_slot_paths(ai_dir):
         slot = _read_ai_slot_file(slot_path)
         if not slot or slot.get("enabled") is False:
+            continue
+        if not _is_vod_grow_rail(slot):
             continue
         slot_id = str(slot.get("slot_id") or slot_path.stem)
         rail_id = f"ai-{slot_id}"
@@ -172,6 +180,8 @@ def load_catalog_playability(path: Path | None = None) -> dict[str, RailPlayabil
             continue
         if rail.get("type") not in {"addon_catalog", "composite_list"}:
             continue
+        if not _is_vod_grow_rail(rail):
+            continue
         play = rail.get("playability") or {}
         configs[str(rail["id"])] = RailPlayabilityConfig(
             display_limit=int(play.get("display_limit") or DEFAULT_DISPLAY_LIMIT),
@@ -195,6 +205,8 @@ def list_grow_rail_ids(path: Path | None = None) -> list[str]:
             if rail.get("enabled") is False:
                 continue
             if rail.get("type") not in {"addon_catalog", "composite_list"}:
+                continue
+            if not _is_vod_grow_rail(rail):
                 continue
             browse.append(str(rail["id"]))
 

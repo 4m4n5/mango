@@ -42,6 +42,20 @@ export FAKE_CURL_COUNT="$TMP/count"
 export MANGO_VOD_RECOMMENDATION_JOB_READ_TIMEOUT_SEC=1
 export MANGO_VOD_RECOMMENDATION_JOB_READ_RETRY_SEC=0.01
 
+if grep -q 'wait-vod-recommendation-jobs.sh' \
+    "$ROOT/scripts/m3-play/playability/playability-maintenance.sh"; then
+  echo "playability maintenance must not wait for recommendation completion" >&2
+  exit 1
+fi
+grep -q 'systemctl --user stop mango-vod-recs-worker.service' \
+  "$ROOT/scripts/m3-play/playability/playability-maintenance.sh"
+grep -q 'systemctl --user start mango-vod-recs-worker.service' \
+  "$ROOT/scripts/m3-play/playability/playability-maintenance.sh"
+grep -q 'vod-recs-worker.lease' \
+  "$ROOT/scripts/m3-play/playability/playability-maintenance.sh"
+grep -q 'isolated VOD worker still owns its live lease' \
+  "$ROOT/scripts/m3-play/playability/playability-maintenance.sh"
+
 export FAKE_CURL_MODE=timeout_once
 output="$(bash "$ROOT/scripts/m3-play/playability/wait-vod-recommendation-jobs.sh" \
   http://catalog job-a 3 2>"$TMP/retry.err")"

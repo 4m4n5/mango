@@ -22,7 +22,6 @@
 #   MANGO_SOURCE_HITRATE_NIGHTLY_PER_SOURCE=3  probes/source before nightly grow phase (default 3)
 #   MANGO_MAINTENANCE_PHASE_COOLDOWN_SEC  pause between stale and grow (default 45)
 #   MANGO_MAINTENANCE_IGNORE_COUCH_ACTIVITY=1  debug/operator override for idle gate
-#   MANGO_VOD_RECOMMENDATION_REFRESH_TIMEOUT_SEC  wait for exact queued VOD jobs (default 900)
 
 set -euo pipefail
 
@@ -44,6 +43,8 @@ PUBLICATION_ID=""
 PUBLICATION_SNAPSHOT=""
 PUBLICATION_RECEIPT=""
 PUBLISHED_STAGED_DB=0
+CATALOG_WAS_HEALTHY=0
+VOD_WORKER_WAS_ACTIVE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -353,11 +354,11 @@ cleanup_work_playability_db() {
 }
 
 stage_playability_db_if_needed() {
-  if [[ "$MODE" != "grow" && "$MODE" != "nightly" ]]; then
+  if [[ "$MODE" != "grow" && "$MODE" != "nightly" && "$MODE" != "stale" ]]; then
     return 0
   fi
   if [[ "${MANGO_GROW_STAGE_DB:-1}" != "1" ]]; then
-    echo "grow DB staging disabled (MANGO_GROW_STAGE_DB=0)"
+    echo "maintenance DB staging disabled (MANGO_GROW_STAGE_DB=0)"
     return 0
   fi
   STAGED_GROW_DB=1
@@ -571,6 +572,11 @@ PY
       echo "error: publication rollback failed" >&2
     fi
   fi
+  if [[ "$VOD_WORKER_WAS_ACTIVE" == "1" ]]; then
+    if ! systemctl --user start mango-vod-recs-worker.service >/dev/null 2>&1; then
+      echo "warn: isolated VOD recommendation worker did not restart; desired revision remains durable" >&2
+    fi
+  fi
   cleanup_work_playability_db
   return "$restore_rc"
 }
@@ -605,6 +611,7 @@ if pgrep -f 'chromium.*127.0.0.1:3000|firefox.*127.0.0.1:3000' >/dev/null 2>&1; 
 fi
 
 if curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
+  CATALOG_WAS_HEALTHY=1
   if ! couch_is_idle; then
     echo "maintenance deferred before stopping catalog: couch active"
     write_deferred_report pre_stop_catalog
@@ -614,6 +621,46 @@ if curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
   if [[ "$MODE" == "grow" ]]; then
     run_source_hitrate_preflight quick "${MANGO_SOURCE_HITRATE_FORCE:-0}"
   fi
+fi
+
+if command -v systemctl >/dev/null 2>&1 \
+  && systemctl --user is-enabled mango-vod-recs-worker.service >/dev/null 2>&1; then
+  VOD_WORKER_WAS_ACTIVE=1
+  echo "stopping isolated VOD recommendation worker (exclusive playability publish)"
+  systemctl --user stop mango-vod-recs-worker.service
+fi
+
+VOD_WORKER_LEASE="${MANGO_VOD_RECS_WORKER_LEASE:-${MANGO_VOD_RECS_WORKER_LEASE_DIR:-$CACHE_DIR}/vod-recs-worker.lease}"
+if ! python3 - "$VOD_WORKER_LEASE" <<'PY'
+import json
+import os
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+if not path.is_file():
+    raise SystemExit(0)
+try:
+    pid = int(json.loads(path.read_text(encoding="utf-8")).get("pid", 0))
+except (OSError, ValueError, TypeError, json.JSONDecodeError):
+    raise SystemExit(0)
+if pid <= 0:
+    raise SystemExit(0)
+try:
+    os.kill(pid, 0)
+except ProcessLookupError:
+    raise SystemExit(0)
+except PermissionError:
+    pass
+raise SystemExit(1)
+PY
+then
+  echo "maintenance deferred: isolated VOD worker still owns its live lease" >&2
+  release_maintenance_lock
+  exit 10
+fi
+
+if [[ "$CATALOG_WAS_HEALTHY" == "1" ]]; then
   echo "stopping catalog-service (exclusive indexer)"
   stop_catalog_service_only
 fi
@@ -641,13 +688,13 @@ export MANGO_PLAYABILITY_MAX_INGEST_SCAN="${MANGO_PLAYABILITY_MAX_INGEST_SCAN:-2
 export MANGO_GROW_NO_STREAM_RETRY_MS="${MANGO_GROW_NO_STREAM_RETRY_MS:-604800000}"
 PHASE_COOLDOWN_SEC="${MANGO_MAINTENANCE_PHASE_COOLDOWN_SEC:-45}"
 
-# H1/H3/H5 hooks must persist to the LIVE DB regardless of grow success/failure.
+# Live H1/H5 hooks must persist to the LIVE DB regardless of staged publish outcome.
 # Run them BEFORE stage_playability_db_if_needed points MANGO_PLAYABILITY_DB at
 # the work DB. The indexer boots its own CatalogCore (no catalog service needed),
-# mirroring the refresh command. MANGO_MAINTENANCE_HOOKS_PRESTAGE=1 tells
-# refreshAllRails not to re-run these hooks inside the work DB.
+# mirroring the refresh command. MANGO_MAINTENANCE_HOOKS_PRESTAGE=1 tells stale
+# refreshes to skip a second trigger-drain inside the staged DB.
 run_maintenance_hooks_prestage() {
-  if [[ "$MODE" != "grow" && "$MODE" != "nightly" ]]; then
+  if [[ "$MODE" != "grow" && "$MODE" != "nightly" && "$MODE" != "stale" ]]; then
     return 0
   fi
   if [[ "${MANGO_MAINTENANCE_HOOKS_PRESTAGE:-1}" == "0" ]]; then
@@ -655,9 +702,9 @@ run_maintenance_hooks_prestage() {
   fi
   echo "== maintenance hooks (live DB) =="
   grow_state set --phase maintenance_hooks \
-    --message "running H1/H3/H5 hooks against live DB" \
+    --message "running live trigger-drain/migrate hooks" \
     --mode "$MODE" --preset "$MANGO_GROW_PRESET" \
-    --log "maintenance hooks: pre-stage sweep/drain/migrate on live DB"
+    --log "maintenance hooks: pre-stage trigger-drain/migrate on live DB"
   set_live_playability_db_env
   local hooks_rc=0
   set +e
@@ -671,9 +718,9 @@ run_maintenance_hooks_prestage() {
     echo "warn: maintenance-hooks rc=$hooks_rc — continuing; hooks will retry next run" >&2
     grow_state log "maintenance hooks: warn rc=$hooks_rc (continuing — grow still runs)"
   fi
-  # Persist the prestage flag into the parent shell so the subsequent refresh
-  # invocation (run_refresh -> playability-indexer.ts refresh) sees it and skips
-  # re-running H1/H3 hooks inside the staged work DB. The refresh command's own
+  # Persist the prestage flag into the parent shell so the subsequent stale
+  # refresh invocation (run_refresh -> playability-indexer.ts refresh) skips a
+  # second trigger drain inside the staged work DB. The refresh command's own
   # env inheritance picks this up; stage_playability_db_if_needed will override
   # MANGO_PLAYABILITY_DB to point at the work DB.
   export MANGO_MAINTENANCE_HOOKS_PRESTAGE=1
@@ -843,17 +890,56 @@ fi
 
 python3 "$REPO_DIR/scripts/diag/grow_monitor.py" status 2>/dev/null || true
 python3 "$REPO_DIR/scripts/diag/playability-status.py" 2>/dev/null | tail -20 || true
+RECOMMENDATION_REFRESH_STATUS="skipped"
+RECOMMENDATION_REFRESH_OK=1
+RECOMMENDATION_REFRESH_MESSAGE="not_requested"
+RECOMMENDATION_REFRESH_JOB_IDS=""
+RECOMMENDATION_REFRESH_DETAIL=""
+RECOMMENDATION_REFRESH_RC=0
+RECOMMENDATION_REFRESH_RESULT="${OPS_DIR}/recommendation-refresh-${RUN_ID}.json"
+
+write_recommendation_refresh_result() {
+  python3 - "$RECOMMENDATION_REFRESH_RESULT" "$REFRESH_OUT" "$REFRESH_OUT_WRITTEN" \
+    "$RECOMMENDATION_REFRESH_OK" "$RECOMMENDATION_REFRESH_STATUS" \
+    "$RECOMMENDATION_REFRESH_MESSAGE" "$RECOMMENDATION_REFRESH_JOB_IDS" \
+    "$RECOMMENDATION_REFRESH_DETAIL" "$RECOMMENDATION_REFRESH_RC" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+(
+    result_path,
+    refresh_out,
+    refresh_written,
+    ok_raw,
+    status,
+    message,
+    job_ids,
+    detail,
+    rc_raw,
+) = sys.argv[1:]
+payload = {
+    "ok": ok_raw == "1",
+    "status": status,
+    "message": message,
+    "job_ids": [item for item in job_ids.split(",") if item],
+    "detail": detail,
+    "rc": int(rc_raw),
+}
+Path(result_path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+if refresh_written == "1" and Path(refresh_out).is_file():
+    refresh = json.loads(Path(refresh_out).read_text(encoding="utf-8"))
+    if isinstance(refresh, dict):
+        refresh["recommendation_refresh"] = payload
+        Path(refresh_out).write_text(json.dumps(refresh, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
 if [[ "$MODE" == "grow" || "$MODE" == "nightly" ]] && [[ "$REFRESH_OUT_WRITTEN" == "1" ]]; then
   python3 "$REPO_DIR/scripts/diag/grow_monitor.py" assess --refresh-json "$REFRESH_OUT" 2>/dev/null || true
   if [[ "${MANGO_QUEUE_VOD_RECOMMENDATIONS_AFTER_GROW:-1}" == "1" ]]; then
     CATALOG_URL="http://${MANGO_CATALOG_HOST:-127.0.0.1}:${MANGO_CATALOG_PORT:-3020}"
-    VOD_RECOMMENDATION_TIMEOUT_SEC="${MANGO_VOD_RECOMMENDATION_REFRESH_TIMEOUT_SEC:-900}"
-    if ! [[ "$VOD_RECOMMENDATION_TIMEOUT_SEC" =~ ^[1-9][0-9]*$ ]]; then
-      echo "MANGO_VOD_RECOMMENDATION_REFRESH_TIMEOUT_SEC must be a positive integer" >&2
-      exit 2
-    fi
     VOD_RECOMMENDATION_RESPONSE="$(mktemp)"
-    trap 'rm -f "$VOD_RECOMMENDATION_RESPONSE"' EXIT
     if curl -fsS -m 10 -X POST \
         -H 'content-type: application/json' \
         --data '{"reason":"playability_corpus_publication"}' \
@@ -878,31 +964,38 @@ for job in jobs:
 print(",".join(job_ids))
 PY
       )"; then
-        rm -f "$VOD_RECOMMENDATION_RESPONSE"
-        echo "VOD recommendation refresh response was invalid; last-good remains active" >&2
-        exit 10
+        RECOMMENDATION_REFRESH_OK=0
+        RECOMMENDATION_REFRESH_STATUS="warning"
+        RECOMMENDATION_REFRESH_RC=10
+        RECOMMENDATION_REFRESH_MESSAGE="invalid_enqueue_response"
+        echo "warn: VOD recommendation refresh response was invalid; last-good remains active" >&2
+      else
+        RECOMMENDATION_REFRESH_JOB_IDS="$VOD_RECOMMENDATION_JOB_IDS"
+        RECOMMENDATION_REFRESH_STATUS="queued"
+        RECOMMENDATION_REFRESH_MESSAGE="desired_revision_recorded"
+        # Publication is terminal grow success. Ranking now runs in the
+        # isolated latest-revision worker; never put its completion deadline
+        # back on the playability critical path.
+        RECOMMENDATION_REFRESH_DETAIL="worker_async"
+        echo "playability maintenance: VOD desired revision queued ($VOD_RECOMMENDATION_JOB_IDS)"
       fi
-      echo "playability maintenance: waiting for VOD recommendation jobs $VOD_RECOMMENDATION_JOB_IDS"
-      VOD_RECOMMENDATION_DETAIL=""
-      if ! VOD_RECOMMENDATION_DETAIL="$(
-        bash "$REPO_DIR/scripts/m3-play/playability/wait-vod-recommendation-jobs.sh" \
-          "$CATALOG_URL" "$VOD_RECOMMENDATION_JOB_IDS" "$VOD_RECOMMENDATION_TIMEOUT_SEC"
-      )"; then
-        rm -f "$VOD_RECOMMENDATION_RESPONSE"
-        exit 10
-      fi
-      rm -f "$VOD_RECOMMENDATION_RESPONSE"
-      trap - EXIT
-      echo "playability maintenance: VOD recommendation jobs complete ($VOD_RECOMMENDATION_DETAIL)"
     else
-      rm -f "$VOD_RECOMMENDATION_RESPONSE"
-      echo "VOD recommendation refresh enqueue failed; last-good remains active" >&2
-      exit 10
+      RECOMMENDATION_REFRESH_OK=0
+      RECOMMENDATION_REFRESH_STATUS="warning"
+      RECOMMENDATION_REFRESH_RC=10
+      RECOMMENDATION_REFRESH_MESSAGE="enqueue_failed"
+      echo "warn: VOD recommendation refresh enqueue failed; last-good remains active" >&2
     fi
+    rm -f "$VOD_RECOMMENDATION_RESPONSE"
+  else
+    RECOMMENDATION_REFRESH_STATUS="skipped"
+    RECOMMENDATION_REFRESH_MESSAGE="disabled_by_env"
   fi
 fi
 
+write_recommendation_refresh_result
+echo "playability maintenance: recommendation_refresh status=$RECOMMENDATION_REFRESH_STATUS rc=$RECOMMENDATION_REFRESH_RC message=$RECOMMENDATION_REFRESH_MESSAGE"
 echo "maintenance complete"
 grow_state set --phase done --message "complete rc=$REFRESH_RC" --mode "$MODE" --preset "$MANGO_GROW_PRESET" \
-  --log "maintenance complete mode=$MODE rc=$REFRESH_RC duration_ms=$((END_MS - START_MS))"
+  --log "maintenance complete mode=$MODE rc=$REFRESH_RC duration_ms=$((END_MS - START_MS)) recommendation_status=$RECOMMENDATION_REFRESH_STATUS recommendation_rc=$RECOMMENDATION_REFRESH_RC"
 release_maintenance_lock

@@ -4,7 +4,39 @@
 **Source baseline:** `feat/native-experience` at `db74b217822f57ab552d28c33ab2f31905d83359`  
 **Runtime boundary:** no Pi access, mutation, or deployment was performed.
 
-## Independent diagnosis
+## Follow-on refactor complete (local source 2026-08-21)
+
+The **Trustworthy Recommendation Refactor** supersedes the containment patches
+documented below for the rank/grow coupling class. Workstation HEAD at
+documentation time: `293f8ec3` (uncommitted). Summary:
+
+- Deterministic sparse IDF-weighted 0/1/2 lanes; legacy LOAO quarantined off
+  by default (`MANGO_VOD_LEGACY_LOAO_RANK=1`).
+- `vod_desired_revisions` (library migration 19); catalog enqueue-only; isolated
+  `mango-vod-recs-worker.service` with file lease/heartbeat, ignores couch
+  preemption, low-priority/≤384 MiB target; household taste/exclusion hash on
+  desired state; activation-only ack; failed ranks pending with 1m–1h retry;
+  transactional stale-revision check before pointer swap.
+- Grow publication no longer waits on recommendation completion; nightly records
+  separate `recommendation_rc`.
+- Full `library.db` VACUUM removed from nightly; offline compaction hook backs
+  up, stops enabled worker+catalog, `quick_check`, restores.
+- Staged stale owns expired demotion + proactive renewal; grow-only pre-stage is
+  trigger drain only.
+- Truthful Top Picks; YouTube Detail **More to watch**; VOD Related unchanged.
+- POT fd 200 closure in `youtube-pot-server.sh`.
+
+Local tests: catalog **1163/1163**, launcher **141/141**, builds pass,
+`gate-m3-library-grow.sh` pass. See
+[STATUS.md](../STATUS.md#current-local-source--2026-08-21-trustworthy-recommendation-refactor).
+
+**Still unproven without Pi:** worker rank duration/RSS, catalog serve latency,
+three unattended nights, original ~522 demotion count on first staged stale
+sweep, couch relevance/focus/playability. The sections below remain historical
+diagnosis of the pre-refactor failure class and the `ad73f10` containment
+patches — not current architecture.
+
+## Independent diagnosis (historical — pre-refactor)
 
 ### 1. Successful grow was discarded by cross-phase status coupling — proven
 
@@ -118,21 +150,15 @@ breadth, anchor diet, and environment overrides
 (`scripts/diag/ops_grow_sla.py:65-101`). Likewise, 10,256 was summed rail-pool
 membership while 10,233 was the distinct verified-title count.
 
-## Not patched as root causes
+## Not patched as root causes (historical)
 
-- **Repeated movie rank deadlines — unfixed, and it will recur.** Movies
+- **Repeated movie rank deadlines — addressed in local refactor by isolated
+  worker + deterministic lanes; Pi duration/RSS proof still open.** Movies
   exceeded the 15-minute rank budget on both of this day's runs (04:01–04:55 and
   15:17–16:05), while series finished in ~22 minutes
   ([incident lines 62–65, 163–176](NIGHTLY_WAKE_GROW_RECS_INCIDENT_2026-08-21.md)).
-  Every patch above changes how that failure is *contained* — last-good stays
-  served, catalog stays up, the grow still publishes, the waiter reports honestly
-  — but none makes movie ranking finish. Until the budget or the ranking workload
-  is addressed, the nightly movie rail will keep retaining last-good and the
-  playability waiter will keep ending at its 900-second budget with
-  `playability_rc=10`. The evidence lacks per-phase timings, candidate counts,
-  memory pressure, and the loaded timeout overrides, so raising
-  `MANGO_STORY_GRAPH_RANK_TIMEOUT_MS` to a specific number here would be a guess;
-  it needs one profiled Pi run first.
+  Containment patches below kept last-good served and catalog alive; the refactor
+  moves rank out of catalog and replaces the Bayesian/LOAO path by default.
 - Launcher Chromium being stopped and repair being suppressed during active
   maintenance are current design behavior, not the grow discard cause.
 - Thin-rail source/theme exhaustion is genuine yield evidence but did not make
@@ -140,15 +166,18 @@ membership while 10,233 was the distinct verified-title count.
 - `jq`, controller state, stale Live cache, and the later `mango-stack.sh`
   process-label observation were incidental or insufficiently reproduced.
 
-## Local verification
+## Local verification (historical — `ad73f10` containment)
 
-- Catalog-service: **1,100/1,100 tests passed**.
+- Catalog-service: **1,100/1,100 tests passed** (pre-refactor baseline).
 - `gate-m3-library-grow.sh`: passed, including new publish-decision, lease,
   waiter, target-alignment, and catalog lifecycle tests.
 - `scripts/mac-gate-pr.sh`: passed all local catalog, launcher, companion, HUD,
   stream-picker, deploy-hardening, and documentation gates.
 - TypeScript build, shell syntax, Python compilation, focused lints, and
   `git diff --check`: passed.
+
+**Post-refactor (2026-08-21):** catalog **1163/1163**, launcher **141/141**,
+builds pass, grow gate includes POT fd and offline compaction tests.
 
 ## Still unproven without Pi runtime
 
@@ -161,13 +190,19 @@ membership while 10,233 was the distinct verified-title count.
 4. Dead-PID lease recovery works under actual systemd restart timing.
 5. AIOStreams/AIOMetadata recover inside the shared local-manifest deadline on
    boot.
-6. The recurring movie rank deadline's phase, page, CPU, memory, and I/O cause.
+6. The recurring movie rank deadline's phase, page, CPU, memory, and I/O cause
+   under the **new isolated worker** (historical in-catalog deadline class
+   documented above).
 7. The discarded +40 titles are absent from live state and require a future
    successful grow; this patch does not reconstruct deleted staged data.
 8. That no third uncaught write path exists in the recommendation subsystem. The
    two found here were reached by reading every call site that runs outside a
    request scope (timers, `setImmediate`, queue tails), not by fault injection on
    the Pi.
+9. **Refactor-specific:** worker peak RSS within ≤384 MiB envelope; catalog serve
+   p95 under rank load; three unattended nights with enqueue-only grow;
+   staged stale demotion magnitude (~522 original estimate); couch relevance,
+   focus, and playability.
 
 ## Self-review corrections
 

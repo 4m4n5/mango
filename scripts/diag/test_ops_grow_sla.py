@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import unittest
 import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from ops_grow_sla import (
@@ -12,6 +14,8 @@ from ops_grow_sla import (
     RailPlayabilityConfig,
     assess_rail_sla,
     collect_grow_rail_rows,
+    list_grow_rail_ids,
+    load_catalog_playability,
     resolve_grow_target,
     summarize_grow_sla,
 )
@@ -218,6 +222,37 @@ class GrowSlaTests(unittest.TestCase):
         self.assertEqual(summary.met_count, 13)
         self.assertEqual(summary.browse_rail_count, 13)
         self.assertTrue(summary.program_pass)
+
+    def test_live_and_youtube_tabs_are_excluded_from_vod_grow_sla(self) -> None:
+        with TemporaryDirectory(prefix="mango-grow-sla-") as tmp:
+            catalog_path = Path(tmp) / "catalog.yaml"
+            catalog_path.write_text(
+                "\n".join([
+                    "rails:",
+                    "  - id: movies-main",
+                    "    type: composite_list",
+                    "    tab: movies",
+                    "    playability: { grow_per_pass: 20, pool_target: 20 }",
+                    "  - id: series-main",
+                    "    type: composite_list",
+                    "    tab: series",
+                    "    playability: { grow_per_pass: 20, pool_target: 20 }",
+                    "  - id: ai-cricket-channels",
+                    "    type: composite_list",
+                    "    tab: live",
+                    "    playability: { grow_per_pass: 20, pool_target: 20 }",
+                    "  - id: yt-cached",
+                    "    type: composite_list",
+                    "    tab: youtube",
+                    "    playability: { grow_per_pass: 20, pool_target: 20 }",
+                ]),
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {"MANGO_AI_CATALOGS_DIR": str(Path(tmp) / "missing-ai-dir")}):
+                rail_ids = list_grow_rail_ids(catalog_path)
+                self.assertEqual(rail_ids, ["movies-main", "series-main"])
+                configs = load_catalog_playability(catalog_path)
+                self.assertEqual(sorted(configs), ["movies-main", "series-main"])
 
 
 if __name__ == "__main__":

@@ -128,6 +128,8 @@ gate_library_grow_maintenance() {
   grep -q 'MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS.*8 \* 60' scripts/m3-play/playability/playability-maintenance.sh
   grep -q 'MANGO_STATE_BACKUP_ON_STOP=0' scripts/m3-play/playability/playability-maintenance.sh
   bash scripts/m3-play/playability/test-wait-vod-recommendation-jobs.sh
+  bash scripts/m6-ship/test-youtube-pot-server-fd.sh
+  bash scripts/m6-ship/test-library-offline-compaction.sh
   test -f scripts/m4-addons/sync-aiometadata-rail-catalogs.sh
 }
 

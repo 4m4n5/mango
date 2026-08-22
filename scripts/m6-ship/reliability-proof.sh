@@ -8,11 +8,12 @@ CATALOG="${MANGO_CATALOG_URL:-http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}}"
 REASON="manual"
 TIMEOUT_SEC="${MANGO_RELIABILITY_PROOF_TIMEOUT_SEC:-30}"
 PLAYABILITY_RC=""
+RECOMMENDATION_RC=""
 YOUTUBE_RC=""
 
 usage() {
   cat <<EOF
-usage: $0 [--reason <reason>] [--playability-rc <rc>] [--youtube-rc <rc>] [--timeout-sec <seconds>]
+usage: $0 [--reason <reason>] [--playability-rc <rc>] [--recommendation-rc <rc>] [--youtube-rc <rc>] [--timeout-sec <seconds>]
 
 Records one local proof in /etc/mango/reliability via POST /reliability/proof/run.
 Exits non-zero only when the proof is red or the API is unreachable.
@@ -23,6 +24,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --reason) REASON="${2:-manual}"; shift 2 ;;
     --playability-rc) PLAYABILITY_RC="${2:-}"; shift 2 ;;
+    --recommendation-rc) RECOMMENDATION_RC="${2:-}"; shift 2 ;;
     --youtube-rc) YOUTUBE_RC="${2:-}"; shift 2 ;;
     --timeout-sec) TIMEOUT_SEC="${2:-30}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -37,7 +39,7 @@ if ! curl -sf --max-time 5 "$CATALOG/health" >/dev/null 2>&1; then
   exit 1
 fi
 
-body="$(python3 - "$REASON" "$PLAYABILITY_RC" "$YOUTUBE_RC" <<'PY'
+body="$(python3 - "$REASON" "$PLAYABILITY_RC" "$RECOMMENDATION_RC" "$YOUTUBE_RC" <<'PY'
 import json
 import sys
 
@@ -46,7 +48,9 @@ metadata = {}
 if sys.argv[2] != "":
     metadata["playability_rc"] = int(sys.argv[2])
 if sys.argv[3] != "":
-    metadata["youtube_rc"] = int(sys.argv[3])
+    metadata["recommendation_rc"] = int(sys.argv[3])
+if sys.argv[4] != "":
+    metadata["youtube_rc"] = int(sys.argv[4])
 print(json.dumps({"reason": reason, "metadata": metadata}, separators=(",", ":")))
 PY
 )"

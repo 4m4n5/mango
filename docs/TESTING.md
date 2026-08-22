@@ -27,6 +27,9 @@ uses `MANGO_YOUTUBE_PLAY=1`.
 | `scripts/m6-ship/gate-m6-stream-picker-source.sh` | PR |
 | `scripts/m6-ship/test-pi-deploy-hardening.sh` | PR |
 | `scripts/m3-play/playability/gate-m3-library-grow.sh` | Mac full / playability paths |
+| `scripts/m6-ship/test-youtube-pot-server-fd.sh` | Mac full (POT fd 200 closure) |
+| `scripts/m6-ship/test-library-offline-compaction.sh` | Mac full (offline compaction hook) |
+| `scripts/m3-play/playability/test-wait-vod-recommendation-jobs.sh` | Mac full (waiter not on grow critical path) |
 | `scripts/gate-lite.sh` | Pi fast |
 | `scripts/m6-ship/gate-m6-ux-smoke.sh` | Pi fast |
 | `scripts/m6-ship/gate-m6-playback-ssot.sh` | Pi fast |
@@ -58,6 +61,24 @@ Minimum human matrix:
 
 Do not inherit PASS from older screenshots or task reports. Update
 [STATUS.md](STATUS.md) only after a named SHA observation.
+
+### Local-source snapshot — 2026-08-21 (Trustworthy Recommendation Refactor)
+
+Workstation-only evidence for the deterministic-lane + isolated-worker
+refactor. **Not** Pi or couch proof.
+
+| Check | Result |
+|-------|--------|
+| `cd src/catalog-service && npm test` | 1163/1163 |
+| `cd src/launcher && npm test` | 141/141 |
+| launcher / catalog-service `npm run build` | pass |
+| `gate-m3-library-grow.sh` | pass |
+| `test_ops_grow_sla.py` | 12/12 |
+| `test_playability_refresh_decision.py` | 5/5 |
+
+Still unproven without Pi deploy: worker rank duration and peak RSS, catalog
+serve latency under load, three unattended nights, staged stale demotion
+magnitude (original 522 estimate), and couch relevance/focus/playability.
 
 ## Reliability Center
 

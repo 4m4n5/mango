@@ -2,7 +2,7 @@
 
 import { CatalogCore } from '../../../src/catalog-service/src/core.js';
 import { isAddonRateLimitMessage } from '../../../src/catalog-service/src/catalog-errors.js';
-import { refreshAllRails, runNightlyChainStartHooks } from '../../../src/catalog-service/src/playability/refresh.js';
+import { refreshAllRails, runLiveTriggerDrainHook } from '../../../src/catalog-service/src/playability/refresh.js';
 import { loadSourceGrowReport } from '../../../src/catalog-service/src/playability/source-hitrate-weights.js';
 import { normalizeRefreshMode, type GrowPresetId } from '../../../src/catalog-service/src/playability/grow-target.js';
 import { topUpRail } from '../../../src/catalog-service/src/playability/top-up.js';
@@ -15,7 +15,7 @@ function usage(): never {
     '  playability-indexer.ts top-up --rail <rail-id> [--mode grow|incremental] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>] [--grow-wall-ms <n>] [--grow-max-attempts <n>]',
     '  playability-indexer.ts top-up --all [--mode grow|incremental] [--pool-target <n>] [--candidate-limit <n>] [--grow-wall-ms <n>] [--grow-max-attempts <n>]',
     '  playability-indexer.ts refresh --all [--mode grow|stale|nightly] [--preset quick|nightly|overnight] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>] [--grow-wall-ms <n>] [--grow-max-attempts <n>] [--grow-fail-fast]',
-    '  playability-indexer.ts maintenance-hooks   # run H1/H3/H5 hooks against $MANGO_PLAYABILITY_DB (live DB when invoked from playability-maintenance.sh)',
+    '  playability-indexer.ts maintenance-hooks   # run live H1/H5 pre-stage hooks against $MANGO_PLAYABILITY_DB',
   ].join('\n'));
   process.exit(2);
 }
@@ -261,11 +261,12 @@ async function main(): Promise<void> {
   }
 
   if (command === 'maintenance-hooks') {
-    // Run H1/H3/H5 hooks against $MANGO_PLAYABILITY_DB. The maintenance script sets
+    // Run live H1/H5 hooks against $MANGO_PLAYABILITY_DB. The maintenance script sets
     // MANGO_PLAYABILITY_DB to the LIVE db (/etc/mango/playability.db) and invokes
-    // this BEFORE staging the work DB, so trigger drains + expired-verified sweeps
-    // + H5 source-grow-weights migration persist to the live DB regardless of the
-    // subsequent grow's success/failure. The catalog service is NOT started here —
+    // this BEFORE staging the work DB, so trigger drains + H5 source-grow-weights
+    // migration persist to the live DB regardless of the subsequent grow's
+    // success/failure. Expiry demotions are intentionally deferred to staged stale
+    // refreshes so publication remains atomic. The catalog service is NOT started here —
     // the indexer boots its own CatalogCore directly, mirroring the refresh command.
     const startedAt = Date.now();
     let core: CatalogCore;
@@ -284,14 +285,15 @@ async function main(): Promise<void> {
       // H5: prime source-grow-weights migration + load report (lazy migration is
       // triggered inside loadSourceGrowReport against $MANGO_PLAYABILITY_DB).
       loadSourceGrowReport();
-      // H1 + H3: drain triggers + sweep expired verified rows on the LIVE DB.
-      const hooks = await runNightlyChainStartHooks(core);
+      // H1: explicit live trigger drain. Expiry sweep runs only on staged stale refresh.
+      const triggerDrain = await runLiveTriggerDrainHook(core);
       const finishedAt = Date.now();
       await writeJsonAndExit({
         ok: true,
         stage: 'maintenance_hooks',
-        swept_expired: hooks.swept_expired,
-        trigger_drain: hooks.trigger_drain,
+        swept_expired: 0,
+        trigger_drain: triggerDrain,
+        proactive_renewal: { queued: 0, considered: 0, skipped_existing: 0, lead_ms: 0, limit: 0 },
         started_at: startedAt,
         finished_at: finishedAt,
         duration_ms: finishedAt - startedAt,

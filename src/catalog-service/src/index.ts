@@ -102,9 +102,7 @@ import {
   fireWaterRatingsEnabled,
   recommendationDiagnostics,
   incrementRecommendationMetric,
-  refreshForYou,
 } from './recommendations/service.js';
-import { CoalescingRecommendationRefreshQueue } from './recommendations/background-refresh.js';
 import {
   recommendationOwnerForRollout,
   recommendationsHouseholdOnlyForRollout,
@@ -116,7 +114,6 @@ import {
   recommendationRefreshJobById,
   reconcileInterruptedRecommendationRefreshJobs,
   updateRecommendationRefreshJobs,
-  updateRecommendationRefreshJobRuntimeBestEffort,
   type RecommendationRefreshJob,
 } from './recommendations/jobs.js';
 import {
@@ -128,12 +125,13 @@ import { validateOptionalRecommendationMutationAttribution } from './recommendat
 import { vodBrowseV3Mode } from './recommendations/vod-browse-v3.js';
 import { assertCurrentVodRecommendationSource } from './recommendations/source-revision.js';
 import {
+  currentStoryGraphTasteRevision,
   setStoryDnaStructuredLookupProvider,
   setStoryGraphLowWaterEnqueueHook,
   storyGraphStartupRefreshRequired,
 } from './recommendations/story-graph-service.js';
+import { updateDesiredRevision } from './recommendations/desired-revision.js';
 import { readFreshRecommendationMaintenanceLease } from './recommendations/maintenance.js';
-import { CouchPreemptedRecommendationRefreshError } from './recommendations/maintenance.js';
 import { enrichStoryDnaInputsWithTmdb } from './recommendations/tmdb-metadata.js';
 import { previewStoryEvidence } from './playability/list-source.js';
 import { searchCachedYoutubeItems } from './youtube/db.js';
@@ -1567,100 +1565,15 @@ async function main(): Promise<void> {
     const merged = inputs.map((input) => addonByKey.get(`${input.type}:${input.id}`) ?? input);
     return enrichStoryDnaInputsWithTmdb(merged);
   });
-  const pendingRecommendationJobs = new Map<string, string[]>();
-  const activeRecommendationJobs = new Map<string, string[]>();
-  const pendingRecommendationReasons = new Map<string, string[]>();
-  const activeRecommendationReasons = new Map<string, string[]>();
-  const recommendationWorkKey = (profileId: string, tab: 'movies' | 'series'): string => (
-    `${profileId}\u0000${tab}`
-  );
-  const createRecommendationRefreshQueue = (ownedTab: 'movies' | 'series') => new CoalescingRecommendationRefreshQueue({
-    shouldRetry: (error, failedAttempts, maxRetries) => (
-      !(error instanceof CouchPreemptedRecommendationRefreshError) && failedAttempts <= maxRetries
-    ),
-    refresh: async ({ profile_id: profileId, tab }) => {
-      if (tab !== ownedTab) throw new Error(`recommendation worker ${ownedTab} received ${tab}`);
-      const key = recommendationWorkKey(profileId, tab);
-      let jobIds = activeRecommendationJobs.get(key);
-      if (!jobIds) {
-        jobIds = pendingRecommendationJobs.get(key) ?? [];
-        pendingRecommendationJobs.delete(key);
-        activeRecommendationJobs.set(key, jobIds);
-        activeRecommendationReasons.set(key, pendingRecommendationReasons.get(key) ?? ['refresh']);
-        pendingRecommendationReasons.delete(key);
-        updateRecommendationRefreshJobs(jobIds, 'running');
-      }
-      const result = await refreshForYou(tab, {
-        profile_id: profileId,
-        trigger_reasons: activeRecommendationReasons.get(key) ?? ['refresh'],
-        job_ids: jobIds,
-      });
-      if (jobIds.length > 0) {
-        updateRecommendationRefreshJobs(jobIds.slice(0, 1), 'complete');
-        updateRecommendationRefreshJobs(jobIds.slice(1), 'coalesced');
-      }
-      activeRecommendationJobs.delete(key);
-      activeRecommendationReasons.delete(key);
-      return result;
-    },
-    onPublished: (work) => {
-      core.invalidateRecommendationTab(work.tab);
-      core.scheduleVodBrowseReservoirRefresh(work.tab);
-    },
-    onBookkeepingFault: (work, error) => {
-      console.warn(`recommendation refresh bookkeeping failed${work ? ` for ${work.tab}` : ''}: ${
-        error instanceof Error ? error.message : String(error)}`);
-    },
-    onRetainedLastGood: (work, error, willRetry) => {
-      if (error instanceof CouchPreemptedRecommendationRefreshError) {
-        const key = recommendationWorkKey(work.profile_id, work.tab);
-        const jobIds = activeRecommendationJobs.get(key) ?? [];
-        // Release in-memory ownership before the durable write. A write that
-        // throws under contention must not leave this key permanently "active",
-        // which would make every later refresh fail as already-active.
-        activeRecommendationJobs.delete(key);
-        activeRecommendationReasons.delete(key);
-        updateRecommendationRefreshJobs(jobIds, 'coalesced', error);
-        const delay = Math.max(10_000, Math.min(
-          10 * 60_000,
-          Number.parseInt(process.env.MANGO_RECOMMENDATION_COUCH_RETRY_MS ?? '', 10) || 60_000,
-        ));
-        const timer = setTimeout(() => {
-          void queueRecommendationRefresh(
-            [work.tab],
-            work.profile_id,
-            ['couch_preempted_resume'],
-          ).then((successors) => {
-            updateRecommendationRefreshJobRuntimeBestEffort(jobIds, {
-              successor_job_id: successors[0]?.job_id ?? null,
-              error_code: 'couch_preempted',
-            });
-          }).catch((resumeError: unknown) => {
-            // This runs from a timer, so an unhandled rejection would kill the
-            // catalog. Last-good stays served and the next signal re-queues.
-            console.warn(`recommendation couch-preempt resume failed for ${work.tab}: ${
-              resumeError instanceof Error ? resumeError.message : String(resumeError)}`);
-          });
-        }, delay);
-        timer.unref?.();
-        console.warn(`recommendation refresh yielded ${work.tab} to couch activity; successor queued after idle delay`);
-        return;
-      }
-      if (!willRetry) {
-        const key = recommendationWorkKey(work.profile_id, work.tab);
-        const jobIds = activeRecommendationJobs.get(key) ?? [];
-        activeRecommendationJobs.delete(key);
-        activeRecommendationReasons.delete(key);
-        updateRecommendationRefreshJobs(jobIds, 'failed', error);
-      }
-      console.warn(`recommendation background refresh retained last-good ${work.tab} snapshot for ${work.profile_id}${
-        willRetry ? ' and will retry' : ''}: ${error instanceof Error ? error.message : String(error)}`);
-    },
-  });
-  const recommendationRefreshQueues = {
-    movies: createRecommendationRefreshQueue('movies'),
-    series: createRecommendationRefreshQueue('series'),
-  };
+  // Signal handlers, corpus notifiers, and manual refreshes persist the
+  // latest desired revision per movie/series into `vod_desired_revisions`
+  // and create a diagnostic-only `RecommendationRefreshJob` facade row. The
+  // isolated worker CLI (systemd unit `mango-vod-recs-worker`) picks up the
+  // desired revision, transitions the facade row to `running` and then to
+  // a terminal state, and reconciles catalog state. VOD refresh work MUST
+  // NOT run inside the catalog: the `CoalescingRecommendationRefreshQueue`
+  // class remains available as a legacy unit-tested module, but this
+  // service never instantiates it.
   const queueRecommendationRefresh = async (
     tabs: readonly ('movies' | 'series')[],
     profileId = recommendationOwnerForRollout('vod', activeViewerProfileId()),
@@ -1670,29 +1583,55 @@ async function main(): Promise<void> {
     const corpusGeneration = typeof captured.corpus_generation === 'number'
       ? captured.corpus_generation
       : await playabilityRecommendationCorpusGeneration().catch(() => null);
-    const jobs = tabs.map((tab) => createRecommendationRefreshJob({
-      domain: 'vod',
-      content_type: tab === 'movies' ? 'movie' : 'series',
-      trigger_reasons: triggerReasons,
-      captured_revisions: {
-        ...captureVodRecommendationRevisions(tab, {
-          corpus_generation: corpusGeneration,
-        }),
+    // Capture per-tab revisions once so we can (a) enqueue the diagnostic
+    // facade row after `updateDesiredRevision` has persisted the desired
+    // state (b) feed the desired revision store the full personalization
+    // signature that changes when the household rates/watches — not just
+    // corpus_generation, which is invariant across those signals.
+    const capturedByTab = tabs.map((tab) => ({
+      tab,
+      revisions: {
+        ...captureVodRecommendationRevisions(tab, { corpus_generation: corpusGeneration }),
         ...captured,
       },
     }));
-    jobs.forEach((job, index) => {
-      const key = recommendationWorkKey(profileId, tabs[index]!);
-      // createRecommendationRefreshJob atomically supersedes older queued rows
-      // for this domain/type. Mirror that durable latest-only ownership in the
-      // in-memory batch so a coalesced ID cannot consume the completion slot.
-      pendingRecommendationJobs.set(key, [job.job_id]);
-      pendingRecommendationReasons.set(key, [...new Set([
-        ...(pendingRecommendationReasons.get(key) ?? []),
-        ...job.trigger_reasons,
-      ])].sort());
-    });
-    tabs.forEach((tab) => recommendationRefreshQueues[tab].enqueue(profileId, [tab]));
+    // Persist the desired revision durably BEFORE creating the facade row so
+    // the facade cannot exist without a corresponding desired revision. Pass
+    // a stable taste signature and semantic generation so any rating or
+    // watch signal advances the revision even when the corpus is unchanged.
+    const persistedDesired = [];
+    for (const { tab, revisions } of capturedByTab) {
+      try {
+        const tasteSignature = currentStoryGraphTasteRevision(tab);
+        const semanticGeneration = typeof revisions.story_generation === 'number'
+          ? revisions.story_generation
+          : null;
+        updateDesiredRevision({
+          content_type: tab === 'movies' ? 'movie' : 'series',
+          reason: triggerReasons.join(','),
+          corpus_generation: corpusGeneration,
+          semantic_generation: semanticGeneration,
+          taste_signature: tasteSignature,
+        });
+        persistedDesired.push({ tab, revisions });
+      } catch (error) {
+        console.warn(`desired revision persistence failed for ${tab}: ${
+          error instanceof Error ? error.message : String(error)
+        }`);
+      }
+    }
+    // `createRecommendationRefreshJob` atomically supersedes older queued
+    // rows for the same domain/content_type; the isolated worker CLI is the
+    // sole consumer and transitions the winning row through
+    // `running → complete/failed/coalesced`. `profileId` is kept for
+    // per-profile logging and future multi-profile scoping.
+    void profileId;
+    const jobs = persistedDesired.map(({ tab, revisions }) => createRecommendationRefreshJob({
+      domain: 'vod',
+      content_type: tab === 'movies' ? 'movie' : 'series',
+      trigger_reasons: triggerReasons,
+      captured_revisions: revisions,
+    }));
     return jobs;
   };
   setStoryGraphLowWaterEnqueueHook((request) => (
