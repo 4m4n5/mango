@@ -372,7 +372,7 @@ def render_04(raw: Path) -> Image.Image:
         title=("choose from available streams.",),
         subtitle=("quality, audio, language, and size—at a glance.",),
     )
-    paste_rounded(img, source(raw, "pi-rating-rrr-chips.png"), IMAGE_BOX, radius=26)
+    paste_rounded(img, source(raw, "pi-rrr-streams-fixed.png"), IMAGE_BOX, radius=26)
     return img
 
 
@@ -471,7 +471,7 @@ CARDS: tuple[Card, ...] = (
         4,
         "streams",
         render_04,
-        ("pi-rating-rrr-chips.png",),
+        ("pi-rrr-streams-fixed.png",),
         "Pi capture",
         limitation="Uses a real pre-play verified stream ladder; no advancing-video claim is made.",
     ),

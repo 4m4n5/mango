@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-23T11:32:51.584734+00:00",
-  "repository_revision": "6cbd53ef3c808db4d74e0402c46ac26c61fa66c5",
+  "generated_at": "2026-08-23T17:08:48.912487+00:00",
+  "repository_revision": "9f40c213b1beeea17cc4a7e55c1bd78ea6b1d193",
   "format": {
     "width": 1080,
     "height": 1440,
@@ -109,7 +109,7 @@
       "card": 4,
       "slug": "streams",
       "output": "card-04-streams.png",
-      "output_sha256": "b0e9e7faf54cd83be302a4269cb63a296bfc71cbf156624e5b66ba6404506bc6",
+      "output_sha256": "da526547917a61a4aeca6cf66eb6137d1d5c4c353ece0c425f80ef8e0201e8ea",
       "dimensions": [
         1080,
         1440
@@ -118,8 +118,8 @@
       "evidence": "Pi capture",
       "inputs": [
         {
-          "file": "pi-rating-rrr-chips.png",
-          "sha256": "30257f0c29aa2fae62a014ddf80bfc9ae2d2f65e3a277a5842aaa36e7b60098d",
+          "file": "pi-rrr-streams-fixed.png",
+          "sha256": "f823b8db7d286b7e10aa8b0e1e42cc6b031b83871f389440247199a59eb1315b",
           "dimensions": [
             1920,
             1080
