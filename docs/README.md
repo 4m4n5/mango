@@ -43,6 +43,7 @@ SHA, generation counts, or “Pi serves” claims.
 | Use Search or the phone librarian | [features/search-and-librarian.md](features/search-and-librarian.md) |
 | Operate optional Live TV | [features/live-tv.md](features/live-tv.md) |
 | Check pad and display contracts | [HARDWARE.md](HARDWARE.md) · [DECISIONS.md](DECISIONS.md) |
+| Produce the Instagram launch carousel | [INSTAGRAM_LAUNCH_CAROUSEL.md](INSTAGRAM_LAUNCH_CAROUSEL.md) · [`../marketing/README.md`](../marketing/README.md) |
 
 Reference configuration lives in [reference/](reference/). Agent invariants
 live in [`../AGENTS.md`](../AGENTS.md). Open incident evidence (facts only; not

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   POSTER_SCROLLPORT_MARGIN_RATIO,
+  bindPosterImage,
   posterIsNearScrollport,
   posterScrollportHasBox,
   resolveCardPosterUrl,
@@ -60,4 +61,38 @@ test("YouTube cards rewrite maxres thumbnails and fill missing artwork", () => {
     resolveCardPosterUrl({ id: "dQw4w9WgXcQ", type: "youtube_video" }),
     "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
   );
+});
+
+test("rebinding a reused detail poster clears stale fallback state", () => {
+  let missingClassRemoved = false;
+  let fallbackRemoved = false;
+  const image = {
+    dataset: {
+      posterBound: "1",
+      posterRetry: "1",
+      posterFallbackTitle: "F1: The Movie",
+    },
+    classList: {
+      remove(value: string) {
+        if (value === "poster-image--missing") missingClassRemoved = true;
+      },
+    },
+    closest() {
+      return {
+        querySelectorAll() {
+          return [{ remove: () => { fallbackRemoved = true; } }];
+        },
+      };
+    },
+    getAttribute(name: string) {
+      return name === "src" ? "https://images.example/rrr.jpg" : null;
+    },
+  } as unknown as HTMLImageElement;
+
+  bindPosterImage(image, "RRR");
+
+  assert.equal(missingClassRemoved, true);
+  assert.equal(fallbackRemoved, true);
+  assert.equal(image.dataset.posterRetry, undefined);
+  assert.equal(image.dataset.posterFallbackTitle, "RRR");
 });

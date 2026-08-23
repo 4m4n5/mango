@@ -1,0 +1,36 @@
+{
+  "audited_at": "2026-08-23T11:32:53.929168+00:00",
+  "technical_pass": true,
+  "publication_ready": false,
+  "failures": [],
+  "publication_blockers": [
+    "Slide 7: The claim \u201cad-free, without Premium.\u201d requires technical substantiation and an explicit platform/legal decision.",
+    "Slide 8: Replace the temporary TV image with the approved real hardware photograph."
+  ],
+  "manual_checks": {
+    "thumbnail_headlines": {
+      "status": "pass",
+      "evidence": "Reviewed the 270 px-wide contact sheet; all eight headlines and the CTA remain legible."
+    },
+    "safe_areas": {
+      "status": "pass",
+      "evidence": "All copy stays within the 64 px text safe area and 96 px bottom reserve."
+    },
+    "privacy": {
+      "status": "pass",
+      "evidence": "Phone account identity was cropped; no source URLs, tokens, credentials, or private account identifiers are visible."
+    },
+    "product_truth": {
+      "status": "pass_with_blockers",
+      "evidence": "Slides 1\u20137 use current real Pi/phone states. Slide 4 is explicitly a pre-play verified stream ladder; Slide 8 still needs the approved hardware photograph."
+    },
+    "platform": {
+      "status": "blocked",
+      "evidence": "Slide 7's ad/Premium statement requires technical and platform/legal approval."
+    },
+    "launch_state": {
+      "status": "pass",
+      "evidence": "The caption says alpha/self-hosted, names unfinished boundaries, and uses DM/email rather than retail availability."
+    }
+  }
+}

@@ -1,0 +1,245 @@
+{
+  "generated_at": "2026-08-23T11:32:51.584734+00:00",
+  "repository_revision": "6cbd53ef3c808db4d74e0402c46ac26c61fa66c5",
+  "format": {
+    "width": 1080,
+    "height": 1440,
+    "color": "sRGB RGB PNG"
+  },
+  "raw_directory": "~/.cache/mango-marketing/raw",
+  "publication_ready": false,
+  "cards": [
+    {
+      "card": 1,
+      "slug": "product",
+      "output": "card-01-product.png",
+      "output_sha256": "356b758b960b172310d322dd3496ae38b2637a66c62f24fbb7234faa17a78b05",
+      "dimensions": [
+        1080,
+        1440
+      ],
+      "mode": "RGB",
+      "evidence": "Pi capture",
+      "inputs": [
+        {
+          "file": "pi-home-movies.png",
+          "sha256": "ef4411c173fa72135a997b8c2ad34dd581c01d76e42ce98dfb46c6de8091393f",
+          "dimensions": [
+            1920,
+            1080
+          ]
+        }
+      ],
+      "limitation": null,
+      "publication_blocker": null
+    },
+    {
+      "card": 2,
+      "slug": "breadth",
+      "output": "card-02-breadth.png",
+      "output_sha256": "10533c7f29fa6d97dff3bbcee512e912cb058ffe4f6da6bbd8884b3da8643093",
+      "dimensions": [
+        1080,
+        1440
+      ],
+      "mode": "RGB",
+      "evidence": "Pi capture",
+      "inputs": [
+        {
+          "file": "pi-explore.png",
+          "sha256": "61014edbbf56cde32db579ea079a5d16f509e8b8795c92e6c1d0e2a80e70cc83",
+          "dimensions": [
+            1920,
+            1080
+          ]
+        }
+      ],
+      "limitation": null,
+      "publication_blocker": null
+    },
+    {
+      "card": 3,
+      "slug": "search",
+      "output": "card-03-search.png",
+      "output_sha256": "79169094e33b96b2d5b2d0fa1a37fb23078d9507694fba29c0546429897c2fea",
+      "dimensions": [
+        1080,
+        1440
+      ],
+      "mode": "RGB",
+      "evidence": "Four scoped Pi captures",
+      "inputs": [
+        {
+          "file": "pi-search-f1-movies.png",
+          "sha256": "7b6b9ca2f42d956c28ce98085f72cb8b549e249d28cc653d2bb4a81e55f51e7a",
+          "dimensions": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "file": "pi-search-f1-series.png",
+          "sha256": "ed8fb49721645eefb4500f9d2019cbbbf7ff5ad34c64bc557c4afef5c3fa2e99",
+          "dimensions": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "file": "pi-search-f1-live.png",
+          "sha256": "056a22cd76281577a305c9b0a0b68201e6a779cca11db02e4e8265072616e781",
+          "dimensions": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "file": "pi-search-f1-youtube.png",
+          "sha256": "78bcad7ed5a24ebe9719b755f1918a450bb3bc02de07a9e2ce982a506d23303b",
+          "dimensions": [
+            1920,
+            1080
+          ]
+        }
+      ],
+      "limitation": null,
+      "publication_blocker": null
+    },
+    {
+      "card": 4,
+      "slug": "streams",
+      "output": "card-04-streams.png",
+      "output_sha256": "b0e9e7faf54cd83be302a4269cb63a296bfc71cbf156624e5b66ba6404506bc6",
+      "dimensions": [
+        1080,
+        1440
+      ],
+      "mode": "RGB",
+      "evidence": "Pi capture",
+      "inputs": [
+        {
+          "file": "pi-rating-rrr-chips.png",
+          "sha256": "30257f0c29aa2fae62a014ddf80bfc9ae2d2f65e3a277a5842aaa36e7b60098d",
+          "dimensions": [
+            1920,
+            1080
+          ]
+        }
+      ],
+      "limitation": "Uses a real pre-play verified stream ladder; no advancing-video claim is made.",
+      "publication_blocker": null
+    },
+    {
+      "card": 5,
+      "slug": "taste",
+      "output": "card-05-taste.png",
+      "output_sha256": "7ac44ac44897b601b0aa3cdc8a8c7708736a27fe533acdd06a177695118da70e",
+      "dimensions": [
+        1080,
+        1440
+      ],
+      "mode": "RGB",
+      "evidence": "Pi capture",
+      "inputs": [
+        {
+          "file": "pi-rating-rrr-chips.png",
+          "sha256": "30257f0c29aa2fae62a014ddf80bfc9ae2d2f65e3a277a5842aaa36e7b60098d",
+          "dimensions": [
+            1920,
+            1080
+          ]
+        }
+      ],
+      "limitation": "The existing real RRR household rating is Fire 5.0 / Water 5.0, not an asymmetric example.",
+      "publication_blocker": null
+    },
+    {
+      "card": 6,
+      "slug": "librarian",
+      "output": "card-06-librarian.png",
+      "output_sha256": "2ff24bcdf2607ba684a1a6ca623f29e17c608683564faf3c0ae295a580e21da7",
+      "dimensions": [
+        1080,
+        1440
+      ],
+      "mode": "RGB",
+      "evidence": "Phone/Pi composite from one real interaction",
+      "inputs": [
+        {
+          "file": "companion-librarian-two-turn.png",
+          "sha256": "8fb329d24cffc94db819b4d6faf924b67479af512b86190b5672218043081dff",
+          "dimensions": [
+            780,
+            1688
+          ]
+        },
+        {
+          "file": "pi-librarian-badlapur.png",
+          "sha256": "4a2a964bfe01640fa0e5831424f3e4656c1b5a8499317943efa2367725844dbf",
+          "dimensions": [
+            1920,
+            1080
+          ]
+        }
+      ],
+      "limitation": null,
+      "publication_blocker": null
+    },
+    {
+      "card": 7,
+      "slug": "youtube",
+      "output": "card-07-youtube.png",
+      "output_sha256": "6c0e19223bd2577ccc8a5b93c91d8757f32104302521712a42ee6508533d1035",
+      "dimensions": [
+        1080,
+        1440
+      ],
+      "mode": "RGB",
+      "evidence": "Pi capture",
+      "inputs": [
+        {
+          "file": "pi-youtube-home.png",
+          "sha256": "7a10a3fd39c83e7b19cb9fa64d23359fc1a7c0abaaa994810d35679af951efc6",
+          "dimensions": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "file": "pi-youtube-regulars.png",
+          "sha256": "72b2fc99e0635c07728a352abaa9e9cf665d073fc81b687b40cad3ee1f70f2e3",
+          "dimensions": [
+            1920,
+            1080
+          ]
+        }
+      ],
+      "limitation": null,
+      "publication_blocker": "The claim \u201cad-free, without Premium.\u201d requires technical substantiation and an explicit platform/legal decision."
+    },
+    {
+      "card": 8,
+      "slug": "contact",
+      "output": "card-08-contact.png",
+      "output_sha256": "5c547c2f9217bd0fce6b56dcdfe4d685d2683005245856adc0dddbe8c837ffe8",
+      "dimensions": [
+        1080,
+        1440
+      ],
+      "mode": "RGB",
+      "evidence": "Temporary Pi Home capture",
+      "inputs": [
+        {
+          "file": "pi-home-movies.png",
+          "sha256": "ef4411c173fa72135a997b8c2ad34dd581c01d76e42ce98dfb46c6de8091393f",
+          "dimensions": [
+            1920,
+            1080
+          ]
+        }
+      ],
+      "limitation": "No local photograph of the real Pi enclosure and controller was available.",
+      "publication_blocker": "Replace the temporary TV image with the approved real hardware photograph."
+    }
+  ]
+}
