@@ -260,7 +260,7 @@ test('runNightlyChainStartHooks is skipped when MANGO_MAINTENANCE_HOOKS_PRESTAGE
   });
 });
 
-test('runNightlyChainStartHooks runs by default (no prestage env)', async () => {
+test('grow refresh skips nightly-chain hooks by default', async () => {
   await withTempDb(async () => {
     let hooksCalled = false;
     const hooksRunner = async (): Promise<{ swept_expired: number; trigger_drain: DrainTriggersResult }> => {
@@ -279,9 +279,9 @@ test('runNightlyChainStartHooks runs by default (no prestage env)', async () => 
       growFn,
       hooksRunner,
     });
-    assert.equal(hooksCalled, true);
-    assert.equal(result.swept_expired, 7);
-    assert.equal(result.trigger_drain?.drained, 3);
+    assert.equal(hooksCalled, false);
+    assert.equal(result.swept_expired, 0);
+    assert.equal(result.trigger_drain?.drained, 0);
   });
 });
 

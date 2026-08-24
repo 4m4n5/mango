@@ -5,7 +5,6 @@
 
 import type { BrowseTab, ContentCard } from "./types";
 import { resolveCardPosterUrl } from "./poster";
-import { resolveVoiceWsUrls } from "./voice-ws";
 
 export type VoiceCommandHandlers = {
   onHome: () => void;

@@ -5,6 +5,7 @@ set -uo pipefail
 
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
+OPS_DIR="${CACHE_DIR}/ops"
 LOG="${CACHE_DIR}/nightly-library-refresh.log"
 MODE="${MANGO_PLAYABILITY_REFRESH_MODE:-nightly}"
 PRESET="${MANGO_GROW_PRESET:-}"
@@ -79,9 +80,54 @@ fi
 export MANGO_PLAYABILITY_REFRESH_MODE="$MODE"
 
 echo "== mango nightly library refresh (mode=$MODE preset=${PRESET:-auto}) =="
+NIGHTLY_STARTED_MS="$(python3 -c 'import time; print(int(time.time()*1000))')"
 PLAYABILITY_RC=0
 bash "$REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh" --mode "$MODE" || PLAYABILITY_RC=$?
 echo "nightly library refresh: playability_rc=$PLAYABILITY_RC"
+
+RECOMMENDATION_RC=0
+RECOMMENDATION_STATUS="unknown"
+RECOMMENDATION_MESSAGE="missing_result"
+RECOMMENDATION_RESULT_PATH=""
+if [[ "$MODE" == "grow" || "$MODE" == "nightly" ]]; then
+  RECOMMENDATION_RESULT_PATH="$(
+    python3 - "$OPS_DIR" "$NIGHTLY_STARTED_MS" "${MANGO_PLAYABILITY_RUN_ID:-}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+ops_dir = Path(sys.argv[1])
+started_ms = int(sys.argv[2])
+run_id = sys.argv[3].strip()
+if run_id:
+    candidate = ops_dir / f"recommendation-refresh-{run_id}.json"
+    if candidate.is_file():
+        print(candidate)
+        raise SystemExit(0)
+paths = sorted(ops_dir.glob("recommendation-refresh-playability-*.json"), key=lambda p: p.stat().st_mtime)
+for path in reversed(paths):
+    if int(path.stat().st_mtime * 1000) >= started_ms:
+        print(path)
+        raise SystemExit(0)
+print("")
+PY
+  )"
+  if [[ -n "$RECOMMENDATION_RESULT_PATH" && -f "$RECOMMENDATION_RESULT_PATH" ]]; then
+    read -r RECOMMENDATION_STATUS RECOMMENDATION_MESSAGE RECOMMENDATION_RC < <(
+      python3 - "$RECOMMENDATION_RESULT_PATH" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+status = str(payload.get("status") or "unknown")
+message = str(payload.get("message") or "")
+rc = 0 if payload.get("ok") is True else int(payload.get("rc") or 10)
+print(status, message.replace(" ", "_"), rc)
+PY
+    )
+  fi
+fi
+echo "nightly library refresh: recommendation_rc=$RECOMMENDATION_RC status=$RECOMMENDATION_STATUS message=$RECOMMENDATION_MESSAGE"
 
 # Rotate the browse session so the home rails re-pick from the freshly-grown pool
 # and new titles surface right away. Daily auto-rotation also covers this, but the
@@ -104,7 +150,7 @@ else
     || YOUTUBE_RC=$?
 fi
 
-echo "nightly library refresh: complete playability_rc=$PLAYABILITY_RC youtube_rc=$YOUTUBE_RC"
+echo "nightly library refresh: complete playability_rc=$PLAYABILITY_RC recommendation_rc=$RECOMMENDATION_RC youtube_rc=$YOUTUBE_RC"
 
 # Reclaim -wal disk after the write-heavy YouTube pass. Best-effort and non-fatal:
 # a TRUNCATE checkpoint is a no-op if the live service is mid-write. playability.db
@@ -113,50 +159,10 @@ if [[ "${MANGO_NIGHTLY_WAL_CHECKPOINT:-1}" == "1" ]]; then
   bash "$REPO_DIR/scripts/lib/checkpoint-wal-dbs.sh" || true
 fi
 
-# Idle-gated library VACUUM after grow/prune/WAL checkpoint. Exclusive lock;
-# never on the couch path. Pre-copy beside the file so a bad vacuum can roll back.
-if [[ "${MANGO_NIGHTLY_VACUUM:-1}" == "1" ]]; then
-  LIBRARY_DB="${MANGO_LIBRARY_DB_PATH:-/etc/mango/library.db}"
-  PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${CACHE_DIR}/playback-active}"
-  couch_idle=0
-  if [[ -f "$REPO_DIR/scripts/lib/couch-activity.sh" ]] \
-      && bash "$REPO_DIR/scripts/lib/couch-activity.sh" is-idle >/dev/null 2>&1; then
-    couch_idle=1
-  fi
-  if [[ -f "$PLAYBACK_ACTIVE_FILE" ]]; then
-    echo "nightly library refresh: VACUUM skipped (playback active)"
-  elif [[ "$couch_idle" -ne 1 ]]; then
-    echo "nightly library refresh: VACUUM skipped (couch not idle)"
-  elif [[ ! -f "$LIBRARY_DB" ]]; then
-    echo "nightly library refresh: VACUUM skipped (library.db missing)"
-  else
-    pre="${LIBRARY_DB}.pre-vacuum"
-    echo "nightly library refresh: pre-copy $LIBRARY_DB -> $pre"
-    cp -a "$LIBRARY_DB" "$pre" || true
-    [[ -f "${LIBRARY_DB}-wal" ]] && cp -a "${LIBRARY_DB}-wal" "${pre}-wal" || true
-    [[ -f "${LIBRARY_DB}-shm" ]] && cp -a "${LIBRARY_DB}-shm" "${pre}-shm" || true
-    BSQLITE="$REPO_DIR/src/catalog-service/node_modules/better-sqlite3"
-    if node -e '
-      const Database = require(process.argv[1]);
-      const db = new Database(process.argv[2], { timeout: 8000 });
-      try {
-        const freelist = Number(db.pragma("freelist_count", { simple: true }) || 0);
-        if (freelist < 1024) {
-          console.log("nightly library refresh: VACUUM skipped (freelist=" + freelist + ")");
-        } else {
-          db.exec("VACUUM");
-          console.log("nightly library refresh: VACUUM complete (freelist was " + freelist + ")");
-        }
-      } finally {
-        db.close();
-      }
-    ' "$BSQLITE" "$LIBRARY_DB"; then
-      true
-    else
-      echo "nightly library refresh: VACUUM skipped (busy or unavailable)" >&2
-    fi
-  fi
-fi
+# Full VACUUM moved out of nightly critical path to avoid overlapping with
+# recommendation/other writers. Use the offline hook instead:
+#   bash scripts/m6-ship/library-offline-compaction.sh
+echo "nightly library refresh: VACUUM deferred to offline compaction hook"
 
 # Inspect stable lock ownership before proof. Existing lock pathnames are
 # normal permanent state and are never removed as crash cleanup.
@@ -170,6 +176,7 @@ if [[ "${MANGO_NIGHTLY_RELIABILITY_PROOF:-1}" == "1" ]]; then
   bash "$REPO_DIR/scripts/m6-ship/reliability-proof.sh" \
     --reason "nightly_after_playability_${MODE}" \
     --playability-rc "$PLAYABILITY_RC" \
+    --recommendation-rc "$RECOMMENDATION_RC" \
     --youtube-rc "$YOUTUBE_RC" \
     || PROOF_RC=$?
 else
@@ -179,7 +186,7 @@ echo "nightly library refresh: proof_rc=$PROOF_RC"
 if [[ "$PLAYABILITY_RC" -ne 0 && "$PLAYABILITY_RC" -ne 10 ]]; then
   exit 1
 fi
-if [[ "$PLAYABILITY_RC" -eq 10 || "$YOUTUBE_RC" -ne 0 || "$PROOF_RC" -ne 0 ]]; then
-  echo "nightly library refresh: partial — validated playability output retained with last-good downstream output" >&2
+if [[ "$PLAYABILITY_RC" -eq 10 || "$RECOMMENDATION_RC" -ne 0 || "$YOUTUBE_RC" -ne 0 || "$PROOF_RC" -ne 0 ]]; then
+  echo "nightly library refresh: partial — publication/readback retained; recommendation freshness and downstream outputs reported separately" >&2
   exit 10
 fi

@@ -2,6 +2,7 @@
   "name": "mango-catalog-service",
   "version": "0.1.0-alpha",
   "private": true,
+  "license": "Apache-2.0",
   "description": "Mango TV catalog, library, recommendations, search, resolver, playback, YouTube, and reliability service",
   "type": "module",
   "engines": {

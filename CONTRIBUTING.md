@@ -1,7 +1,9 @@
 # Contributing
 
-Mango is a single-maintainer alpha. Small, evidence-bounded changes are
-welcome. Please read [docs/TESTING.md](docs/TESTING.md) before opening a PR.
+Mango is a single-maintainer public alpha. Small, evidence-bounded changes
+are welcome. Read [docs/PRODUCT.md](docs/PRODUCT.md),
+[docs/PUBLIC_CLAIMS.md](docs/PUBLIC_CLAIMS.md), and
+[docs/TESTING.md](docs/TESTING.md) before opening a pull request.
 
 ## Development
 
@@ -12,26 +14,36 @@ cd ../companion && npm ci && npm run build
 bash scripts/mac-gate-pr.sh
 ```
 
-Do not rsync to a Pi. Push `main` and deploy with `scripts/pi-deploy.sh`.
+Public branch is `main`. Do not rsync to a Pi. After review, deploy with
+`scripts/pi-deploy.sh`.
 
-## Evidence
+## Pull requests
 
-PRs must say which evidence they have:
+Open against `main`. Use the PR template. Include:
 
-- Local-pass: which tests ran
-- Pi-gated: exact SHA, if any
-- Couch-observed: only if a human watched the TV
+- what changed and why
+- local-pass commands and results
+- Pi-gated SHA only if you actually deployed that revision
+- couch-observed notes only if a human watched the TV
 
-Mac results never certify picture, audio, or controller feel.
+Mac or CI green does not certify picture, audio, or controller feel.
 
 ## Rules
 
-- Do not commit secrets, runtime databases, or household playlists
+- Do not commit secrets, runtime databases, household playlists, or
+  generated marketing binaries
 - Do not change the locked pad map without an issue and maintainer approval
 - Do not put current SHA or “Pi serves” claims outside `docs/STATUS.md`
 - Keep playback ownership in `mpv-play.sh` and the Lua HUD
+- Keep public wording inside [docs/PUBLIC_CLAIMS.md](docs/PUBLIC_CLAIMS.md)
+- Prefer a failing test that names the contract you are fixing
 
-## Conduct
+## Issues
 
-See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Security reports go to
+Use the GitHub issue forms. Never attach API keys, OAuth tokens, debrid
+URLs, or private playlists.
+
+## Conduct and security
+
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Vulnerabilities go to
 [SECURITY.md](SECURITY.md), not public issues.

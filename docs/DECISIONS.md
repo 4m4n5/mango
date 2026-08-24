@@ -105,7 +105,7 @@ explicit product approval.
 | Publish | Work DB and atomic publication; failed/aborted/crashed work preserves the previous couch snapshot |
 | Hygiene | Theme gate, active-orphan attachment, unpinned overlap cap, recent rejection memory, runtime-only source weights |
 | TV visibility | No grow/progress/debug surface on Home |
-| Timers | 03:00 playability/recommendation/YouTube/proof and 06:00 companion jobs use persistent timers plus idle/overlap guards; no independent uncontrolled daytime retry watcher |
+| Timers | 03:00 playability/YouTube/proof and 06:00 companion jobs use persistent timers plus idle/overlap guards; grow enqueues VOD desired revisions asynchronously; no nightly rank wait or full library VACUUM; no independent uncontrolled daytime retry watcher |
 | Reliability | Target shortfalls are operator evidence/yellow unless visible availability is broken; do not discard useful completed work by default |
 
 ## Voice and companion
@@ -129,14 +129,17 @@ explicit product approval.
 | Seed | Approved stable identities only; idempotent; never overwrite later couch history |
 | System rails | One six-card For You after Continue/Saved plus one full-corpus Explore rail; every existing category rail and AI-catalog slot remains |
 | Eligibility | Current verified/playable/poster-bearing; exclude exact rated, Saved, meaningful watch, hidden, blocked, and Not-for-me |
-| Taste | Up to three deterministic positive Bayesian threads; `<1` is negative, `1–2` is neutral, and `>2` contributes quadratically increasing positive evidence. Negative ratings exclude their exact title but do not become broad thematic vetoes |
-| Mix | Six, 3+3, or 2+2+2 across supported threads; no v4 12-card/4-1-1/forced-surprise/bridge/cosine/KNN/MMR/cooled-rewatch behavior |
+| Taste | Deterministic sparse IDF-weighted 0/1/2 lanes; `<1` exact-title veto upstream; `1–2` neutral; `>2` quadratic positive evidence; ≥2 anchors per lane for two lanes else one; legacy Bayesian K=1..3 / LOAO quarantined off by default |
+| Mix | Six or 3+3 across active lanes (two lanes only with ≥2 anchors each); no v4 12-card/4-1-1/forced-surprise/bridge/cosine/KNN/MMR/cooled-rewatch behavior |
 | Content profile | `vod-content-profile-v2` is the sole executable profile: deterministic metadata/rule profiles with immutable compatible StoryDNA overlays and sparse-profile exclusion |
 | Content teacher | Stateless and selective only; canonical title evidence in, no household/companion state, and no score/rank/select/publish authority |
-| Ranker | Local deterministic uncertainty-aware story graph over the complete verified corpus |
+| Ranker | Local deterministic full-corpus IDF-weighted lane centroids with canonical dealer; isolated worker (file lease, ignores couch preemption, low-priority/≤384 MiB); catalog enqueue-only via `vod_desired_revisions` (migration 19); activation-only ack with 1m–1h pending retry |
+| Top Picks | When no generation is activatable, Home shows labelled **Top Picks** (never false **For You**) from the verified corpus deterministically |
 | Browse dealer | `deep-weighted-v1` samples without replacement over every eligible title at each epoch: 95% normalized relevance plus a 5% uniform floor. `pool_max` is acquisition-only. For You deals dynamically after its fit floor/threads/caps and retains current plus four rendered slates; category/Explore avoid one prior slate. Continue/Saved are newest-first on ordinary load and recency-weighted `deep-weighted-v1` samples on X (Continue also weights remaining progress); no exposure counter or future-page queue |
-| Serve | Atomic current/previous generations and tab deals, last-good fallback, opaque revision-bound attribution; X advances Continue, Saved, For You, Explore, every active category, and every AI catalog without inline network/ranking work |
-| Related | Detail uses compatible StoryDNA/content-profile graph edges, requires a semantic plus independent shared family, and omits rather than showing random same-rail cards |
+| Serve | Atomic current/previous generations and tab deals, last-good fallback, opaque revision-bound attribution; truthful Top Picks when no activatable generation; X advances Continue, Saved, For You or Top Picks, Explore, every active category, and every AI catalog without inline network/ranking work |
+| Related | Detail VOD uses compatible StoryDNA/content-profile graph edges; YouTube Detail resample label is **More to watch**; requires semantic plus independent shared family for VOD; omits rather than showing random same-rail cards |
+| Maintenance | Grow publication enqueues desired revisions only (household taste/exclusion hash + corpus inputs); nightly does not wait on rank completion; full `library.db` VACUUM is offline-only; staged stale refresh owns expired demotion and proactive renewal; grow-only pre-stage runs trigger drain only; playability/compaction stop enabled worker before exclusive DB work and restore after |
+| Worker isolation | `mango-vod-recs-worker.service` owns rank work with file lease/heartbeat, ignores couch preemption, low-priority/≤384 MiB envelope; only **activated** ranks ack; failures stay pending with 1m–1h retry; stale revision checked transactionally before pointer swap; catalog serves and enqueues only |
 | Rollout | `MANGO_VOD_RECS_V2` controls the Household ranker and `MANGO_VOD_BROWSE_V3` independently controls browse presentation. Both use off/shadow/serve and preserve every historical row |
 | Promotion | Current source minimum: at least 15 eligible ratings/five folds, non-null nDCG, same-fold strong-vs-lower-preference concordance ≥0.5 when measurable, true-negative (`Fire<1` and `Water<1`) top-six intrusion ≤1/3, complete accounting, deterministic replay, cached p95 ≤250 ms. Release also requires active-pointer proof, Pi restart/offline/resource proof, and a human couch verdict |
 | Acceptance boundary | Automated source/Pi gates do not establish thematic quality. Human ten-shuffle For You plausibility, Explore/category freshness, Detail coherence, focus, and playback remain explicit couch checks |

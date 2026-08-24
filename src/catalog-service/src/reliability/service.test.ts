@@ -15,6 +15,7 @@ import {
 test('proof metadata accepts bounded receipts and rejects privacy-risk fields', () => {
   assert.deepEqual(sanitizeReliabilityProofMetadata({
     playability_rc: 0,
+    recommendation_rc: 10,
     run_id: 'playability-run-123',
     readback_ok: true,
     sampled: 24,
@@ -22,6 +23,7 @@ test('proof metadata accepts bounded receipts and rejects privacy-risk fields', 
     play_probe: false,
   }), {
     playability_rc: 0,
+    recommendation_rc: 10,
     run_id: 'playability-run-123',
     readback_ok: true,
     sampled: 24,

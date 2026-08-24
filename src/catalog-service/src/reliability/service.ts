@@ -120,7 +120,7 @@ function safeString(value: unknown, fallback = ''): string {
 }
 
 const PROOF_NUMBER_KEYS = new Set([
-  'playability_rc', 'youtube_rc', 'proof_rc', 'maintenance_rc',
+  'playability_rc', 'recommendation_rc', 'youtube_rc', 'proof_rc', 'maintenance_rc',
   'attempts', 'exact_main_wins', 'fallback_wins', 'failures', 'elapsed_ms',
   'verified', 'failed', 'publication_count',
   'sample_per_rail', 'sampled', 'broken_verified',
@@ -385,9 +385,16 @@ export function playabilityFacts(
 ): ReliabilityFacts['playability'] {
   const active = new Set(activeRailIds);
   const rails = (status.rails || []).filter((rail) => active.has(rail.rail_id));
+  const verification = status.verification && typeof status.verification === 'object'
+    ? status.verification
+    : undefined;
+  const distinctVerified = verification
+    ? safeNumber(verification.exact_main_verified, 0) + safeNumber(verification.legacy_verified, 0)
+    : 0;
   return {
     ok: status.ok === true,
     rail_count: rails.length,
+    verified_distinct: distinctVerified > 0 ? distinctVerified : undefined,
     verified_total: rails.reduce((sum, rail) => sum + safeNumber(rail.verified_pool, 0), 0),
     thin_rails: rails
       .filter((rail) => safeNumber(rail.verified_pool, 0) < 9)

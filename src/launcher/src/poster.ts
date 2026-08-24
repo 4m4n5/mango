@@ -43,6 +43,12 @@ export function resolveCardPosterUrl(
 }
 
 export function bindPosterImage(img: HTMLImageElement, title: string): void {
+  const host = img.closest(".poster-frame, .card--poster, .detail-poster-wrap");
+  img.classList.remove("poster-image--missing");
+  delete img.dataset.posterRetry;
+  img.dataset.posterFallbackTitle = title;
+  host?.querySelectorAll(":scope > .poster-fallback").forEach((fallback) => fallback.remove());
+
   const applyFallback = (): void => {
     if (img.dataset.posterSrc) return;
     const failed = img.getAttribute("src")?.trim() || "";
@@ -56,18 +62,21 @@ export function bindPosterImage(img: HTMLImageElement, title: string): void {
     img.removeAttribute("src");
     // Cards bind handlers before they are attached. Resolve the host only when
     // fallback is needed so the placeholder lands inside the live image frame.
-    const host = img.closest(".poster-frame, .card--poster, .detail-poster-wrap");
-    if (!host || host.querySelector(".poster-fallback")) {
+    const liveHost = img.closest(".poster-frame, .card--poster, .detail-poster-wrap");
+    if (!liveHost || liveHost.querySelector(".poster-fallback")) {
       return;
     }
     const fallback = document.createElement("span");
     fallback.className = "poster-fallback";
     fallback.setAttribute("aria-hidden", "true");
-    fallback.textContent = posterInitials(title);
-    host.append(fallback);
+    fallback.textContent = posterInitials(img.dataset.posterFallbackTitle || "");
+    liveHost.append(fallback);
   };
 
-  img.addEventListener("error", applyFallback);
+  if (img.dataset.posterBound !== "1") {
+    img.dataset.posterBound = "1";
+    img.addEventListener("error", applyFallback);
+  }
   if (!img.getAttribute("src")?.trim() && !img.dataset.posterSrc) {
     queueMicrotask(applyFallback);
   }

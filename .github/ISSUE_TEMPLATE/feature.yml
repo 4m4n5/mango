@@ -1,0 +1,35 @@
+name: Feature
+description: Propose a change that stays inside product non-goals
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [docs/PRODUCT.md](https://github.com/4m4n5/mango/blob/main/docs/PRODUCT.md)
+        and [docs/PUBLIC_CLAIMS.md](https://github.com/4m4n5/mango/blob/main/docs/PUBLIC_CLAIMS.md).
+        Features that need bundled content, native HDR, or YouTube Home
+        are out of scope for this alpha.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Who is blocked and on which surface?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Smallest change that would help. Name the evidence you would add.
+    validations:
+      required: true
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Primary audience
+      options:
+        - Viewer
+        - Operator
+        - Contributor
+    validations:
+      required: true

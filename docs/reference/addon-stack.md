@@ -102,9 +102,8 @@ test "$(git branch --show-current)" = main
 test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
 ```
 
-The current deploy wrapper is blocked for unattended agents because it does not
-enforce/pin that revision and can implicitly mutate AIOMetadata state. Follow
-the reviewed exception/manual path in `OPERATIONS.md` until the helper is hardened.
+The deploy wrapper enforces the branch and expected revision. AIOMetadata rail
+sync remains opt-in via `MANGO_SYNC_AIOMETADATA=1`.
 
 Git deployment does **not** overwrite the Pi-owned AIOStreams `userData`.
 The AIO helper now uses private temporary files, fixed redacted output,

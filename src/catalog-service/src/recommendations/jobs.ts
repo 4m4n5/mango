@@ -195,6 +195,29 @@ WHERE job_id = @job_id
   }, 0))();
 }
 
+function isRecommendationRuntimeWriteContention(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('code' in error)) return false;
+  const code = String((error as { code?: unknown }).code ?? '');
+  return code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED';
+}
+
+/**
+ * Runtime checkpoints are diagnostics, never publication authority. A live
+ * SQLite maintenance lock may delay them, but must not crash or invalidate the
+ * recommendation refresh that still owns last-good publication semantics.
+ */
+export function updateRecommendationRefreshJobRuntimeBestEffort(
+  jobIds: readonly string[],
+  update: RecommendationRefreshJobRuntimeUpdate,
+): number {
+  try {
+    return updateRecommendationRefreshJobRuntime(jobIds, update);
+  } catch (error) {
+    if (isRecommendationRuntimeWriteContention(error)) return 0;
+    throw error;
+  }
+}
+
 export function updateRecommendationRefreshJobs(
   jobIds: readonly string[],
   status: Exclude<RecommendationRefreshJobStatus, 'queued'>,
@@ -232,6 +255,46 @@ WHERE job_id = @job_id AND status IN ('queued', 'running')
  * running rows to queued state; the newly captured startup request coalesces
  * them explicitly rather than relabeling durable work as a failure.
  */
+/**
+ * Worker-side claim: transitions any queued facade rows for
+ * `(domain, content_type)` to `running` atomically and returns their ids so
+ * the worker can finalize them by id. If nothing is queued we still return
+ * an empty array — a stale desired revision may exist without a facade
+ * row after a crash-and-restart cycle.
+ *
+ * This is the sole authorized `queued → running` transition for facade
+ * rows: the catalog only *enqueues*; the isolated worker *runs* and
+ * *finalizes*. That contract keeps `/recommendations/state` polling truthful
+ * without waking the catalog to update job status.
+ */
+export function claimQueuedRecommendationRefreshJobsForContent(
+  domain: 'vod' | 'youtube',
+  contentType: string,
+  at = Date.now(),
+): string[] {
+  const db = libraryDatabase();
+  const trimmed = contentType.trim();
+  if (!trimmed) return [];
+  return db.transaction((): string[] => {
+    const rows = db.prepare(`
+SELECT job_id FROM recommendation_refresh_jobs
+WHERE domain = ? AND COALESCE(content_type, '') = ? AND status = 'queued'
+ORDER BY queued_at ASC, job_id ASC
+`).all(domain, trimmed) as Array<{ job_id: string }>;
+    const ids = rows.map((row) => row.job_id);
+    if (ids.length === 0) return ids;
+    const update = db.prepare(`
+UPDATE recommendation_refresh_jobs
+SET status = 'running',
+    started_at = COALESCE(started_at, ?),
+    heartbeat_at = ?
+WHERE job_id = ? AND status = 'queued'
+`);
+    for (const id of ids) update.run(at, at, id);
+    return ids;
+  })();
+}
+
 export function reconcileInterruptedRecommendationRefreshJobs(
   at = Date.now(),
   reason = 'service restarted; committed checkpoint retained for resume',

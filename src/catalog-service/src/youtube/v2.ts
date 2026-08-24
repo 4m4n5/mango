@@ -2407,6 +2407,41 @@ export function youtubeV2Diagnostics(): Record<string, unknown> {
     provenance: item.provenance,
     ...(item.score_breakdown ?? {}),
   }));
+  const moreLikeItems = ready?.items.filter((item) => item.rail_id === 'more_like') ?? [];
+  const storedMoreLike = youtubeV2MoreLikeDiagnostics(
+    getYoutubeState<unknown>('youtube_v2_more_like_status', null),
+  );
+  const allocatedMoreLikeSeedRefs = diagnosticOpaqueRefs(
+    moreLikeItems.map((item) => item.provenance_ref),
+  );
+  const hasThematicMoreLike = moreLikeItems.some((item) => item.provenance === 'history_topic');
+  const hasChannelMoreLike = moreLikeItems.some((item) => item.provenance === 'history_channel');
+  const allocatedMoreLikeMode = hasThematicMoreLike && hasChannelMoreLike
+    ? 'hybrid'
+    : hasChannelMoreLike ? 'exact_channel' : 'thematic';
+  const moreLikeStatus = moreLikeItems.length >= YOUTUBE_RAIL_LIMIT
+    ? {
+      ...(storedMoreLike ?? {}),
+      status: allocatedMoreLikeMode,
+      seed_refs: allocatedMoreLikeSeedRefs,
+      contributing_seed_count: allocatedMoreLikeSeedRefs.length,
+      allocated_seed_count: allocatedMoreLikeSeedRefs.length,
+      candidate_count: moreLikeItems.length,
+      target: YOUTUBE_V2_MORE_LIKE_TARGET,
+      target_reached: moreLikeItems.length >= YOUTUBE_V2_MORE_LIKE_TARGET,
+      retained_last_good: storedMoreLike?.status === 'not_applicable',
+      allocated_generation: generation?.generation ?? null,
+    }
+    : {
+      ...(storedMoreLike ?? {}),
+      status: 'not_applicable',
+      allocated_seed_count: 0,
+      candidate_count: moreLikeItems.length,
+      target: YOUTUBE_V2_MORE_LIKE_TARGET,
+      target_reached: false,
+      retained_last_good: false,
+      allocated_generation: generation?.generation ?? null,
+    };
   return {
     mode: youtubeRecommendationsV2Mode(),
     model_version: YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION,
@@ -2511,11 +2546,11 @@ export function youtubeV2Diagnostics(): Record<string, unknown> {
     history_acquisition: youtubeV2HistoryAcquisitionDiagnostics(
       getYoutubeState<unknown>('youtube_v2_history_acquisition', null),
     ),
-    more_like_status: youtubeV2MoreLikeDiagnostics(
-      getYoutubeState<unknown>('youtube_v2_more_like_status', {
-        status: reserveDepths.more_like >= YOUTUBE_RAIL_LIMIT ? 'thematic' : 'not_applicable',
-      }),
-    ),
+    // This describes the rail actually allocated in the active generation.
+    // The latest acquisition attempt remains separately visible under
+    // history_acquisition, so a zero-budget attempt cannot relabel a retained
+    // populated More Like rail as not_applicable.
+    more_like_status: moreLikeStatus,
     live_acquisition: youtubeV2LiveAcquisitionDiagnostics(
       getYoutubeState<unknown>('youtube_v2_live_acquisition', null),
     ),

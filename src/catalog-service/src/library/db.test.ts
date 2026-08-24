@@ -129,7 +129,10 @@ test('initLibraryDb creates WAL schema and migration row', () => withTempLibrary
     const mode = db.pragma('journal_mode', { simple: true });
     assert.equal(String(mode).toLowerCase(), 'wal');
     const rows = db.prepare('SELECT version FROM library_migrations').all() as Array<{ version: number }>;
-    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+    assert.deepEqual(
+      rows.map((row) => row.version),
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+    );
     const v2Tables = db.prepare(`
 SELECT name FROM sqlite_master
 WHERE type = 'table' AND name IN (
@@ -228,7 +231,7 @@ WHERE content_type = 'movie' AND content_id = 'tt-preserved' AND semantic_eviden
   assert.deepEqual(
     (reopened.prepare('SELECT version FROM library_migrations ORDER BY version').all() as Array<{ version: number }>)
       .map((row) => row.version),
-    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
   );
   delete process.env.MANGO_VOD_RECS_V2;
   delete process.env.MANGO_YOUTUBE_RECS_V2;

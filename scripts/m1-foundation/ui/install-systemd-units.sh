@@ -12,7 +12,7 @@ UNIT_DST="${HOME}/.config/systemd/user"
 
 mkdir -p "$UNIT_DST" "${HOME}/.cache/mango"
 
-for unit in mango-ui-server.service mango-catalog.service mango-watchdog.service mango-watchdog.timer mango-launcher-chromium.service mango-tv-pad.service; do
+for unit in mango-ui-server.service mango-catalog.service mango-watchdog.service mango-watchdog.timer mango-launcher-chromium.service mango-tv-pad.service mango-vod-recs-worker.service; do
   install -m 0644 "$UNIT_SRC/$unit" "$UNIT_DST/$unit"
 done
 
@@ -20,11 +20,16 @@ chmod +x "$REPO_DIR/scripts/m1-foundation/ui/start-mango-launcher-chromium.sh"
 chmod +x "$REPO_DIR/scripts/m1-foundation/pad/run-mango-tv-pad.sh"
 chmod +x "$REPO_DIR/scripts/m1-foundation/pad/pad-health.sh"
 chmod +x "$REPO_DIR/scripts/m2-catalog/service/run-catalog-service.sh"
+chmod +x "$REPO_DIR/scripts/m2-catalog/vod-recs-worker/vod-recs-worker.sh"
 chmod +x "$REPO_DIR/scripts/mango-health-repair.sh"
 
 systemctl --user daemon-reload
-systemctl --user enable mango-ui-server.service mango-catalog.service mango-watchdog.timer mango-launcher-chromium.service mango-tv-pad.service
+systemctl --user enable mango-ui-server.service mango-catalog.service mango-watchdog.timer mango-launcher-chromium.service mango-tv-pad.service mango-vod-recs-worker.service
 systemctl --user start mango-ui-server.service mango-catalog.service mango-watchdog.timer
+# The worker loads compiled ranking code once at process start. Restart it on
+# every deploy so an already-running unit cannot keep the previous checkout's
+# ranker in memory after the Pi advances to a new SHA.
+systemctl --user restart mango-vod-recs-worker.service
 # The router executes Python directly from the checkout. Reload it on every
 # deploy so newly pulled button behavior cannot remain stale in memory.
 systemctl --user restart mango-tv-pad.service

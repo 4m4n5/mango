@@ -45,3 +45,6 @@ tools/ux-harness/shots/
 
 # Local agent orchestration scratch
 .orchestration/
+
+# Generated marketing binaries stay local
+marketing/out/

@@ -10,6 +10,7 @@ import {
   catalogTabCacheIsWarm,
   browseTabSwitchPlan,
   browseTabsCanReuse,
+  formatRailLabel,
   hasCatalogItems,
   nonEmptyCatalogRails,
   sameCatalogPresentation,
@@ -226,6 +227,22 @@ test("browse tab chrome can reuse an unchanged tab order", () => {
   assert.equal(browseTabsCanReuse(["movies", "series", "live", "youtube"]), true);
   assert.equal(browseTabsCanReuse(["movies", "series", "live"]), false);
   assert.equal(browseTabsCanReuse(["series", "movies", "live", "youtube"]), false);
+});
+
+test("personalized rail labels are preserved exactly and empty ones are omitted", () => {
+  const rails: ContentRail[] = [
+    { id: "for-you-movies", label: "Top Picks", cards: [] },
+    { id: "for-you-series", label: "For You", cards: [{ id: "tt1", type: "series", title: "Show", subtitle: "2024" }] },
+  ];
+  assert.deepEqual(
+    nonEmptyCatalogRails(rails).map((rail) => ({ id: rail.id, label: rail.label })),
+    [{ id: "for-you-series", label: "For You" }],
+  );
+});
+
+test("launcher chrome labels are normalized to lowercase", () => {
+  assert.equal(formatRailLabel("YouTube"), "youtube");
+  assert.equal(formatRailLabel("  Waiting  "), "waiting");
 });
 
 test("impression fingerprints change with slate sequence and card ids", () => {

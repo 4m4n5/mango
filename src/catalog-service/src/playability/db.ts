@@ -22,6 +22,8 @@ import { effectiveDisplayLimit } from './pool-growth.js';
 import {
   playabilityFailedRetryMsForReason,
   playabilityPlayFailureRetryMs,
+  playabilityProactiveRenewLeadMs,
+  playabilityProactiveRenewLimit,
   playabilityStaleCandidateLimit,
 } from './config.js';
 import { AI_CATALOG_RAIL_PREFIX } from '../ai-catalogs/types.js';
@@ -2819,6 +2821,7 @@ export type PlayabilityRetryCandidate = {
 function retryPriority(reason?: string | null, visible = false): number {
   if (reason === 'play_failure' || reason === 'play_miss') return 100;
   if (visible) return 70;
+  if (reason === 'pre_expiry_renewal') return 60;
   if (reason === 'expired_stale') return 50;
   return 20;
 }
@@ -2899,6 +2902,7 @@ export async function getStaleTitlesForRefresh(
 ): Promise<PlayabilityRetryCandidate[]> {
   await initPlayabilityDb();
   const db = openDb();
+  const renewalCutoff = now + playabilityProactiveRenewLeadMs();
   const transaction = db.transaction(() => {
     // Lazy grandfathering: build queue state only for rows that are already stale.
     db.prepare(`
@@ -2944,12 +2948,104 @@ FROM rail_pool rp
   q.next_eligible_at
 FROM playability_retry_queue q
 JOIN titles t ON t.type=q.type AND t.id=q.id
-WHERE (t.status = 'stale' OR (t.status = 'failed' AND t.fail_reason = 'play_failure'))
+WHERE (
+    t.status = 'stale'
+    OR (t.status = 'failed' AND t.fail_reason = 'play_failure')
+    OR (
+      q.reason = 'pre_expiry_renewal'
+      AND t.status = 'verified'
+      AND t.expires_at IS NOT NULL
+      AND t.expires_at > @now
+      AND t.expires_at <= @renewal_cutoff
+    )
+  )
   AND NOT (t.type = 'series' AND instr(t.id, char(58)) > 0)
   AND q.next_eligible_at <= @now
 ORDER BY q.priority DESC, q.next_eligible_at, q.requested_at, q.type, q.id
 LIMIT @limit;
-`).all({ now, limit }) as PlayabilityRetryCandidate[];
+`).all({ now, renewal_cutoff: renewalCutoff, limit }) as PlayabilityRetryCandidate[];
+  });
+  return transaction();
+}
+
+export type QueueProactiveRenewalResult = {
+  queued: number;
+  considered: number;
+  skipped_existing: number;
+  lead_ms: number;
+  limit: number;
+};
+
+/**
+ * Queue verified titles that are close to TTL expiry for bounded proactive renewal.
+ * This preserves verified visibility and uses the existing stale/force-reprobe queue.
+ */
+export async function queueProactiveRenewalsBeforeExpiry(
+  now: number = nowMs(),
+): Promise<QueueProactiveRenewalResult> {
+  await initPlayabilityDb();
+  const db = openDb();
+  const leadMs = playabilityProactiveRenewLeadMs();
+  const limit = playabilityProactiveRenewLimit();
+  if (leadMs <= 0 || limit <= 0) {
+    return { queued: 0, considered: 0, skipped_existing: 0, lead_ms: leadMs, limit };
+  }
+  const renewalCutoff = now + leadMs;
+  const transaction = db.transaction(() => {
+    const candidates = db.prepare(`
+SELECT
+  t.type,
+  t.id,
+  EXISTS (SELECT 1 FROM rail_pool rp WHERE rp.type = t.type AND rp.id = t.id) AS visible
+FROM titles t
+WHERE t.status = 'verified'
+  AND t.expires_at IS NOT NULL
+  AND t.expires_at > @now
+  AND t.expires_at <= @renewal_cutoff
+  AND NOT (t.type = 'series' AND instr(t.id, char(58)) > 0)
+ORDER BY t.expires_at ASC
+LIMIT @limit;
+`).all({
+      now,
+      renewal_cutoff: renewalCutoff,
+      limit,
+    }) as Array<{ type: string; id: string; visible: number }>;
+    const existingStmt = db.prepare(`
+SELECT 1
+FROM playability_retry_queue
+WHERE type = @type AND id = @id
+LIMIT 1;
+`);
+    const insertStmt = db.prepare(`
+INSERT OR IGNORE INTO playability_retry_queue (
+  type, id, reason, priority, attempt_count, requested_at,
+  last_attempt_at, next_eligible_at, resume_position
+) VALUES (
+  @type, @id, 'pre_expiry_renewal', @priority, 0, @now,
+  NULL, @now, 0
+);
+`);
+    let queued = 0;
+    let skippedExisting = 0;
+    for (const row of candidates) {
+      if (existingStmt.get(row) !== undefined) {
+        skippedExisting += 1;
+        continue;
+      }
+      const changes = insertStmt.run({
+        ...row,
+        now,
+        priority: retryPriority('pre_expiry_renewal', row.visible === 1),
+      }).changes;
+      queued += changes;
+    }
+    return {
+      queued,
+      considered: candidates.length,
+      skipped_existing: skippedExisting,
+      lead_ms: leadMs,
+      limit,
+    } satisfies QueueProactiveRenewalResult;
   });
   return transaction();
 }

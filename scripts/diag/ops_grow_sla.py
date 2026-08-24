@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,11 +18,13 @@ except ImportError:  # pragma: no cover - Pi has PyYAML via catalog scripts
 DEFAULT_DISPLAY_LIMIT = 9
 DEFAULT_GROW_PER_PASS = 20
 DEFAULT_POOL_TARGET = 20
+DEFAULT_BREADTH_FRACTION = 0.20
 PROGRAM_PASS_RATE = 0.80  # Warning threshold only; strict pass requires every rail.
 THIN_POOL_FILL_RATIO = 0.50
 THIN_POOL_ALERT_MS = 48 * 60 * 60 * 1000
 ANCHOR_RAIL_IDS = frozenset({"movies-global-popular", "series-global-popular"})
 GROW_EVENT_KINDS = frozenset({"playability_growth", "playability_maintenance"})
+NON_VOD_TABS = frozenset({"live", "youtube"})
 
 
 @dataclass(frozen=True)
@@ -28,6 +32,7 @@ class RailPlayabilityConfig:
     display_limit: int = DEFAULT_DISPLAY_LIMIT
     grow_per_pass: int = DEFAULT_GROW_PER_PASS
     pool_target: int = DEFAULT_POOL_TARGET
+    pool_max: int | None = None
 
 
 @dataclass(frozen=True)
@@ -63,7 +68,14 @@ def resolve_grow_target(
     verified_before: int,
     rail_id: str | None = None,
 ) -> int:
-    base = playability.grow_per_pass
+    raw_override = os.environ.get("MANGO_GROW_PER_PASS") or os.environ.get(
+        "MANGO_PLAYABILITY_GROWTH_QUOTA"
+    )
+    try:
+        parsed_override = int(raw_override or "")
+    except ValueError:
+        parsed_override = 0
+    base = min(parsed_override, 200) if parsed_override >= 1 else playability.grow_per_pass
     if (
         rail_id
         and rail_id in ANCHOR_RAIL_IDS
@@ -71,7 +83,23 @@ def resolve_grow_target(
         and verified_before >= playability.pool_target
     ):
         return 0
-    return base
+    if playability.pool_max is None:
+        return base
+    policy_path = Path(
+        os.environ.get("MANGO_PLAYABILITY_POLICY_PATH")
+        or Path(__file__).resolve().parents[2] / "config" / "playability-policy.json"
+    )
+    breadth_fraction = DEFAULT_BREADTH_FRACTION
+    try:
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        configured = policy.get("allocation", {}).get("breadth_fraction")
+        if isinstance(configured, (int, float)) and 0 <= configured <= 1:
+            breadth_fraction = float(configured)
+    except (OSError, ValueError, AttributeError):
+        pass
+    breadth = max(1, math.ceil(base * breadth_fraction))
+    headroom = max(0, playability.pool_max - verified_before)
+    return min(base, headroom + breadth)
 
 
 def catalog_playability_path() -> Path:
@@ -98,6 +126,11 @@ def _iter_ai_slot_paths(ai_dir: Path) -> list[Path]:
     return sorted(paths)
 
 
+def _is_vod_grow_rail(rail: dict[str, Any]) -> bool:
+    tab = str(rail.get("tab") or "").strip().lower()
+    return tab not in NON_VOD_TABS
+
+
 def _read_ai_slot_file(slot_path: Path) -> dict[str, Any] | None:
     try:
         raw = slot_path.read_text(encoding="utf-8")
@@ -120,6 +153,8 @@ def _ai_slot_configs(ai_dir: Path) -> dict[str, RailPlayabilityConfig]:
         slot = _read_ai_slot_file(slot_path)
         if not slot or slot.get("enabled") is False:
             continue
+        if not _is_vod_grow_rail(slot):
+            continue
         slot_id = str(slot.get("slot_id") or slot_path.stem)
         rail_id = f"ai-{slot_id}"
         play = slot.get("playability") or {}
@@ -127,6 +162,7 @@ def _ai_slot_configs(ai_dir: Path) -> dict[str, RailPlayabilityConfig]:
             display_limit=int(play.get("display_limit") or DEFAULT_DISPLAY_LIMIT),
             grow_per_pass=int(play.get("grow_per_pass") or DEFAULT_GROW_PER_PASS),
             pool_target=int(play.get("pool_target") or DEFAULT_POOL_TARGET),
+            pool_max=int(play["pool_max"]) if play.get("pool_max") is not None else None,
         )
     return configs
 
@@ -144,11 +180,14 @@ def load_catalog_playability(path: Path | None = None) -> dict[str, RailPlayabil
             continue
         if rail.get("type") not in {"addon_catalog", "composite_list"}:
             continue
+        if not _is_vod_grow_rail(rail):
+            continue
         play = rail.get("playability") or {}
         configs[str(rail["id"])] = RailPlayabilityConfig(
             display_limit=int(play.get("display_limit") or DEFAULT_DISPLAY_LIMIT),
             grow_per_pass=int(play.get("grow_per_pass") or DEFAULT_GROW_PER_PASS),
             pool_target=int(play.get("pool_target") or DEFAULT_POOL_TARGET),
+            pool_max=int(play["pool_max"]) if play.get("pool_max") is not None else None,
         )
 
     configs.update(_ai_slot_configs(ai_catalogs_dir()))
@@ -166,6 +205,8 @@ def list_grow_rail_ids(path: Path | None = None) -> list[str]:
             if rail.get("enabled") is False:
                 continue
             if rail.get("type") not in {"addon_catalog", "composite_list"}:
+                continue
+            if not _is_vod_grow_rail(rail):
                 continue
             browse.append(str(rail["id"]))
 

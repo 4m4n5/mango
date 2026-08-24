@@ -48,3 +48,29 @@ test('a stale maintenance lease cannot suppress recovery', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a fresh heartbeat from a dead process cannot suppress restart recovery', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-recommendation-lease-dead-pid-'));
+  const path = join(dir, 'maintenance.lease');
+  process.env.MANGO_RECOMMENDATION_MAINTENANCE_LEASE = path;
+  try {
+    writeFileSync(path, JSON.stringify({
+      owner: 'vod:series',
+      pid: 2_147_483_647,
+      started_at: Date.now(),
+      heartbeat_at: Date.now(),
+      deadline_at: Date.now() + 60_000,
+      phase: 'heartbeat',
+      cursor: null,
+    }));
+    assert.equal(readFreshRecommendationMaintenanceLease(), null);
+    const lease = acquireRecommendationMaintenanceLease({
+      owner: 'vod:movies',
+      ignoreCouch: true,
+    });
+    lease.release();
+  } finally {
+    delete process.env.MANGO_RECOMMENDATION_MAINTENANCE_LEASE;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

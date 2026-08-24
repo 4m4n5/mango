@@ -1,0 +1,35 @@
+[Unit]
+Description=mango isolated VOD recommendations worker
+After=mango-catalog.service
+Wants=mango-catalog.service
+# The worker is a separate low-priority process from catalog. Catalog boot
+# never runs heavy rank work; it only reconciles vod_desired_revisions. If
+# this unit crashes, catalog and couch playback remain fully live.
+ConditionPathExists=%h/mango/scripts/m2-catalog/vod-recs-worker/vod-recs-worker.sh
+
+[Service]
+Type=simple
+WorkingDirectory=%h/mango
+Environment=HOME=%h
+Environment=MANGO_VOD_RECS_WORKER=1
+ExecStartPre=/bin/mkdir -p %h/.cache/mango
+ExecStart=%h/mango/scripts/m2-catalog/vod-recs-worker/vod-recs-worker.sh
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=60
+KillMode=process
+# Isolated resource envelope well below catalog's. The deterministic 0/1/2-lane
+# ranker holds no per-thread K=1..3 mixture models and no LOAO fold state.
+# 384 MiB is the acceptance ceiling, not a measured Pi claim; Pi proof must
+# establish the actual peak before this envelope is treated as proven.
+MemoryAccounting=yes
+MemoryHigh=320M
+MemoryMax=384M
+TasksMax=64
+CPUWeight=20
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+
+[Install]
+WantedBy=default.target

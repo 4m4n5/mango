@@ -2,17 +2,29 @@ name: Bug
 description: Something is broken in Mango
 labels: [bug]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include API keys, OAuth tokens, debrid URLs, signed stream
+        links, or household playlists.
   - type: textarea
     id: what
     attributes:
       label: What happened
+      description: What you saw on the TV or in a named command.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
     validations:
       required: true
   - type: input
     id: sha
     attributes:
       label: Source SHA
-      description: git rev-parse HEAD
+      description: Output of `git rev-parse HEAD`
   - type: dropdown
     id: evidence
     attributes:
@@ -22,8 +34,12 @@ body:
         - Local-pass
         - Pi-gated
         - Couch-observed
+    validations:
+      required: true
   - type: textarea
     id: repro
     attributes:
       label: Reproduction
-      description: No secrets, signed URLs, or household credentials
+      description: Commands or couch steps. No secrets.
+    validations:
+      required: true

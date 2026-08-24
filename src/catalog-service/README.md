@@ -145,5 +145,5 @@ locally; on Pi require explicit authority, backups, dry-run where available, and
 idempotence proof.
 
 Pi verification is Git-only and exact-SHA. Run the relevant gates in
-[`docs/STATUS.md`](../../docs/STATUS.md#verification) and complete
+[`docs/STATUS.md`](../../docs/STATUS.md) and complete
 [`docs/TESTING.md`](../../docs/TESTING.md); local tests do not prove the TV.

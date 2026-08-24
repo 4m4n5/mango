@@ -29,6 +29,7 @@ export const VOD_PROGRESSIVE_PROFILE_SCHEMA_VERSION = 15;
 export const VOD_IMMUTABLE_OVERLAY_SCHEMA_VERSION = 16;
 export const VOD_RECOMMENDATION_RUNTIME_SCHEMA_VERSION = 17;
 export const LIBRARY_CANONICAL_TAB_SCHEMA_VERSION = 18;
+export const VOD_DESIRED_REVISION_SCHEMA_VERSION = 19;
 /** Fire/Water attribution binds to a recent served slate, not a month of X history. */
 export const RECOMMENDATION_SERVED_SLATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** Keep a short diagnostics tail; queued/running jobs are never deleted. */
@@ -1730,6 +1731,37 @@ WHERE tab IS NOT ${canonicalLibraryTabSql('library_items')};
 `);
     db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (?, ?)')
       .run(LIBRARY_CANONICAL_TAB_SCHEMA_VERSION, timestamp);
+  }
+  if (!migrated.has(VOD_DESIRED_REVISION_SCHEMA_VERSION)) {
+    const timestamp = nowMs();
+    // Additive per-domain durable "latest desired revision" state that
+    // replaces in-catalog startup/in-memory queue flights. Signals and corpus
+    // publication update `revision`; the isolated worker CLI reads and
+    // acknowledges. Historical migrations and existing rows are preserved.
+    db.exec(`
+CREATE TABLE IF NOT EXISTS vod_desired_revisions (
+  content_type TEXT NOT NULL PRIMARY KEY CHECK(content_type IN ('movie', 'series')),
+  revision INTEGER NOT NULL DEFAULT 1,
+  corpus_generation INTEGER,
+  semantic_generation INTEGER,
+  taste_signature TEXT,
+  requested_at INTEGER NOT NULL,
+  requested_reasons_json TEXT NOT NULL DEFAULT '[]',
+  acknowledged_revision INTEGER NOT NULL DEFAULT 0,
+  acknowledged_rank_generation_id INTEGER,
+  acknowledged_at INTEGER,
+  last_worker_error TEXT,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  retry_after INTEGER,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vod_desired_revisions_pending
+  ON vod_desired_revisions(content_type, revision, acknowledged_revision);
+CREATE INDEX IF NOT EXISTS idx_vod_desired_revisions_retry
+  ON vod_desired_revisions(retry_after);
+`);
+    db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (?, ?)')
+      .run(VOD_DESIRED_REVISION_SCHEMA_VERSION, timestamp);
   }
   });
   migrate.immediate();

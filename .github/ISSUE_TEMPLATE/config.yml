@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: mailto:support@aaam.dev?subject=mango-security
+    about: Do not file vulnerabilities as public issues.
+  - name: Documentation
+    url: https://github.com/4m4n5/mango/blob/main/docs/README.md
+    about: Install, use, and operate guides.

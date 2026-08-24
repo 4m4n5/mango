@@ -8,6 +8,8 @@ export type RecommendationRefreshQueueOptions = {
   refresh: (work: RecommendationRefreshWork) => Promise<unknown>;
   onPublished: (work: RecommendationRefreshWork) => void;
   onRetainedLastGood?: (work: RecommendationRefreshWork, error: unknown, willRetry: boolean) => void;
+  /** Reports a throwing notifier. The queue keeps draining either way. */
+  onBookkeepingFault?: (work: RecommendationRefreshWork | null, error: unknown) => void;
   wait?: (delayMs: number) => Promise<void>;
   maxRetries?: number;
   retryBaseMs?: number;
@@ -45,12 +47,38 @@ export class CoalescingRecommendationRefreshQueue {
   }
 
   private start(): void {
-    this.flight = this.drain().finally(() => {
-      this.flight = null;
-      // Close the enqueue-at-drain-boundary race: an enqueue that observed the
-      // old flight is waiting in pending and must start a new drain here.
-      if (this.pending.size > 0) this.start();
-    });
+    // `flight` must never reject: it is only awaited by idle(), so an unhandled
+    // rejection here would take the whole catalog process down.
+    this.flight = this.drain()
+      .catch((error: unknown) => this.reportBookkeepingFault(null, error))
+      .finally(() => {
+        this.flight = null;
+        // Close the enqueue-at-drain-boundary race: an enqueue that observed the
+        // old flight is waiting in pending and must start a new drain here.
+        if (this.pending.size > 0) this.start();
+      });
+  }
+
+  private reportBookkeepingFault(work: RecommendationRefreshWork | null, error: unknown): void {
+    try {
+      this.options.onBookkeepingFault?.(work, error);
+    } catch {
+      // A failing fault reporter cannot be allowed to stop the queue.
+    }
+  }
+
+  /**
+   * Notifiers do cache invalidation and durable job bookkeeping. Under SQLite
+   * write contention those can throw, and the refresh callback — not the
+   * notifier — owns last-good publication, so a throw must not retry the whole
+   * refresh, abandon the drain, or reject `flight`.
+   */
+  private notify(work: RecommendationRefreshWork, notifier: () => void): void {
+    try {
+      notifier();
+    } catch (error) {
+      this.reportBookkeepingFault(work, error);
+    }
   }
 
   private workKey(work: RecommendationRefreshWork): string {
@@ -75,14 +103,14 @@ export class CoalescingRecommendationRefreshQueue {
           try {
             await this.options.refresh(work);
             this.attempts.delete(key);
-            this.options.onPublished(work);
+            this.notify(work, () => this.options.onPublished(work));
             break;
           } catch (error) {
             const failedAttempts = (this.attempts.get(key) ?? 0) + 1;
             const willRetry = this.options.shouldRetry
               ? this.options.shouldRetry(error, failedAttempts, maxRetries)
               : failedAttempts <= maxRetries;
-            this.options.onRetainedLastGood?.(work, error, willRetry);
+            this.notify(work, () => this.options.onRetainedLastGood?.(work, error, willRetry));
             if (!willRetry) {
               this.attempts.delete(key);
               break;

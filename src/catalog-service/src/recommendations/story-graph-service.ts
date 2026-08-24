@@ -61,6 +61,9 @@ import {
   type StoryTasteModel,
 } from './story-graph-v1.js';
 import { rankStoryGraphRecommendationsOffThread } from './story-graph-rank-worker-client.js';
+import { rankStoryGraphDeterministic } from './production-lane-ranker.js';
+import { evaluateActivationGates } from './activation-gates.js';
+import { readDesiredRevision } from './desired-revision.js';
 import { vodRecommendationsV2Mode } from './v2-mode.js';
 import {
   VOD_CONTENT_PROFILE_COMPILER_VERSION,
@@ -87,7 +90,7 @@ import {
   recommendationMemorySnapshot,
   type RecommendationMemorySnapshot,
 } from './maintenance.js';
-import { updateRecommendationRefreshJobRuntime } from './jobs.js';
+import { updateRecommendationRefreshJobRuntimeBestEffort } from './jobs.js';
 import {
   buildStoryFrontierCalibration,
   storyFrontierBandFor,
@@ -116,7 +119,12 @@ export function vodContentProfileMode(): VodContentProfileMode {
 
 export type StoryGraphForYouRail = {
   rail_id: 'for-you-movies' | 'for-you-series';
-  label: 'For You';
+  /**
+   * "For You" for personalized publications; "Top Picks" for the truthful
+   * cold-start fallback so the couch is not misled into treating an
+   * unpersonalized rail as personalized.
+   */
+  label: 'For You' | 'Top Picks';
   slate_sequence: number;
   attribution_token: string;
   items: Array<{
@@ -322,6 +330,16 @@ const COLD_START_EVALUATION_GAPS = new Set([
 ]);
 
 /**
+ * Extra cold-start gaps tolerated when the p95 probe is not strict. The
+ * probe used to synchronously run 100 iterations on the activation hot path
+ * before promotion; treating an unmeasured p95 as a hard blocker there
+ * meant every cold boot regressed to last-good instead of activating.
+ */
+const NON_STRICT_COLD_START_GAPS = new Set([
+  'cached_service_p95_unmeasured',
+]);
+
+/**
  * Offline label quality and operational serving safety are deliberately
  * separate. A household can have a useful Saved/watch-derived taste model
  * before it has enough explicit ratings for five-fold nDCG. That absence of
@@ -332,28 +350,33 @@ const COLD_START_EVALUATION_GAPS = new Set([
 export function storyGraphServingDecision(
   evaluation: StoryGraphOfflineEvaluation,
 ): StoryGraphServingDecision {
+  const strictP95 = cachedServiceP95Strict();
   const invariantBlockers: string[] = [];
   if (!evaluation.verified_accounting_complete) {
     invariantBlockers.push('verified_corpus_accounting_incomplete');
   }
   if (!evaluation.deterministic) invariantBlockers.push('determinism_replay_failed');
   if (evaluation.cached_service_p95_ms === null) {
-    invariantBlockers.push('cached_service_p95_unmeasured');
+    if (strictP95) invariantBlockers.push('cached_service_p95_unmeasured');
   } else if (evaluation.cached_service_p95_ms > 250) {
     invariantBlockers.push('cached_service_p95_above_250ms');
   }
+  const coldStartGaps = strictP95
+    ? COLD_START_EVALUATION_GAPS
+    : new Set([...COLD_START_EVALUATION_GAPS, ...NON_STRICT_COLD_START_GAPS]);
   if (evaluation.promotion_eligible) {
-    const blockers = [...new Set([...evaluation.reasons, ...invariantBlockers])];
+    const blockers = [...new Set([...evaluation.reasons, ...invariantBlockers])]
+      .filter((reason) => strictP95 || !NON_STRICT_COLD_START_GAPS.has(reason));
     return blockers.length === 0
       ? { serve_eligible: true, basis: 'evaluated', blockers: [] }
       : { serve_eligible: false, basis: 'blocked', blockers };
   }
   const uniqueBlockers = [...new Set([
-    ...evaluation.reasons.filter((reason) => !COLD_START_EVALUATION_GAPS.has(reason)),
+    ...evaluation.reasons.filter((reason) => !coldStartGaps.has(reason)),
     ...invariantBlockers,
   ])];
   const labelsAreOnlyGap = evaluation.reasons.length > 0
-    && evaluation.reasons.every((reason) => COLD_START_EVALUATION_GAPS.has(reason));
+    && evaluation.reasons.every((reason) => coldStartGaps.has(reason));
   if (labelsAreOnlyGap && uniqueBlockers.length === 0) {
     return { serve_eligible: true, basis: 'evidence_cold_start', blockers: [] };
   }
@@ -391,7 +414,9 @@ export type StoryGraphRefreshDependencies = {
   semanticGeneration?: typeof playabilityRecommendationSemanticGeneration;
   recordSemanticEvidence?: typeof recordRecommendationSemanticEvidence;
   rank?: (input: StoryGraphRankInput) => Promise<StoryGraphRankResult>;
-  evaluate?: typeof evaluateStoryGraphOffline;
+  evaluate?: (input: Parameters<typeof evaluateStoryGraphOffline>[0]) =>
+    | StoryGraphOfflineEvaluation
+    | Promise<StoryGraphOfflineEvaluation>;
   persistStoryGenerationFault?: (
     point: 'after_header' | 'after_children' | 'before_complete',
     generationId: number,
@@ -412,6 +437,23 @@ export type StoryGraphRefreshOptions = {
   priority_authorization_rank_generation_id?: number;
   /** Durable refresh jobs receiving additive phase/resource diagnostics. */
   job_ids?: readonly string[];
+  /**
+   * Isolated worker only. Desired revision that this rank run intends to
+   * satisfy. Immediately before activating a new pointer, the ranker
+   * re-reads the durable desired revision and refuses to move the
+   * pointer if it has advanced past this value. Prevents crash /
+   * stale-before-pointer races where a superseded build would activate
+   * over a newer signal.
+   */
+  expected_desired_revision?: number;
+  /**
+   * Isolated worker only. When true, the ranker skips couch-preemption
+   * yields (it is already running out-of-process under its own
+   * low-priority resource envelope) but retains every other resource
+   * bound. In-catalog callers must NOT set this — they run inline and
+   * would starve couch playback.
+   */
+  ignore_couch_preemption?: boolean;
 };
 
 type PersistedRankRow = {
@@ -763,6 +805,20 @@ function tasteRevision(
     },
     watch_decay_bucket: Math.floor(now / DAY_MS),
   });
+}
+
+/** Current durable household taste/exclusion signature used by desired-state enqueue. */
+export function currentStoryGraphTasteRevision(
+  tab: StoryGraphTab,
+  now = Date.now(),
+): string {
+  const type = contentTypeForTab(tab);
+  return tasteRevision(
+    type,
+    listRatings(type, 'household'),
+    readHouseholdSignals(type),
+    now,
+  );
 }
 
 function progressiveExclusionReason(
@@ -1932,9 +1988,16 @@ function updateActiveGeneration(input: {
   epoch: number;
   now: number;
   requireSlate?: boolean;
-}): void {
+  expectedDesiredRevision?: number;
+}): boolean {
   const db = libraryDatabase();
-  db.transaction(() => {
+  const activate = db.transaction((): boolean => {
+    if (typeof input.expectedDesiredRevision === 'number') {
+      const desired = db.prepare(`
+SELECT revision FROM vod_desired_revisions WHERE content_type = ?
+`).get(input.type) as { revision: number } | undefined;
+      if (desired && desired.revision > input.expectedDesiredRevision) return false;
+    }
     if (input.requireSlate !== false) {
       const slate = db.prepare(`
 SELECT COUNT(*) AS item_count, COUNT(DISTINCT content_id) AS unique_count
@@ -1983,8 +2046,13 @@ ON CONFLICT(content_type) DO UPDATE SET
       previousComplete,
       previousComplete,
     );
-  })();
-  pruneStoryGraphGenerationHistory({ maxDeletes: STORY_GRAPH_INLINE_PRUNE_LIMIT });
+    return true;
+  });
+  const activated = activate.immediate();
+  if (activated) {
+    pruneStoryGraphGenerationHistory({ maxDeletes: STORY_GRAPH_INLINE_PRUNE_LIMIT });
+  }
+  return activated;
 }
 
 function ndcgAt6(rows: Array<{ relevance: number; score: number }>): number | null {
@@ -2101,7 +2169,7 @@ export function storyGraphServingNdcgAt6(
   })));
 }
 
-export function evaluateStoryGraphOffline(input: {
+export async function evaluateStoryGraphOffline(input: {
   rankGenerationId: number;
   documents: StoryGraphTitle[];
   background: StoryGraphBackground;
@@ -2114,7 +2182,7 @@ export function evaluateStoryGraphOffline(input: {
   workerLatencyMs: number;
   cachedServiceP95Ms?: number | null;
   now: number;
-}): StoryGraphOfflineEvaluation {
+}): Promise<StoryGraphOfflineEvaluation> {
   void input.inputByKey;
   const ratingKeys = new Set(input.ratings.map((rating) => contentKey(rating.type, rating.id)));
   const documentByKey = new Map(input.documents.flatMap((title) => {
@@ -2189,17 +2257,72 @@ export function evaluateStoryGraphOffline(input: {
       implicit_signals: [],
       as_of: input.now,
     };
-    const model = buildStoryTasteModelWithBackground(modelInput);
-    const replay = buildStoryTasteModelWithBackground(modelInput);
-    deterministic = deterministic
-      && storyTasteEvaluationFingerprint(model) === storyTasteEvaluationFingerprint(replay);
+    // Deterministic offline eval: use the same lane-based ranker as
+    // production. No K=1..3 fit, no LOAO. `buildStoryTasteModelWithBackground`
+    // remains reachable only under `MANGO_VOD_LEGACY_LOAO_RANK=1` for the
+    // compatibility harness; the guard mirrors the runtime rank selection so
+    // offline eval cannot silently diverge from serving evidence.
+    const useLegacyEvalFit = process.env.MANGO_VOD_LEGACY_LOAO_RANK === '1';
+    const heldOutIds = new Set(heldOut.map((rating) => contentKey(rating.type, rating.id)));
+    const heldOutDocuments = heldOut.flatMap((rating) => {
+      const title = documentByKey.get(contentKey(rating.type, rating.id));
+      return title ? [title] : [];
+    });
+    const foldRanked = useLegacyEvalFit
+      ? null
+      : await rankStoryGraphDeterministic({
+        algorithm: VOD_STORY_GRAPH_MODEL_VERSION,
+        documents: [...modelInput.documents, ...heldOutDocuments],
+        background: modelInput.background,
+        background_ids: input.background_ids ?? [...documentByKey.keys()],
+        candidate_ids: [...heldOutIds] as StoryGraphContentId[],
+        explicit_ratings: modelInput.explicit_ratings,
+        implicit_signals: modelInput.implicit_signals,
+        as_of: modelInput.as_of,
+      });
+    const foldRankedReplay = useLegacyEvalFit
+      ? null
+      : await rankStoryGraphDeterministic({
+        algorithm: VOD_STORY_GRAPH_MODEL_VERSION,
+        documents: [...modelInput.documents, ...heldOutDocuments],
+        background: modelInput.background,
+        background_ids: input.background_ids ?? [...documentByKey.keys()],
+        candidate_ids: [...heldOutIds] as StoryGraphContentId[],
+        explicit_ratings: modelInput.explicit_ratings,
+        implicit_signals: modelInput.implicit_signals,
+        as_of: modelInput.as_of,
+      });
+    const model = useLegacyEvalFit ? buildStoryTasteModelWithBackground(modelInput) : null;
+    const replay = useLegacyEvalFit ? buildStoryTasteModelWithBackground(modelInput) : null;
+    if (useLegacyEvalFit && model && replay) {
+      deterministic = deterministic
+        && storyTasteEvaluationFingerprint(model) === storyTasteEvaluationFingerprint(replay);
+    } else if (foldRanked && foldRankedReplay) {
+      deterministic = deterministic
+        && stableStoryDnaJson(foldRanked.ranked.map((row) => row.rank_score))
+          === stableStoryDnaJson(foldRankedReplay.ranked.map((row) => row.rank_score));
+    }
+    const rankedByKey = new Map<StoryGraphContentId, StoryGraphScoredRecommendation>(
+      (foldRanked?.ranked ?? []).map((row) => [contentKey(row.type, row.id), row]),
+    );
     const rows: Array<{ relevance: number; score: number }> = [];
     for (const rating of heldOut) {
-      const title = documentByKey.get(contentKey(rating.type, rating.id));
+      const key = contentKey(rating.type, rating.id);
+      const title = documentByKey.get(key);
       if (!title) continue;
-      const scored = scoreStoryGraphCandidate(model, title);
-      deterministic = deterministic
-        && stableStoryDnaJson(scored) === stableStoryDnaJson(scoreStoryGraphCandidate(replay, title));
+      const scored = useLegacyEvalFit && model
+        ? scoreStoryGraphCandidate(model, title)
+        : rankedByKey.get(key) ?? {
+          type: title.type, id: title.id, title: title.title, year: title.year ?? null,
+          predicted_fire: 3.5, predicted_water: 3.5, holistic: 0, affinity: 0,
+          posterior_standard_deviation: 1, rank_score: 0, best_thread_id: null,
+          explicit_support: 0, implicit_support: 0, feature_confidence: 0,
+          thread_matches: [],
+        };
+      if (useLegacyEvalFit && model && replay) {
+        deterministic = deterministic
+          && stableStoryDnaJson(scored) === stableStoryDnaJson(scoreStoryGraphCandidate(replay, title));
+      }
       const relevance = 0.75 * Math.max(
         positiveRatingEvidence(rating.fire),
         positiveRatingEvidence(rating.water),
@@ -2517,12 +2640,62 @@ function buildStoryGraphForYouRail(input: {
   };
 }
 
+const CACHED_SERVICE_P95_STATE_PREFIX = 'vod_story_graph_service_p95:';
+const CACHED_SERVICE_P95_DEFAULT_SAMPLES = 5;
+const CACHED_SERVICE_P95_MAX_SAMPLES = 25;
+const CACHED_SERVICE_P95_MAX_TTL_MS = 24 * 60 * 60 * 1_000;
+
+function cachedServiceP95Samples(): number {
+  return boundedInteger(
+    process.env.MANGO_VOD_STORY_GRAPH_P95_SAMPLES,
+    CACHED_SERVICE_P95_DEFAULT_SAMPLES,
+    0,
+    CACHED_SERVICE_P95_MAX_SAMPLES,
+  );
+}
+
+function cachedServiceP95TtlMs(): number {
+  return boundedInteger(
+    process.env.MANGO_VOD_STORY_GRAPH_P95_TTL_MS,
+    60 * 60 * 1_000,
+    0,
+    CACHED_SERVICE_P95_MAX_TTL_MS,
+  );
+}
+
+function readCachedServiceP95FromState(type: RatingContentType, now: number): number | null {
+  const ttl = cachedServiceP95TtlMs();
+  if (ttl <= 0) return null;
+  const row = libraryDatabase().prepare(`
+SELECT value_json, updated_at FROM recommendation_runtime_state WHERE state_key = ?
+`).get(`${CACHED_SERVICE_P95_STATE_PREFIX}${type}`) as {
+    value_json: string;
+    updated_at: number;
+  } | undefined;
+  if (!row || now - row.updated_at > ttl) return null;
+  try {
+    const parsed = JSON.parse(row.value_json) as { p95_ms?: number };
+    return typeof parsed.p95_ms === 'number' && Number.isFinite(parsed.p95_ms)
+      ? parsed.p95_ms
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Measure the prospective cached rail service path before promotion. Each of
- * 100 samples performs the same cache reads, current playability/exclusion
- * revalidation, attribution registration, response construction, and JSON
- * serialization used by serving. Probe writes are synchronously rolled back
- * so evaluation never creates a couch impression opportunity or revision.
+ * Measure the prospective cached rail service path before promotion. Historically
+ * ran 100 samples synchronously on the activation hot path; the Pi-observed
+ * ~0.75s cost was serialized under the rank lease and served no measurable
+ * safety benefit for a cache-only path. It now runs a bounded (default 5)
+ * synchronous sample and persists the measurement to
+ * `recommendation_runtime_state` for reuse across activations. Env
+ * `MANGO_VOD_STORY_GRAPH_P95_SAMPLES=0` skips the probe entirely; the
+ * activation gate then reads the last stored value if one is fresh, and
+ * otherwise treats p95 as unmeasured (non-blocking under
+ * `MANGO_VOD_STORY_GRAPH_P95_STRICT!=1`). Probe writes are synchronously
+ * rolled back so evaluation never creates a couch impression opportunity or
+ * revision.
  */
 async function measureCachedServiceP95(input: {
   tab: StoryGraphTab;
@@ -2530,10 +2703,14 @@ async function measureCachedServiceP95(input: {
   epoch: number;
   rankGenerationId: number;
   reserveDepth: number;
+  now?: number;
 }): Promise<number | null> {
+  const now = input.now ?? Date.now();
+  const sampleCount = cachedServiceP95Samples();
+  if (sampleCount <= 0) return readCachedServiceP95FromState(input.type, now);
   const samples: number[] = [];
   const db = libraryDatabase();
-  for (let iteration = 0; iteration < 100; iteration += 1) {
+  for (let iteration = 0; iteration < sampleCount; iteration += 1) {
     const started = performance.now();
     const rows = cachedSlateRows(input.type, input.epoch, input.rankGenerationId);
     if (!(await validateSlateRows(rows, input.type))) return null;
@@ -2562,7 +2739,24 @@ async function measureCachedServiceP95(input: {
     }
   }
   samples.sort((left, right) => left - right);
-  return samples[Math.min(samples.length - 1, Math.ceil(samples.length * 0.95) - 1)] ?? null;
+  const p95 = samples[Math.min(samples.length - 1, Math.ceil(samples.length * 0.95) - 1)] ?? null;
+  if (p95 !== null) {
+    persistRecommendationRuntimeState(
+      `${CACHED_SERVICE_P95_STATE_PREFIX}${input.type}`,
+      { p95_ms: p95, samples: samples.length, measured_at: now },
+      now,
+    );
+  }
+  return p95;
+}
+
+/**
+ * Non-strict serving decisions treat unmeasured p95 as evidence_cold_start
+ * rather than blocking activation. This preserves last-good on cold-start
+ * boots where the sync probe was previously the only reason to block.
+ */
+function cachedServiceP95Strict(): boolean {
+  return process.env.MANGO_VOD_STORY_GRAPH_P95_STRICT === '1';
 }
 
 function markGenerationsStale(_story: number, taste: number, rank: number, reason: string): never {
@@ -2591,7 +2785,14 @@ async function refreshStoryGraphForYouUnserialized(
     ? acquireRecommendationMaintenanceLease({
       owner: `vod:${tab}`,
       now,
-      ignoreCouch: process.env.MANGO_RECOMMENDATION_IGNORE_COUCH_ACTIVITY === '1',
+      // The isolated VOD recs worker CLI runs out-of-process under its own
+      // low-priority resource envelope and cannot preempt couch playback
+      // by construction, so we skip the couch-active check when the
+      // caller opts in. In-catalog callers must NOT set this flag —
+      // they would starve mpv. Every other resource bound (deadline,
+      // memory ceiling, heartbeat) is retained.
+      ignoreCouch: options.ignore_couch_preemption === true
+        || process.env.MANGO_RECOMMENDATION_IGNORE_COUCH_ACTIVITY === '1',
     })
     : null;
   const checkpoint = (phase: string, cursor: string | null = null): void => {
@@ -2606,7 +2807,7 @@ async function refreshStoryGraphForYouUnserialized(
       array_buffers: Math.max(previousPeak.array_buffers, snapshot.array_buffers),
       captured_at: snapshot.captured_at,
     } : snapshot;
-    updateRecommendationRefreshJobRuntime(options.job_ids ?? [], {
+    updateRecommendationRefreshJobRuntimeBestEffort(options.job_ids ?? [], {
       phase,
       phase_cursor: cursor,
       heartbeat_at: snapshot.captured_at,
@@ -2619,7 +2820,7 @@ async function refreshStoryGraphForYouUnserialized(
     try {
       checkpoint('heartbeat');
     } catch (error) {
-      updateRecommendationRefreshJobRuntime(options.job_ids ?? [], {
+      updateRecommendationRefreshJobRuntimeBestEffort(options.job_ids ?? [], {
         error_code: error instanceof CouchPreemptedRecommendationRefreshError
           ? error.code
           : 'heartbeat_failed',
@@ -2634,7 +2835,14 @@ async function refreshStoryGraphForYouUnserialized(
   const currentCorpusGeneration = dependencies.corpusGeneration ?? playabilityRecommendationCorpusGeneration;
   const currentSemanticGeneration = dependencies.semanticGeneration
     ?? playabilityRecommendationSemanticGeneration;
-  const rank = dependencies.rank ?? rankStoryGraphRecommendationsOffThread;
+  // Runtime rank is always the deterministic 0/1/2-lane content-profile
+  // ranker. `rankStoryGraphRecommendationsOffThread` (K=1..3 / LOAO) is
+  // quarantined behind `MANGO_VOD_LEGACY_LOAO_RANK=1` for compatibility
+  // tests only; production defaults never spawn the worker thread.
+  const rank = dependencies.rank
+    ?? (process.env.MANGO_VOD_LEGACY_LOAO_RANK === '1'
+      ? rankStoryGraphRecommendationsOffThread
+      : rankStoryGraphDeterministic);
   const scan = await scanVerifiedCorpus(type, listPage);
   checkpoint('scan', `${scan.verifiedCount}/${scan.verifiedCount}`);
   const capturedSemanticGeneration = await currentSemanticGeneration();
@@ -2734,7 +2942,7 @@ async function refreshStoryGraphForYouUnserialized(
     now,
     checkpoint,
   });
-  updateRecommendationRefreshJobRuntime(options.job_ids ?? [], { story_generation_id: storyGenerationId });
+  updateRecommendationRefreshJobRuntimeBestEffort(options.job_ids ?? [], { story_generation_id: storyGenerationId });
   const titles = [...profiles.values()].map(contentProfileStoryGraphTitle);
   const candidateIds = scan.rows.flatMap((row) => {
     const key = contentKey(row.type, row.id);
@@ -2790,7 +2998,7 @@ async function refreshStoryGraphForYouUnserialized(
     rank: ranked,
     now,
   });
-  updateRecommendationRefreshJobRuntime(options.job_ids ?? [], { taste_generation_id: tasteGenerationId });
+  updateRecommendationRefreshJobRuntimeBestEffort(options.job_ids ?? [], { taste_generation_id: tasteGenerationId });
   const db = libraryDatabase();
   const rankGeneration = db.prepare(`
 INSERT INTO vod_rank_generations(
@@ -2812,7 +3020,7 @@ RETURNING rank_generation_id
     scan.verifiedCount,
     now,
   ) as { rank_generation_id: number };
-  updateRecommendationRefreshJobRuntime(options.job_ids ?? [], {
+  updateRecommendationRefreshJobRuntimeBestEffort(options.job_ids ?? [], {
     rank_generation_id: rankGeneration.rank_generation_id,
   });
   const scoreByKey = rankScoreByKey(ranked);
@@ -3030,7 +3238,7 @@ WHERE generation_id = ?
       cachedServiceP95Ms: cachedServiceP95,
       now,
     })
-    : (dependencies.evaluate ?? evaluateStoryGraphOffline)({
+    : await (dependencies.evaluate ?? evaluateStoryGraphOffline)({
       rankGenerationId: rankGeneration.rank_generation_id,
       documents: titles,
       background,
@@ -3078,24 +3286,64 @@ WHERE generation_id = ?
     && activationAuthorizedActive?.active_rank_generation_id === options.priority_base_rank_generation_id
     && activationAuthorizedActive?.authorization_rank_generation_id
       === options.priority_authorization_rank_generation_id;
-  const activatesRank = canPublish && (priorityPhase
+  // Complementary invariant gate: the pre-existing `storyGraphServingDecision`
+  // decides on evaluation-quality; `evaluateActivationGates` adds reserve
+  // depth, resource envelope, and offline-relevance-samples checks that only
+  // the local system knows about. Both must clear before the pointer moves,
+  // and any failure retains the last-good active generation because
+  // `updateActiveGeneration` is skipped when `activatesRank` is false.
+  const runtimeGateInput = {
+    evaluation,
+    reserve_depth: eligibleCount,
+    playability_minimum_reserve: bootstrapMinimum,
+    // Absolute process RSS is meaningful only in the isolated worker. The
+    // catalog/test process includes unrelated caches and would falsely reject
+    // an otherwise valid generation.
+    peak_rss_bytes: process.env.MANGO_VOD_RECS_WORKER === '1'
+      ? phaseMetrics.peak?.rss ?? null
+      : null,
+    wall_time_ms: workerLatency,
+    max_rss_bytes: 384 * 1024 * 1024,
+    // Activation plan cap: 5 minutes. Anything slower must retain last-good
+    // and let the isolated worker's next iteration re-attempt on a fresh
+    // desired revision. Matches the adversarial-review contract.
+    max_wall_time_ms: 5 * 60_000,
+    offline_relevance_samples: evaluation.samples,
+    strict_p95: cachedServiceP95Strict(),
+  };
+  const runtimeGateDecision = evaluateActivationGates(runtimeGateInput);
+  // Pre-activation desired-revision recheck. When the isolated worker
+  // supplied `expected_desired_revision`, we look up the current durable
+  // desired revision immediately before the pointer would move. If it
+  // has advanced, the pointer MUST NOT move — a superseded build cannot
+  // activate over a newer signal. This handles the crash /
+  // stale-before-pointer race the adversarial review flagged.
+  let desiredRevisionAdvanced = false;
+  if (typeof options.expected_desired_revision === 'number') {
+    const current = readDesiredRevision(type);
+    if (current !== null && current.revision > options.expected_desired_revision) {
+      desiredRevisionAdvanced = true;
+    }
+  }
+  const rankActivationRequested = !desiredRevisionAdvanced && canPublish && (priorityPhase
     ? priorityActivationAuthorized
-    : storyGraphServingDecision(evaluation).serve_eligible);
-  const activatesEmptyState = !priorityPhase
+    : storyGraphServingDecision(evaluation).serve_eligible && runtimeGateDecision.activate);
+  const emptyActivationRequested = !desiredRevisionAdvanced && !priorityPhase
     && publishedEmptyState && vodRecommendationsV2Mode() === 'serve';
-  const activated = activatesRank || activatesEmptyState;
-  if (activated) {
+  let activated = false;
+  if (rankActivationRequested || emptyActivationRequested) {
     const current = db.prepare(`
 SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = ?
 `).get(type) as { shuffle_epoch: number } | undefined;
-    updateActiveGeneration({
+    activated = updateActiveGeneration({
       type,
       rankGenerationId: rankGeneration.rank_generation_id,
       storyGenerationId,
       tasteGenerationId,
       epoch: epoch ?? current?.shuffle_epoch ?? 0,
       now,
-      requireSlate: activatesRank,
+      requireSlate: rankActivationRequested,
+      expectedDesiredRevision: options.expected_desired_revision,
     });
   }
   enqueueStoryDnaFrontierCandidates(selectProgressiveFrontierCandidates({
@@ -3131,7 +3379,7 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = ?
     evaluation,
   };
   } catch (error) {
-    updateRecommendationRefreshJobRuntime(options.job_ids ?? [], {
+    updateRecommendationRefreshJobRuntimeBestEffort(options.job_ids ?? [], {
       error_code: error instanceof CouchPreemptedRecommendationRefreshError
         ? error.code
         : error instanceof Error && 'code' in error && typeof error.code === 'string'
@@ -3220,6 +3468,17 @@ async function refreshStoryGraphWithPriorityPhase(
   return refreshStoryGraphForYouUnserialized(tab, options);
 }
 
+/**
+ * When enabled, StoryDNA frontier completion triggers a full VOD rerank of the
+ * affected domains. On Pi this repeatedly saturated the catalog process during
+ * couch use; the target architecture only writes durable desired-revision
+ * state, and an isolated worker CLI processes it out of band. Set
+ * `MANGO_VOD_RUNTIME_FRONTIER_RERANK=1` to keep the legacy inline behavior.
+ */
+function runtimeFrontierRerankEnabled(): boolean {
+  return process.env.MANGO_VOD_RUNTIME_FRONTIER_RERANK === '1';
+}
+
 function scheduleStoryDnaFrontierWorker(): void {
   if (storyDnaWorkerMode() !== 'frontier' || storyDnaFrontierTimer) return;
   const delay = boundedInteger(
@@ -3233,6 +3492,12 @@ function scheduleStoryDnaFrontierWorker(): void {
     void runStoryDnaFrontierWorker({
       lookup: structuredLookupProvider,
       onProfilesChanged: async (types) => {
+        if (!runtimeFrontierRerankEnabled()) {
+          // Preserve serving profile/Related dependencies (frontier still
+          // updates content-profile evidence via runStoryDnaFrontierWorker
+          // above); only the runtime full rerank is disabled.
+          return;
+        }
         for (const type of types) {
           await refreshStoryGraphForYou(type === 'movie' ? 'movies' : 'series', {
             trigger_reasons: ['story_dna_frontier_complete'],

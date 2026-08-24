@@ -12,6 +12,7 @@ Mac or CI green does **not** prove TV picture, audio, or controller feel.
 
 ## Checks
 
-- [ ] No secrets, household playlists, or runtime DBs
-- [ ] No current SHA / “Pi serves” claims outside `docs/STATUS.md`
+- [ ] No secrets, household playlists, runtime DBs, or marketing binaries
+- [ ] No current SHA / "Pi serves" claims outside `docs/STATUS.md`
+- [ ] Public wording stays inside `docs/PUBLIC_CLAIMS.md`
 - [ ] Pad map unchanged, or maintainer approved

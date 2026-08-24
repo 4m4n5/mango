@@ -308,7 +308,9 @@ function appendOneCatalogRail(
 
   const heading = document.createElement("h2");
   heading.className = "rail-title";
-  heading.textContent = formatRailLabel(rail.label);
+  // Catalog labels are the source of truth so "For You" / "Top Picks" survive
+  // as authored; hardcoded launcher chrome still passes through formatRailLabel.
+  heading.textContent = rail.label.trim();
   section.appendChild(heading);
 
   const track = document.createElement("div");
@@ -543,11 +545,9 @@ function createCatalogMessage(
 }
 
 export function formatRailLabel(label: string): string {
-  const trimmed = label.trim();
-  if (!trimmed) {
-    return trimmed;
-  }
-  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+  // Launcher-authored chrome (empty/offline headings) is normalized to lowercase.
+  // Catalog-provided rail labels are rendered as-is and do not pass through here.
+  return label.trim().toLowerCase();
 }
 
 /** Subtitles that only restate the content type, which the tab already says. */

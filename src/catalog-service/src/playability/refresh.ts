@@ -11,8 +11,10 @@ import {
   getStaleTitlesForRefresh,
   getTitlesPlayabilityBulk,
   pruneNonPlayableFromRailPools,
+  queueProactiveRenewalsBeforeExpiry,
   setRailIngestOffset,
   sweepExpiredVerified,
+  type QueueProactiveRenewalResult,
   type PlayabilityRailStatus,
   type RailPoolOverlapSummary,
 } from './db.js';
@@ -76,7 +78,16 @@ export type RefreshAllOptions = {
   /** Injectable for tests — defaults to the real growRail. */
   growFn?: typeof growRail;
   /** Injectable for tests — defaults to runNightlyChainStartHooks. */
-  hooksRunner?: (core: CatalogCore) => Promise<{ swept_expired: number; trigger_drain: DrainTriggersResult }>;
+  hooksRunner?: (
+    core: CatalogCore,
+    options?: { drainTriggersFirst?: boolean },
+  ) => Promise<NightlyChainStartHooksResult>;
+};
+
+export type NightlyChainStartHooksResult = {
+  swept_expired: number;
+  trigger_drain: DrainTriggersResult;
+  proactive_renewal?: QueueProactiveRenewalResult;
 };
 
 function growFailFastEnabled(option?: boolean): boolean {
@@ -177,6 +188,14 @@ export type RefreshAllResult = {
   unique_verified_before?: number;
   unique_verified_after?: number;
   unique_verified_delta?: number;
+  /** Distinct aliases used by maintenance summaries. */
+  net_unique?: number;
+  new_verified?: number;
+  expired_demoted?: number;
+  confirmed_failed?: number;
+  proactive_renewal_queued?: number;
+  proactive_renewal_considered?: number;
+  proactive_renewal_skipped?: number;
   benchmark_target?: number;
   orphan_total_before?: number;
   orphan_total_after?: number;
@@ -498,6 +517,15 @@ async function refreshAllRailsGrow(
     unique_verified_before: uniqueVerifiedBefore,
     unique_verified_after: uniqueVerifiedAfter,
     unique_verified_delta: uniqueVerifiedAfter - uniqueVerifiedBefore,
+    net_unique: uniqueVerifiedAfter - uniqueVerifiedBefore,
+    // Distinct global title growth, not per-rail placements. Rail-level yield
+    // remains available on each rail summary.
+    new_verified: Math.max(0, uniqueVerifiedAfter - uniqueVerifiedBefore),
+    expired_demoted: 0,
+    confirmed_failed: railSummaries.reduce((sum, rail) => sum + rail.failed, 0),
+    proactive_renewal_queued: 0,
+    proactive_renewal_considered: 0,
+    proactive_renewal_skipped: 0,
     benchmark_target: process.env.MANGO_GROW_PER_PASS
       ? Number(process.env.MANGO_GROW_PER_PASS)
       : undefined,
@@ -591,41 +619,88 @@ async function refreshAllRailsGrow(
  */
 export async function runNightlyChainStartHooks(
   core: CatalogCore,
-): Promise<{ swept_expired: number; trigger_drain: DrainTriggersResult }> {
+  options: { drainTriggersFirst?: boolean } = {},
+): Promise<NightlyChainStartHooksResult> {
+  const drainFirst = options.drainTriggersFirst !== false;
+  const triggerDrain = drainFirst
+    ? await drainTriggers(core, { limit: triggerConsumerMaintenanceBatchLimit() })
+    : {
+        drained: 0,
+        verified: 0,
+        failed: 0,
+        promoted: 0,
+        by_trigger_type: {},
+      };
   const sweepResult = await sweepExpiredVerified();
-  const triggerDrain = await drainTriggers(core, { limit: triggerConsumerMaintenanceBatchLimit() });
-  return { swept_expired: sweepResult.swept, trigger_drain: triggerDrain };
+  const proactiveRenewal = await queueProactiveRenewalsBeforeExpiry();
+  return {
+    swept_expired: sweepResult.swept,
+    trigger_drain: triggerDrain,
+    proactive_renewal: proactiveRenewal,
+  };
+}
+
+/** Live pre-stage hook: drain triggers only, never demote verified rows. */
+export async function runLiveTriggerDrainHook(
+  core: CatalogCore,
+): Promise<DrainTriggersResult> {
+  return drainTriggers(core, { limit: triggerConsumerMaintenanceBatchLimit() });
 }
 
 export async function refreshAllRails(
   core: CatalogCore,
   options: RefreshAllOptions = {},
 ): Promise<RefreshAllResult> {
-  // When the maintenance script runs H1/H3/H5 hooks against the LIVE DB pre-stage
-  // (MANGO_MAINTENANCE_HOOKS_PRESTAGE=1), skip running them again here against the
-  // staged work DB — otherwise the hook effects (drained triggers, swept-stale, H5
-  // rows) would be discarded with the work DB on a failed grow. The pre-stage run
-  // persists them to the live DB regardless of grow outcome.
+  const mode = normalizeRefreshMode(options.mode);
+  // When the maintenance script runs a live trigger drain before DB staging
+  // (MANGO_MAINTENANCE_HOOKS_PRESTAGE=1), do not re-drain triggers inside the
+  // staged DB. Expiry sweep/proactive renewal still run on stale refreshes so
+  // demotions/renewals stay atomic with staged publication.
   const hooksRunner = options.hooksRunner ?? runNightlyChainStartHooks;
-  const hooksResult = process.env.MANGO_MAINTENANCE_HOOKS_PRESTAGE === '1'
-    ? {
-        swept_expired: 0,
-        trigger_drain: {
-          drained: 0,
-          verified: 0,
-          failed: 0,
-          promoted: 0,
-          by_trigger_type: {},
-        } satisfies DrainTriggersResult,
-      }
-    : await hooksRunner(core);
+  const emptyDrain: DrainTriggersResult = {
+    drained: 0,
+    verified: 0,
+    failed: 0,
+    promoted: 0,
+    by_trigger_type: {},
+  };
+  let hooksResult: NightlyChainStartHooksResult = {
+    swept_expired: 0,
+    trigger_drain: emptyDrain,
+    proactive_renewal: {
+      queued: 0,
+      considered: 0,
+      skipped_existing: 0,
+      lead_ms: 0,
+      limit: 0,
+    },
+  };
+  if (mode === 'stale') {
+    hooksResult = await hooksRunner(core, {
+      drainTriggersFirst: process.env.MANGO_MAINTENANCE_HOOKS_PRESTAGE !== '1',
+    });
+  }
   const sweptExpired = hooksResult.swept_expired;
   const triggerDrain = hooksResult.trigger_drain;
-  const mode = normalizeRefreshMode(options.mode);
+  const proactiveRenewal = hooksResult.proactive_renewal ?? {
+    queued: 0,
+    considered: 0,
+    skipped_existing: 0,
+    lead_ms: 0,
+    limit: 0,
+  };
   const bootstrap = options.bootstrap ?? playabilityBootstrapFill();
   if (isGrowRefreshMode(mode, bootstrap)) {
     const growResult = await refreshAllRailsGrow(core, { ...options, mode });
-    return { ...growResult, swept_expired: sweptExpired, trigger_drain: triggerDrain };
+    return {
+      ...growResult,
+      swept_expired: sweptExpired,
+      expired_demoted: sweptExpired,
+      trigger_drain: triggerDrain,
+      proactive_renewal_queued: proactiveRenewal.queued,
+      proactive_renewal_considered: proactiveRenewal.considered,
+      proactive_renewal_skipped: proactiveRenewal.skipped_existing,
+    };
   }
 
   const startedAt = Date.now();
@@ -853,6 +928,9 @@ export async function refreshAllRails(
   );
 
   const uniqueVerifiedAfter = await getUniqueVerifiedLibraryCount();
+  const newVerified = processed.results.filter((result) => result.action === 'verified').length;
+  const confirmedFailed = processed.results.filter((result) => result.action === 'failed').length;
+  const netUnique = uniqueVerifiedAfter - uniqueVerifiedBefore;
   const refreshResult = {
     ok: railSummaries.every((rail) => rail.ok),
     mode,
@@ -862,7 +940,14 @@ export async function refreshAllRails(
     duration_ms: finishedAt - startedAt,
     unique_verified_before: uniqueVerifiedBefore,
     unique_verified_after: uniqueVerifiedAfter,
-    unique_verified_delta: uniqueVerifiedAfter - uniqueVerifiedBefore,
+    unique_verified_delta: netUnique,
+    net_unique: netUnique,
+    new_verified: newVerified,
+    expired_demoted: sweptExpired,
+    confirmed_failed: confirmedFailed,
+    proactive_renewal_queued: proactiveRenewal.queued,
+    proactive_renewal_considered: proactiveRenewal.considered,
+    proactive_renewal_skipped: proactiveRenewal.skipped_existing,
     unique_candidates: refsByKey.size,
     verify_queue_size: linked.verifyQueue.length,
     linked_existing: linked.linked_existing,

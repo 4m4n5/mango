@@ -1,0 +1,37 @@
+name: Setup
+description: Install or configuration problem on a supported Pi
+labels: [setup]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read [docs/INSTALL.md](https://github.com/4m4n5/mango/blob/main/docs/INSTALL.md)
+        and [docs/TROUBLESHOOTING.md](https://github.com/4m4n5/mango/blob/main/docs/TROUBLESHOOTING.md)
+        first. Never paste secrets or signed URLs.
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Where it failed
+      options:
+        - Workstation smoke
+        - Pi clone / build
+        - First stack start
+        - Controller pairing
+        - Addon / YouTube / Live credentials
+        - Git deploy
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Host
+      description: For example Raspberry Pi 5, 8 GB, Raspberry Pi OS Desktop, X11
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and output
+      description: Redact tokens, keys, and playlist URLs.
+    validations:
+      required: true

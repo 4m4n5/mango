@@ -2,11 +2,12 @@
   "name": "mango-launcher",
   "version": "0.1.0-alpha",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
-    "test": "tsx --test src/*.test.ts",
+    "test": "tsx --test 'src/**/*.test.ts'",
     "preview": "vite preview --host 127.0.0.1"
   },
   "devDependencies": {

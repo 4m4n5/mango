@@ -288,6 +288,19 @@ test('a healthy last proof (zero rc, no failure_category) stays green', () => {
   assert.equal(state.components.find((entry) => entry.id === 'proof')?.status, 'green');
 });
 
+test('recommendation refresh warnings stay independent from playability publication status', () => {
+  const facts = baseFacts();
+  facts.last_proof = proofRecord({
+    status: 'green',
+    metadata: { playability_rc: 0, recommendation_rc: 10, youtube_rc: 0 },
+  });
+  const state = evaluateReliability(facts);
+  const proof = state.components.find((entry) => entry.id === 'proof');
+  assert.equal(proof?.status, 'yellow');
+  assert.match(proof?.summary ?? '', /recommendation refresh warned/);
+  assert.match(proof?.detail ?? '', /recommendation_rc=10/);
+});
+
 // Q3: sustained rail-target misses escalate to yellow via a dedicated
 // Rail Growth component; a single miss (or a miss followed by a met night)
 // must not trip the threshold.

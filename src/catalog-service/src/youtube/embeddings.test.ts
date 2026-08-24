@@ -78,20 +78,23 @@ function withTempYoutube<T>(fn: () => T | Promise<T>): T | Promise<T> {
 }
 
 test('MiniLM node env fills a missing navigator.userAgent', () => {
-  const previous = (globalThis as { navigator?: unknown }).navigator;
-  (globalThis as { navigator?: { language: string; userAgent?: string } }).navigator = {
-    language: 'en-US',
-  };
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { language: 'en-US' },
+    configurable: true,
+    enumerable: true,
+    writable: true,
+  });
   try {
     ensureMiniLmNodeEnvironment();
     const nav = (globalThis as { navigator?: { userAgent?: string } }).navigator;
     assert.equal(typeof nav?.userAgent, 'string');
     assert.ok((nav?.userAgent || '').length > 0);
   } finally {
-    if (previous === undefined) {
+    if (!previous) {
       delete (globalThis as { navigator?: unknown }).navigator;
     } else {
-      (globalThis as { navigator?: unknown }).navigator = previous;
+      Object.defineProperty(globalThis, 'navigator', previous);
     }
   }
 });

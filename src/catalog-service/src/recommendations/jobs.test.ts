@@ -3,13 +3,15 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { initLibraryDb, resetLibraryDbForTests } from '../library/db.js';
+import Database from 'better-sqlite3';
+import { initLibraryDb, libraryDatabase, resetLibraryDbForTests } from '../library/db.js';
 import {
   createRecommendationRefreshJob,
   captureVodRecommendationRevisions,
   listRecommendationRefreshJobs,
   recommendationRefreshJobById,
   reconcileInterruptedRecommendationRefreshJobs,
+  updateRecommendationRefreshJobRuntimeBestEffort,
   updateRecommendationRefreshJobs,
 } from './jobs.js';
 
@@ -84,6 +86,30 @@ test('exact job lookup survives newer diagnostics-window traffic', () => withLib
   assert.equal(recommendationRefreshJobById('missing'), null);
 }));
 
+test('a newer queued job supersedes the older durable wait target', () => withLibrary(() => {
+  const first = createRecommendationRefreshJob({
+    domain: 'vod',
+    content_type: 'movie',
+    trigger_reasons: ['service_startup'],
+    captured_revisions: { corpus_generation: 1 },
+    queued_at: 100,
+  });
+  const second = createRecommendationRefreshJob({
+    domain: 'vod',
+    content_type: 'movie',
+    trigger_reasons: ['playability_corpus_publication'],
+    captured_revisions: { corpus_generation: 2 },
+    queued_at: 200,
+  });
+  const superseded = recommendationRefreshJobById(first.job_id);
+  assert.equal(superseded?.status, 'coalesced');
+  assert.equal(superseded?.successor_job_id, second.job_id);
+  assert.equal(recommendationRefreshJobById(second.job_id)?.status, 'queued');
+  updateRecommendationRefreshJobs([second.job_id], 'running', undefined, 210);
+  updateRecommendationRefreshJobs([second.job_id], 'complete', undefined, 220);
+  assert.equal(recommendationRefreshJobById(second.job_id)?.status, 'complete');
+}));
+
 test('VOD enqueue capture records the durable corpus and personalization revisions', () => withLibrary(() => {
   const captured = captureVodRecommendationRevisions('movies', {
     corpus_generation: 42,
@@ -93,4 +119,28 @@ test('VOD enqueue capture records the durable corpus and personalization revisio
   assert.equal(captured.corpus_generation, 42);
   assert.equal(typeof captured.personalization_revision, 'number');
   assert.equal(captured.active_rank_generation, null);
+}));
+
+test('runtime checkpoint contention is best-effort and cannot abort recommendation work', () => withLibrary(() => {
+  const job = createRecommendationRefreshJob({
+    domain: 'vod',
+    content_type: 'movie',
+    trigger_reasons: ['service_startup'],
+    captured_revisions: {},
+  });
+  const path = process.env.MANGO_LIBRARY_DB_PATH!;
+  libraryDatabase().pragma('busy_timeout = 1');
+  const blocker = new Database(path);
+  blocker.pragma('busy_timeout = 1');
+  blocker.exec('BEGIN IMMEDIATE');
+  try {
+    assert.equal(updateRecommendationRefreshJobRuntimeBestEffort([job.job_id], {
+      phase: 'heartbeat',
+      heartbeat_at: 123,
+    }), 0);
+  } finally {
+    blocker.exec('ROLLBACK');
+    blocker.close();
+  }
+  assert.equal(recommendationRefreshJobById(job.job_id)?.heartbeat_at, null);
 }));

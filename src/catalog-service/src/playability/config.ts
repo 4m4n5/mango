@@ -95,6 +95,29 @@ export function playabilityStaleCandidateLimit(): number {
   );
 }
 
+/**
+ * Proactive re-verify lead time before TTL expiry. 0 disables proactive renewal.
+ * This only queues work; it does not demote verified titles.
+ */
+export function playabilityProactiveRenewLeadMs(): number {
+  return positiveDurationMs(
+    process.env.MANGO_PLAYABILITY_PROACTIVE_RENEW_LEAD_MS,
+    6 * 60 * 60 * 1000,
+    0,
+    14 * 24 * 60 * 60 * 1000,
+  );
+}
+
+/** Hard cap of proactive renewal rows queued per stale refresh run. */
+export function playabilityProactiveRenewLimit(): number {
+  return boundedInt(
+    process.env.MANGO_PLAYABILITY_PROACTIVE_RENEW_LIMIT,
+    250,
+    1,
+    5000,
+  );
+}
+
 export function playabilityAdmissionDeadlineReached(now = Date.now()): boolean {
   const raw = Number(process.env.MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS);
   return Number.isFinite(raw) && raw > 0 && now >= raw;

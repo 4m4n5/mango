@@ -1,17 +1,15 @@
-# mango documentation
+# Documentation
 
-**Product:** [PRODUCT.md](PRODUCT.md) · **Current truth:** [STATUS.md](STATUS.md) ·
-**Plan:** [ROADMAP.md](ROADMAP.md) · **Runtime:** [ARCHITECTURE.md](ARCHITECTURE.md)
+**Product:** [PRODUCT.md](PRODUCT.md) · **Claims:** [PUBLIC_CLAIMS.md](PUBLIC_CLAIMS.md) ·
+**Current truth:** [STATUS.md](STATUS.md)
 
-Mango is a native, couch-first TV experience for Raspberry Pi 5. The launcher,
-catalog and library services, companion, controller router, Reliability Center,
-and mpv playback path are Mango-owned. Stremio-compatible addons supply
-metadata and streams.
+Mango is a couch-first TV product for Raspberry Pi 5. The launcher, catalog,
+library, companion, controller router, Reliability Center, and mpv playback
+path are Mango-owned. Stremio-compatible addons supply metadata and streams.
 
 ## Evidence levels
 
-Mango is developed on a workstation and runs on a home Pi. These labels are
-not interchangeable:
+These labels are not interchangeable:
 
 | Label | Meaning |
 |-------|---------|
@@ -25,23 +23,52 @@ not interchangeable:
 [STATUS.md](STATUS.md) is the only document that states the current deployed
 SHA, generation counts, or “Pi serves” claims.
 
-## Read this if you want to
+## By audience
 
-| Goal | Doc |
-|------|-----|
-| Understand the product and limits | [PRODUCT.md](PRODUCT.md) |
-| See what is implemented vs proven | [STATUS.md](STATUS.md) |
-| See remaining work | [ROADMAP.md](ROADMAP.md) |
-| Install from a clean clone | [INSTALL.md](INSTALL.md) |
-| Configure env, addons, and secrets | [CONFIGURATION.md](CONFIGURATION.md) |
-| Understand processes and ownership | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| Deploy or operate the Pi | [OPERATIONS.md](OPERATIONS.md) |
-| Run tests or couch acceptance | [TESTING.md](TESTING.md) |
-| Use playback, ratings, grow | [features/content-and-playback.md](features/content-and-playback.md) |
-| Use native YouTube | [features/youtube.md](features/youtube.md) |
-| Use Search or the phone librarian | [features/search-and-librarian.md](features/search-and-librarian.md) |
-| Operate optional Live TV | [features/live-tv.md](features/live-tv.md) |
-| Check pad and display contracts | [HARDWARE.md](HARDWARE.md) · [DECISIONS.md](DECISIONS.md) |
+### Evaluate
 
-Reference configuration lives in [reference/](reference/). Agent invariants
-live in [`../AGENTS.md`](../AGENTS.md).
+| Doc | Use |
+|-----|-----|
+| [PRODUCT.md](PRODUCT.md) | Promise, capabilities, non-goals |
+| [PUBLIC_CLAIMS.md](PUBLIC_CLAIMS.md) | Approved and forbidden public wording |
+| [LAUNCH_CAROUSEL.md](LAUNCH_CAROUSEL.md) | Social card copy and alt text |
+| [STATUS.md](STATUS.md) | Implemented versus proven |
+| [ROADMAP.md](ROADMAP.md) | Remaining work |
+
+### Install
+
+| Doc | Use |
+|-----|-----|
+| [GETTING_STARTED.md](GETTING_STARTED.md) | Fastest path from clone to a running box |
+| [INSTALL.md](INSTALL.md) | Manual alpha setup, expected results, rollback |
+| [HARDWARE.md](HARDWARE.md) | Pi, display, audio, and pad map |
+| [CONFIGURATION.md](CONFIGURATION.md) | Env, secrets, example files |
+
+### Use
+
+| Doc | Use |
+|-----|-----|
+| [USER_GUIDE.md](USER_GUIDE.md) | Couch loop, buttons, library, librarian |
+| [features/content-and-playback.md](features/content-and-playback.md) | Streams, playability, grow |
+| [features/youtube.md](features/youtube.md) | Native YouTube |
+| [features/search-and-librarian.md](features/search-and-librarian.md) | Search and phone librarian |
+| [features/live-tv.md](features/live-tv.md) | Optional Live |
+
+### Operate
+
+| Doc | Use |
+|-----|-----|
+| [OPERATIONS.md](OPERATIONS.md) | Git-only deploy and daily loop |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | First checks for common failures |
+| [TESTING.md](TESTING.md) | Local, Pi, and couch gates |
+
+### Contribute and maintain
+
+| Doc | Use |
+|-----|-----|
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | How to change Mango |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Processes, ports, ownership |
+| [DECISIONS.md](DECISIONS.md) | Locked choices |
+| [../AGENTS.md](../AGENTS.md) | Agent invariants |
+
+Reference configuration lives in [reference/](reference/).

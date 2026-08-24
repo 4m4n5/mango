@@ -78,6 +78,47 @@ test('background recommendation refresh stops after its retry budget and retains
   assert.deepEqual(notices, [true, false]);
 });
 
+test('a throwing failure notifier cannot abandon the queue or reject the flight', async () => {
+  // Durable job bookkeeping runs in these notifiers and can throw on SQLITE_BUSY
+  // while a VACUUM holds library.db. That must not reject `flight`, which nothing
+  // catches outside idle(), and must not skip the rest of the batch.
+  const refreshed: string[] = [];
+  const faults: unknown[] = [];
+  const queue = new CoalescingRecommendationRefreshQueue({
+    refresh: async (work) => {
+      refreshed.push(work.tab);
+      if (work.tab === 'movies') throw new Error('rank deadline exceeded');
+    },
+    onPublished: () => { throw new Error('SQLITE_BUSY: database is locked'); },
+    onRetainedLastGood: () => { throw new Error('SQLITE_BUSY: database is locked'); },
+    onBookkeepingFault: (_work, error) => faults.push(error),
+    wait: async () => undefined,
+    maxRetries: 0,
+  });
+  queue.enqueue('household', ['movies', 'series']);
+  await queue.idle();
+  assert.deepEqual(refreshed, ['movies', 'series'], 'a notifier fault must not skip later work');
+  assert.equal(faults.length, 2, 'both the failure and publish notices report their fault');
+  assert.equal(
+    faults.every((error) => error instanceof Error && /SQLITE_BUSY/.test(error.message)),
+    true,
+  );
+});
+
+test('a throwing publish notifier does not re-run an already published refresh', async () => {
+  let calls = 0;
+  const queue = new CoalescingRecommendationRefreshQueue({
+    refresh: async () => { calls += 1; },
+    onPublished: () => { throw new Error('SQLITE_BUSY: database is locked'); },
+    onBookkeepingFault: () => undefined,
+    wait: async () => undefined,
+    maxRetries: 2,
+  });
+  queue.enqueue('household', ['movies']);
+  await queue.idle();
+  assert.equal(calls, 1, 'cache invalidation is not part of the refresh contract');
+});
+
 test('same tab work remains isolated across viewer profiles', async () => {
   const calls: RecommendationRefreshWork[] = [];
   const queue = new CoalescingRecommendationRefreshQueue({

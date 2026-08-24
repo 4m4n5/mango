@@ -45,6 +45,11 @@ type PlayabilityRefreshFailure = {
   reason: string;
 };
 
+type RecommendationRefreshWarning = {
+  warned: boolean;
+  reason: string;
+};
+
 /**
  * The last nightly proof's metadata carries playability_rc/playability_ok/
  * failure_category (when the caller supplies them — see
@@ -68,6 +73,18 @@ function playabilityRefreshFailure(metadata: Record<string, unknown> | undefined
   if (okFailed) parts.push('playability ok=false');
   if (categoryFailed) parts.push(`failure_category=${String(category)}`);
   return { failed: true, reason: parts.join(', ') };
+}
+
+function recommendationRefreshWarning(
+  metadata: Record<string, unknown> | undefined,
+): RecommendationRefreshWarning {
+  if (!metadata) return { warned: false, reason: '' };
+  const rc = metadata.recommendation_rc;
+  const rcWarned = typeof rc === 'number' && Number.isFinite(rc) && rc !== 0;
+  if (!rcWarned) {
+    return { warned: false, reason: '' };
+  }
+  return { warned: true, reason: `recommendation_rc=${rc}` };
 }
 
 function worst(left: ReliabilityLevel, right: ReliabilityLevel): ReliabilityLevel {
@@ -174,7 +191,9 @@ export function evaluateReliability(facts: ReliabilityFacts): ReliabilityState {
     'Movies/TV Library',
     libraryStatus,
     libraryStatus === 'green'
-      ? `${facts.playability.verified_total} verified titles across ${facts.playability.rail_count} rails`
+      ? facts.playability.verified_distinct !== undefined
+        ? `${facts.playability.verified_distinct} distinct verified titles across ${facts.playability.rail_count} rails (${facts.playability.verified_total} rail placements)`
+        : `${facts.playability.verified_total} verified rail placements across ${facts.playability.rail_count} rails`
       : libraryStatus === 'yellow'
         ? `${facts.playability.thin_rails.length} thin rails need growth`
         : 'verified movie/TV pool is not displayable',
@@ -229,6 +248,7 @@ export function evaluateReliability(facts: ReliabilityFacts): ReliabilityState {
   if (facts.last_proof) {
     const ageMs = facts.generated_at - facts.last_proof.generated_at;
     const playabilityFailure = playabilityRefreshFailure(facts.last_proof.metadata);
+    const recommendationWarning = recommendationRefreshWarning(facts.last_proof.metadata);
     if (ageMs > PROOF_STALE_MS) {
       proofStatus = 'yellow';
       proofSummary = 'last nightly proof is stale';
@@ -239,6 +259,10 @@ export function evaluateReliability(facts: ReliabilityFacts): ReliabilityState {
       proofStatus = 'yellow';
       proofSummary = 'last nightly playability refresh had a problem; library growth may be stalled';
       proofDetail = playabilityFailure.reason;
+    } else if (recommendationWarning.warned) {
+      proofStatus = 'yellow';
+      proofSummary = 'last nightly recommendation refresh warned; last-good may be serving';
+      proofDetail = recommendationWarning.reason;
     } else {
       proofStatus = facts.last_proof.status;
       proofSummary = `last proof was ${facts.last_proof.status}`;
