@@ -10,7 +10,8 @@ Mango is a good match if you:
 - have (or will buy) a Raspberry Pi 5 and a small D-pad controller
 - already have, or can create, addon / YouTube / optional Live credentials
 - are comfortable with SSH, systemd user units, and editing example config
-- want one household-owned TV surface instead of an app switcher
+- want one living-room surface instead of an app switcher
+- want progress, Saved, and taste to stay on a device you own
 
 It is a poor match if you want a plug-and-play box, bundled movies, native
 HDR, or a no-SSH installer. Those are non-goals for this alpha.

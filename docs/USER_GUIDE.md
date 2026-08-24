@@ -1,6 +1,7 @@
 # User guide
 
-Mango is used from the couch with a D-pad. The phone librarian is optional.
+Mango is used from the couch with a D-pad. Browse, inspect a title, then
+play. The phone librarian is optional and never starts playback.
 Current limits: [PRODUCT.md](PRODUCT.md). Button codes: [HARDWARE.md](HARDWARE.md).
 
 ## The viewing loop

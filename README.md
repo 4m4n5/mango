@@ -4,12 +4,15 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/4m4n5/mango?include_prereleases)](https://github.com/4m4n5/mango/releases)
 
-A household-owned TV experience for Raspberry Pi 5.
+**reclaim your TV.**
 
-Browse movies, shows, YouTube, and optional live television on the TV, inspect
-a title, press **B**, and watch in native mpv. Mango owns the launcher, library,
-playback chrome, recommendations, controller routing, and operational proof.
-You supply the hardware, accounts, addon manifests, and media entitlements.
+Stream movies, shows, YouTube, and live television on a Raspberry Pi 5
+you own — not five apps. Across sources, in one place. Mango adds no
+ads of its own. Progress, Saved, and taste stay on the device.
+
+You bring the Pi, the accounts, and the rights to what you watch.
+Mango brings the product: search, streams, recommendations, and a
+phone librarian if you want one.
 
 <p align="center">
   <img
@@ -20,17 +23,31 @@ You supply the hardware, accounts, addon manifests, and media entitlements.
 </p>
 
 This is a **self-hosted public alpha**, not a retail appliance. Native HDR,
-no-SSH first boot, intentional display sleep, and whole-product couch sign-off
-are still open. Runtime evidence lives only in
+a no-SSH first boot, display sleep, and whole-product couch sign-off are
+still open. Runtime evidence lives only in
 [docs/STATUS.md](docs/STATUS.md).
 
-## What it does
+## Why mango
 
-- One 10-foot Chromium launcher: Search, Movies, TV Shows, optional Live, YouTube
-- Fullscreen mpv with a cinematic HUD and a five-choice Streams drawer
-- Local Continue, Saved, history, Fire/Water ratings, and household rails
-- Optional phone librarian (text / push-to-talk) that opens Detail; **B** still plays
-- Git-only Pi deploy; runtime databases and secrets stay on the device
+**It is all here.** Across sources, in one place. Movies, shows, YouTube,
+and live television share one launcher. Mango adds no ads of its own.
+
+**Find anything.** One query. Every mango surface you configured.
+
+**Watch it at its best.** Mango picks for your hardware, or you choose.
+Quality, audio, and language at a glance.
+
+**Rate with fire and water.** Mango learns your taste, one title at a time.
+Continue, Saved, and history stay on the Pi.
+
+**Your content librarian.** Talk from your phone. Describe. Discuss.
+Discover. Your final pick opens on the TV.
+
+**YouTube, built in.** Your regulars, subscriptions, and history —
+organized on the device you own.
+
+**Yours to run.** Apache-2.0. Git-only updates. Secrets and library state
+never leave the household unless you send them.
 
 ## Alpha boundary
 
@@ -48,6 +65,8 @@ Public claims and forbidden wording:
 - Node.js 20+ · Python 3.11+ · Chromium · mpv · BlueZ
 - An 8BitDo Micro or equivalent D-pad controller
 - Operator-supplied addon, YouTube, LLM, and optional Live credentials
+
+How to watch from the couch: [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 
 ## Five-minute local smoke
 

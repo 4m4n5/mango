@@ -1,8 +1,8 @@
 # Install
 
-Mango is a Raspberry Pi 5 kiosk, not a generic desktop app. You can build
-and test services on macOS or Linux. Playback, pad, and display proof
-happen only on the Pi.
+Mango is one living-room surface on a Raspberry Pi 5, not a generic desktop
+app. You can build and test services on macOS or Linux. Playback, pad, and
+display proof happen only on the Pi.
 
 This is a **manual alpha**. There is no no-SSH first-boot wizard. If a
 command fails, stop and read [TROUBLESHOOTING.md](TROUBLESHOOTING.md)

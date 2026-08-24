@@ -3,9 +3,10 @@
 **Product:** [PRODUCT.md](PRODUCT.md) · **Claims:** [PUBLIC_CLAIMS.md](PUBLIC_CLAIMS.md) ·
 **Current truth:** [STATUS.md](STATUS.md)
 
-Mango is a couch-first TV product for Raspberry Pi 5. The launcher, catalog,
-library, companion, controller router, Reliability Center, and mpv playback
-path are Mango-owned. Stremio-compatible addons supply metadata and streams.
+Mango is one living-room surface you own, built for Raspberry Pi 5. The
+launcher, catalog, library, companion, controller routing, Reliability
+Center, and playback path are Mango-owned. Stremio-compatible addons
+supply metadata and streams.
 
 ## Evidence levels
 

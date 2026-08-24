@@ -18,15 +18,15 @@ row; it may not widen it.
 
 ## Promise
 
-Mango is a household-owned TV product for Raspberry Pi 5. One person can
-browse movies, shows, YouTube, and optional live television on the TV, inspect
-a real title, press **B**, and watch in native mpv. Library state stays on the
-device.
+Mango is one living-room surface you own. Stream movies, shows, YouTube,
+and live television on a Raspberry Pi 5 — across sources, in one place.
+Mango adds no ads of its own. Progress, Saved, and taste stay on the
+device. You bring the hardware, accounts, and media rights.
 
-The long-term product is a living-room appliance. The current release is a
-self-hosted **public alpha**: the core viewing loop exists in source and has
-been exercised on a development Pi; first-boot, display sleep, native HDR, and
-whole-product couch sign-off remain open.
+The long-term product is a living-room appliance. The current release is
+a self-hosted **public alpha**: the core viewing loop exists in source
+and has been exercised on a development Pi; first-boot, display sleep,
+native HDR, and whole-product couch sign-off remain open.
 
 ## Approved lines
 
@@ -35,15 +35,24 @@ whole-product couch sign-off remain open.
 | Name | `mango` |
 | Wordmark | lowercase `mango.` text; no invented logo |
 | Hero | reclaim your TV. |
-| One-line | a household-owned TV experience on Raspberry Pi 5 |
+| One-line | stream movies, shows, youtube, and live television on a Raspberry Pi 5 you own |
 | Status chip | self-hosted alpha |
 | Primary CTA | build mango → [INSTALL.md](INSTALL.md) |
 | Secondary CTA | view the source → GitHub `main` |
 | Tertiary CTA | contribute / get in touch |
-| Player | native mpv; launcher stays visible until advancing media is proven |
-| Taste | Fire / Water ratings; **For You** when evidence exists, otherwise labelled **Top Picks** |
-| Librarian | optional phone text / push-to-talk that opens Detail; **B** still plays |
+| Breadth | it is all here. across sources, in one place. mango adds no ads of its own |
+| Search | find anything. one query. every mango surface you configured |
+| Play | watch it at its best. quality, audio, and language at a glance |
+| Taste | rate with fire and water. mango learns your taste, one title at a time |
+| Librarian | your content librarian. describe. discuss. discover. your pick opens on the TV |
+| YouTube | youtube, built in. regulars, subscriptions, and history — organized |
+| Social cards | the posted eight-card carousel in `docs/INSTAGRAM_LAUNCH_CAROUSEL.md` / `marketing/out/` |
 | License | Apache-2.0 |
+
+Visitor-facing copy does not lead with controller buttons or player
+binaries. **B**, **Y**, Chromium, and mpv belong in
+[USER_GUIDE.md](USER_GUIDE.md), [HARDWARE.md](HARDWARE.md),
+[INSTALL.md](INSTALL.md), and [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Must stay visible
 
@@ -89,6 +98,8 @@ Do not say or imply:
 - Website and social: lowercase, short sentences, real UI nouns
   (Detail, Streams, Fire/Water, Saved, For You, librarian).
 - Repository docs: sentence case for scanability; same nouns.
+- Lead with what a new visitor gets: one surface, local memory, household
+  taste, a TV they own. Do not open with setup commands or pad maps.
 - Canvas `#0B0B12`, UI `#07080A`, text `#F4F1EA`, accent `#E8A020`.
 - Show real, privacy-safe product captures. Strip account names, subscription
   counts, credentials, and household identifiers.
