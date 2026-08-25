@@ -91,7 +91,7 @@ else
 fi
 bash scripts/m5-voice/ai/sync-companion-example.sh || true
 bash scripts/m4-addons/ensure-bharat-binge-export.sh || true
-bash scripts/m6-ship/ensure-youtube-yt-dlp.sh || true
+bash scripts/m6-ship/ensure-youtube-yt-dlp.sh
 if [[ "${MANGO_CONTROLLER_LINK_INSTALL:-0}" == "1" ]]; then
   sudo -n bash scripts/m1-foundation/pad/install-controller-reliability.sh --apply
 fi
@@ -109,7 +109,7 @@ else
   cd ~/mango/src/companion && npm ci --silent && npm run build
 fi
 cd ~/mango
-bash scripts/m1-foundation/ui/install-systemd-units.sh || true
+bash scripts/m1-foundation/ui/install-systemd-units.sh
 if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
   bash scripts/m5-voice/stack/install-voice-systemd.sh || true
 fi

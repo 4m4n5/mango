@@ -1,11 +1,11 @@
 {
-  "version": 1,
-  "privacy": "ids titles queries cookies tokens and signed URLs must never be written to evidence",
+  "version": 2,
+  "privacy": "ids URLs titles queries cookies tokens and signed transports must never be written to evidence",
   "items": [
-    { "id": "ordinary_vod", "video_id": "jNQXAC9IVRw", "kind": "vod" },
+    { "id": "ordinary_vod", "video_id": "jNQXAC9IVRw", "kind": "vod", "required": true },
     { "id": "long_vod", "video_id": "dQw4w9WgXcQ", "kind": "vod" },
-    { "id": "music", "video_id": "kJQP7kiw5Fk", "kind": "vod" },
-    { "id": "made_for_kids", "video_id": "XqZsoesa55w", "kind": "kids" },
-    { "id": "hls_live", "video_id": "jfKfPfyJRdk", "kind": "live" }
+    { "id": "music", "video_id": "kJQP7kiw5Fk", "kind": "vod", "required": true },
+    { "id": "made_for_kids", "video_id": "XqZsoesa55w", "kind": "kids", "required": false },
+    { "id": "hls_live", "url": "https://www.youtube.com/@NASA/live", "kind": "live", "required": true }
   ]
 }

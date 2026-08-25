@@ -18,5 +18,8 @@ bash "$REPO_DIR/scripts/m6-ship/test-pi-deploy-hardening.sh" \
 bash "$REPO_DIR/scripts/m6-ship/test-ensure-youtube-yt-dlp.sh" \
   && gate_pass "youtube yt-dlp slots" || { gate_fail "youtube yt-dlp slots"; exit 1; }
 
+python3 "$REPO_DIR/scripts/m6-ship/test-youtube-runtime-canary.py" \
+  && gate_pass "youtube runtime canary policy" || { gate_fail "youtube runtime canary policy"; exit 1; }
+
 bash "$REPO_DIR/scripts/m6-ship/test-gate-m6-youtube-smoke.sh" \
   && gate_pass "youtube smoke fixtures" || { gate_fail "youtube smoke fixtures"; exit 1; }

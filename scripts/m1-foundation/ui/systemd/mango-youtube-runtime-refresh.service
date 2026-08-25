@@ -1,0 +1,20 @@
+[Unit]
+Description=mango canaried YouTube resolver refresh
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=%h/mango/scripts/m6-ship/ensure-youtube-yt-dlp.sh
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/mango
+Environment=HOME=%h
+Environment=MANGO_YTDLP_CHANNEL=nightly
+ExecStart=/usr/bin/bash %h/mango/scripts/m6-ship/ensure-youtube-yt-dlp.sh
+TimeoutStartSec=15min
+MemoryAccounting=yes
+MemoryHigh=512M
+MemoryMax=768M
+TasksMax=128
+CPUWeight=10
+Nice=15
+IOSchedulingClass=idle

@@ -6,7 +6,6 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CATALOG="${MANGO_CATALOG_URL:-http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}}"
-CORPUS="$REPO_ROOT/scripts/m6-ship/youtube-acceptance-corpus.json"
 YTDLP="$REPO_ROOT/scripts/m6-ship/youtube-yt-dlp.sh"
 PROBES="${MANGO_YOUTUBE_BASELINE_PROBES:-1}"
 
@@ -54,31 +53,8 @@ if [[ "$PROBES" != "1" ]]; then
   exit 0
 fi
 
-python3 - "$CORPUS" "$YTDLP" <<'PY'
-import json, subprocess, sys, time
-corpus = json.load(open(sys.argv[1], encoding="utf-8"))
-ytdlp = sys.argv[2]
-clients = ["web_safari", "tv_simply"]
-for item in corpus.get("items", []):
-    video_id = item["video_id"]
-    kind = item["id"]
-    for client in clients:
-        started = time.time()
-        try:
-            proc = subprocess.run(
-                [ytdlp, "--no-playlist", "--no-warnings", "--skip-download",
-                 "--extractor-args", f"youtube:player_client={client}",
-                 "--print", "%(live_status)s", "--print", "%(protocol)s",
-                 f"https://www.youtube.com/watch?v={video_id}"],
-                capture_output=True, text=True, timeout=20, check=False,
-            )
-            elapsed = int((time.time() - started) * 1000)
-            ok = proc.returncode == 0
-            lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
-            live = lines[0] if lines else "unknown"
-            protocol = lines[1] if len(lines) > 1 else "unknown"
-            print(f"youtube-baseline: probe kind={kind} client={client} ok={ok} ms={elapsed} live={live} protocol={protocol}")
-        except Exception as error:
-            elapsed = int((time.time() - started) * 1000)
-            print(f"youtube-baseline: probe kind={kind} client={client} ok=False ms={elapsed} error={type(error).__name__}")
-PY
+python3 "$REPO_ROOT/scripts/m6-ship/youtube-runtime-canary.py" \
+  --yt-dlp "$YTDLP" \
+  --repo-root "$REPO_ROOT" \
+  --deno "${MANGO_DENO:-$HOME/.local/share/mango/deno/bin/deno}" \
+  --resolve-only

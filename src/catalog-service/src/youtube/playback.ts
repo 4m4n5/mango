@@ -1,6 +1,13 @@
 import { execFile, spawnSync, type ExecFileException } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 import { CatalogError } from '../catalog-errors.js';
 import { classifyPlayError } from '../play-error-classify.js';
 import { PlayCancelledError } from '../play-cancel.js';
@@ -9,6 +16,7 @@ import {
   YOUTUBE_FORMAT_SORT,
   ytDlpFormatCandidates,
 } from './format-policy.js';
+import { youtubePotBaseUrl } from './runtime.js';
 
 export {
   effectiveYoutubeFormat,
@@ -24,16 +32,15 @@ export {
 } from './format-policy.js';
 
 /**
- * web_safari still requested for HLS when YouTube offers hlsManifestUrl.
- * After mid-2026 many titles have no safari m3u8. mweb https DASH then
- * returns googlevideo URLs (`c=MWEB`, n+pot) that 403 for curl and mpv on
- * this household path. tv_simply (`c=TVHTML5_SIMPLY`) is the living DASH
- * client: same adaptive itags, household cookies, and mpv split A/V succeed.
- * Do not put mweb after tv_simply as a "fallback" — those URLs are not
- * playable here. Do not pin tv/android/ios alone: that historically left
- * only muxed 360p, and `tv`/`tv_downgraded` still error with cookies.
+ * Player-client maintenance belongs to yt-dlp. YouTube changes client
+ * capabilities independently of Mango, so a Mango-owned client list turns a
+ * point-in-time workaround into a future outage. Operators may still set
+ * MANGO_YTDLP_EXTRACTOR_ARGS as a temporary, observable escape hatch.
  */
-export const YOUTUBE_PLAYER_CLIENT = 'web_safari,tv_simply';
+export const YOUTUBE_PLAYER_CLIENT_POLICY = 'upstream_default' as const;
+
+export type YoutubeResolverSlot = 'active' | 'previous';
+export type YoutubeResolverAuth = 'anonymous' | 'cookies';
 
 export type YoutubeResolvedPlayback = {
   url: string;
@@ -45,12 +52,14 @@ export type YoutubeResolvedPlayback = {
   duration_sec: number | null;
   height: number | null;
   fps: number | null;
+  resolver_slot: YoutubeResolverSlot;
+  resolver_auth: YoutubeResolverAuth;
 };
 
 export type YoutubeCommandRunner = (
   command: string,
   args: string[],
-  options: { timeout: number; maxBuffer: number },
+  options: { timeout: number; maxBuffer: number; env: NodeJS.ProcessEnv },
 ) => Promise<{ stdout: string; stderr: string }>;
 
 let youtubeCommandRunnerForTest: YoutubeCommandRunner | null = null;
@@ -78,7 +87,9 @@ export const YOUTUBE_SOCKET_TIMEOUT_SEC = 10;
 
 const youtubePlaybackInflight = new Map<string, Promise<YoutubeResolvedPlayback>>();
 let youtubeResolveCooldownUntil = 0;
+let youtubeRuntimeRefreshRequestedAt = 0;
 const YOUTUBE_RESOLVE_RATE_LIMIT_COOLDOWN_MS = 15 * 60 * 1000;
+const YOUTUBE_RUNTIME_REFRESH_COOLDOWN_MS = 30 * 60 * 1000;
 const TRANSIENT_YOUTUBE_RESOLVE_RE =
   /timeout|timed out|ETIMEDOUT|ECONN|ENOTFOUND|EAI_AGAIN|socket|fetch failed|network is unreachable|temporary failure in name resolution|did not get any data/i;
 
@@ -93,8 +104,10 @@ export function youtubeYtDlpResolveArgs(
   },
   format: string,
   videoId: string,
+  options: { includeCookies?: boolean } = {},
 ): string[] {
   const args = [
+    '--ignore-config',
     '--no-playlist',
     '--socket-timeout',
     String(youtubeSocketTimeoutSec()),
@@ -103,10 +116,10 @@ export function youtubeYtDlpResolveArgs(
     '--format-sort',
     process.env.MANGO_YTDLP_FORMAT_SORT?.trim() || YOUTUBE_FORMAT_SORT,
   ];
-  // yt-dlp 2026.07 solves YouTube n-sig only with Deno >=2.3 (or Node >=22)
-  // plus the EJS solver. Prefer web_safari HLS when present; tv_simply https
-  // DASH is the living transport after safari m3u8 disappeared and mweb GVS
-  // URLs started 403ing for both curl and mpv. Debian Node 20 is ignored.
+  // yt-dlp solves YouTube n-sig with a supported JS runtime plus EJS. Do not
+  // pin player_client here: upstream changed its maintained defaults several
+  // times in 2026 alone. Resolve public videos anonymously first so account
+  // cookies cannot opt the household into stricter client/SABR experiments.
   args.push(...youtubeJsRuntimeArgs());
   args.push(...youtubeRemoteComponentArgs());
   args.push(...youtubeExtractorArgFlags());
@@ -115,10 +128,10 @@ export function youtubeYtDlpResolveArgs(
     'MANGO_META:%(live_status)s|%(duration)s|%(protocol)s|%(height)s|%(fps)s',
   );
   args.push('-g');
-  if (config.yt_dlp_cookies) {
+  if (options.includeCookies && config.yt_dlp_cookies) {
     args.push('--cookies', config.yt_dlp_cookies);
   }
-  if (config.yt_dlp_cookies_from_browser) {
+  if (options.includeCookies && config.yt_dlp_cookies_from_browser) {
     args.push('--cookies-from-browser', config.yt_dlp_cookies_from_browser);
   }
   args.push(youtubeWatchUrl(videoId));
@@ -129,33 +142,24 @@ function requestedFormatUnavailable(text: string): boolean {
   return /requested format is not available/i.test(text);
 }
 
-export function mangoBgutilServerHome(): string {
-  return process.env.MANGO_BGUTIL_POT?.trim()
-    || `${homedir()}/.local/share/mango/bgutil-pot/server`;
-}
-
 export function youtubeRemoteComponentArgs(): string[] {
   const raw = process.env.MANGO_YTDLP_REMOTE_COMPONENTS?.trim();
-  if (raw === 'none' || raw === '0') {
+  if (!raw || raw === 'none' || raw === '0') {
     return [];
   }
-  return ['--remote-components', raw || 'ejs:github'];
+  return ['--remote-components', raw];
 }
 
-/** Separate --extractor-args flags; yt-dlp does not split namespaces on ';' here. */
+/** Keep the default loopback POT provider explicit; append operator overrides only. */
 export function youtubeExtractorArgFlags(): string[] {
-  const args: string[] = [];
-  const potHome = mangoBgutilServerHome();
-  if (existsSync(potHome)) {
-    args.push('--extractor-args', `youtubepot-bgutilscript:server_home=${potHome}`);
-  }
+  const flags = process.env.MANGO_YOUTUBE_POT?.trim() === '0'
+    ? []
+    : [
+        '--extractor-args',
+        `youtubepot-bgutilhttp:base_url=${youtubePotBaseUrl()}`,
+      ];
   const operator = process.env.MANGO_YTDLP_EXTRACTOR_ARGS?.trim();
-  if (operator) {
-    args.push('--extractor-args', operator);
-  } else {
-    args.push('--extractor-args', `youtube:player_client=${YOUTUBE_PLAYER_CLIENT}`);
-  }
-  return args;
+  return operator ? [...flags, '--extractor-args', operator] : flags;
 }
 
 export function mangoDenoPath(): string {
@@ -479,18 +483,21 @@ async function runYoutubeYtDlp(
   command: string,
   args: string[],
   timeoutMs: number,
+  slot: YoutubeResolverSlot,
 ): Promise<{ stdout: string; stderr: string }> {
+  const options = {
+    timeout: timeoutMs,
+    maxBuffer: 1024 * 1024,
+    env: {
+      ...process.env,
+      MANGO_YTDLP_SLOT: slot,
+    },
+  };
   if (youtubeCommandRunnerForTest) {
-    return youtubeCommandRunnerForTest(command, args, {
-      timeout: timeoutMs,
-      maxBuffer: 1024 * 1024,
-    });
+    return youtubeCommandRunnerForTest(command, args, options);
   }
   return new Promise((resolve, reject) => {
-    execFile(command, args, {
-      timeout: timeoutMs,
-      maxBuffer: 1024 * 1024,
-    }, (error, stdout, stderr) => {
+    execFile(command, args, options, (error, stdout, stderr) => {
       if (error) {
         reject(new Error(ytDlpExecErrorMessage(error, stdout, stderr)));
         return;
@@ -500,20 +507,139 @@ async function runYoutubeYtDlp(
   });
 }
 
-async function resolveYoutubePlaybackFresh(
+function youtubeResolverSlotRoot(): string {
+  return process.env.MANGO_YTDLP_SLOT_ROOT?.trim()
+    || join(process.env.HOME || homedir(), '.local/share/mango/ytdlp-slots');
+}
+
+function previousYoutubeResolverAvailable(command: string): boolean {
+  if (basename(command) !== 'youtube-yt-dlp.sh') return false;
+  const previous = join(youtubeResolverSlotRoot(), 'previous');
+  if (!existsSync(join(previous, 'venv/bin/yt-dlp'))) return false;
+  try {
+    const meta = JSON.parse(readFileSync(join(previous, 'meta.json'), 'utf8')) as {
+      revision?: unknown;
+      channel?: unknown;
+      ejs?: unknown;
+      js_runtime?: unknown;
+      canary?: unknown;
+      canary_result?: unknown;
+    };
+    const result = meta.canary_result as Record<string, unknown> | null;
+    const total = Number(result?.total);
+    const passed = Number(result?.passed);
+    const requiredTotal = Number(result?.required_total);
+    const requiredPassed = Number(result?.required_passed);
+    const dynamicTotal = Number(result?.dynamic_total);
+    const dynamicPassed = Number(result?.dynamic_passed);
+    const expectedChannel = process.env.MANGO_YTDLP_CHANNEL?.trim() || 'nightly';
+    return typeof meta.revision === 'string'
+      && meta.revision.trim().length > 0
+      && meta.channel === expectedChannel
+      && meta.ejs === true
+      && (meta.js_runtime === 'deno' || meta.js_runtime === 'node')
+      && meta.canary === 'pass'
+      && result?.ok === true
+      && result?.transport === true
+      && Number.isFinite(total)
+      && Number.isFinite(passed)
+      && total >= requiredTotal
+      && passed >= requiredPassed
+      && passed <= total
+      && Number.isFinite(requiredTotal)
+      && requiredTotal >= 3
+      && requiredPassed === requiredTotal
+      && dynamicTotal >= 0
+      && dynamicTotal <= requiredTotal
+      && dynamicPassed === dynamicTotal;
+  } catch {
+    return false;
+  }
+}
+
+function ytDlpErrorDetail(error: unknown): string {
+  if (error instanceof CatalogError && typeof error.details?.yt_dlp === 'string') {
+    return error.details.yt_dlp;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+function shouldRetryYoutubeWithCookies(error: unknown): boolean {
+  if (!(error instanceof CatalogError)) {
+    return false;
+  }
+  const kind = error.details?.failure_kind;
+  if (kind !== 'blocked' && kind !== 'bot_check') return false;
+  return /confirm (?:your )?age|age[- ]restricted|members[- ]only|private video|login required/i
+    .test(ytDlpErrorDetail(error))
+    || (
+      kind === 'bot_check'
+      && /sign in to confirm (?:you(?:'|’)re|you are) not a bot/i.test(ytDlpErrorDetail(error))
+    );
+}
+
+function shouldTryPreviousYoutubeResolver(error: unknown): boolean {
+  if (!(error instanceof CatalogError)) return true;
+  return ['format_unavailable', 'js_runtime', 'other'].includes(
+    String(error.details?.failure_kind || ''),
+  );
+}
+
+function requestYoutubeRuntimeRefresh(error: unknown): void {
+  if (youtubeCommandRunnerForTest) return;
+  const now = Date.now();
+  if (now - youtubeRuntimeRefreshRequestedAt < YOUTUBE_RUNTIME_REFRESH_COOLDOWN_MS) return;
+  const kind = error instanceof CatalogError
+    ? String(error.details?.failure_kind || 'other')
+    : 'other';
+  const request = process.env.MANGO_YTDLP_REFRESH_REQUEST?.trim()
+    || join(process.env.HOME || homedir(), '.cache/mango/youtube-runtime-refresh.request');
+  const temporary = `${request}.tmp.${process.pid}`;
+  try {
+    mkdirSync(dirname(request), { recursive: true });
+    writeFileSync(
+      temporary,
+      `failure_kind=${YOUTUBE_FAILURE_KINDS.includes(kind as YoutubeFailureKind) ? kind : 'other'}\n`
+        + `requested_at=${now}\n`,
+      { encoding: 'utf8', mode: 0o600 },
+    );
+    renameSync(temporary, request);
+    youtubeRuntimeRefreshRequestedAt = now;
+  } catch {
+    // Repair signalling must never replace the classified couch-safe failure.
+  }
+}
+
+function youtubeCookiesConfigured(config: YoutubeConfig): boolean {
+  return Boolean(config.yt_dlp_cookies || config.yt_dlp_cookies_from_browser);
+}
+
+async function resolveYoutubePlaybackAttempt(
   config: YoutubeConfig,
   normalizedVideoId: string,
-  timeoutMs = 30000,
-  excludedFormats: string[] = [],
+  deadlineAt: number,
+  excludedFormats: string[],
+  started: number,
+  slot: YoutubeResolverSlot,
+  auth: YoutubeResolverAuth,
 ): Promise<YoutubeResolvedPlayback> {
-  if (!youtubeCommandRunnerForTest && !youtubeJsRuntimeAvailable()) {
-    throwMissingYoutubeJsRuntime();
-  }
-  const started = Date.now();
   let lastFormatError = '';
   for (const format of ytDlpFormatCandidates(config.yt_dlp_format, excludedFormats)) {
-    const args = youtubeYtDlpResolveArgs(config, format, normalizedVideoId);
-    const result = await runYoutubeYtDlp(config.yt_dlp_command, args, timeoutMs).catch((error: unknown) => {
+    const remainingMs = deadlineAt - Date.now();
+    if (remainingMs <= 0) {
+      throwYtDlpCatalogError('yt-dlp timed out: resolver deadline exhausted', {
+        resolve_ms: Date.now() - started,
+      });
+    }
+    const args = youtubeYtDlpResolveArgs(config, format, normalizedVideoId, {
+      includeCookies: auth === 'cookies',
+    });
+    const result = await runYoutubeYtDlp(
+      config.yt_dlp_command,
+      args,
+      remainingMs,
+      slot,
+    ).catch((error: unknown) => {
       if (error instanceof PlayCancelledError) throw error;
       const detail = error instanceof Error ? error.message : String(error);
       if (requestedFormatUnavailable(detail)) {
@@ -534,6 +660,8 @@ async function resolveYoutubePlaybackFresh(
         ...meta,
         resolve_ms: Date.now() - started,
         format,
+        resolver_slot: slot,
+        resolver_auth: auth,
       };
     }
     if (
@@ -561,6 +689,70 @@ async function resolveYoutubePlaybackFresh(
   );
 }
 
+async function resolveYoutubePlaybackFresh(
+  config: YoutubeConfig,
+  normalizedVideoId: string,
+  timeoutMs = 30000,
+  excludedFormats: string[] = [],
+): Promise<YoutubeResolvedPlayback> {
+  if (!youtubeCommandRunnerForTest && !youtubeJsRuntimeAvailable()) {
+    requestYoutubeRuntimeRefresh(new CatalogError(
+      503,
+      'YouTube playback is missing a JavaScript runtime',
+      youtubeFailureDetails('js_runtime', 'resolve'),
+    ));
+    throwMissingYoutubeJsRuntime();
+  }
+  const started = Date.now();
+  const deadlineAt = started + Math.max(1, timeoutMs);
+  const slots: YoutubeResolverSlot[] = previousYoutubeResolverAvailable(config.yt_dlp_command)
+    ? ['active', 'previous']
+    : ['active'];
+  let activeError: unknown = null;
+
+  for (const slot of slots) {
+    try {
+      return await resolveYoutubePlaybackAttempt(
+        config,
+        normalizedVideoId,
+        deadlineAt,
+        excludedFormats,
+        started,
+        slot,
+        'anonymous',
+      );
+    } catch (anonymousError) {
+      let finalError = anonymousError;
+      if (youtubeCookiesConfigured(config) && shouldRetryYoutubeWithCookies(anonymousError)) {
+        try {
+          return await resolveYoutubePlaybackAttempt(
+            config,
+            normalizedVideoId,
+            deadlineAt,
+            excludedFormats,
+            started,
+            slot,
+            'cookies',
+          );
+        } catch (cookieError) {
+          finalError = cookieError;
+        }
+      }
+      if (slot === 'active' && shouldTryPreviousYoutubeResolver(finalError)) {
+        requestYoutubeRuntimeRefresh(finalError);
+        if (slots.length > 1) {
+          activeError = finalError;
+          continue;
+        }
+      }
+      throw finalError;
+    }
+  }
+  throw activeError instanceof Error
+    ? activeError
+    : new Error('YouTube resolver slots returned no result');
+}
+
 export function shouldRefreshYoutubeTransport(message: string): boolean {
   return /HTTP (?:error )?(?:401|403|404|410)\b|expired|signature|signed[\s_-]*url|ECONN|socket|fetch failed|did not start playback|partial file|cannot seek|invalid data/i
     .test(message);
@@ -581,5 +773,6 @@ export function youtubePlayStartDisposition(error: unknown): 'cancel' | 'refresh
 export function resetYoutubePlaybackStateForTest(): void {
   youtubePlaybackInflight.clear();
   youtubeResolveCooldownUntil = 0;
+  youtubeRuntimeRefreshRequestedAt = 0;
   youtubeCommandRunnerForTest = null;
 }

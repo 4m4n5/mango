@@ -11,7 +11,7 @@ LOG_FILE="${MANGO_BGUTIL_HTTP_LOG:-$HOME/.cache/mango/bgutil-pot-server.log}"
 CACHE="$HOME/.cache/mango"
 
 usage() {
-  echo "usage: $0 start|stop|status" >&2
+  echo "usage: $0 start|stop|status|run" >&2
   exit 2
 }
 
@@ -21,7 +21,13 @@ ping_ok() {
 }
 
 cmd="${1:-}"
-[[ "$cmd" == "start" || "$cmd" == "stop" || "$cmd" == "status" ]] || usage
+[[ "$cmd" == "start" || "$cmd" == "stop" || "$cmd" == "status" || "$cmd" == "run" ]] || usage
+
+systemd_unit_available() {
+  [[ "${MANGO_BGUTIL_USE_SYSTEMD:-1}" == "1" ]] \
+    && command -v systemctl >/dev/null 2>&1 \
+    && systemctl --user cat mango-youtube-pot.service >/dev/null 2>&1
+}
 
 stop_server() {
   local pid=""
@@ -38,6 +44,10 @@ stop_server() {
 
 case "$cmd" in
   stop)
+    if systemd_unit_available; then
+      systemctl --user stop mango-youtube-pot.service
+      exit 0
+    fi
     stop_server
     exit 0
     ;;
@@ -51,7 +61,23 @@ case "$cmd" in
     ;;
 esac
 
-if ping_ok; then
+if [[ "$cmd" == "start" ]] && systemd_unit_available; then
+  # Migrate an older detached provider before systemd takes ownership.
+  stop_server
+  systemctl --user reset-failed mango-youtube-pot.service >/dev/null 2>&1 || true
+  systemctl --user start mango-youtube-pot.service
+  for _ in $(seq 1 20); do
+    if ping_ok; then
+      echo "youtube-pot-server: up (:${PORT}, systemd)"
+      exit 0
+    fi
+    sleep 0.25
+  done
+  echo "youtube-pot-server: systemd unit did not become ready" >&2
+  exit 1
+fi
+
+if [[ "$cmd" != "run" ]] && ping_ok; then
   echo "youtube-pot-server: already up (:${PORT})"
   exit 0
 fi
@@ -70,6 +96,16 @@ fi
 }
 
 mkdir -p "$CACHE"
+
+if [[ "$cmd" == "run" ]]; then
+  cd "$DEST/node_modules"
+  PATH="$(dirname "$DENO_BIN"):$PATH"
+  export PATH
+  exec 200>&- || true
+  exec "$DENO_BIN" run --allow-env --allow-net --allow-ffi=. --allow-read=. \
+    ../src/main.ts --port "$PORT"
+fi
+
 # Deno FFI for canvas resolves relative to node_modules.
 (
   cd "$DEST/node_modules"

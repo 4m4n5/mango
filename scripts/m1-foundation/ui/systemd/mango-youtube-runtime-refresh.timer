@@ -1,0 +1,11 @@
+[Unit]
+Description=daily canaried YouTube resolver refresh
+
+[Timer]
+OnCalendar=*-*-* 04:15:00
+RandomizedDelaySec=30min
+Persistent=true
+Unit=mango-youtube-runtime-refresh.service
+
+[Install]
+WantedBy=timers.target

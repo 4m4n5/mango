@@ -412,10 +412,18 @@ recommendation rails; neither invokes a deleted allocator.
 The YouTube Data API is used for exact authorized-channel identity, metadata,
 search, authoritative subscription refresh, and official channel upload
 playlists only.
-Playback resolves with `yt-dlp -g` (`player_client=web_safari,tv_simply`),
-one hard-capped `height<=1080` HLS-first/https-DASH selector, then mpv
-`--ytdl=no`. Lower operator caps remain valid; configuration cannot raise the
-ceiling or add a sequential quality ladder. API quota does not govern cached
+Playback resolves with canaried nightly `yt-dlp -g` defaults, one hard-capped
+`height<=1080` HLS-first/https-DASH selector, then mpv `--ytdl=no`. Mango never
+pins player clients: candidate runtimes must resolve and read real transports
+before atomic promotion, and the previous canaried slot remains available for
+fallback inside the original resolve deadline. The promotion canary requires
+all available sampled current-rail titles plus stable VOD, music, and channel-resolved
+live-HLS controls; upstream-fragile content classes are visible advisories.
+The explicit PO-token provider is supervised and loopback-only. Public videos
+resolve anonymously first; configured cookies are used only for an
+account-required or explicit bot sign-in retry. Lower operator caps remain valid;
+configuration cannot raise the ceiling or add a sequential quality ladder. API
+quota does not govern cached
 playback. Classified outcomes include unavailable, geo, DRM,
 entitlement, rate-limit, and player failure. Channels and playlists open
 detail lists; only videos can be Saved in M6.2.

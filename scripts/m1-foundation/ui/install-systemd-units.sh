@@ -12,7 +12,19 @@ UNIT_DST="${HOME}/.config/systemd/user"
 
 mkdir -p "$UNIT_DST" "${HOME}/.cache/mango"
 
-for unit in mango-ui-server.service mango-catalog.service mango-watchdog.service mango-watchdog.timer mango-launcher-chromium.service mango-tv-pad.service mango-vod-recs-worker.service; do
+for unit in \
+  mango-ui-server.service \
+  mango-catalog.service \
+  mango-watchdog.service \
+  mango-watchdog.timer \
+  mango-launcher-chromium.service \
+  mango-tv-pad.service \
+  mango-vod-recs-worker.service \
+  mango-youtube-pot.service \
+  mango-youtube-runtime-refresh.service \
+  mango-youtube-runtime-refresh.timer \
+  mango-youtube-runtime-retry.timer \
+  mango-youtube-runtime-refresh.path; do
   install -m 0644 "$UNIT_SRC/$unit" "$UNIT_DST/$unit"
 done
 
@@ -22,10 +34,24 @@ chmod +x "$REPO_DIR/scripts/m1-foundation/pad/pad-health.sh"
 chmod +x "$REPO_DIR/scripts/m2-catalog/service/run-catalog-service.sh"
 chmod +x "$REPO_DIR/scripts/m2-catalog/vod-recs-worker/vod-recs-worker.sh"
 chmod +x "$REPO_DIR/scripts/mango-health-repair.sh"
+chmod +x "$REPO_DIR/scripts/m6-ship/ensure-youtube-yt-dlp.sh"
+chmod +x "$REPO_DIR/scripts/m6-ship/youtube-runtime-refresh.sh"
+chmod +x "$REPO_DIR/scripts/m6-ship/youtube-runtime-canary.py"
+chmod +x "$REPO_DIR/scripts/m6-ship/youtube-pot-server.sh"
 
 systemctl --user daemon-reload
-systemctl --user enable mango-ui-server.service mango-catalog.service mango-watchdog.timer mango-launcher-chromium.service mango-tv-pad.service mango-vod-recs-worker.service
-systemctl --user start mango-ui-server.service mango-catalog.service mango-watchdog.timer
+systemctl --user enable mango-ui-server.service mango-catalog.service mango-watchdog.timer mango-launcher-chromium.service mango-tv-pad.service mango-vod-recs-worker.service mango-youtube-runtime-refresh.timer mango-youtube-runtime-refresh.path
+if [[ "${MANGO_YOUTUBE_POT:-1}" != "0" ]]; then
+  systemctl --user enable --now mango-youtube-pot.service
+else
+  systemctl --user disable --now mango-youtube-pot.service
+fi
+systemctl --user start \
+  mango-ui-server.service \
+  mango-catalog.service \
+  mango-watchdog.timer \
+  mango-youtube-runtime-refresh.timer \
+  mango-youtube-runtime-refresh.path
 # The worker loads compiled ranking code once at process start. Restart it on
 # every deploy so an already-running unit cannot keep the previous checkout's
 # ranker in memory after the Pi advances to a new SHA.
@@ -43,4 +69,5 @@ echo "✓ systemd user units installed"
 systemctl --user status mango-ui-server.service --no-pager -l | head -8 || true
 systemctl --user status mango-catalog.service --no-pager -l | head -8 || true
 systemctl --user status mango-tv-pad.service --no-pager -l | head -8 || true
-systemctl --user list-timers mango-watchdog.timer --no-pager || true
+systemctl --user status mango-youtube-pot.service --no-pager -l | head -8 || true
+systemctl --user list-timers mango-watchdog.timer mango-youtube-runtime-refresh.timer mango-youtube-runtime-retry.timer --no-pager || true

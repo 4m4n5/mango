@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   classifyYtDlpError,
   effectiveYoutubeFormat,
@@ -11,6 +14,9 @@ import {
   parseYtDlpResolvedUrls,
   preferAdaptiveYoutubeFormat,
   publicYoutubePlayFailureDetails,
+  resetYoutubePlaybackStateForTest,
+  resolveYoutubePlayback,
+  setYoutubeCommandRunnerForTest,
   shouldRefreshYoutubeTransport,
   youtubeJsRuntimeArgs,
   youtubeJsRuntimeAvailable,
@@ -22,11 +28,33 @@ import {
   YOUTUBE_ADAPTIVE_FORMAT,
   YOUTUBE_FORMAT_SORT,
   YOUTUBE_MAX_HEIGHT,
-  YOUTUBE_PLAYER_CLIENT,
+  YOUTUBE_PLAYER_CLIENT_POLICY,
   YOUTUBE_SOCKET_TIMEOUT_SEC,
 } from './playback.js';
 import { CatalogError } from '../catalog-errors.js';
 import { PlayCancelledError } from '../play-cancel.js';
+import type { YoutubeConfig } from './config.js';
+
+function resolverConfig(overrides: Partial<YoutubeConfig> = {}): YoutubeConfig {
+  return {
+    enabled: true,
+    db_path: '/tmp/youtube-test.db',
+    api_key: null,
+    api_key_file: '/tmp/youtube-api.key',
+    oauth_client_file: '/tmp/youtube-oauth.json',
+    auth_token_file: '/tmp/youtube-auth.json',
+    region_code: 'IN',
+    relevance_language: 'en',
+    max_results: 25,
+    exclude_shorts: true,
+    stale_after_ms: 1,
+    yt_dlp_command: '/tmp/yt-dlp',
+    yt_dlp_format: YOUTUBE_ADAPTIVE_FORMAT,
+    yt_dlp_cookies: null,
+    yt_dlp_cookies_from_browser: null,
+    ...overrides,
+  };
+}
 
 test('parseYtDlpResolvedUrls supports separate video and audio URLs', () => {
   assert.deepEqual(
@@ -125,17 +153,17 @@ test('ytDlpFormatCandidates drops an already failed transport format', () => {
   );
 });
 
-test('yt-dlp resolve prefers Deno then Node for YouTube JS challenges', () => {
+test('yt-dlp resolve uses maintained upstream clients and bundled EJS', () => {
   const previousDeno = process.env.MANGO_DENO;
   const previousRuntimes = process.env.MANGO_YTDLP_JS_RUNTIMES;
-  const previousPot = process.env.MANGO_BGUTIL_POT;
   const previousRemote = process.env.MANGO_YTDLP_REMOTE_COMPONENTS;
   const previousExtractor = process.env.MANGO_YTDLP_EXTRACTOR_ARGS;
+  const previousPot = process.env.MANGO_YOUTUBE_POT;
   delete process.env.MANGO_DENO;
   delete process.env.MANGO_YTDLP_JS_RUNTIMES;
   delete process.env.MANGO_YTDLP_REMOTE_COMPONENTS;
   delete process.env.MANGO_YTDLP_EXTRACTOR_ARGS;
-  process.env.MANGO_BGUTIL_POT = '/no/such/mango-bgutil';
+  delete process.env.MANGO_YOUTUBE_POT;
   try {
     const args = youtubeYtDlpResolveArgs({}, YOUTUBE_ADAPTIVE_FORMAT, 'dQw4w9WgXcQ');
     const runtimes: string[] = [];
@@ -147,13 +175,21 @@ test('yt-dlp resolve prefers Deno then Node for YouTube JS challenges', () => {
     }
     assert.equal(args[args.indexOf('-f') + 1], YOUTUBE_ADAPTIVE_FORMAT);
     assert.equal(args[args.indexOf('--format-sort') + 1], YOUTUBE_FORMAT_SORT);
+    assert.ok(args.includes('--ignore-config'));
     assert.equal(runtimes.length, 2);
     assert.match(runtimes[0], /^deno(?::.+)?$/);
     assert.equal(runtimes[1], 'node');
     assert.equal(args[args.indexOf('--socket-timeout') + 1], String(YOUTUBE_SOCKET_TIMEOUT_SEC));
-    assert.equal(args[args.indexOf('--remote-components') + 1], 'ejs:github');
-    assert.equal(args[args.indexOf('--extractor-args') + 1], `youtube:player_client=${YOUTUBE_PLAYER_CLIENT}`);
-    assert.equal(YOUTUBE_PLAYER_CLIENT, 'web_safari,tv_simply');
+    assert.equal(args.includes('--remote-components'), false);
+    assert.equal(
+      args[args.indexOf('--extractor-args') + 1],
+      'youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416',
+    );
+    assert.equal(
+      args.some((arg) => /player_client|web_safari|tv_simply/.test(arg)),
+      false,
+    );
+    assert.equal(YOUTUBE_PLAYER_CLIENT_POLICY, 'upstream_default');
     assert.ok(args.includes('-g'));
     assert.equal(
       args[args.indexOf('--print') + 1],
@@ -167,13 +203,39 @@ test('yt-dlp resolve prefers Deno then Node for YouTube JS challenges', () => {
     else process.env.MANGO_DENO = previousDeno;
     if (previousRuntimes === undefined) delete process.env.MANGO_YTDLP_JS_RUNTIMES;
     else process.env.MANGO_YTDLP_JS_RUNTIMES = previousRuntimes;
-    if (previousPot === undefined) delete process.env.MANGO_BGUTIL_POT;
-    else process.env.MANGO_BGUTIL_POT = previousPot;
     if (previousRemote === undefined) delete process.env.MANGO_YTDLP_REMOTE_COMPONENTS;
     else process.env.MANGO_YTDLP_REMOTE_COMPONENTS = previousRemote;
     if (previousExtractor === undefined) delete process.env.MANGO_YTDLP_EXTRACTOR_ARGS;
     else process.env.MANGO_YTDLP_EXTRACTOR_ARGS = previousExtractor;
+    if (previousPot === undefined) delete process.env.MANGO_YOUTUBE_POT;
+    else process.env.MANGO_YOUTUBE_POT = previousPot;
   }
+});
+
+test('yt-dlp resolve is anonymous by default and adds cookies only for auth fallback', () => {
+  const config = {
+    yt_dlp_cookies: '/tmp/youtube-cookies.txt',
+    yt_dlp_cookies_from_browser: 'chromium',
+  };
+  const anonymous = youtubeYtDlpResolveArgs(
+    config,
+    YOUTUBE_ADAPTIVE_FORMAT,
+    'dQw4w9WgXcQ',
+  );
+  assert.equal(anonymous.includes('--cookies'), false);
+  assert.equal(anonymous.includes('--cookies-from-browser'), false);
+
+  const authenticated = youtubeYtDlpResolveArgs(
+    config,
+    YOUTUBE_ADAPTIVE_FORMAT,
+    'dQw4w9WgXcQ',
+    { includeCookies: true },
+  );
+  assert.equal(authenticated[authenticated.indexOf('--cookies') + 1], config.yt_dlp_cookies);
+  assert.equal(
+    authenticated[authenticated.indexOf('--cookies-from-browser') + 1],
+    config.yt_dlp_cookies_from_browser,
+  );
 });
 
 test('yt-dlp resolve pins an existing Mango Deno binary', () => {
@@ -214,11 +276,11 @@ test('yt-dlp resolve omits JS runtime when the operator disables it', () => {
   }
 });
 
-test('yt-dlp resolve passes operator extractor-args only when set', () => {
+test('yt-dlp resolve uses loopback POT plus any operator extractor override', () => {
   const previous = process.env.MANGO_YTDLP_EXTRACTOR_ARGS;
-  const previousPot = process.env.MANGO_BGUTIL_POT;
+  const previousPot = process.env.MANGO_YOUTUBE_POT;
   process.env.MANGO_YTDLP_EXTRACTOR_ARGS = 'youtube:player_client=android_vr';
-  process.env.MANGO_BGUTIL_POT = '/no/such/mango-bgutil';
+  process.env.MANGO_YOUTUBE_POT = '1';
   try {
     const args = youtubeYtDlpResolveArgs({}, YOUTUBE_ADAPTIVE_FORMAT, 'dQw4w9wgGcQ');
     const extractorArgs: string[] = [];
@@ -228,12 +290,157 @@ test('yt-dlp resolve passes operator extractor-args only when set', () => {
         i += 1;
       }
     }
-    assert.deepEqual(extractorArgs, ['youtube:player_client=android_vr']);
+    assert.deepEqual(extractorArgs, [
+      'youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416',
+      'youtube:player_client=android_vr',
+    ]);
   } finally {
     if (previous === undefined) delete process.env.MANGO_YTDLP_EXTRACTOR_ARGS;
     else process.env.MANGO_YTDLP_EXTRACTOR_ARGS = previous;
-    if (previousPot === undefined) delete process.env.MANGO_BGUTIL_POT;
-    else process.env.MANGO_BGUTIL_POT = previousPot;
+    if (previousPot === undefined) delete process.env.MANGO_YOUTUBE_POT;
+    else process.env.MANGO_YOUTUBE_POT = previousPot;
+  }
+});
+
+test('yt-dlp resolve omits the loopback POT provider only when explicitly disabled', () => {
+  const previous = process.env.MANGO_YOUTUBE_POT;
+  process.env.MANGO_YOUTUBE_POT = '0';
+  try {
+    const args = youtubeYtDlpResolveArgs({}, YOUTUBE_ADAPTIVE_FORMAT, 'dQw4w9wgGcQ');
+    assert.equal(
+      args.some((arg) => arg.startsWith('youtubepot-bgutilhttp:')),
+      false,
+    );
+  } finally {
+    if (previous === undefined) delete process.env.MANGO_YOUTUBE_POT;
+    else process.env.MANGO_YOUTUBE_POT = previous;
+  }
+});
+
+test('yt-dlp resolve refuses a non-loopback POT provider URL', () => {
+  const previousPot = process.env.MANGO_YOUTUBE_POT;
+  const previousUrl = process.env.MANGO_YOUTUBE_POT_URL;
+  process.env.MANGO_YOUTUBE_POT = '1';
+  process.env.MANGO_YOUTUBE_POT_URL = 'https://example.com:4416';
+  try {
+    const args = youtubeYtDlpResolveArgs({}, YOUTUBE_ADAPTIVE_FORMAT, 'dQw4w9wgGcQ');
+    assert.equal(
+      args[args.indexOf('--extractor-args') + 1],
+      'youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416',
+    );
+  } finally {
+    if (previousPot === undefined) delete process.env.MANGO_YOUTUBE_POT;
+    else process.env.MANGO_YOUTUBE_POT = previousPot;
+    if (previousUrl === undefined) delete process.env.MANGO_YOUTUBE_POT_URL;
+    else process.env.MANGO_YOUTUBE_POT_URL = previousUrl;
+  }
+});
+
+test('resolver falls back once to the previous canaried slot', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mango-ytdlp-slots-'));
+  const previousRoot = join(root, 'previous/venv/bin');
+  mkdirSync(previousRoot, { recursive: true });
+  writeFileSync(join(previousRoot, 'yt-dlp'), '');
+  writeFileSync(join(root, 'previous/meta.json'), JSON.stringify({
+    revision: 'previous-test',
+    channel: 'nightly',
+    ejs: true,
+    js_runtime: 'deno',
+    canary: 'pass',
+    canary_result: {
+      ok: true,
+      transport: true,
+      total: 7,
+      passed: 6,
+      required_total: 6,
+      required_passed: 6,
+      dynamic_total: 3,
+      dynamic_passed: 3,
+    },
+  }));
+  const previousSlotRoot = process.env.MANGO_YTDLP_SLOT_ROOT;
+  process.env.MANGO_YTDLP_SLOT_ROOT = root;
+  const slots: string[] = [];
+  const timeouts: number[] = [];
+  setYoutubeCommandRunnerForTest(async (_command, _args, options) => {
+    const slot = options.env.MANGO_YTDLP_SLOT || '';
+    slots.push(slot);
+    timeouts.push(options.timeout);
+    if (slot === 'active') {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10);
+      });
+      throw new Error('ERROR: Requested format is not available');
+    }
+    return {
+      stdout: 'MANGO_META:not_live|60|https|1080|30\nhttps://video.example/v\nhttps://audio.example/a\n',
+      stderr: '',
+    };
+  });
+  try {
+    const resolved = await resolveYoutubePlayback(
+      resolverConfig({ yt_dlp_command: '/tmp/youtube-yt-dlp.sh' }),
+      'dQw4w9WgXcQ',
+    );
+    assert.deepEqual(slots, ['active', 'previous']);
+    assert.ok(timeouts[1] < timeouts[0], JSON.stringify(timeouts));
+    assert.equal(resolved.resolver_slot, 'previous');
+    assert.equal(resolved.resolver_auth, 'anonymous');
+  } finally {
+    resetYoutubePlaybackStateForTest();
+    rmSync(root, { recursive: true, force: true });
+    if (previousSlotRoot === undefined) delete process.env.MANGO_YTDLP_SLOT_ROOT;
+    else process.env.MANGO_YTDLP_SLOT_ROOT = previousSlotRoot;
+  }
+});
+
+test('resolver uses configured cookies only after an account-required response', async () => {
+  const attempts: boolean[] = [];
+  setYoutubeCommandRunnerForTest(async (_command, args) => {
+    const authenticated = args.includes('--cookies');
+    attempts.push(authenticated);
+    if (!authenticated) {
+      throw new Error('ERROR: Sign in to confirm your age');
+    }
+    return {
+      stdout: 'MANGO_META:not_live|60|https|720|30\nhttps://video.example/v\nhttps://audio.example/a\n',
+      stderr: '',
+    };
+  });
+  try {
+    const resolved = await resolveYoutubePlayback(
+      resolverConfig({ yt_dlp_cookies: '/tmp/youtube-cookies.txt' }),
+      'dQw4w9WgXcQ',
+    );
+    assert.deepEqual(attempts, [false, true]);
+    assert.equal(resolved.resolver_auth, 'cookies');
+  } finally {
+    resetYoutubePlaybackStateForTest();
+  }
+});
+
+test('resolver uses configured cookies after an explicit YouTube bot sign-in challenge', async () => {
+  const attempts: boolean[] = [];
+  setYoutubeCommandRunnerForTest(async (_command, args) => {
+    const authenticated = args.includes('--cookies');
+    attempts.push(authenticated);
+    if (!authenticated) {
+      throw new Error('ERROR: Sign in to confirm you’re not a bot');
+    }
+    return {
+      stdout: 'MANGO_META:not_live|60|https|720|30\nhttps://video.example/v\nhttps://audio.example/a\n',
+      stderr: '',
+    };
+  });
+  try {
+    const resolved = await resolveYoutubePlayback(
+      resolverConfig({ yt_dlp_cookies: '/tmp/youtube-cookies.txt' }),
+      'dQw4w9WgXcQ',
+    );
+    assert.deepEqual(attempts, [false, true]);
+    assert.equal(resolved.resolver_auth, 'cookies');
+  } finally {
+    resetYoutubePlaybackStateForTest();
   }
 });
 

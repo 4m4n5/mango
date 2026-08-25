@@ -9,13 +9,14 @@ export type YoutubeRuntimeSnapshot = {
   slot_revision: string | null;
   slot_channel: 'stable' | 'nightly' | 'master' | 'unknown';
   slot_age_sec: number | null;
+  player_client_policy: 'upstream_default' | 'operator_override';
   ejs_ready: boolean;
   js_runtime: YoutubeJsRuntimeKind;
   pot_ready: boolean;
   cookies_configured: boolean;
   canary: YoutubeRuntimeCanary;
   rollback_available: boolean;
-  fallback: 'none' | 'legacy_venv' | 'system';
+  fallback: 'none' | 'missing';
 };
 
 type SlotMeta = {
@@ -25,6 +26,7 @@ type SlotMeta = {
   ejs?: unknown;
   js_runtime?: unknown;
   canary?: unknown;
+  canary_result?: unknown;
 };
 
 function homeDir(): string {
@@ -57,6 +59,34 @@ function canary(value: unknown): YoutubeRuntimeCanary {
   return value === 'pass' || value === 'fail' ? value : 'unknown';
 }
 
+function transportCanaryPassed(meta: SlotMeta | null): boolean {
+  if (!meta || meta.canary !== 'pass' || meta.ejs !== true) return false;
+  if (meta.channel !== (process.env.MANGO_YTDLP_CHANNEL?.trim() || 'nightly')) return false;
+  if (meta.js_runtime !== 'deno' && meta.js_runtime !== 'node') return false;
+  const result = meta.canary_result;
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return false;
+  const record = result as Record<string, unknown>;
+  const total = Number(record.total);
+  const passed = Number(record.passed);
+  const requiredTotal = Number(record.required_total);
+  const requiredPassed = Number(record.required_passed);
+  const dynamicTotal = Number(record.dynamic_total);
+  const dynamicPassed = Number(record.dynamic_passed);
+  return record.ok === true
+    && record.transport === true
+    && Number.isFinite(total)
+    && Number.isFinite(passed)
+    && total >= requiredTotal
+    && passed >= requiredPassed
+    && passed <= total
+    && Number.isFinite(requiredTotal)
+    && requiredTotal >= 3
+    && requiredPassed === requiredTotal
+    && dynamicTotal >= 0
+    && dynamicTotal <= requiredTotal
+    && dynamicPassed === dynamicTotal;
+}
+
 function jsRuntime(value: unknown, denoPath: string | null): YoutubeJsRuntimeKind {
   if (value === 'deno' || value === 'node') return value;
   if (denoPath) return 'deno';
@@ -74,7 +104,24 @@ export function detectDenoPath(): string | null {
 }
 
 export function youtubePotBaseUrl(): string {
-  return process.env.MANGO_YOUTUBE_POT_URL?.trim() || 'http://127.0.0.1:4416';
+  const fallback = 'http://127.0.0.1:4416';
+  const configured = process.env.MANGO_YOUTUBE_POT_URL?.trim();
+  if (!configured) return fallback;
+  try {
+    const parsed = new URL(configured);
+    const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
+    if (
+      parsed.protocol !== 'http:'
+      || parsed.username
+      || parsed.password
+      || !['127.0.0.1', 'localhost', '::1'].includes(hostname)
+    ) {
+      return fallback;
+    }
+    return parsed.origin;
+  } catch {
+    return fallback;
+  }
 }
 
 export function youtubePotEnabled(): boolean {
@@ -108,10 +155,13 @@ export function readYoutubeRuntimeSnapshot(options: {
   const root = youtubeSlotRoot();
   const activeMeta = readJson(join(root, 'active', 'meta.json'))
     || readJson(join(root, 'active-meta.json'));
-  const previousExists = existsSync(join(root, 'previous', 'venv/bin/yt-dlp'))
-    || existsSync(join(root, 'previous', 'bin/yt-dlp'));
-  const activeBin = existsSync(join(root, 'active', 'venv/bin/yt-dlp'));
-  const legacyVenv = existsSync(join(homeDir(), '.local/share/mango/ytdlp-venv/bin/yt-dlp'));
+  const previousMeta = readJson(join(root, 'previous', 'meta.json'));
+  const previousExists = (
+    existsSync(join(root, 'previous', 'venv/bin/yt-dlp'))
+      || existsSync(join(root, 'previous', 'bin/yt-dlp'))
+  ) && transportCanaryPassed(previousMeta);
+  const activeBin = existsSync(join(root, 'active', 'venv/bin/yt-dlp'))
+    && transportCanaryPassed(activeMeta);
   const promotedAt = Number(activeMeta?.promoted_at);
   const denoPath = detectDenoPath();
   return {
@@ -122,13 +172,16 @@ export function readYoutubeRuntimeSnapshot(options: {
     slot_age_sec: Number.isFinite(promotedAt) && promotedAt > 0
       ? Math.max(0, Math.floor((Date.now() - promotedAt) / 1000))
       : null,
+    player_client_policy: process.env.MANGO_YTDLP_EXTRACTOR_ARGS?.trim()
+      ? 'operator_override'
+      : 'upstream_default',
     ejs_ready: activeMeta?.ejs === true,
     js_runtime: jsRuntime(activeMeta?.js_runtime, denoPath),
     pot_ready: options.potReady === true,
     cookies_configured: options.cookiesConfigured,
-    canary: canary(activeMeta?.canary),
+    canary: activeMeta && !activeBin ? 'fail' : canary(activeMeta?.canary),
     rollback_available: previousExists,
-    fallback: activeBin ? 'none' : legacyVenv ? 'legacy_venv' : 'system',
+    fallback: activeBin ? 'none' : 'missing',
   };
 }
 
@@ -137,6 +190,7 @@ export function youtubeRuntimeDiagnostics(snapshot: YoutubeRuntimeSnapshot): Rec
     slot_revision: snapshot.slot_revision,
     slot_channel: snapshot.slot_channel,
     slot_age_sec: snapshot.slot_age_sec,
+    player_client_policy: snapshot.player_client_policy,
     ejs_ready: snapshot.ejs_ready,
     js_runtime: snapshot.js_runtime,
     pot_ready: snapshot.pot_ready,

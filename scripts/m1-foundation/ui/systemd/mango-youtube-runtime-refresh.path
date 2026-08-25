@@ -1,0 +1,10 @@
+[Unit]
+Description=repair trigger for Mango YouTube resolver failures
+
+[Path]
+PathExists=%h/.cache/mango/youtube-runtime-refresh.request
+PathChanged=%h/.cache/mango/youtube-runtime-refresh.request
+Unit=mango-youtube-runtime-refresh.service
+
+[Install]
+WantedBy=default.target

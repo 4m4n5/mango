@@ -1,0 +1,7 @@
+[Unit]
+Description=deferred Mango YouTube resolver retry
+
+[Timer]
+OnActiveSec=5min
+AccuracySec=30s
+Unit=mango-youtube-runtime-refresh.service

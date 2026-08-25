@@ -19,8 +19,8 @@ export const YOUTUBE_ADAPTIVE_FORMAT = youtubeAdaptiveSelector(String(YOUTUBE_MA
 /** Compatibility aliases retained for callers; both obey the hard 1080p ceiling. */
 export const YOUTUBE_MID_ADAPTIVE_FORMAT = YOUTUBE_ADAPTIVE_FORMAT;
 export const YOUTUBE_COMPAT_ADAPTIVE_FORMAT = YOUTUBE_ADAPTIVE_FORMAT;
-// Pi 5 has HEVC HW only. YouTube HLS from web_safari is H.264+AAC when it
-// still exists; tv_simply https DASH is H.264/VP9 + AAC/Opus. Keep VP9-first sort.
+// Pi 5 does not hardware-decode YouTube AV1 on this path. Keep VP9 ahead of
+// AV1 while allowing yt-dlp—not Mango—to maintain the viable player clients.
 export const YOUTUBE_FORMAT_SORT =
   `res:${YOUTUBE_MAX_HEIGHT},fps,vcodec:vp9:vp9.2:av01:h264,acodec:opus:mp4a`;
 
@@ -85,9 +85,8 @@ export function effectiveYoutubeFormat(configured: string): string {
 
 /**
  * One selector: HLS split, then https DASH split, then muxed HLS.
- * web_safari HLS is preferred when present; tv_simply https DASH is the
- * living transport after safari m3u8 disappeared and mweb GVS 403s. Bare
- * muxed progressive (`best` / itag 18) is still never a candidate.
+ * The maintained upstream clients decide which of those transports exist.
+ * Bare muxed progressive (`best` / itag 18) is never a candidate.
  */
 export function ytDlpFormatCandidates(configured: string, excludedFormats: string[] = []): string[] {
   const excluded = new Set(excludedFormats.map((format) => format.trim()).filter(Boolean));

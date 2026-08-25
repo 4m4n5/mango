@@ -26,7 +26,7 @@ post_json() {
 curl -sf --max-time 5 "$CATALOG/health" >/dev/null
 
 state_json="$(curl_json "/youtube/state" 10)"
-python3 - "$state_json" <<'PY'
+python3 - "$state_json" "${MANGO_YOUTUBE_POT:-1}" <<'PY'
 import json
 import sys
 payload = json.loads(sys.argv[1])
@@ -45,6 +45,18 @@ expected = {
 }
 assert kind in expected, kind
 assert descriptor == expected[kind], (kind, descriptor)
+playback = payload.get("playback")
+if kind == "mango_wrapper":
+    assert isinstance(playback, dict), "YouTube playback runtime diagnostics are missing"
+    assert isinstance(playback.get("slot_revision"), str) and playback["slot_revision"], playback
+    assert playback.get("slot_channel") == "nightly", playback
+    assert playback.get("player_client_policy") == "upstream_default", playback
+    assert playback.get("canary") == "pass", playback
+    assert playback.get("fallback") == "none", playback
+    assert playback.get("ejs_ready") is True, playback
+    assert playback.get("js_runtime") == "deno", playback
+    if sys.argv[2] != "0":
+        assert playback.get("pot_ready") is True, playback
 PY
 
 yt_dlp_kind="$(
@@ -78,6 +90,85 @@ case "$yt_dlp_kind" in
     exit 1
     ;;
 esac
+
+if [[ "$yt_dlp_kind" == "mango_wrapper" ]]; then
+  python3 "$REPO_ROOT/scripts/m6-ship/youtube-runtime-canary.py" \
+    --yt-dlp "$REPO_ROOT/scripts/m6-ship/youtube-yt-dlp.sh" \
+    --repo-root "$REPO_ROOT" \
+    --deno "${MANGO_DENO:-$HOME/.local/share/mango/deno/bin/deno}"
+fi
+
+if [[ "$yt_dlp_kind" == "mango_wrapper" && "${MANGO_YOUTUBE_POT:-1}" != "0" ]]; then
+  pot_url="${MANGO_YOUTUBE_POT_URL:-http://127.0.0.1:4416}"
+  pot_port="$(python3 - "$pot_url" <<'PY'
+import sys
+from urllib.parse import urlsplit
+parsed = urlsplit(sys.argv[1])
+assert parsed.scheme == "http"
+assert parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+print(parsed.port or 80)
+PY
+)"
+  pot_listeners="$(ss -ltnH "sport = :$pot_port")"
+  python3 - "$pot_listeners" "$pot_port" <<'PY'
+import re
+import sys
+
+listeners = [line for line in sys.argv[1].splitlines() if line.strip()]
+assert listeners, "YouTube POT provider has no listener"
+port = re.escape(sys.argv[2])
+for line in listeners:
+    assert re.search(rf"(?:127\.0\.0\.1|\[::1\]):{port}\b", line), (
+        "YouTube POT provider is not loopback-only"
+    )
+PY
+  python3 - \
+    "$REPO_ROOT/scripts/m6-ship/youtube-yt-dlp.sh" \
+    "${MANGO_DENO:-$HOME/.local/share/mango/deno/bin/deno}" \
+    "$REPO_ROOT/scripts/m6-ship/youtube-acceptance-corpus.json" \
+    "$pot_url" <<'PY'
+import json
+import pathlib
+import re
+import subprocess
+import sys
+
+corpus = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+video_id = next(
+    str(item["video_id"])
+    for item in corpus.get("items") or []
+    if isinstance(item, dict) and item.get("id") == "ordinary_vod"
+)
+try:
+    result = subprocess.run(
+        [
+            sys.argv[1],
+            "--ignore-config",
+            "--verbose",
+            "--no-playlist",
+            "--js-runtimes",
+            f"deno:{sys.argv[2]}",
+            "--extractor-args",
+            f"youtubepot-bgutilhttp:base_url={sys.argv[4]}",
+            "--simulate",
+            f"https://www.youtube.com/watch?v={video_id}",
+        ],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+except (OSError, subprocess.TimeoutExpired):
+    raise SystemExit("YouTube POT provider registration probe could not run") from None
+diagnostic = result.stderr + "\n" + result.stdout
+assert result.returncode == 0, "YouTube POT provider registration probe did not resolve"
+assert re.search(
+    r"PO Token Providers:.*bgutil:http-[^\s,]+ \(external\)",
+    diagnostic,
+), "yt-dlp did not register the supervised HTTP POT provider"
+PY
+fi
 
 rails_json="$(curl_json "/youtube/rails" 20)"
 python3 - "$rails_json" "$state_json" <<'PY'

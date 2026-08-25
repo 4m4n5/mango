@@ -38,7 +38,7 @@ MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
 | M4 | `m4-addons/gate-m4-self-hosted.sh` |
 | M5 | `m5-voice/ai/gate-m5-voice.sh`, `gate-m5-ai-catalogs.sh` |
 | M6.1 | `m6-ship/gate-m6-library-smoke.sh` |
-| M6.2 | `m6-ship/gate-m6-youtube-smoke.sh` — base YouTube API/launcher smoke; playback only with `MANGO_YOUTUBE_PLAY=1` and not proof that YouTube v2 is promoted |
+| M6.2 | `m6-ship/gate-m6-youtube-smoke.sh` — API/launcher smoke plus headless canaried-runtime transport proof; visible playback only with `MANGO_YOUTUBE_PLAY=1` and not proof that YouTube v2 is promoted |
 | M6.5 | `m6-ship/gate-m6-ux-smoke.sh` — launcher focus/HUD DOM+CSS contracts; in pre-couch on `main` |
 | M6 hardening | `m6-ship/gate-m6-reliability-proof.sh` — run after deploy; fails red, warns yellow |
 | M6 playback SSOT | `m6-ship/gate-m6-playback-ssot.sh` — mpv-only, 1080p browse invariant; in pre-couch on `main` |
@@ -108,7 +108,11 @@ diag/            manual diagnostics
 | Script | Role |
 |--------|------|
 | `m6-ship/gate-m6-library-smoke.sh` | Quick Saved/current-context API smoke; included in gate-lite |
-| `m6-ship/gate-m6-youtube-smoke.sh` | Native YouTube state/rails/search/detail smoke; `yt-dlp` command check by default, playback only with `MANGO_YOUTUBE_PLAY=1` |
+| `m6-ship/gate-m6-youtube-smoke.sh` | Native YouTube state/rails/search/detail smoke; verifies the nightly active slot and real headless transport reads, with visible playback only under `MANGO_YOUTUBE_PLAY=1` |
+| `m6-ship/youtube-runtime-refresh.sh` | Build nightly resolver candidate, run required transport canary, atomically promote active/previous slots, or retain/roll back |
+| `m6-ship/youtube-runtime-canary.py` | Display-neutral current-rail plus stable-control transport proof; reports non-blocking upstream-fragile advisories |
+| `m6-ship/youtube-yt-dlp.sh` | Execute only a metadata-verified canaried slot, with explicit active/previous selection |
+| `m1-foundation/ui/systemd/mango-youtube-runtime-retry.timer` | Re-arm a repair five minutes later when active mpv makes maintenance defer |
 | `m6-ship/gate-m6-ux-smoke.sh` | M6.5 UX contracts — focus CSS, HUD safe-area, detail FocusGrid bundle, pad alive |
 | `m6-ship/reliability-proof.sh` | Record one Reliability Center proof through catalog-service |
 | `m6-ship/gate-m6-reliability-proof.sh` | Pi gate for Green/Yellow/Red couch readiness |
