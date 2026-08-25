@@ -16,11 +16,21 @@ from dataclasses import dataclass
 from typing import Any
 
 
-YOUTUBE_FORMAT = (
+YOUTUBE_VOD_FORMAT = (
+    "bv*[height<=1080][protocol=https]+ba[protocol=https]/"
     "bv*[height<=1080][protocol^=m3u8]+ba[protocol^=m3u8]/"
-    "bv*[height<=1080]+ba/b[height<=1080][protocol^=m3u8]"
+    "b[height<=1080][protocol^=m3u8]"
+)
+YOUTUBE_LIVE_FORMAT = (
+    "bv*[height<=1080][protocol^=m3u8]+ba[protocol^=m3u8]/"
+    "b[height<=1080][protocol^=m3u8]"
 )
 YOUTUBE_FORMAT_SORT = "res:1080,fps,vcodec:vp9:vp9.2:av01:h264,acodec:opus:mp4a"
+YOUTUBE_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/148.0.0.0 Safari/537.36"
+)
 
 
 @dataclass(frozen=True)
@@ -79,7 +89,7 @@ def account_required(stderr: str) -> bool:
 
 def fixed_probes(repo_root: pathlib.Path) -> list[Probe]:
     corpus = read_json(repo_root / "scripts/m6-ship/youtube-acceptance-corpus.json")
-    wanted = ("ordinary_vod", "music", "made_for_kids", "hls_live")
+    wanted = ("ordinary_vod", "long_vod", "music", "made_for_kids", "hls_live")
     found: dict[str, Probe] = {}
     for item in corpus.get("items") or []:
         if not isinstance(item, dict):
@@ -200,6 +210,41 @@ def transport_stream_types(url: str, timeout_sec: int) -> set[str]:
     } & {"audio", "video"}
 
 
+def resume_transport_ready(urls: list[str], timeout_sec: int) -> bool:
+    command = [
+        "mpv",
+        "--no-config",
+        "--no-terminal",
+        "--really-quiet",
+        "--ytdl=no",
+        "--vo=null",
+        "--ao=null",
+        f"--user-agent={YOUTUBE_USER_AGENT}",
+        "--referrer=https://www.youtube.com/",
+        "--http-header-fields=Origin: https://www.youtube.com",
+        "--start=60",
+        "--frames=8",
+    ]
+    cookies = cookie_file()
+    if cookies:
+        command.extend(["--cookies=yes", f"--cookies-file={cookies}"])
+    if len(urls) > 1:
+        command.append(f"--audio-file={urls[1]}")
+    command.append(urls[0])
+    try:
+        result = subprocess.run(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=max(8, min(timeout_sec, 20)),
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
 def probe_one(
     probe: Probe,
     yt_dlp: pathlib.Path,
@@ -224,7 +269,7 @@ def probe_one(
         ])
     command.extend([
         "-f",
-        YOUTUBE_FORMAT,
+        YOUTUBE_LIVE_FORMAT if probe.kind == "live" else YOUTUBE_VOD_FORMAT,
         "--format-sort",
         YOUTUBE_FORMAT_SORT,
         "--print",
@@ -282,6 +327,8 @@ def probe_one(
             return False, "transport_failed"
         if {"audio", "video"} - set().union(*streams):
             return False, "transport_incomplete"
+        if probe.label == "long_vod" and not resume_transport_ready(urls, timeout_sec):
+            return False, "resume_transport_failed"
     return True, "pass"
 
 
@@ -295,10 +342,10 @@ def fixture_result(value: str, yt_dlp: pathlib.Path) -> int:
         ok = revision == os.environ.get("MANGO_YTDLP_CANARY_PASS_REVISION", "")
     print(json.dumps({
         "ok": ok,
-        "total": 7,
-        "passed": 6 if ok else 0,
-        "required_total": 6,
-        "required_passed": 6 if ok else 0,
+        "total": 8,
+        "passed": 7 if ok else 0,
+        "required_total": 7,
+        "required_passed": 7 if ok else 0,
         "advisory_total": 1,
         "advisory_passed": 0,
         "dynamic_total": 3,
@@ -332,7 +379,7 @@ def summarize_results(
             destination = failures if probe.required else advisories
             destination[reason] = destination.get(reason, 0) + 1
 
-    required_fixed = {"ordinary_vod", "music", "hls_live"}
+    required_fixed = {"ordinary_vod", "long_vod", "music", "hls_live"}
     ok = (
         dynamic_passed == dynamic_total
         and required_fixed.issubset(fixed_passed)

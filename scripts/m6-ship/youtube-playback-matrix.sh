@@ -44,15 +44,96 @@ print("youtube-matrix: js=" + str(playback.get("js_runtime")))
 print("youtube-matrix: pot=" + str(playback.get("pot_ready")))
 PY
 
+assert_mpv_av_ready() {
+  local route="$1"
+  local expected_start="${2:-0}"
+  python3 - "${MANGO_MPV_SOCKET:-$HOME/.cache/mango/mpv.sock}" "$route" "$expected_start" <<'PY'
+import json
+import math
+import socket
+import sys
+import time
+
+sock_path, route, expected_start_raw = sys.argv[1:]
+expected_start = float(expected_start_raw or 0)
+
+def ipc(prop):
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.settimeout(2)
+        client.connect(sock_path)
+        client.sendall((json.dumps({"command": ["get_property", prop]}) + "\n").encode())
+        data = b""
+        while b"\n" not in data:
+            chunk = client.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+    return json.loads(data.decode()).get("data")
+
+def sample():
+    return {key: ipc(key) for key in (
+        "playback-time", "audio-pts", "avsync",
+        "vo-configured", "estimated-vf-fps", "current-ao",
+        "vid", "aid", "mute", "pause",
+    )}
+
+def number(value):
+    return isinstance(value, (int, float)) and math.isfinite(value)
+
+deadline = time.time() + 8
+first = None
+while time.time() < deadline:
+    try:
+        candidate = sample()
+    except (OSError, ValueError):
+        time.sleep(0.1)
+        continue
+    if (
+        candidate["vo-configured"] is True
+        and number(candidate["estimated-vf-fps"]) and candidate["estimated-vf-fps"] > 0
+        and isinstance(candidate["vid"], int) and candidate["vid"] > 0
+        and isinstance(candidate["aid"], int) and candidate["aid"] > 0
+        and candidate["current-ao"] not in (None, False, "null")
+        and candidate["mute"] is False and candidate["pause"] is False
+        and all(number(candidate[key]) for key in ("playback-time", "audio-pts", "avsync"))
+        and abs(candidate["avsync"]) <= 0.5
+    ):
+        first = candidate
+        break
+    time.sleep(0.1)
+assert first is not None, f"youtube-matrix FAIL route={route} no conjunctive A/V readiness"
+if expected_start > 0:
+    assert first["playback-time"] >= expected_start - 1, (
+        f"youtube-matrix FAIL route={route} resume={first['playback-time']}"
+    )
+time.sleep(0.5)
+second = sample()
+assert second["playback-time"] - first["playback-time"] >= 0.2, (first, second)
+assert second["audio-pts"] - first["audio-pts"] >= 0.1, (first, second)
+assert abs(second["avsync"]) <= 0.5, second
+print(
+    f"youtube-matrix: route={route} av_ready=true "
+    f"playback={second['playback-time']:.2f} fps={second['estimated-vf-fps']} "
+    f"ao={second['current-ao']} avsync={second['avsync']:.4f}"
+)
+PY
+}
+
 # Sets PLAY_OUTCOME to playing, classified, or fail. Returns 0 unless fail.
 play_one() {
   local route="$1"
   local video_id="$2"
+  local start_sec="${3:-}"
   local request_id="yt-matrix-${route}-$(date +%s%N)"
-  local accepted out rc
+  local accepted out rc body
   accepted="$(mktemp)"
   out="$(mktemp)"
-  post_json /play-session "{\"request_id\":\"$request_id\",\"source\":\"youtube\",\"type\":\"youtube_video\",\"id\":\"$video_id\"}" 20 >"$accepted"
+  body="{\"request_id\":\"$request_id\",\"source\":\"youtube\",\"type\":\"youtube_video\",\"id\":\"$video_id\""
+  if [[ "$start_sec" =~ ^[0-9]+$ ]] && (( start_sec > 0 )); then
+    body+=",\"start_sec\":$start_sec"
+  fi
+  body+="}"
+  post_json /play-session "$body" 20 >"$accepted"
   python3 - "$accepted" "$route" <<'PY'
 import json, sys
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -130,6 +211,9 @@ raise SystemExit(f"youtube-matrix FAIL route={sys.argv[2]} state={state}")
 PY
   local rc=$?
   set -e
+  if [[ "$rc" -eq 0 ]]; then
+    assert_mpv_av_ready "$route" "${start_sec:-0}"
+  fi
   stop_playback "$request_id"
   rm -f "$accepted" "$out"
   case "$rc" in
@@ -282,6 +366,24 @@ if [[ -n "$corpus_id" ]]; then
   else
     echo "youtube-matrix: route=corpus:ordinary_vod PASS classified_unplayable"
   fi
+fi
+
+resume_corpus_id="$(python3 - "$CORPUS" <<'PY'
+import json, sys
+items = json.load(open(sys.argv[1], encoding="utf-8")).get("items") or []
+for item in items:
+    if item.get("id") == "long_vod":
+        print(item.get("video_id") or "")
+        break
+PY
+)"
+if [[ -n "$resume_corpus_id" ]]; then
+  play_one "corpus:resume_vod" "$resume_corpus_id" 60
+  if [[ "$PLAY_OUTCOME" != "playing" ]]; then
+    echo "youtube-matrix FAIL route=corpus:resume_vod outcome=$PLAY_OUTCOME" >&2
+    exit 1
+  fi
+  echo "youtube-matrix: route=corpus:resume_vod PASS"
 fi
 
 echo "youtube-matrix: PASS rails"

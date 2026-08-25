@@ -512,32 +512,70 @@ def ipc(cmd):
     return json.loads(buf.decode())
 
 t0 = time.time()
-started = False
+ready = None
 for _ in range(40):
     time.sleep(0.5)
     if not os.path.exists(sock_path):
         continue
     try:
-        pt = ipc(["get_property", "playback-time"]).get("data")
-        if isinstance(pt, (int, float)) and pt >= 0.3:
-            started = True
+        sample = {
+            key: ipc(["get_property", key]).get("data")
+            for key in (
+                "playback-time", "audio-pts", "avsync",
+                "vo-configured", "estimated-vf-fps", "current-ao",
+                "vid", "aid", "mute", "pause",
+            )
+        }
+        numeric = all(
+            isinstance(sample[key], (int, float))
+            for key in ("playback-time", "audio-pts", "avsync", "estimated-vf-fps")
+        )
+        if (
+            numeric
+            and sample["vo-configured"] is True
+            and sample["estimated-vf-fps"] > 0
+            and isinstance(sample["vid"], int) and sample["vid"] > 0
+            and isinstance(sample["aid"], int) and sample["aid"] > 0
+            and sample["current-ao"] not in (None, False, "null")
+            and sample["mute"] is False and sample["pause"] is False
+            and abs(sample["avsync"]) <= 0.5
+        ):
+            ready = sample
             break
     except Exception:
         continue
-assert started, "YouTube play did not start on mpv socket"
+assert ready is not None, "YouTube play lacks conjunctive decoded A/V readiness"
+time.sleep(0.5)
+advanced = {
+    key: ipc(["get_property", key]).get("data")
+    for key in ("playback-time", "audio-pts", "avsync")
+}
+assert advanced["playback-time"] - ready["playback-time"] >= 0.2, (ready, advanced)
+assert advanced["audio-pts"] - ready["audio-pts"] >= 0.1, (ready, advanced)
+assert abs(advanced["avsync"]) <= 0.5, advanced
+initial_pt = ready["playback-time"]
 last = None
 deadline = t0 + 150
 while time.time() < deadline:
     time.sleep(10)
     pt = ipc(["get_property", "playback-time"]).get("data")
     aid = ipc(["get_property", "aid"]).get("data")
-    last = (pt, aid)
+    vo = ipc(["get_property", "vo-configured"]).get("data")
+    fps = ipc(["get_property", "estimated-vf-fps"]).get("data")
+    ao = ipc(["get_property", "current-ao"]).get("data")
+    avsync = ipc(["get_property", "avsync"]).get("data")
+    last = (pt, aid, vo, fps, ao, avsync)
     assert isinstance(pt, (int, float)) and pt >= 0, last
 assert last is not None, "YouTube play produced no samples"
-pt, aid = last
-assert pt >= 120, f"YouTube play died before 120s (playback-time={pt})"
+pt, aid, vo, fps, ao, avsync = last
+assert pt - initial_pt >= 120, (
+    f"YouTube play did not advance 120s (start={initial_pt}, playback-time={pt})"
+)
 assert aid not in (None, False, "no"), f"YouTube play has no audio (aid={aid})"
-print(f"youtube sustained play ok playback_time={pt:.1f}s aid={aid}")
+assert vo is True and isinstance(fps, (int, float)) and fps > 0, last
+assert ao not in (None, False, "null"), last
+assert isinstance(avsync, (int, float)) and abs(avsync) <= 0.5, last
+print(f"youtube sustained play ok playback_time={pt:.1f}s aid={aid} fps={fps} ao={ao}")
 PY
 fi
 

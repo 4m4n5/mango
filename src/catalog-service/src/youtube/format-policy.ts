@@ -11,11 +11,21 @@ function cappedYoutubeHeight(height: string): string {
 
 export function youtubeAdaptiveSelector(height: string): string {
   const cap = `[height<=${cappedYoutubeHeight(height)}]`;
-  return `bv*${cap}[protocol^=m3u8]+ba[protocol^=m3u8]/bv*${cap}+ba/b${cap}[protocol^=m3u8]`;
+  return `bv*${cap}[protocol=https]+ba[protocol=https]/bv*${cap}[protocol^=m3u8]+ba[protocol^=m3u8]/b${cap}[protocol^=m3u8]`;
 }
 
-/** HLS first when YouTube still offers it, then https DASH, then muxed HLS. */
+export function youtubeLiveSelector(height: string): string {
+  const cap = `[height<=${cappedYoutubeHeight(height)}]`;
+  return `bv*${cap}[protocol^=m3u8]+ba[protocol^=m3u8]/b${cap}[protocol^=m3u8]`;
+}
+
+/**
+ * Seekable HTTPS DASH first for VOD, then split/muxed HLS compatibility.
+ * Starting fresh on HLS is not enough: later VOD seeks must deliver video.
+ */
 export const YOUTUBE_ADAPTIVE_FORMAT = youtubeAdaptiveSelector(String(YOUTUBE_MAX_HEIGHT));
+/** Live playback stays on HLS; DASH-first is a seekable VOD policy only. */
+export const YOUTUBE_LIVE_FORMAT = youtubeLiveSelector(String(YOUTUBE_MAX_HEIGHT));
 /** Compatibility aliases retained for callers; both obey the hard 1080p ceiling. */
 export const YOUTUBE_MID_ADAPTIVE_FORMAT = YOUTUBE_ADAPTIVE_FORMAT;
 export const YOUTUBE_COMPAT_ADAPTIVE_FORMAT = YOUTUBE_ADAPTIVE_FORMAT;
@@ -52,8 +62,8 @@ export function isMuxedOnlyYoutubeFormat(format: string): boolean {
 
 /**
  * Drop slash-ored muxed progressive fallbacks. `bestvideo+bestaudio/best`
- * succeeds at 360p as soon as DASH is missing. HLS muxed (`b[protocol^=m3u8]`)
- * is kept when YouTube still offers it.
+ * succeeds at 360p as soon as DASH is missing. Muxed HLS remains the final
+ * live/compatibility fallback.
  */
 export function preferAdaptiveYoutubeFormat(format: string): string {
   return format
@@ -68,8 +78,12 @@ function heightCap(format: string): string | null {
   return match?.[1] ?? null;
 }
 
-export function effectiveYoutubeFormat(configured: string): string {
+export function effectiveYoutubeFormat(configured: string, live = false): string {
   const trimmed = configured.trim();
+  const cap = heightCap(trimmed) || String(YOUTUBE_MAX_HEIGHT);
+  if (live) {
+    return youtubeLiveSelector(cap);
+  }
   if (!trimmed || LEGACY_YOUTUBE_FORMATS.has(trimmed)) {
     return YOUTUBE_ADAPTIVE_FORMAT;
   }
@@ -80,17 +94,21 @@ export function effectiveYoutubeFormat(configured: string): string {
   // Rebuild the selector from the operator's requested height so no custom or
   // stale config can bypass the product-wide 1080p ceiling. Lower caps remain
   // valid; progressive muxed formats remain excluded.
-  return youtubeAdaptiveSelector(heightCap(adaptive) || String(YOUTUBE_MAX_HEIGHT));
+  return youtubeAdaptiveSelector(cap);
 }
 
 /**
- * One selector: HLS split, then https DASH split, then muxed HLS.
- * The maintained upstream clients decide which of those transports exist.
- * Bare muxed progressive (`best` / itag 18) is never a candidate.
+ * VOD uses seekable HTTPS DASH first; live uses HLS only. The caller must
+ * classify live status before choosing. Bare muxed progressive (`best` /
+ * itag 18) is never a candidate.
  */
-export function ytDlpFormatCandidates(configured: string, excludedFormats: string[] = []): string[] {
+export function ytDlpFormatCandidates(
+  configured: string,
+  excludedFormats: string[] = [],
+  options: { live?: boolean } = {},
+): string[] {
   const excluded = new Set(excludedFormats.map((format) => format.trim()).filter(Boolean));
-  const preferred = effectiveYoutubeFormat(configured);
+  const preferred = effectiveYoutubeFormat(configured, options.live === true);
   return [preferred]
     .map((format) => format.trim())
     .filter(Boolean)

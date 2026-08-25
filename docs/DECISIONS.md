@@ -74,6 +74,7 @@ explicit product approval.
 |-------|---------------|
 | Acknowledgement | Idempotent asynchronous play session; persisted acceptance precedes foreground handoff |
 | Foreground commit | Hide launcher/match display/enable media only after real advancing playback is proven |
+| YouTube handoff | Non-live VOD uses seekable DASH first; final AO opens muted under null VO; advancing decoded A/V is proved before hide, exact seek is proved while still display-neutral, GPU/A-V is reproved after match, then unmute/unpause must advance before Play is ready |
 | Single flight | Exact title/episode identity, one shared deadline, coalesced provider work, cache write only when logical flight settles |
 | Clean-empty recovery | Release default: automatic Movie/Episode Play gets initial resolve plus two 1.2 s confirmations for clean HTTP-200 empty or proven-transient error-only aggregate results; source accepts 0–3 attempts and 0–10 s only as explicit rollback/experiment overrides, so runtime values must be recorded |
 | Resolve-confirmation exclusions | No clean-empty confirmation for Detail, Live, picker refresh, HTTP/429, permanent/auth/config error, cancellation, invalidation, deadline exhaustion, or sibling episode |
@@ -149,7 +150,7 @@ explicit product approval.
 | Topic | Locked choice |
 |-------|---------------|
 | Source | First-class native tab; official Data API for metadata/search/subscriptions and `yt-dlp` → mpv for playback |
-| Playback quality | Hard 1080p ceiling in resolver policy; one HLS-first then https-DASH adaptive selector, lower operator caps allowed, no progressive or sequential height ladder |
+| Playback quality | Hard 1080p ceiling in resolver policy; seekable HTTPS-DASH-first VOD selector, live results re-resolved with an HLS-only selector before playback, lower operator caps allowed, no progressive or sequential height ladder |
 | Resolver clients | Follow yt-dlp's maintained defaults; never commit a point-in-time YouTube `player_client` list. Operator extractor overrides are emergency-only and visible in runtime diagnostics |
 | Resolver lifecycle | Recommended nightly channel in atomic active/previous slots; only metadata-certified slots execute (never legacy/system fallback); promote only after every available sampled current-rail title plus stable VOD/music/channel-live controls pass real transport reads; stable controls cover first install or intentionally empty rails; upstream-fragile classes remain advisories; a failed active resolver requests idle-safe background repair and may fall back once to the previous canaried slot inside the original deadline |
 | PO tokens | Explicit `bgutil` HTTP provider supervised by systemd, bound to loopback only, and required by the Pi ship gate when enabled |

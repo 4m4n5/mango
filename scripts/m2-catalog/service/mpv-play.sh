@@ -13,6 +13,7 @@ PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playbac
 PLAYBACK_DISPLAY_MATCHED_FILE="${MANGO_PLAYBACK_DISPLAY_MATCHED_FILE:-${HOME}/.cache/mango/playback-display-matched}"
 MPV_PID_FILE="${MANGO_MPV_PID_FILE:-${HOME}/.cache/mango/mpv.pid}"
 PLAYBACK_OWNERSHIP_LOCK="${MANGO_PLAYBACK_OWNERSHIP_LOCK:-${HOME}/.cache/mango/playback-owner.lock.d}"
+PLAYBACK_TERMINAL_FILE="${MANGO_PLAYBACK_TERMINAL_FILE:-${HOME}/.cache/mango/playback-terminal.jsonl}"
 REQUEST_CLASS="${MANGO_PLAY_REQUEST_CLASS:-background}"
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
@@ -244,6 +245,13 @@ mpv_property() {
   mpv_ipc_data "$reply" 0
 }
 
+mpv_property_optional() {
+  local property="$1"
+  local reply
+  reply="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property "$property" 2>/dev/null || true)"
+  mpv_ipc_data "$reply" ""
+}
+
 technical_profile_b64() {
   local width height fps codec profile hwdec transfer duration bitrate
   width="$(mpv_property width)"
@@ -296,16 +304,75 @@ print(encoded)
 PY
 }
 
+YOUTUBE_EVIDENCE_BASELINE_SET=false
+YOUTUBE_LAST_PLAYBACK=""
+YOUTUBE_LAST_AUDIO_PTS=""
+
+youtube_vod_pre_handoff_ready() {
+  local playback_time="$1"
+  local vo fps vid aid current_ao muted audio_pts avsync
+  vo="$(mpv_property_optional vo-configured)"
+  fps="$(mpv_property_optional estimated-vf-fps)"
+  vid="$(mpv_property_optional vid)"
+  aid="$(mpv_property_optional aid)"
+  current_ao="$(mpv_property_optional current-ao)"
+  muted="$(mpv_property_optional mute)"
+  audio_pts="$(mpv_property_optional audio-pts)"
+  avsync="$(mpv_property_optional avsync)"
+  if ! python3 - "$playback_time" "$audio_pts" "$avsync" \
+    "$fps" "$vid" "$aid" "$vo" "$current_ao" "$muted" <<'PY'
+import math
+import sys
+
+playback, audio_pts, avsync, fps, vid, aid, vo, ao, muted = sys.argv[1:]
+try:
+    values = [float(playback), float(audio_pts), float(avsync), float(fps)]
+    video_id = int(float(vid))
+    audio_id = int(float(aid))
+except (TypeError, ValueError):
+    raise SystemExit(1)
+if not all(math.isfinite(value) for value in values):
+    raise SystemExit(1)
+if values[3] <= 0 or video_id <= 0 or audio_id <= 0:
+    raise SystemExit(1)
+if vo not in {"true", "yes", "1"} or muted not in {"true", "yes", "1"}:
+    raise SystemExit(1)
+if not ao or ao in {"0", "false", "null"} or abs(values[2]) > 0.5:
+    raise SystemExit(1)
+PY
+  then
+    return 1
+  fi
+  if ! $YOUTUBE_EVIDENCE_BASELINE_SET; then
+    YOUTUBE_LAST_PLAYBACK="$playback_time"
+    YOUTUBE_LAST_AUDIO_PTS="$audio_pts"
+    YOUTUBE_EVIDENCE_BASELINE_SET=true
+    return 1
+  fi
+  if python3 - "$playback_time" "$audio_pts" \
+    "$YOUTUBE_LAST_PLAYBACK" "$YOUTUBE_LAST_AUDIO_PTS" <<'PY'
+import sys
+
+playback, audio_pts, last_playback, last_audio = map(float, sys.argv[1:])
+raise SystemExit(0 if (
+    playback - last_playback >= 0.10
+    and audio_pts - last_audio >= 0.10
+) else 1)
+PY
+  then
+    YOUTUBE_LAST_PLAYBACK="$playback_time"
+    YOUTUBE_LAST_AUDIO_PTS="$audio_pts"
+    return 0
+  fi
+  return 1
+}
+
 playback_is_real() {
   local playback_time="$1"
   local duration
   local min_duration="$MIN_DURATION_SEC"
   if is_youtube_stream && ! $LIVE && ! $PROBE; then
-    python3 - "$playback_time" <<'PY'
-import sys
-playback = float(sys.argv[1] or 0)
-raise SystemExit(0 if playback >= 0.3 else 1)
-PY
+    youtube_vod_pre_handoff_ready "$playback_time"
     return $?
   fi
   if $LIVE; then
@@ -345,6 +412,81 @@ mpv_fail_known_error() {
     return 0
   fi
   return 1
+}
+
+persist_playback_terminal_evidence() {
+  local reason="${1:-unknown}"
+  $PROBE && return 0
+  [[ "$REQUEST_CLASS" == "user" ]] || return 0
+  local youtube=false
+  is_youtube_stream && youtube=true
+  local playback audio_pts avsync vo fps current_ao aid vid muted paused cache
+  playback="$(mpv_property_optional playback-time)"
+  audio_pts="$(mpv_property_optional audio-pts)"
+  avsync="$(mpv_property_optional avsync)"
+  vo="$(mpv_property_optional vo-configured)"
+  fps="$(mpv_property_optional estimated-vf-fps)"
+  current_ao="$(mpv_property_optional current-ao)"
+  aid="$(mpv_property_optional aid)"
+  vid="$(mpv_property_optional vid)"
+  muted="$(mpv_property_optional mute)"
+  paused="$(mpv_property_optional pause)"
+  cache="$(mpv_property_optional demuxer-cache-duration)"
+  python3 - "$PLAYBACK_TERMINAL_FILE" "$reason" "$youtube" "$LIVE" \
+    "${START_SEC:-0}" "$(( $(now_ms) - START_MS ))" "$playback" \
+    "$audio_pts" "$avsync" "$vo" "$fps" "$current_ao" "$aid" "$vid" \
+    "$muted" "$paused" "$cache" <<'PY' || true
+import json
+import math
+import os
+import pathlib
+import sys
+import time
+
+path = pathlib.Path(sys.argv[1])
+reason, youtube, live = sys.argv[2:5]
+start_sec, elapsed_ms = sys.argv[5:7]
+names = (
+    "playback_time", "audio_pts", "avsync", "vo_configured",
+    "estimated_vf_fps", "current_ao", "aid", "vid", "muted", "paused",
+    "demuxer_cache_duration",
+)
+raw = dict(zip(names, sys.argv[7:]))
+
+def number(value):
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+record = {
+    "ts": int(time.time() * 1000),
+    "outcome": "failed_before_frame",
+    "reason": reason[:64],
+    "youtube": youtube == "true",
+    "live": live == "true",
+    "start_sec": number(start_sec),
+    "elapsed_ms": number(elapsed_ms),
+    "properties": {
+        key: (number(value) if key in {
+            "playback_time", "audio_pts", "avsync",
+            "estimated_vf_fps", "aid", "vid", "demuxer_cache_duration",
+        } else value or None)
+        for key, value in raw.items()
+    },
+}
+path.parent.mkdir(parents=True, exist_ok=True)
+try:
+    lines = path.read_text(encoding="utf-8").splitlines()[-63:]
+except OSError:
+    lines = []
+lines.append(json.dumps(record, separators=(",", ":"), sort_keys=True))
+temporary = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+temporary.write_text("\n".join(lines) + "\n", encoding="utf-8")
+os.chmod(temporary, 0o600)
+os.replace(temporary, path)
+PY
 }
 
 play_cancelled() {
@@ -833,8 +975,19 @@ append_mpv_buffer_args() {
     --hwdec="$HWDEC"
     --input-ipc-server="$SOCKET"
     --vo=null
-    --ao=null
   )
+  if is_youtube_stream; then
+    # Keep the final HDMI AO open from startup, but muted. Split YouTube must
+    # prove decoded A/V together before Chromium is hidden; changing AO during
+    # the display handoff can deselect the external audio track.
+    BUFFER_AO_MUTED=true
+    mpv_args+=(--mute=yes)
+    if (( ${#audio_args[@]} > 0 )); then
+      mpv_args+=("${audio_args[@]}")
+    fi
+  else
+    mpv_args+=(--ao=null)
+  fi
   append_mpv_gpu_startup_args
   append_mpv_vod_startup_policy_args
   if [[ -n "$AUDIO_URL" ]]; then
@@ -872,9 +1025,13 @@ enable_mpv_display_once() {
 }
 
 restore_mpv_ao() {
-  # Deferred VOD starts with ao=null so Chromium can release HDMI ALSA. Opening
-  # the device immediately often returns errno 524 and mpv then deselects aid.
+  # YouTube opens the final AO muted during null-VO proof. Other deferred VOD
+  # starts with ao=null and restores its configured output after HDMI match.
   local ao="${MANGO_MPV_AO:-auto}" device="" pending_device=false attempt current
+  current="$(mpv_property_optional current-ao)"
+  if [[ -n "$current" && "$current" != "null" && "$current" != "false" && "$current" != "0" ]]; then
+    return 0
+  fi
   if (( ${#audio_args[@]} > 0 )); then
     for arg in "${audio_args[@]}"; do
       if $pending_device; then
@@ -946,15 +1103,13 @@ wait_mpv_vo_ready() {
   started="$(now_ms)"
   while (( $(now_ms) - started < timeout_ms )); do
     if [[ -S "$SOCKET" ]]; then
-      local reply ready
+      local reply vo_ready fps_ready
       reply="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property vo-configured 2>/dev/null || true)"
-      ready="$(mpv_ipc_data "$reply" 0)"
-      if [[ "$ready" == "true" || "$ready" == "1" || "$ready" == "yes" ]]; then
-        return 0
-      fi
+      vo_ready="$(mpv_ipc_data "$reply" 0)"
       reply="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property estimated-vf-fps 2>/dev/null || true)"
-      ready="$(mpv_ipc_data "$reply" 0)"
-      if awk -v n="${ready:-0}" 'BEGIN { exit !(n+0 > 0) }'; then
+      fps_ready="$(mpv_ipc_data "$reply" 0)"
+      if [[ "$vo_ready" == "true" || "$vo_ready" == "1" || "$vo_ready" == "yes" ]] \
+        && awk -v n="${fps_ready:-0}" 'BEGIN { exit !(n+0 > 0) }'; then
         return 0
       fi
     fi
@@ -1004,33 +1159,165 @@ rewind_null_buffer_to_intended_start() {
 
 wait_mpv_split_audio_ready() {
   $NULL_BUFFER || return 0
-  [[ -n "$AUDIO_URL" ]] || return 0
+  if ! is_youtube_stream && [[ -z "$AUDIO_URL" ]]; then
+    return 0
+  fi
+  local phase="${1:-post_display}"
   local target="${START_SEC:-0}"
   local timeout_ms="${MANGO_MPV_SPLIT_AUDIO_READY_TIMEOUT_MS:-5000}"
   [[ "$target" =~ ^[0-9]+$ ]] || target=0
   [[ "$timeout_ms" =~ ^[0-9]+$ ]] || timeout_ms=5000
-  local started current_ao aid audio_pts position
+  local started current_ao aid vid audio_pts position avsync vo fps muted
   started="$(now_ms)"
   while (( $(now_ms) - started < timeout_ms )); do
-    current_ao="$(mpv_property current-ao 2>/dev/null || true)"
-    aid="$(mpv_property aid 2>/dev/null || true)"
-    audio_pts="$(mpv_property audio-pts 2>/dev/null || true)"
-    position="$(mpv_property playback-time 2>/dev/null || true)"
-    if [[ -n "$current_ao" && "$current_ao" != "null" && "$current_ao" != "false" && "$current_ao" != "0" ]] \
-      && [[ "$aid" =~ ^[1-9][0-9]*$ ]] \
-      && awk -v a="${audio_pts:-x}" -v p="${position:-x}" -v t="$target" '
-        BEGIN {
-          if (a !~ /^-?[0-9]+([.][0-9]+)?$/ || p !~ /^-?[0-9]+([.][0-9]+)?$/) exit 1
-          ap=(a+0)-(p+0); if (ap<0) ap=-ap
-          at=(a+0)-(t+0); if (at<0) at=-at
-          exit !(ap<=0.25 && at<=0.75)
-        }'; then
-      echo "handoff: split_av_ready audio_pts=${audio_pts} video_clock=${position} ao=${current_ao}" >&2
+    current_ao="$(mpv_property_optional current-ao)"
+    aid="$(mpv_property_optional aid)"
+    vid="$(mpv_property_optional vid)"
+    audio_pts="$(mpv_property_optional audio-pts)"
+    position="$(mpv_property_optional playback-time)"
+    avsync="$(mpv_property_optional avsync)"
+    vo="$(mpv_property_optional vo-configured)"
+    fps="$(mpv_property_optional estimated-vf-fps)"
+    muted="$(mpv_property_optional mute)"
+    if python3 - "$current_ao" "$aid" "$vid" "$audio_pts" \
+      "$position" "$avsync" "$vo" "$fps" "$muted" "$target" "$BUFFER_AO_MUTED" <<'PY'
+import math
+import sys
+
+ao, aid, vid, audio_pts, position, avsync, vo, fps, muted, target, expect_muted = sys.argv[1:]
+try:
+    audio_id = int(float(aid))
+    video_id = int(float(vid))
+    values = [float(audio_pts), float(position), float(avsync), float(fps), float(target)]
+except (TypeError, ValueError):
+    raise SystemExit(1)
+if not all(math.isfinite(value) for value in values):
+    raise SystemExit(1)
+audio, playback, sync, estimated_fps, intended = values
+if not ao or ao in {"0", "false", "null"} or audio_id <= 0 or video_id <= 0:
+    raise SystemExit(1)
+if vo not in {"true", "yes", "1"} or estimated_fps <= 0 or abs(sync) > 0.5:
+    raise SystemExit(1)
+if expect_muted == "true" and muted not in {"true", "yes", "1"}:
+    raise SystemExit(1)
+if abs(audio - playback) > 0.25:
+    raise SystemExit(1)
+if abs(audio - intended) > 0.75 or abs(playback - intended) > 0.75:
+    raise SystemExit(1)
+PY
+    then
+      echo "handoff: ${phase}_av_ready playback=${position} audio_pts=${audio_pts} ao=${current_ao} avsync=${avsync}" >&2
       return 0
     fi
     sleep 0.05
   done
-  echo "WARN: split audio readiness timed out audio_pts=${audio_pts:-none} video_clock=${position:-none} ao=${current_ao:-none} aid=${aid:-none}" >&2
+  echo "WARN: ${phase} A/V readiness timed out audio_pts=${audio_pts:-none} playback=${position:-none} ao=${current_ao:-none} aid=${aid:-none} vid=${vid:-none} vo=${vo:-none} fps=${fps:-none} avsync=${avsync:-none}" >&2
+  return 1
+}
+
+prove_youtube_seek_advancing() {
+  is_youtube_stream || return 0
+  $BUFFER_AO_MUTED || return 1
+  local base_playback base_audio timeout_ms
+  base_playback="$(mpv_property_optional playback-time)"
+  base_audio="$(mpv_property_optional audio-pts)"
+  timeout_ms="${MANGO_MPV_SEEK_PROOF_TIMEOUT_MS:-3000}"
+  [[ "$timeout_ms" =~ ^[0-9]+$ ]] || timeout_ms=3000
+  bash "$SCRIPT_DIR/mpv-ipc.sh" set_property pause no >/dev/null 2>&1 || return 1
+  local started playback audio_pts avsync vo fps current_ao aid vid muted
+  started="$(now_ms)"
+  while (( $(now_ms) - started < timeout_ms )); do
+    playback="$(mpv_property_optional playback-time)"
+    audio_pts="$(mpv_property_optional audio-pts)"
+    avsync="$(mpv_property_optional avsync)"
+    vo="$(mpv_property_optional vo-configured)"
+    fps="$(mpv_property_optional estimated-vf-fps)"
+    current_ao="$(mpv_property_optional current-ao)"
+    aid="$(mpv_property_optional aid)"
+    vid="$(mpv_property_optional vid)"
+    muted="$(mpv_property_optional mute)"
+    if python3 - "$playback" "$audio_pts" "$avsync" "$vo" "$fps" \
+      "$current_ao" "$aid" "$vid" "$muted" "$base_playback" "$base_audio" <<'PY'
+import math
+import sys
+
+playback, audio, sync, vo, fps, ao, aid, vid, muted, base_p, base_a = sys.argv[1:]
+try:
+    values = list(map(float, (playback, audio, sync, fps, base_p, base_a)))
+    audio_id = int(float(aid))
+    video_id = int(float(vid))
+except (TypeError, ValueError):
+    raise SystemExit(1)
+if not all(math.isfinite(value) for value in values):
+    raise SystemExit(1)
+p, a, avsync, estimated_fps, p0, a0 = values
+if vo not in {"true", "yes", "1"} or estimated_fps <= 0:
+    raise SystemExit(1)
+if not ao or ao in {"0", "false", "null"} or audio_id <= 0 or video_id <= 0:
+    raise SystemExit(1)
+if muted not in {"true", "yes", "1"} or abs(avsync) > 0.5:
+    raise SystemExit(1)
+raise SystemExit(0 if p - p0 >= 0.20 and a - a0 >= 0.15 else 1)
+PY
+    then
+      if ! hold_null_buffer_at_handoff; then
+        return 1
+      fi
+      echo "handoff: post_seek_av_advancing playback=${playback} audio_pts=${audio_pts} avsync=${avsync}" >&2
+      return 0
+    fi
+    sleep 0.05
+  done
+  bash "$SCRIPT_DIR/mpv-ipc.sh" set_property pause yes >/dev/null 2>&1 || true
+  echo "WARN: post-seek advancing A/V proof timed out" >&2
+  return 1
+}
+
+wait_mpv_release_advancing() {
+  local base_playback="$1" base_audio="$2"
+  local timeout_ms="${MANGO_MPV_RELEASE_READY_TIMEOUT_MS:-2500}"
+  [[ "$timeout_ms" =~ ^[0-9]+$ ]] || timeout_ms=2500
+  local started playback audio_pts avsync vo fps current_ao aid vid muted
+  started="$(now_ms)"
+  while (( $(now_ms) - started < timeout_ms )); do
+    playback="$(mpv_property_optional playback-time)"
+    audio_pts="$(mpv_property_optional audio-pts)"
+    avsync="$(mpv_property_optional avsync)"
+    vo="$(mpv_property_optional vo-configured)"
+    fps="$(mpv_property_optional estimated-vf-fps)"
+    current_ao="$(mpv_property_optional current-ao)"
+    aid="$(mpv_property_optional aid)"
+    vid="$(mpv_property_optional vid)"
+    muted="$(mpv_property_optional mute)"
+    if python3 - "$playback" "$audio_pts" "$avsync" "$vo" "$fps" \
+      "$current_ao" "$aid" "$vid" "$muted" "$base_playback" "$base_audio" <<'PY'
+import math
+import sys
+
+playback, audio, sync, vo, fps, ao, aid, vid, muted, base_p, base_a = sys.argv[1:]
+try:
+    values = list(map(float, (playback, audio, sync, fps, base_p, base_a)))
+    audio_id = int(float(aid))
+    video_id = int(float(vid))
+except (TypeError, ValueError):
+    raise SystemExit(1)
+if not all(math.isfinite(value) for value in values):
+    raise SystemExit(1)
+p, a, avsync, estimated_fps, p0, a0 = values
+if vo not in {"true", "yes", "1"} or estimated_fps <= 0:
+    raise SystemExit(1)
+if not ao or ao in {"0", "false", "null"} or audio_id <= 0 or video_id <= 0:
+    raise SystemExit(1)
+if muted in {"true", "yes", "1"} or abs(avsync) > 0.5:
+    raise SystemExit(1)
+raise SystemExit(0 if p - p0 >= 0.20 and a - a0 >= 0.15 else 1)
+PY
+    then
+      echo "handoff: released_av_advancing playback=${playback} audio_pts=${audio_pts} avsync=${avsync}" >&2
+      return 0
+    fi
+    sleep 0.05
+  done
   return 1
 }
 
@@ -1039,8 +1326,17 @@ release_null_buffer_start() {
   if play_cancelled; then
     return 1
   fi
+  local base_playback base_audio
+  base_playback="$(mpv_property_optional playback-time)"
+  base_audio="$(mpv_property_optional audio-pts)"
   notify_mpv_hud_display_ready
+  if $BUFFER_AO_MUTED; then
+    bash "$SCRIPT_DIR/mpv-ipc.sh" set_property mute no >/dev/null 2>&1 || return 1
+  fi
   bash "$SCRIPT_DIR/mpv-ipc.sh" set_property pause no >/dev/null 2>&1 || return 1
+  if $BUFFER_AO_MUTED; then
+    wait_mpv_release_advancing "$base_playback" "$base_audio" || return 1
+  fi
   return 0
 }
 
@@ -1124,12 +1420,26 @@ PY
 
 foreground_handoff() {
   $HANDOFF_DONE && return 0
-  # The null VO/AO buffer proves the transport while Chromium remains visible.
-  # Freeze it before taking the display so mode matching and real AO startup do
-  # not consume the opening seconds behind a black screen.
+  # The null VO buffer proves the transport while Chromium remains visible.
+  # YouTube already owns the final AO muted, so seek and prove the exact target
+  # before taking the display. This keeps a failed range fetch display-neutral.
   if ! hold_null_buffer_at_handoff; then
     echo "FAIL: mpv could not hold buffered playback for handoff" >&2
     return 1
+  fi
+  if $NULL_BUFFER && is_youtube_stream; then
+    if ! rewind_null_buffer_to_intended_start; then
+      echo "FAIL: mpv could not restore the intended start position" >&2
+      return 1
+    fi
+    if ! prove_youtube_seek_advancing; then
+      echo "FAIL: mpv did not advance synchronized A/V after the intended seek" >&2
+      return 1
+    fi
+    if ! wait_mpv_split_audio_ready pre_hide_post_seek; then
+      echo "FAIL: mpv did not prove synchronized A/V at the intended start" >&2
+      return 1
+    fi
   fi
   mark_playback_active
   # Black-screen-first BEFORE HDMI match: never switch to 4K while the
@@ -1193,16 +1503,22 @@ foreground_handoff() {
       echo "FAIL: mpv display enable failed" >&2
       return 1
     fi
-    # VO/AO replacement seeks to the old, already-advanced null-output
-    # position. Rewind both tracks together while still paused so the first
-    # visible/audible frame is the requested start (zero or durable resume).
-    if ! rewind_null_buffer_to_intended_start; then
-      echo "FAIL: mpv could not restore the intended start position" >&2
-      return 1
-    fi
-    if ! wait_mpv_split_audio_ready; then
-      echo "FAIL: mpv split audio was not synchronized at the intended start" >&2
-      return 1
+    if is_youtube_stream; then
+      if ! wait_mpv_split_audio_ready post_display; then
+        echo "FAIL: mpv lost synchronized A/V after display enable" >&2
+        return 1
+      fi
+    else
+      # Other VOD still restores AO after the panel match, then rewinds while
+      # paused before release.
+      if ! rewind_null_buffer_to_intended_start; then
+        echo "FAIL: mpv could not restore the intended start position" >&2
+        return 1
+      fi
+      if ! wait_mpv_split_audio_ready post_display; then
+        echo "FAIL: mpv split audio was not synchronized at the intended start" >&2
+        return 1
+      fi
     fi
   fi
   raise_mpv_window
@@ -1338,6 +1654,7 @@ echo "mpv-play: $URL_LABEL mode=$MODE backend=mpv live=$LIVE timeout_ms=$TIMEOUT
 HANDOFF_DONE=false
 DISPLAY_ENABLED=false
 NULL_BUFFER=false
+BUFFER_AO_MUTED=false
 GPU_DEFER=false
 HUD_DISPLAY_NOTIFIED=false
 
@@ -1416,6 +1733,7 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
           # the first visible frame on the 4K panel (no browse-res flash).
           if ! foreground_handoff; then
             echo "FAIL: mpv handoff failed" >&2
+            persist_playback_terminal_evidence handoff_failed
             MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
             exit 1
           fi
@@ -1461,6 +1779,7 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
   fi
   if ! kill -0 "$MPV_PID" 2>/dev/null; then
     if mpv_fail_known_error; then
+      persist_playback_terminal_evidence player_transport_failed
       MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
       exit 1
     fi
@@ -1470,10 +1789,12 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
 done
 
 if mpv_fail_known_error; then
+  persist_playback_terminal_evidence player_transport_failed
   MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
   exit 1
 fi
 
 echo "FAIL: mpv did not start playback within ${TIMEOUT_MS}ms" >&2
+persist_playback_terminal_evidence start_timeout
 MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
 exit 1

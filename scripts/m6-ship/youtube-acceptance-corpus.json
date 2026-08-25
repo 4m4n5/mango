@@ -3,7 +3,7 @@
   "privacy": "ids URLs titles queries cookies tokens and signed transports must never be written to evidence",
   "items": [
     { "id": "ordinary_vod", "video_id": "jNQXAC9IVRw", "kind": "vod", "required": true },
-    { "id": "long_vod", "video_id": "dQw4w9WgXcQ", "kind": "vod" },
+    { "id": "long_vod", "video_id": "dQw4w9WgXcQ", "kind": "vod", "required": true },
     { "id": "music", "video_id": "kJQP7kiw5Fk", "kind": "vod", "required": true },
     { "id": "made_for_kids", "video_id": "XqZsoesa55w", "kind": "kids", "required": false },
     { "id": "hls_live", "url": "https://www.youtube.com/@NASA/live", "kind": "live", "required": true }

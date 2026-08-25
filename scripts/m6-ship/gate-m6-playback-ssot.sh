@@ -182,23 +182,30 @@ else
 fi
 unset _ff_match_line _ff_enable_line
 
-# The hidden null-output proof may advance, but the viewer must not join it in
-# progress. Pause before display takeover, then seek both tracks back to the
-# requested start after real VO/AO are ready and release only after the window
-# is raised.
+# The hidden null-VO proof may advance, but the viewer must not join it in
+# progress. YouTube pauses, seeks, and proves synchronized decoded A/V while the
+# launcher is still visible; then it hides, enables GPU VO, reproves, raises,
+# unmutes, releases, and proves advancement.
 _hold_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /hold_null_buffer_at_handoff/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
-_hide_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /mango-window\.sh.*hide/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
 _rewind_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /rewind_null_buffer_to_intended_start/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
-_audio_ready_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /wait_mpv_split_audio_ready/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
+_seek_proof_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /prove_youtube_seek_advancing/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
+_pre_ready_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /wait_mpv_split_audio_ready pre_hide_post_seek/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
+_hide_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /mango-window\.sh.*hide/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
+_enable_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /enable_mpv_display/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
+_post_ready_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /wait_mpv_split_audio_ready post_display/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
 _raise_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /raise_mpv_window/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
 _release_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /release_null_buffer_start/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
-if [[ -n "$_hold_line" && -n "$_hide_line" && -n "$_rewind_line" && -n "$_audio_ready_line" && -n "$_raise_line" && -n "$_release_line" ]] \
-  && (( _hold_line < _hide_line && _rewind_line < _audio_ready_line && _audio_ready_line < _raise_line && _raise_line < _release_line )); then
-  gate_pass "buffer handoff pauses, rewinds, proves split audio sync, raises, then releases"
+if [[ -n "$_hold_line" && -n "$_rewind_line" && -n "$_seek_proof_line" && -n "$_pre_ready_line" && -n "$_hide_line" ]] \
+  && [[ -n "$_enable_line" && -n "$_post_ready_line" && -n "$_raise_line" && -n "$_release_line" ]] \
+  && (( _hold_line < _rewind_line && _rewind_line < _seek_proof_line \
+    && _seek_proof_line < _pre_ready_line && _pre_ready_line < _hide_line \
+    && _hide_line < _enable_line && _enable_line < _post_ready_line \
+    && _post_ready_line < _raise_line && _raise_line < _release_line )); then
+  gate_pass "YouTube handoff proves seek before hide and A/V again before release"
 else
-  gate_fail "buffer handoff first-frame ordering invalid (hold=${_hold_line:-?} hide=${_hide_line:-?} rewind=${_rewind_line:-?} audio=${_audio_ready_line:-?} raise=${_raise_line:-?} release=${_release_line:-?})"
+  gate_fail "YouTube handoff ordering invalid (hold=${_hold_line:-?} rewind=${_rewind_line:-?} seek_proof=${_seek_proof_line:-?} pre=${_pre_ready_line:-?} hide=${_hide_line:-?} enable=${_enable_line:-?} post=${_post_ready_line:-?} raise=${_raise_line:-?} release=${_release_line:-?})"
 fi
-unset _hold_line _hide_line _rewind_line _audio_ready_line _raise_line _release_line
+unset _hold_line _rewind_line _seek_proof_line _pre_ready_line _hide_line _enable_line _post_ready_line _raise_line _release_line
 
 if grep -q 'MANGO_MPV_START_REWIND_TIMEOUT_MS:-8000' scripts/m2-catalog/service/mpv-play.sh; then
   gate_pass "exact A/V rewind tolerates slow split-stream range fetches"
@@ -208,10 +215,13 @@ fi
 
 if grep -q -- '--initial-audio-sync=yes' scripts/m2-catalog/service/mpv-play.sh \
   && grep -q 'MANGO_MPV_SPLIT_AUDIO_READY_TIMEOUT_MS:-5000' scripts/m2-catalog/service/mpv-play.sh \
-  && grep -q 'mpv_property audio-pts' scripts/m2-catalog/service/mpv-play.sh; then
-  gate_pass "split YouTube A/V release requires real AO and aligned audio PTS"
+  && grep -q 'mpv_property_optional audio-pts' scripts/m2-catalog/service/mpv-play.sh \
+  && grep -q 'mpv_property_optional playback-time' scripts/m2-catalog/service/mpv-play.sh \
+  && grep -q 'mpv_property_optional avsync' scripts/m2-catalog/service/mpv-play.sh \
+  && grep -q 'wait_mpv_release_advancing' scripts/m2-catalog/service/mpv-play.sh; then
+  gate_pass "split YouTube release requires decoded video, real AO, A/V sync, and advancing clocks"
 else
-  gate_fail "split YouTube audio can release after video without timestamp proof"
+  gate_fail "split YouTube can release without conjunctive decoded A/V proof"
 fi
 
 # Playback HUD must render inside mpv (libass overlay), not as a separate X11
@@ -322,6 +332,19 @@ if awk '/^enable_mpv_display_once\(\)/,/^}/' scripts/m2-catalog/service/mpv-play
   gate_pass "deferred VOD handoff restores audio output"
 else
   gate_fail "deferred vo=null VOD must switch ao from null to configured/auto output"
+fi
+
+if awk '/^append_mpv_buffer_args\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh \
+    | grep -q -- '--mute=yes' \
+  && awk '/^append_mpv_buffer_args\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh \
+    | grep -q 'audio_args' \
+  && awk '/^release_null_buffer_start\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh \
+    | grep -q 'set_property mute no' \
+  && grep -q 'youtube_vod_pre_handoff_ready' scripts/m2-catalog/service/mpv-play.sh \
+  && grep -q 'PLAYBACK_TERMINAL_FILE' scripts/m2-catalog/service/mpv-play.sh; then
+  gate_pass "YouTube starts final AO muted, proves decoded A/V, and retains bounded failure evidence"
+else
+  gate_fail "YouTube deferred start must use muted final AO plus evidence-based readiness and retention"
 fi
 
 if grep -q 'is_youtube_stream' scripts/m2-catalog/service/mpv-play.sh \

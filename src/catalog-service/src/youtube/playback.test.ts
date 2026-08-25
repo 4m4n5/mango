@@ -27,6 +27,7 @@ import {
   ytDlpFormatCandidates,
   YOUTUBE_ADAPTIVE_FORMAT,
   YOUTUBE_FORMAT_SORT,
+  YOUTUBE_LIVE_FORMAT,
   YOUTUBE_MAX_HEIGHT,
   YOUTUBE_PLAYER_CLIENT_POLICY,
   YOUTUBE_SOCKET_TIMEOUT_SEC,
@@ -87,7 +88,7 @@ test('preferAdaptiveYoutubeFormat strips muxed progressive from a DASH selector'
   assert.equal(isMuxedOnlyYoutubeFormat('b[height<=2160][protocol^=m3u8]'), false);
 });
 
-test('legacy muxed-first config upgrades to HLS-then-DASH adaptive', () => {
+test('legacy muxed-first config upgrades to DASH-first adaptive', () => {
   assert.equal(
     effectiveYoutubeFormat('bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'),
     YOUTUBE_ADAPTIVE_FORMAT,
@@ -96,7 +97,7 @@ test('legacy muxed-first config upgrades to HLS-then-DASH adaptive', () => {
   assert.equal(effectiveYoutubeFormat('bv*[height<=2160]+ba'), YOUTUBE_ADAPTIVE_FORMAT);
   assert.equal(
     effectiveYoutubeFormat('bv*[height<=720]+ba/b'),
-    'bv*[height<=720][protocol^=m3u8]+ba[protocol^=m3u8]/bv*[height<=720]+ba/b[height<=720][protocol^=m3u8]',
+    'bv*[height<=720][protocol=https]+ba[protocol=https]/bv*[height<=720][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=720][protocol^=m3u8]',
   );
 });
 
@@ -111,22 +112,35 @@ test('ytDlpFormatCandidates never admits muxed progressive', () => {
     const formats = ytDlpFormatCandidates(configured);
     assert.ok(formats.length > 0);
     assert.ok(formats.every((format) => !isMuxedOnlyYoutubeFormat(format)));
+    assert.ok(formats.every((format) => /^bv\*\[height<=\d+\]\[protocol=https\]\+ba\[protocol=https\]\//.test(format)));
     assert.ok(formats.every((format) => isHlsYoutubeFormat(format)));
     assert.ok((formats[0] || '').includes('+'));
   }
 });
 
-test('a tighter operator cap stays at that height with HLS then https DASH', () => {
+test('a tighter operator cap stays at that height with DASH then HLS', () => {
   const formats = ytDlpFormatCandidates('bv*[height<=720]+ba/b');
   assert.deepEqual(formats, [
-    'bv*[height<=720][protocol^=m3u8]+ba[protocol^=m3u8]/bv*[height<=720]+ba/b[height<=720][protocol^=m3u8]',
+    'bv*[height<=720][protocol=https]+ba[protocol=https]/bv*[height<=720][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=720][protocol^=m3u8]',
   ]);
+});
+
+test('live format candidates exclude DASH while preserving the configured cap', () => {
+  const formats = ytDlpFormatCandidates(
+    'bv*[height<=720]+ba/b',
+    [],
+    { live: true },
+  );
+  assert.deepEqual(formats, [
+    'bv*[height<=720][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=720][protocol^=m3u8]',
+  ]);
+  assert.doesNotMatch(formats[0] || '', /protocol=https/);
 });
 
 test('YouTube format policy enforces a hard 1080p ceiling', () => {
   assert.deepEqual(
     ytDlpFormatCandidates('bv*[height<=1080]+ba'),
-    ['bv*[height<=1080][protocol^=m3u8]+ba[protocol^=m3u8]/bv*[height<=1080]+ba/b[height<=1080][protocol^=m3u8]'],
+    ['bv*[height<=1080][protocol=https]+ba[protocol=https]/bv*[height<=1080][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=1080][protocol^=m3u8]'],
   );
   assert.deepEqual(
     ytDlpFormatCandidates(
@@ -139,11 +153,12 @@ test('YouTube format policy enforces a hard 1080p ceiling', () => {
   assert.doesNotMatch(YOUTUBE_ADAPTIVE_FORMAT, /height<=1(?:440|[5-9]\d{2})|height<=[2-9]\d{3}/);
 });
 
-test('ytDlpFormatCandidates is a single HLS-then-DASH selector, not a height ladder', () => {
+test('ytDlpFormatCandidates is a single DASH-then-HLS selector, not a height ladder', () => {
   const formats = ytDlpFormatCandidates('best');
   assert.deepEqual(formats, [YOUTUBE_ADAPTIVE_FORMAT]);
+  assert.match(formats[0] || '', /^bv\*\[height<=1080\]\[protocol=https\]\+ba\[protocol=https\]\//);
   assert.match(formats[0] || '', /protocol\^=m3u8/);
-  assert.match(formats[0] || '', /\/bv\*\[height<=1080\]\+ba\//);
+  assert.match(formats[0] || '', /\/bv\*\[height<=1080\]\[protocol\^=m3u8\]\+ba\[protocol\^=m3u8\]\//);
 });
 
 test('ytDlpFormatCandidates drops an already failed transport format', () => {
@@ -391,6 +406,34 @@ test('resolver falls back once to the previous canaried slot', async () => {
     rmSync(root, { recursive: true, force: true });
     if (previousSlotRoot === undefined) delete process.env.MANGO_YTDLP_SLOT_ROOT;
     else process.env.MANGO_YTDLP_SLOT_ROOT = previousSlotRoot;
+  }
+});
+
+test('resolver re-resolves a live result under the HLS-only policy', async () => {
+  const formats: string[] = [];
+  setYoutubeCommandRunnerForTest(async (_command, args) => {
+    formats.push(args[args.indexOf('-f') + 1] || '');
+    return formats.length === 1
+      ? {
+          stdout: 'MANGO_META:is_live||https|1080|30\nhttps://video.example/dash\nhttps://audio.example/dash\n',
+          stderr: '',
+        }
+      : {
+          stdout: 'MANGO_META:is_live||m3u8_native|1080|30\nhttps://video.example/live.m3u8\n',
+          stderr: '',
+        };
+  });
+  try {
+    const resolved = await resolveYoutubePlayback(
+      resolverConfig(),
+      'dQw4w9WgXcQ',
+    );
+    assert.deepEqual(formats, [YOUTUBE_ADAPTIVE_FORMAT, YOUTUBE_LIVE_FORMAT]);
+    assert.equal(resolved.format, YOUTUBE_LIVE_FORMAT);
+    assert.equal(resolved.live, true);
+    assert.equal(resolved.url, 'https://video.example/live.m3u8');
+  } finally {
+    resetYoutubePlaybackStateForTest();
   }
 });
 

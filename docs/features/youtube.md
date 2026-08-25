@@ -31,7 +31,8 @@ does not claim to reproduce YouTube Home.
 ## Playback policy
 
 - Hard 1080p cap (`YOUTUBE_MAX_HEIGHT`)
-- HLS-first, then HTTPS DASH
+- Seekable HTTPS DASH first for non-live VOD; anything resolved as live is
+  re-resolved with a split/muxed HLS-only selector before playback
 - yt-dlp-maintained player defaults; no Mango-owned client pin
 - Explicit supervised loopback PO-token provider; never a LAN listener
 - Anonymous public resolve, with cookies only after an account or bot sign-in challenge
@@ -40,7 +41,10 @@ does not claim to reproduce YouTube Home.
   a low-priority refresh and can use the previous canaried slot once, within
   the original resolve deadline
 - Legacy venv and distro binaries are never production fallbacks
-- Split A/V must prove AO + aligned audio PTS before the first audible frame
+- Split A/V opens the final AO muted and must prove configured VO, decoder FPS,
+  selected tracks, advancing video/audio clocks, and bounded A/V sync before
+  hide, after exact seek, after GPU enable, and after unmute/unpause
+- Bounded URL-free terminal evidence is retained before failure restoration
 - Cookies and OAuth clients stay in `/etc/mango`
 
 ## Operator commands

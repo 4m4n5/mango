@@ -26,8 +26,10 @@ export {
   YOUTUBE_ADAPTIVE_FORMAT,
   YOUTUBE_COMPAT_ADAPTIVE_FORMAT,
   YOUTUBE_FORMAT_SORT,
+  YOUTUBE_LIVE_FORMAT,
   YOUTUBE_MAX_HEIGHT,
   YOUTUBE_MID_ADAPTIVE_FORMAT,
+  youtubeLiveSelector,
   ytDlpFormatCandidates,
 } from './format-policy.js';
 
@@ -445,7 +447,10 @@ export async function resolveYoutubePlayback(
   config: YoutubeConfig,
   videoId: string,
   timeoutMs = 30000,
-  options: { excludeFormats?: string[] } = {},
+  options: {
+    excludeFormats?: string[];
+    liveHint?: boolean;
+  } = {},
 ): Promise<YoutubeResolvedPlayback> {
   const normalizedVideoId = videoId.trim();
   if (!normalizedVideoId) {
@@ -461,7 +466,8 @@ export async function resolveYoutubePlayback(
     });
   }
   const excludedFormats = options.excludeFormats ?? [];
-  const flightKey = `${normalizedVideoId}\0${[...excludedFormats].sort().join('\0')}`;
+  const liveHint = options.liveHint === true;
+  const flightKey = `${normalizedVideoId}\0${String(liveHint)}\0${[...excludedFormats].sort().join('\0')}`;
   const inflight = youtubePlaybackInflight.get(flightKey);
   if (inflight) {
     return inflight;
@@ -471,6 +477,7 @@ export async function resolveYoutubePlayback(
     normalizedVideoId,
     timeoutMs,
     excludedFormats,
+    liveHint,
   )
     .finally(() => {
       youtubePlaybackInflight.delete(flightKey);
@@ -619,63 +626,81 @@ async function resolveYoutubePlaybackAttempt(
   normalizedVideoId: string,
   deadlineAt: number,
   excludedFormats: string[],
+  liveHint: boolean,
   started: number,
   slot: YoutubeResolverSlot,
   auth: YoutubeResolverAuth,
 ): Promise<YoutubeResolvedPlayback> {
   let lastFormatError = '';
-  for (const format of ytDlpFormatCandidates(config.yt_dlp_format, excludedFormats)) {
-    const remainingMs = deadlineAt - Date.now();
-    if (remainingMs <= 0) {
-      throwYtDlpCatalogError('yt-dlp timed out: resolver deadline exhausted', {
-        resolve_ms: Date.now() - started,
+  let live = liveHint;
+
+  policy: for (let policyAttempt = 0; policyAttempt < 2; policyAttempt += 1) {
+    for (const format of ytDlpFormatCandidates(
+      config.yt_dlp_format,
+      excludedFormats,
+      { live },
+    )) {
+      const remainingMs = deadlineAt - Date.now();
+      if (remainingMs <= 0) {
+        throwYtDlpCatalogError('yt-dlp timed out: resolver deadline exhausted', {
+          resolve_ms: Date.now() - started,
+        });
+      }
+      const args = youtubeYtDlpResolveArgs(config, format, normalizedVideoId, {
+        includeCookies: auth === 'cookies',
       });
-    }
-    const args = youtubeYtDlpResolveArgs(config, format, normalizedVideoId, {
-      includeCookies: auth === 'cookies',
-    });
-    const result = await runYoutubeYtDlp(
-      config.yt_dlp_command,
-      args,
-      remainingMs,
-      slot,
-    ).catch((error: unknown) => {
-      if (error instanceof PlayCancelledError) throw error;
-      const detail = error instanceof Error ? error.message : String(error);
+      const result = await runYoutubeYtDlp(
+        config.yt_dlp_command,
+        args,
+        remainingMs,
+        slot,
+      ).catch((error: unknown) => {
+        if (error instanceof PlayCancelledError) throw error;
+        const detail = error instanceof Error ? error.message : String(error);
+        if (requestedFormatUnavailable(detail)) {
+          lastFormatError = detail;
+          return null;
+        }
+        throwYtDlpCatalogError(detail, { resolve_ms: Date.now() - started });
+      });
+      if (!result) {
+        continue;
+      }
+      const { stdout, stderr } = result;
+      const resolved = parseYtDlpResolvedUrls(stdout);
+      if (resolved) {
+        const meta = parseYoutubeResolveMeta(stdout);
+        if (meta.live !== live) {
+          // Cached API metadata can cross a live transition. Never play a live
+          // URL under the VOD transport policy (or vice versa): re-resolve once
+          // with the status returned by yt-dlp.
+          live = meta.live;
+          lastFormatError = '';
+          continue policy;
+        }
+        return {
+          ...resolved,
+          ...meta,
+          resolve_ms: Date.now() - started,
+          format,
+          resolver_slot: slot,
+          resolver_auth: auth,
+        };
+      }
+      if (
+        /No supported JavaScript runtime|JS Challenge Providers:.*all unavailable/i.test(stderr)
+        || /n challenge solving failed|Remote components challenge solver script/i.test(stderr)
+      ) {
+        throwMissingYoutubeJsRuntime();
+      }
+      const detail = stderr || stdout;
       if (requestedFormatUnavailable(detail)) {
         lastFormatError = detail;
-        return null;
+        continue;
       }
       throwYtDlpCatalogError(detail, { resolve_ms: Date.now() - started });
-    });
-    if (!result) {
-      continue;
     }
-    const { stdout, stderr } = result;
-    const resolved = parseYtDlpResolvedUrls(stdout);
-    if (resolved) {
-      const meta = parseYoutubeResolveMeta(stdout);
-      return {
-        ...resolved,
-        ...meta,
-        resolve_ms: Date.now() - started,
-        format,
-        resolver_slot: slot,
-        resolver_auth: auth,
-      };
-    }
-    if (
-      /No supported JavaScript runtime|JS Challenge Providers:.*all unavailable/i.test(stderr)
-      || /n challenge solving failed|Remote components challenge solver script/i.test(stderr)
-    ) {
-      throwMissingYoutubeJsRuntime();
-    }
-    const detail = stderr || stdout;
-    if (requestedFormatUnavailable(detail)) {
-      lastFormatError = detail;
-      continue;
-    }
-    throwYtDlpCatalogError(detail, { resolve_ms: Date.now() - started });
+    break;
   }
   const classified = classifyYtDlpError(lastFormatError || 'yt-dlp returned no playable URLs');
   throw new CatalogError(
@@ -694,6 +719,7 @@ async function resolveYoutubePlaybackFresh(
   normalizedVideoId: string,
   timeoutMs = 30000,
   excludedFormats: string[] = [],
+  liveHint = false,
 ): Promise<YoutubeResolvedPlayback> {
   if (!youtubeCommandRunnerForTest && !youtubeJsRuntimeAvailable()) {
     requestYoutubeRuntimeRefresh(new CatalogError(
@@ -717,6 +743,7 @@ async function resolveYoutubePlaybackFresh(
         normalizedVideoId,
         deadlineAt,
         excludedFormats,
+        liveHint,
         started,
         slot,
         'anonymous',
@@ -730,6 +757,7 @@ async function resolveYoutubePlaybackFresh(
             normalizedVideoId,
             deadlineAt,
             excludedFormats,
+            liveHint,
             started,
             slot,
             'cookies',

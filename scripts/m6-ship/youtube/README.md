@@ -11,4 +11,6 @@ playback resolver.
 | Playback matrix | `MANGO_YOUTUBE_PLAY=1 bash scripts/m6-ship/youtube-playback-matrix.sh` |
 | Eval CLI | `cd src/catalog-service && npm run youtube:eval` |
 
-Playback stays 1080p-capped HLS-first. See [docs/features/youtube.md](../../../docs/features/youtube.md).
+Playback stays 1080p-capped and uses seekable HTTPS DASH first for non-live
+VOD; live results are re-resolved with HLS-only policy before playback. See
+[docs/features/youtube.md](../../../docs/features/youtube.md).

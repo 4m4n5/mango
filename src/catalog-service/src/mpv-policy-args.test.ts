@@ -100,22 +100,40 @@ test('S4: deferred handoff restores automatic audio output when no AO override e
   assert.match(source, /\["set_property","ao","%s"\]/);
 });
 
-test('S4: split YouTube audio is ready and timestamp-aligned before release', async () => {
+test('S4: YouTube proves seek and decoded A/V before hide and release', async () => {
   const source = await readFile(script, 'utf8');
   const handoff = source.match(/foreground_handoff\(\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
   const rewind = handoff.indexOf('rewind_null_buffer_to_intended_start');
-  const audioReady = handoff.indexOf('wait_mpv_split_audio_ready', rewind);
-  const raise = handoff.indexOf('raise_mpv_window', audioReady);
+  const seekProof = handoff.indexOf('prove_youtube_seek_advancing', rewind);
+  const preHideReady = handoff.indexOf('wait_mpv_split_audio_ready pre_hide_post_seek', seekProof);
+  const hide = handoff.indexOf('mango-window.sh" hide', preHideReady);
+  const postDisplayReady = handoff.indexOf('wait_mpv_split_audio_ready post_display', hide);
+  const raise = handoff.indexOf('raise_mpv_window', postDisplayReady);
   const release = handoff.indexOf('release_null_buffer_start', raise);
   assert.ok(
-    rewind >= 0 && audioReady > rewind && raise > audioReady && release > raise,
-    'handoff must rewind, prove split audio alignment, raise, then release',
+    rewind >= 0
+      && seekProof > rewind
+      && preHideReady > seekProof
+      && hide > preHideReady
+      && postDisplayReady > hide
+      && raise > postDisplayReady
+      && release > raise,
+    'handoff must seek/prove before hide, reprove after display, raise, then release',
   );
 
   const readiness = source.match(/wait_mpv_split_audio_ready\(\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
-  assert.match(readiness, /current-ao/);
-  assert.match(readiness, /audio-pts/);
-  assert.match(readiness, /ap<=0\.25/);
+  for (const property of [
+    'current-ao', 'audio-pts', 'playback-time', 'avsync',
+    'vo-configured', 'estimated-vf-fps', 'vid', 'aid', 'mute',
+  ]) {
+    assert.match(readiness, new RegExp(property));
+  }
+  assert.match(source, /youtube_vod_pre_handoff_ready/);
+  assert.match(source, /prove_youtube_seek_advancing/);
+  assert.match(source, /wait_mpv_release_advancing/);
+  assert.match(source, /--mute=yes/);
+  assert.match(source, /set_property mute no/);
+  assert.doesNotMatch(source, /video-pts/);
 });
 
 test('S4: every probe teardown is display-neutral', async () => {

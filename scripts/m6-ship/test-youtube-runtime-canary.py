@@ -22,8 +22,14 @@ sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
 
-def probe(label: str, *, dynamic: bool = False, required: bool = True):
-    return MODULE.Probe(label, "https://example.invalid", dynamic, required, "vod")
+def probe(
+    label: str,
+    *,
+    dynamic: bool = False,
+    required: bool = True,
+    kind: str = "vod",
+):
+    return MODULE.Probe(label, "https://example.invalid", dynamic, required, kind)
 
 
 class CanaryPolicyTest(unittest.TestCase):
@@ -32,6 +38,7 @@ class CanaryPolicyTest(unittest.TestCase):
             (probe("dynamic_1", dynamic=True), True, "pass"),
             (probe("dynamic_2", dynamic=True), True, "pass"),
             (probe("ordinary_vod"), True, "pass"),
+            (probe("long_vod"), True, "pass"),
             (probe("music"), True, "pass"),
             (probe("hls_live"), True, "pass"),
             (probe("made_for_kids", required=False), False, "transport_failed"),
@@ -40,8 +47,8 @@ class CanaryPolicyTest(unittest.TestCase):
     def test_advisory_failure_does_not_block_a_strict_required_corpus(self):
         result = MODULE.summarize_results(self.healthy_results(), False)
         self.assertTrue(result["ok"])
-        self.assertEqual(result["required_total"], 5)
-        self.assertEqual(result["required_passed"], 5)
+        self.assertEqual(result["required_total"], 6)
+        self.assertEqual(result["required_passed"], 6)
         self.assertEqual(result["failures"], {})
         self.assertEqual(result["advisories"], {"transport_failed": 1})
 
@@ -62,11 +69,12 @@ class CanaryPolicyTest(unittest.TestCase):
         summary = MODULE.summarize_results(results, False)
         self.assertTrue(summary["ok"])
         self.assertEqual(summary["dynamic_total"], 0)
-        self.assertEqual(summary["required_total"], 3)
+        self.assertEqual(summary["required_total"], 4)
 
     def test_fixed_corpus_uses_a_channel_live_target(self):
         fixed = {item.label: item for item in MODULE.fixed_probes(ROOT)}
         self.assertTrue(fixed["ordinary_vod"].required)
+        self.assertTrue(fixed["long_vod"].required)
         self.assertTrue(fixed["music"].required)
         self.assertTrue(fixed["hls_live"].required)
         self.assertEqual(fixed["hls_live"].target, "https://www.youtube.com/@NASA/live")
@@ -119,6 +127,73 @@ class CanaryPolicyTest(unittest.TestCase):
                     ),
                     (False, "transport_incomplete"),
                 )
+
+    def test_long_vod_requires_a_nonzero_resume_decode(self):
+        resolved = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=(
+                "MANGO_CANARY:not_live|1080|https\n"
+                "https://video.invalid\nhttps://audio.invalid\n"
+            ),
+            stderr="",
+        )
+        with patch.object(MODULE.subprocess, "run", return_value=resolved):
+            with patch.object(
+                MODULE,
+                "transport_stream_types",
+                side_effect=[{"video"}, {"audio"}],
+            ), patch.object(MODULE, "resume_transport_ready", return_value=False):
+                self.assertEqual(
+                    MODULE.probe_one(
+                        probe("long_vod"),
+                        pathlib.Path("/bin/true"),
+                        pathlib.Path("/bin/true"),
+                        10,
+                        False,
+                    ),
+                    (False, "resume_transport_failed"),
+                )
+
+    def test_live_probe_resolves_with_hls_only_policy(self):
+        resolved = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="MANGO_CANARY:is_live|1080|m3u8_native\nhttps://live.invalid\n",
+            stderr="",
+        )
+        with patch.object(MODULE.subprocess, "run", return_value=resolved) as run:
+            self.assertEqual(
+                MODULE.probe_one(
+                    probe("hls_live", kind="live"),
+                    pathlib.Path("/bin/true"),
+                    pathlib.Path("/bin/true"),
+                    10,
+                    True,
+                ),
+                (True, "pass"),
+            )
+        command = run.call_args.args[0]
+        self.assertEqual(command[command.index("-f") + 1], MODULE.YOUTUBE_LIVE_FORMAT)
+        self.assertNotIn("protocol=https", MODULE.YOUTUBE_LIVE_FORMAT)
+
+    def test_resume_probe_mirrors_production_youtube_http_identity(self):
+        completed = subprocess.CompletedProcess(args=[], returncode=0)
+        cookie_path = pathlib.Path("/tmp/youtube-cookies.txt")
+        with patch.object(MODULE, "cookie_file", return_value=cookie_path):
+            with patch.object(MODULE.subprocess, "run", return_value=completed) as run:
+                self.assertTrue(
+                    MODULE.resume_transport_ready(
+                        ["https://video.invalid", "https://audio.invalid"],
+                        10,
+                    ),
+                )
+        command = run.call_args.args[0]
+        self.assertIn(f"--user-agent={MODULE.YOUTUBE_USER_AGENT}", command)
+        self.assertIn("--referrer=https://www.youtube.com/", command)
+        self.assertIn("--http-header-fields=Origin: https://www.youtube.com", command)
+        self.assertIn("--cookies=yes", command)
+        self.assertIn(f"--cookies-file={cookie_path}", command)
 
     def test_resolve_canary_retries_cookies_only_for_account_challenges(self):
         calls = []
