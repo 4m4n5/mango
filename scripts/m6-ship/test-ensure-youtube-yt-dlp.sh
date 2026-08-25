@@ -49,6 +49,22 @@ if MANGO_YTDLP_SLOT=previous "$ROOT/scripts/m6-ship/youtube-yt-dlp.sh" --version
 fi
 
 cat >"$MANGO_YTDLP_SLOT_ROOT/active/venv/bin/yt-dlp" <<'EOF'
+#!/this/does/not/exist/python
+print("stale-shebang")
+EOF
+chmod +x "$MANGO_YTDLP_SLOT_ROOT/active/venv/bin/yt-dlp"
+if "$ROOT/scripts/m6-ship/youtube-yt-dlp.sh" --version >/dev/null 2>&1; then
+  echo "FAIL: wrapper executed a slot with a stale venv shebang" >&2
+  exit 1
+fi
+cat >"$MANGO_YTDLP_SLOT_ROOT/active/venv/bin/yt-dlp" <<'EOF'
+#!/usr/bin/env bash
+echo slot-active
+exit 0
+EOF
+chmod +x "$MANGO_YTDLP_SLOT_ROOT/active/venv/bin/yt-dlp"
+
+cat >"$MANGO_YTDLP_SLOT_ROOT/active/venv/bin/yt-dlp" <<'EOF'
 #!/usr/bin/env bash
 echo active-failed >&2
 exit 7
@@ -206,5 +222,27 @@ set -e
 retry_calls="$(<"$MANGO_YTDLP_TEST_SYSTEMCTL_LOG")"
 [[ "$retry_calls" == *"restart mango-youtube-runtime-retry.timer"* ]] \
   || { echo "FAIL: deferred refresh did not arm retry timer" >&2; exit 1; }
+
+reloc="$tmp/reloc-slots"
+mkdir -p "$reloc/active/venv/bin"
+python_bin="$(python3 -c 'import sys; print(sys.executable)')"
+ln -s "$python_bin" "$reloc/active/venv/bin/python"
+cat >"$reloc/active/venv/bin/yt-dlp" <<'EOF'
+#!/missing/candidate/python
+print("relocated-ok")
+EOF
+chmod +x "$reloc/active/venv/bin/yt-dlp"
+cat >"$reloc/active/meta.json" <<'EOF'
+{"revision":"reloc","channel":"nightly","ejs":true,"js_runtime":"deno","canary":"pass","canary_result":{"ok":true,"transport":true,"total":7,"passed":6,"required_total":6,"required_passed":6,"dynamic_total":3,"dynamic_passed":3}}
+EOF
+unset MANGO_YTDLP_TEST_BIN
+export MANGO_YTDLP_SLOT_ROOT="$reloc"
+export MANGO_YTDLP_UPDATE=0
+export MANGO_YTDLP_REFRESH_REQUEST="$tmp/reloc-refresh.request"
+rm -f "$MANGO_YTDLP_REFRESH_REQUEST"
+bash "$ROOT/scripts/m6-ship/youtube-runtime-refresh.sh" >/dev/null
+out="$("$ROOT/scripts/m6-ship/youtube-yt-dlp.sh" --version)"
+[[ "$out" == "relocated-ok" ]] \
+  || { echo "FAIL: moved venv shebang was not rewritten ($out)" >&2; exit 1; }
 
 echo "PASS: youtube yt-dlp slots"

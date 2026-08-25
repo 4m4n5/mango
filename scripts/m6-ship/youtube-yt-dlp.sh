@@ -27,12 +27,26 @@ fi
 slot_canaried() {
   local slot_root="$1"
   [[ -x "$slot_root/venv/bin/yt-dlp" && -f "$slot_root/meta.json" ]] || return 1
-  python3 - "$slot_root/meta.json" "${MANGO_YTDLP_CHANNEL:-nightly}" <<'PY'
+  python3 - "$slot_root/meta.json" "${MANGO_YTDLP_CHANNEL:-nightly}" "$slot_root" <<'PY'
 import json
 import math
+import os
+import pathlib
 import sys
 
+def interpreter_ok(script: pathlib.Path) -> bool:
+    try:
+        first = script.read_bytes().split(b"\n", 1)[0]
+    except OSError:
+        return False
+    if not first.startswith(b"#!"):
+        return True
+    interp = first[2:].decode("utf-8", "replace").strip().split()[0]
+    return bool(interp) and os.path.exists(interp)
+
 try:
+    if not interpreter_ok(pathlib.Path(sys.argv[3]) / "venv/bin/yt-dlp"):
+        raise ValueError("stale venv shebang")
     meta = json.load(open(sys.argv[1], encoding="utf-8"))
     result = meta.get("canary_result") or {}
     total = float(result.get("total"))

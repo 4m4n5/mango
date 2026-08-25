@@ -70,15 +70,79 @@ print(os.path.realpath(sys.argv[1]))
 PY
 }
 
+# venv console scripts bake an absolute interpreter. After `mv`, that path is
+# gone unless we rewrite shebangs against the destination python.
+rewrite_venv_shebangs() {
+  python3 - "$1" <<'PY'
+import os
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1]).resolve()
+python = root / "venv/bin/python"
+bindir = root / "venv/bin"
+if not python.exists() or not bindir.is_dir():
+    raise SystemExit(0)
+# Keep the venv python path. resolve() would follow the symlink to the
+# system interpreter and lose the isolated yt-dlp install.
+shebang = f"#!{python}\n".encode()
+for path in bindir.iterdir():
+    if not path.is_file() or path.is_symlink():
+        continue
+    data = path.read_bytes()
+    if not data.startswith(b"#!"):
+        continue
+    first, sep, rest = data.partition(b"\n")
+    try:
+        interp = first[2:].decode("utf-8").strip().split()[0]
+    except (UnicodeDecodeError, IndexError):
+        continue
+    interp_name = pathlib.Path(interp).name
+    if "python" not in interp_name:
+        continue
+    if interp == str(python) and os.path.exists(interp):
+        continue
+    rest = rest if sep else b""
+    updated = shebang + rest
+    if updated == data:
+        continue
+    tmp = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+    tmp.write_bytes(updated)
+    os.chmod(tmp, 0o755)
+    os.replace(tmp, path)
+PY
+}
+
+if [[ -x "$ACTIVE/venv/bin/python" && -x "$ACTIVE/venv/bin/yt-dlp" ]]; then
+  rewrite_venv_shebangs "$ACTIVE"
+fi
+if [[ -x "$PREVIOUS/venv/bin/python" && -x "$PREVIOUS/venv/bin/yt-dlp" ]]; then
+  rewrite_venv_shebangs "$PREVIOUS"
+fi
+
 slot_canaried() {
   local slot_root="$1"
   [[ -x "$slot_root/venv/bin/yt-dlp" && -f "$slot_root/meta.json" ]] || return 1
-  python3 - "$slot_root/meta.json" "$CHANNEL" <<'PY'
+  python3 - "$slot_root/meta.json" "$CHANNEL" "$slot_root" <<'PY'
 import json
 import math
+import os
+import pathlib
 import sys
 
+def interpreter_ok(script: pathlib.Path) -> bool:
+    try:
+        first = script.read_bytes().split(b"\n", 1)[0]
+    except OSError:
+        return False
+    if not first.startswith(b"#!"):
+        return True
+    interp = first[2:].decode("utf-8", "replace").strip().split()[0]
+    return bool(interp) and os.path.exists(interp)
+
 try:
+    if not interpreter_ok(pathlib.Path(sys.argv[3]) / "venv/bin/yt-dlp"):
+        raise ValueError("stale venv shebang")
     meta = json.load(open(sys.argv[1], encoding="utf-8"))
     result = meta.get("canary_result") or {}
     total = float(result.get("total"))
@@ -476,6 +540,7 @@ if [[ -e "$destination" ]]; then
 fi
 mv "$STAGING" "$destination"
 STAGING=""
+rewrite_venv_shebangs "$destination"
 
 old_active=""
 if [[ -d "$ACTIVE" && ! -L "$ACTIVE" ]]; then
