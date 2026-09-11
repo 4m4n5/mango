@@ -523,8 +523,9 @@ test('the 90-second wall stops normally, discards the late response, and keeps p
   assert.equal(calls, 2);
   assert.equal(observedDeadline, Date.UTC(2026, 7, 11, 12) + YOUTUBE_V2_ACQUISITION_WALL_MS);
   assert.equal(getYoutubeItem('video', 'after-wall'), null);
+  const fixtureAt = Date.UTC(2026, 7, 11, 12) + 1_000;
   assert.deepEqual(
-    new Set(listYoutubeV2CandidateProvenance().map((row) => row.item.id)),
+    new Set(listYoutubeV2CandidateProvenance({ at: fixtureAt }).map((row) => row.item.id)),
     new Set(Array.from({ length: 4 }, (_, index) => `before-wall-${index}`)),
   );
   const state = getYoutubeState<{

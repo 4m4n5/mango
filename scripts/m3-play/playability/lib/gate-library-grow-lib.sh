@@ -27,6 +27,7 @@ gate_library_grow_monitor() {
   python3 -m unittest discover -s scripts/diag -p 'test_ops_grow_sla.py' -v
   python3 -m unittest discover -s scripts/diag -p 'test_playability_refresh_decision.py' -v
   python3 -m unittest discover -s scripts/diag -p 'test_recommendation_maintenance_lease.py' -v
+  python3 -m unittest discover -s scripts/diag -p 'test_recommendation_refresh_receipt.py' -v
 }
 
 gate_library_grow_entrypoints() {
@@ -128,6 +129,8 @@ gate_library_grow_maintenance() {
   grep -q 'MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS.*8 \* 60' scripts/m3-play/playability/playability-maintenance.sh
   grep -q 'MANGO_STATE_BACKUP_ON_STOP=0' scripts/m3-play/playability/playability-maintenance.sh
   bash scripts/m3-play/playability/test-wait-vod-recommendation-jobs.sh
+  bash scripts/m3-play/playability/test-coordinator-entrypoints.sh
+  bash scripts/m4-addons/test-aiometadata-opt-in-and-temp.sh
   bash scripts/m6-ship/test-youtube-pot-server-fd.sh
   bash scripts/m6-ship/test-library-offline-compaction.sh
   test -f scripts/m4-addons/sync-aiometadata-rail-catalogs.sh

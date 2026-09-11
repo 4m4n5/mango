@@ -901,6 +901,7 @@ export async function growRail(
   const freshVerified = strictFreshFromStatus(after);
   setGrowthPassFreshCount(growthPass, rail.id, freshVerified);
   const targetMet = freshVerified >= growTarget;
+  const sourceStatsRows = [...sourceStats.values()];
   if (sourceOffsets && isSourceCursorListSource(listSource)) {
     const offsetsToPersist = sourceOffsetsForGrowOutcome({
       targetMet,
@@ -909,6 +910,7 @@ export async function growRail(
       finalSourceOffsets: listSource.readSourceOffsets(),
       exhausted: catalogExhausted,
       candidatesSeen: totalCandidatesSeen,
+      sourceOutcomes: sourceStatsRows,
     });
     if (offsetsToPersist) {
       listSource.writeSourceOffsets(offsetsToPersist);
@@ -923,7 +925,6 @@ export async function growRail(
     await setRailIngestOffset(rail.id, ingestOffset);
   }
   const exhausted = !targetMet && catalogExhausted;
-  const sourceStatsRows = [...sourceStats.values()];
   const failureCategory = targetMet
     ? undefined
     : classifyGrowFailure({

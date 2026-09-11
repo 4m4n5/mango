@@ -51,6 +51,22 @@ test('sourceCircuitDecision suppresses low-yield sources after bounded evidence'
   );
 });
 
+test('sourceCircuitDecision treats repeated empty fetches as no-yield evidence', () => {
+  process.env.MANGO_GROW_SOURCE_NO_VERIFY_SCAN_LIMIT = '60';
+  assert.deepEqual(
+    sourceCircuitDecision(stat({ requested: 59, returned: 0, exhausted: true })),
+    { suppress: false },
+  );
+  assert.deepEqual(
+    sourceCircuitDecision(stat({ requested: 60, returned: 0, exhausted: true })),
+    { suppress: true, reason: 'zero_verified_yield' },
+  );
+  assert.deepEqual(
+    sourceCircuitDecision(stat({ requested: 60, returned: 1, exhausted: true })),
+    { suppress: false },
+  );
+});
+
 test('sourceCircuitDecision suppresses high reject ratios even with a small yield', () => {
   process.env.MANGO_GROW_SOURCE_THEME_REJECT_MIN_SAMPLES = '25';
   process.env.MANGO_GROW_SOURCE_THEME_REJECT_RATIO = '0.85';

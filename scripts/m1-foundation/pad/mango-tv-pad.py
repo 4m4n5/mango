@@ -288,25 +288,20 @@ def touch_couch_activity(hint: str) -> None:
 def _wake_display_xset() -> None:
     if not shutil.which("xset"):
         return
-    for args in (
-        ["-dpms"],
-        ["s", "off"],
-        ["s", "noblank"],
-        ["s", "0", "0"],
-        ["dpms", "force", "on"],
-        ["s", "reset"],
-    ):
-        try:
-            subprocess.run(
-                ["xset", *args],
-                env=_env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-                timeout=0.5,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            pass
+    try:
+        # `force on` implicitly enables DPMS; disable it only after waking.
+        # One process bounds input-path work to one timeout, not seven.
+        subprocess.run(
+            ["xset", "s", "off", "s", "noblank", "s", "0", "0",
+             "dpms", "0", "0", "0", "dpms", "force", "on", "-dpms", "s", "reset"],
+            env=_env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=0.5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def wake_display_for_input(hint: str) -> None:

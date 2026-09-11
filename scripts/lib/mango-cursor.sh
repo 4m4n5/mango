@@ -7,6 +7,12 @@ export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 hide_cursor() {
+  # Cursor daemon liveness must not skip display-policy repair after mpv or
+  # another X client restores DPMS. Zeroing timeouts also prevents a later
+  # client re-enable from resurrecting the server's ten-minute defaults.
+  if command -v xset >/dev/null 2>&1; then
+    xset s off s noblank s 0 0 dpms 0 0 0 -dpms 2>/dev/null || true
+  fi
   command -v xsetroot >/dev/null 2>&1 && xsetroot -cursor_name none 2>/dev/null || true
   if pgrep -f 'unclutter-xfixes -idle 0 -root' >/dev/null 2>&1 \
     || pgrep -f 'unclutter -idle 0 -root' >/dev/null 2>&1; then
@@ -18,12 +24,6 @@ hide_cursor() {
   elif command -v unclutter >/dev/null 2>&1; then
     pkill -x unclutter 2>/dev/null || true
     unclutter -idle 0 -root >/dev/null 2>&1 &
-  fi
-  if command -v xset >/dev/null 2>&1; then
-    xset -dpms 2>/dev/null || true
-    xset s off 2>/dev/null || true
-    xset s noblank 2>/dev/null || true
-    xset s 0 0 2>/dev/null || true
   fi
 }
 

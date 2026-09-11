@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
@@ -9,7 +9,7 @@ import {
   titleKey,
   buildTabSessionSelections,
 } from './session-select.js';
-import { canonicalTitleId, isSeriesRailGateId, seriesBareId } from './ids.js';
+import { canonicalTitleId, isBareImdbId, isSeriesRailGateId, seriesBareId } from './ids.js';
 import {
   injectPinnedSessionItems,
   loadRailCurationOverrides,
@@ -46,7 +46,7 @@ import {
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const DEFAULT_VERIFY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const SCHEMA_VERSION = 19;
+const SCHEMA_VERSION = 20;
 
 export type StreamCapabilityClass = 'proven_smooth' | 'unknown' | 'known_risky';
 
@@ -911,6 +911,12 @@ CREATE INDEX IF NOT EXISTS idx_playability_retry_due
   ON playability_retry_queue(next_eligible_at, priority DESC, requested_at);
 
 CREATE INDEX IF NOT EXISTS idx_titles_status_expires ON titles(status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_titles_identity_type_collision
+  ON titles(status, lower(id), type)
+  WHERE type IN ('movie', 'series');
+CREATE INDEX IF NOT EXISTS idx_titles_identity_collision_key
+  ON titles(lower(id), type, status, fail_reason)
+  WHERE type IN ('movie', 'series');
 CREATE INDEX IF NOT EXISTS idx_rail_pool_rail_score ON rail_pool(rail_id, score DESC);
 CREATE INDEX IF NOT EXISTS idx_rail_session_session ON rail_session(session_id, rail_id, slot);
 CREATE INDEX IF NOT EXISTS idx_recently_shown_rail_time ON recently_shown(rail_id, shown_at);
@@ -1793,6 +1799,12 @@ CREATE TABLE IF NOT EXISTS playability_retry_queue (
 );
 CREATE INDEX IF NOT EXISTS idx_playability_retry_due
   ON playability_retry_queue(next_eligible_at, priority DESC, requested_at);
+CREATE INDEX IF NOT EXISTS idx_titles_identity_type_collision
+  ON titles(status, lower(id), type)
+  WHERE type IN ('movie', 'series');
+CREATE INDEX IF NOT EXISTS idx_titles_identity_collision_key
+  ON titles(lower(id), type, status, fail_reason)
+  WHERE type IN ('movie', 'series');
 `);
     db.prepare(`
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
@@ -1802,6 +1814,99 @@ VALUES (18, @applied_at);
   if (appliedVersion < 19) {
     const appliedAt = nowMs();
     const migrateIdentityTypeCollisions = db.transaction(() => {
+      quarantineAllVerifiedIdentityTypeCollisions(db, appliedAt);
+      db.prepare(`
+INSERT INTO playability_migrations(version, applied_at)
+VALUES (19, @applied_at);
+`).run({ applied_at: appliedAt });
+    });
+    migrateIdentityTypeCollisions();
+  }
+  if (appliedVersion < 20) {
+    const appliedAt = nowMs();
+    const migrateIdentityTypeCollisions = db.transaction(() => {
+      quarantineAllVerifiedIdentityTypeCollisions(db, appliedAt);
+      db.prepare(`
+INSERT INTO playability_migrations(version, applied_at)
+VALUES (20, @applied_at);
+`).run({ applied_at: appliedAt });
+    });
+    migrateIdentityTypeCollisions();
+  }
+}
+
+function enqueueIdentityTypeCollision(
+  db: Database.Database,
+  type: 'movie' | 'series',
+  id: string,
+  now: number,
+): void {
+  db.prepare(`
+INSERT INTO playability_retry_queue (
+  type, id, reason, priority, attempt_count, requested_at,
+  last_attempt_at, next_eligible_at, resume_position
+) VALUES (
+  @type, @id, 'identity_type_collision', 70, 0, @now,
+  NULL, @now, 0
+)
+ON CONFLICT(type, id) DO UPDATE SET
+  reason = excluded.reason,
+  priority = MAX(playability_retry_queue.priority, excluded.priority),
+  requested_at = MIN(playability_retry_queue.requested_at, excluded.requested_at),
+  next_eligible_at = MIN(playability_retry_queue.next_eligible_at, excluded.next_eligible_at);
+`).run({ type, id, now });
+}
+
+function quarantineVerifiedIdentityTypeCollision(
+  db: Database.Database,
+  type: 'movie' | 'series',
+  id: string,
+  now: number,
+): number {
+  if (!isBareImdbId(id)) {
+    return 0;
+  }
+  const counterpart = type === 'movie' ? 'series' : 'movie';
+  const hasCounterpart = db.prepare(`
+SELECT 1
+FROM titles INDEXED BY idx_titles_identity_type_collision
+WHERE lower(id) = @id_key
+  AND type = @counterpart
+  AND type IN ('movie', 'series')
+  AND status = 'verified'
+LIMIT 1;
+`).get({ counterpart, id_key: id.toLowerCase() });
+  if (!hasCounterpart) {
+    return 0;
+  }
+  const rows = db.prepare(`
+SELECT type, id
+FROM titles INDEXED BY idx_titles_identity_type_collision
+WHERE lower(id) = @id_key
+  AND type IN ('movie', 'series')
+  AND status = 'verified';
+`).all({ id_key: id.toLowerCase() }) as Array<{ type: 'movie' | 'series'; id: string }>;
+  let changed = 0;
+  const quarantine = db.prepare(`
+UPDATE titles
+SET status = 'stale',
+    fail_reason = 'identity_type_collision',
+    updated_at = @now
+WHERE type = @type AND id = @id AND status = 'verified';
+`);
+  for (const row of rows) {
+    if (quarantine.run({ ...row, now }).changes > 0) {
+      enqueueIdentityTypeCollision(db, row.type, row.id, now);
+      changed += 1;
+    }
+  }
+  return changed;
+}
+
+function quarantineAllVerifiedIdentityTypeCollisions(
+  db: Database.Database,
+  now: number,
+): number {
       const collisions = db.prepare(`
 SELECT t.type, t.id
 FROM titles t
@@ -1819,38 +1924,48 @@ WHERE t.status = 'verified'
   )
 ORDER BY lower(t.id), t.type;
 `).all() as Array<{ type: 'movie' | 'series'; id: string }>;
-      const quarantine = db.prepare(`
-UPDATE titles
-SET status = 'stale',
-    fail_reason = 'identity_type_collision',
-    updated_at = @now
-WHERE type = @type AND id = @id AND status = 'verified';
-`);
-      const enqueue = db.prepare(`
-INSERT INTO playability_retry_queue (
-  type, id, reason, priority, attempt_count, requested_at,
-  last_attempt_at, next_eligible_at, resume_position
-) VALUES (
-  @type, @id, 'identity_type_collision', 70, 0, @now,
-  NULL, @now, 0
-)
-ON CONFLICT(type, id) DO UPDATE SET
-  reason = excluded.reason,
-  priority = MAX(playability_retry_queue.priority, excluded.priority),
-  requested_at = MIN(playability_retry_queue.requested_at, excluded.requested_at),
-  next_eligible_at = MIN(playability_retry_queue.next_eligible_at, excluded.next_eligible_at);
-`);
+  let changed = 0;
       for (const collision of collisions) {
-        if (quarantine.run({ ...collision, now: appliedAt }).changes > 0) {
-          enqueue.run({ ...collision, now: appliedAt });
+    changed += quarantineVerifiedIdentityTypeCollision(db, collision.type, collision.id, now);
         }
+  return changed;
       }
-      db.prepare(`
-INSERT INTO playability_migrations(version, applied_at)
-VALUES (19, @applied_at);
-`).run({ applied_at: appliedAt });
-    });
-    migrateIdentityTypeCollisions();
+
+export function quarantineIdentityTypeCollisionForWrite(
+  db: Database.Database,
+  type: string,
+  id: string,
+  now: number,
+): number {
+  if (type !== 'movie' && type !== 'series') {
+    return 0;
+  }
+  return quarantineVerifiedIdentityTypeCollision(db, type, canonicalTitleId(type, id), now);
+}
+
+export function hasKnownIdentityTypeCollision(type: string, id: string): boolean {
+  if ((type !== 'movie' && type !== 'series') || !isBareImdbId(id)) {
+    return false;
+  }
+  if (!existsSync(dbPath())) {
+    return false;
+  }
+  const counterpart = type === 'movie' ? 'series' : 'movie';
+  try {
+    return Boolean(openDb().prepare(`
+SELECT 1
+FROM titles INDEXED BY idx_titles_identity_collision_key
+WHERE lower(id) = @id_key
+  AND type = @counterpart
+  AND type IN ('movie', 'series')
+  AND (
+    status = 'verified'
+    OR fail_reason = 'identity_type_collision'
+  )
+LIMIT 1;
+`).get({ id_key: id.toLowerCase(), counterpart }));
+  } catch {
+    return false;
   }
 }
 
@@ -2753,6 +2868,7 @@ VALUES (
       ...proof,
     });
     updateRetryQueueForVerifyRecord(db, record, timestamp);
+    quarantineIdentityTypeCollisionForWrite(db, record.type, record.id, timestamp);
   });
   transaction();
   // Verification metadata is included in rail snapshots even when status is

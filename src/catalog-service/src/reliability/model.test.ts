@@ -131,6 +131,26 @@ test('thin library rails are yellow but still couch-usable', () => {
   assert.match(state.components.find((entry) => entry.id === 'library')?.summary ?? '', /thin rails/);
 });
 
+test('known zero current distinct proof is red even when stale rail placements remain', () => {
+  const facts = baseFacts();
+  facts.playability.verified_distinct = 0;
+  facts.playability.expired_verified = 120;
+  facts.playability.verified_total = 120;
+  const state = evaluateReliability(facts);
+  const library = state.components.find((entry) => entry.id === 'library');
+  assert.equal(library?.status, 'red');
+  assert.match(library?.detail ?? '', /expired verified rows excluded/);
+  assert.equal(state.status, 'red');
+});
+
+test('known low current distinct proof, not rail placements, controls library readiness', () => {
+  const facts = baseFacts();
+  facts.playability.verified_distinct = 8;
+  facts.playability.verified_total = 120;
+  const state = evaluateReliability(facts);
+  assert.equal(state.components.find((entry) => entry.id === 'library')?.status, 'red');
+});
+
 test('stale locks are red because they block maintenance', () => {
   const facts = baseFacts();
   facts.maintenance.stale_locks = ['playability-maintenance.lock'];

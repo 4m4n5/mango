@@ -68,3 +68,143 @@ test('non-empty failed source exploration keeps rollback snapshot', () => {
 
   assert.deepEqual([...offsets?.entries() ?? []], [...preDeep.entries()]);
 });
+
+test('mixed failed exploration rewinds only exhausted empty sources to head', () => {
+  const preDeep = new Map([['AIOMetadata:deep-empty', 300], ['Cinemeta:top', 30]]);
+  const final = new Map([['AIOMetadata:deep-empty', 420], ['Cinemeta:top', 60]]);
+
+  const offsets = sourceOffsetsForGrowOutcome({
+    targetMet: false,
+    usedDeepSourceAdvance: true,
+    preDeepSourceOffsets: preDeep,
+    finalSourceOffsets: final,
+    exhausted: true,
+    candidatesSeen: 20,
+    sourceOutcomes: [
+      {
+        source_key: 'AIOMetadata:deep-empty',
+        requested: 30,
+        returned: 0,
+        exhausted: true,
+      },
+      {
+        source_key: 'Cinemeta:top',
+        requested: 30,
+        returned: 20,
+        exhausted: false,
+      },
+    ],
+  });
+
+  assert.deepEqual([...offsets?.entries() ?? []], [
+    ['AIOMetadata:deep-empty', 0],
+    ['Cinemeta:top', 30],
+  ]);
+});
+
+test('successful mixed-source growth preserves healthy final cursors while retrying empty source at head', () => {
+  const preDeep = new Map([['AIOMetadata:deep-empty', 300], ['Cinemeta:top', 30]]);
+  const final = new Map([['AIOMetadata:deep-empty', 420], ['Cinemeta:top', 60]]);
+
+  const offsets = sourceOffsetsForGrowOutcome({
+    targetMet: true,
+    usedDeepSourceAdvance: true,
+    preDeepSourceOffsets: preDeep,
+    finalSourceOffsets: final,
+    exhausted: true,
+    candidatesSeen: 20,
+    sourceOutcomes: [
+      {
+        source_key: 'AIOMetadata:deep-empty',
+        requested: 30,
+        returned: 0,
+        exhausted: true,
+      },
+    ],
+  });
+
+  assert.deepEqual([...offsets?.entries() ?? []], [
+    ['AIOMetadata:deep-empty', 0],
+    ['Cinemeta:top', 60],
+  ]);
+});
+
+test('failed deep exploration does not reset non-empty exhausted sources', () => {
+  const preDeep = new Map([['AIOMetadata:finite', 300], ['Cinemeta:top', 30]]);
+  const final = new Map([['AIOMetadata:finite', 420], ['Cinemeta:top', 60]]);
+
+  const offsets = sourceOffsetsForGrowOutcome({
+    targetMet: false,
+    usedDeepSourceAdvance: true,
+    preDeepSourceOffsets: preDeep,
+    finalSourceOffsets: final,
+    exhausted: true,
+    candidatesSeen: 20,
+    sourceOutcomes: [
+      {
+        source_key: 'AIOMetadata:finite',
+        requested: 30,
+        returned: 12,
+        exhausted: true,
+      },
+    ],
+  });
+
+  assert.deepEqual([...offsets?.entries() ?? []], [...preDeep.entries()]);
+});
+
+test('failed catalog errors do not masquerade as finite empty catalog exhaustion', () => {
+  const preDeep = new Map([['AIOMetadata:outage', 300], ['Cinemeta:top', 30]]);
+  const final = new Map([['AIOMetadata:outage', 420], ['Cinemeta:top', 60]]);
+
+  const offsets = sourceOffsetsForGrowOutcome({
+    targetMet: false,
+    usedDeepSourceAdvance: true,
+    preDeepSourceOffsets: preDeep,
+    finalSourceOffsets: final,
+    exhausted: true,
+    candidatesSeen: 20,
+    sourceOutcomes: [
+      {
+        source_key: 'AIOMetadata:outage',
+        requested: 30,
+        returned: 0,
+        exhausted: true,
+        catalog_errors: 1,
+      },
+      {
+        source_key: 'Cinemeta:top',
+        requested: 30,
+        returned: 20,
+        exhausted: false,
+      },
+    ],
+  });
+
+  assert.deepEqual([...offsets?.entries() ?? []], [...preDeep.entries()]);
+});
+
+test('rate-limited empty responses do not reset source cursor to head', () => {
+  const preDeep = new Map([['AIOMetadata:limited', 300]]);
+  const final = new Map([['AIOMetadata:limited', 420]]);
+
+  const offsets = sourceOffsetsForGrowOutcome({
+    targetMet: false,
+    usedDeepSourceAdvance: true,
+    preDeepSourceOffsets: preDeep,
+    finalSourceOffsets: final,
+    exhausted: true,
+    candidatesSeen: 0,
+    sourceOutcomes: [
+      {
+        source_key: 'AIOMetadata:limited',
+        requested: 30,
+        returned: 0,
+        exhausted: true,
+        rate_limited: 1,
+      },
+    ],
+  });
+
+  assert.deepEqual([...offsets?.entries() ?? []], [...preDeep.entries()]);
+});

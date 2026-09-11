@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 from grow_monitor import (
     SCHEMA_VERSION,
+    active_run_receipt_path,
     _count_active_probes,
     _filter_own_process_tree,
     _format_phase_line,
@@ -31,6 +32,7 @@ from grow_monitor import (
     fetch_verified_pool_counts,
     format_live_status,
     load_baseline,
+    detect_grow_state,
     write_baseline,
 )
 from ops_grow_sla import RailPlayabilityConfig, list_grow_rail_ids
@@ -49,6 +51,38 @@ class GrowMonitorTests(unittest.TestCase):
                     self.assertTrue(_lock_file_active(lock))
                 finally:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    def test_lock_free_claimed_active_receipt_is_diagnostic_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            old_env = os.environ.copy()
+            os.environ["XDG_CACHE_HOME"] = str(Path(tmp) / "cache")
+            try:
+                path = active_run_receipt_path()
+                path.parent.mkdir(parents=True)
+                path.write_text(
+                    json.dumps({
+                        "run_id": "playability-stale",
+                        "level": "grow_nightly",
+                        "state": "claimed",
+                        "updated_at": 1000,
+                        "pid": 99999999,
+                    }) + "\n",
+                    encoding="utf-8",
+                )
+
+                with patch("grow_monitor._lock_file_active", return_value=False), \
+                        patch("grow_monitor._pgrep", return_value=[]), \
+                        patch("grow_monitor._couch_stack_up", return_value=False), \
+                        patch("grow_monitor._count_active_probes", return_value=0):
+                    state = detect_grow_state()
+                after = json.loads(path.read_text(encoding="utf-8"))
+            finally:
+                os.environ.clear()
+                os.environ.update(old_env)
+
+            self.assertTrue(state["active_run_interrupted"])
+            self.assertEqual(state["active_run"]["state"], "claimed")
+            self.assertEqual(after["state"], "claimed")
 
     def test_count_active_probes_counts_timeout_wrappers_only(self) -> None:
         lines = [

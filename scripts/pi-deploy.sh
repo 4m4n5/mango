@@ -85,7 +85,7 @@ fi
 echo "Pi at \$actual"
 bash scripts/lib/sync-etc-mango-config.sh || true
 if [[ "${SKIP_AIOMETADATA}" == "0" ]]; then
-  MANGO_SKIP_AIOMETADATA_SYNC=0 bash scripts/m4-addons/sync-aiometadata-rail-catalogs.sh
+  MANGO_SYNC_AIOMETADATA=1 MANGO_SKIP_AIOMETADATA_SYNC=0 bash scripts/m4-addons/sync-aiometadata-rail-catalogs.sh
 else
   MANGO_SKIP_AIOMETADATA_SYNC=1 bash scripts/m4-addons/sync-aiometadata-rail-catalogs.sh
 fi

@@ -123,6 +123,8 @@ export type StreamFilterContext = {
   metaCountry?: string;
   /** Expected series episode title (e.g. Downsize, not Pilot). */
   episodeTitle?: string;
+  /** Require a release label/metadata hint to explicitly name the target edition. */
+  requireExplicitEdition?: boolean;
   contentType?: string;
   /** Expected main-feature runtime in minutes (from meta). */
   metaRuntimeMinutes?: number;
@@ -247,6 +249,14 @@ function streamFilenameHaystack(stream: Stream): string {
     .replace(/[^a-z0-9]+/g, ' ');
 }
 
+function streamReleaseNameHaystack(stream: Stream): string {
+  const filename = streamFilenameHaystack(stream);
+  if (filename.trim()) return filename;
+  return `${stream.title || ''} ${stream.name || ''}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ');
+}
+
 function streamRelevanceHaystack(stream: Stream): string {
   const filename = streamFilenameHaystack(stream);
   return `${streamHaystack(stream)} ${filename}`.trim();
@@ -273,6 +283,7 @@ function streamIdentityLabels(stream: Stream): string[] {
 
   const label = `${stream.title || ''} ${stream.name || ''}`.trim();
   if (/(?:\bs\d{1,2}\s*[•·._\-\s]*e\s*\d{1,3}\b|\b\d{1,2}\s*x\s*\d{1,3}\b|\bep?\s*\d{1,3}\b)/i.test(label)) add(label);
+  if (/\b(?:19|20)\d{2}\b/.test(label)) add(label);
   return labels;
 }
 
@@ -303,32 +314,92 @@ export function extractReleaseShowTitle(stream: Stream): string | null {
   return null;
 }
 
-type Edition = 'uk' | 'us';
+type Edition = 'uk' | 'us' | 'india' | 'australia' | 'canada' | 'ireland';
 
-function editionForAlias(token: string): Edition | null {
+function editionForTitleAlias(token: string): Edition | null {
   if (token === 'uk' || token === 'gb') return 'uk';
   if (token === 'us' || token === 'usa') return 'us';
+  if (token === 'india' || token === 'indian') return 'india';
+  if (token === 'australia' || token === 'australian') return 'australia';
+  if (token === 'canada' || token === 'canadian') return 'canada';
+  if (token === 'ireland' || token === 'irish') return 'ireland';
+  return null;
+}
+
+function editionForCountryAlias(token: string): Edition | null {
+  const titleAlias = editionForTitleAlias(token);
+  if (titleAlias) return titleAlias;
+  if (token === 'in' || token === 'ind') return 'india';
+  if (token === 'au' || token === 'aus') return 'australia';
+  if (token === 'ca' || token === 'can') return 'canada';
+  if (token === 'ie') return 'ireland';
   return null;
 }
 
 function metadataEdition(metaTitle: string, metaCountry?: string): Edition | null {
-  const country = identityWords(metaCountry || '').join(' ');
-  if (/\b(united kingdom|great britain|uk|gb)\b/.test(country)) return 'uk';
-  if (/\b(united states|united states of america|us|usa)\b/.test(country)) return 'us';
+  const countryWords = identityWords(metaCountry || '');
+  const country = countryWords.join(' ');
+  if (/\b(united kingdom|great britain)\b/.test(country)) return 'uk';
+  if (/\b(united states|united states of america)\b/.test(country)) return 'us';
+  for (const token of countryWords) {
+    const edition = editionForCountryAlias(token);
+    if (edition) return edition;
+  }
   const titleWords = identityWords(metaTitle);
   if (titleWords.length > 1) {
-    return editionForAlias(titleWords[titleWords.length - 1] || '');
+    return editionForTitleAlias(titleWords[titleWords.length - 1] || '');
   }
   return null;
 }
 
-function editionTokensForRelease(releaseTitle: string, metaTitle: string): Edition[] {
-  const metaWords = new Set(identityWords(metaTitle));
-  const editions = identityWords(releaseTitle)
-    .filter((token) => !metaWords.has(token))
-    .map(editionForAlias)
-    .filter((edition): edition is Edition => edition !== null);
+function editionForBoundedReleaseSuffix(token: string): Edition | null {
+  if (token === 'in') return 'india';
+  return editionForTitleAlias(token);
+}
+
+function wordsStartWith(words: readonly string[], prefix: readonly string[]): boolean {
+  return prefix.length > 0
+    && prefix.length < words.length
+    && prefix.every((token, index) => words[index] === token);
+}
+
+function releaseTitleAliases(metaTitle: string, trustedTitles?: readonly string[]): string[] {
+  return [metaTitle, ...(trustedTitles ?? [])]
+    .filter((title, index, titles): title is string => (
+      typeof title === 'string'
+      && title.trim().length > 0
+      && titles.indexOf(title) === index
+    ))
+    .sort((left, right) => identityWords(right).length - identityWords(left).length);
+}
+
+function editionTokensForRelease(
+  releaseTitle: string,
+  metaTitle: string,
+  trustedTitles?: readonly string[],
+): Edition[] {
+  const releaseWords = identityWords(stripReleaseIdentityJunk(releaseTitle));
+  const editions: Edition[] = [];
+  for (const alias of releaseTitleAliases(metaTitle, trustedTitles)) {
+    const aliasWords = identityWords(alias);
+    if (!wordsStartWith(releaseWords, aliasWords)) {
+      continue;
+    }
+    const edition = editionForBoundedReleaseSuffix(releaseWords[aliasWords.length] || '');
+    if (edition && !editions.includes(edition)) {
+      editions.push(edition);
+    }
+  }
   return [...new Set(editions)];
+}
+
+function releaseHasEdition(
+  releaseTitle: string,
+  edition: Edition,
+  metaTitle: string,
+  trustedTitles?: readonly string[],
+): boolean {
+  return editionTokensForRelease(releaseTitle, metaTitle, trustedTitles).includes(edition);
 }
 
 function explicitReleaseYears(stream: Stream): Set<number> {
@@ -490,6 +561,7 @@ export function streamHasExplicitIdentityConflict(
   context: Pick<
     StreamFilterContext,
     'contentType' | 'metaYear' | 'metaCountry' | 'episodeTitle'
+    | 'requireExplicitEdition' | 'trustedTitles'
   > = {},
 ): boolean {
   const haystack = streamRelevanceHaystack(stream);
@@ -500,9 +572,20 @@ export function streamHasExplicitIdentityConflict(
   }
   const targetEdition = metadataEdition(metaTitle, context.metaCountry);
   if (targetEdition) {
+    const hasTargetEdition = streamIdentityLabels(stream)
+      .some((label) => releaseHasEdition(
+        stripReleaseIdentityJunk(label.replace(/[._]/g, ' ')),
+        targetEdition,
+        metaTitle,
+        context.trustedTitles,
+      ));
+    if (context.requireExplicitEdition && !hasTargetEdition) {
+      return true;
+    }
     for (const label of streamIdentityLabels(stream)) {
       const releaseLabel = stripReleaseIdentityJunk(label.replace(/[._]/g, ' '));
-      if (editionTokensForRelease(releaseLabel, metaTitle).some((edition) => edition !== targetEdition)) {
+      if (editionTokensForRelease(releaseLabel, metaTitle, context.trustedTitles)
+        .some((edition) => edition !== targetEdition)) {
         return true;
       }
     }
@@ -524,25 +607,25 @@ export function streamHasExplicitIdentityConflict(
 export function releaseShowTitleMatchesMeta(
   releaseTitle: string,
   metaTitle: string,
-  context: Pick<StreamFilterContext, 'metaCountry'> = {},
+  context: Pick<StreamFilterContext, 'metaCountry' | 'trustedTitles'> = {},
 ): boolean {
   const targetEdition = metadataEdition(metaTitle, context.metaCountry);
   const metaWords = identityWords(metaTitle);
   const titleCarriesEdition = metaWords.length > 1
-    ? editionForAlias(metaWords[metaWords.length - 1] || '')
+    ? editionForTitleAlias(metaWords[metaWords.length - 1] || '')
     : null;
   const metaTokens = metaTitleTokensOrdered(metaTitle)
-    .filter((token) => !titleCarriesEdition || editionForAlias(token) !== titleCarriesEdition);
+    .filter((token) => !titleCarriesEdition || editionForTitleAlias(token) !== titleCarriesEdition);
   if (metaTokens.length === 0) {
     return true;
   }
-  const releaseEditions = editionTokensForRelease(releaseTitle, metaTitle);
+  const releaseEditions = editionTokensForRelease(releaseTitle, metaTitle, context.trustedTitles);
   if (targetEdition && releaseEditions.some((edition) => edition !== targetEdition)) {
     return false;
   }
   const releaseTokens = metaTitleTokensOrdered(stripReleaseIdentityJunk(releaseTitle))
     .filter((token) => {
-      const edition = editionForAlias(token);
+      const edition = editionForTitleAlias(token);
       if (!edition) return true;
       if (titleCarriesEdition === edition) return false;
       return metaWords.includes(token);
@@ -564,6 +647,7 @@ export function streamMatchesMetaTitle(
   context: Pick<
     StreamFilterContext,
     'contentType' | 'metaYear' | 'metaCountry' | 'episodeTitle'
+    | 'requireExplicitEdition' | 'trustedTitles'
   > = {},
 ): boolean {
   const haystack = streamRelevanceHaystack(stream);
@@ -612,7 +696,7 @@ export function streamMatchesMetaTitle(
     && !TITLE_STOP_WORDS.has(primary)
     && !targetIdMatched
   ) {
-    const filenameHaystack = streamFilenameHaystack(stream);
+    const filenameHaystack = streamReleaseNameHaystack(stream);
     if (!filenameHaystack.trim() || !filenameHaystack.includes(primary)) {
       return false;
     }
@@ -651,6 +735,9 @@ export function isSuspiciousFeatureSize(
 }
 
 export function streamPassesIntegrity(stream: Stream, context: StreamFilterContext): boolean {
+  if (context.identityCertifiable === false) {
+    return false;
+  }
   const trustedTitles = (context.trustedTitles ?? [context.metaTitle])
     .filter((title): title is string => typeof title === 'string' && title.trim().length > 0);
   const primaryTitle = trustedTitles[0] ?? context.metaTitle;

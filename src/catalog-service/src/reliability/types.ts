@@ -63,6 +63,13 @@ export type ReliabilityState = {
   status: ReliabilityLevel;
   generated_at: number;
   generated_at_iso: string;
+  freshness?: {
+    snapshot_age_ms: number;
+    cache_ttl_ms: number;
+    fresh: boolean;
+    probe_started_at: number;
+    probe_finished_at: number;
+  };
   commit: string;
   summary: string;
   quiet_badge: boolean;
@@ -128,6 +135,8 @@ export type ReliabilityFacts = {
     rail_count: number;
     /** Distinct verified titles in titles table (when available). */
     verified_distinct?: number;
+    /** Verified rows whose TTL has elapsed and need refresh before being counted as current proof. */
+    expired_verified?: number;
     /** Verified rail placements (sum of per-rail pools). */
     verified_total: number;
     thin_rails: Array<{ rail_id: string; verified_pool: number }>;

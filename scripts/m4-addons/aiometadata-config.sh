@@ -21,10 +21,14 @@ EXPORT_FILE="${MANGO_STREMIO_EXPORT:-/etc/mango/stremio-export.json}"
 
 die() { echo "aiometadata-config: $*" >&2; exit 1; }
 
-post_config_save() {
+post_config_save() (
+  set -euo pipefail
   local config_tmp="$1"
   local password="${2:-}"
   local existing_uuid="${3:-}"
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT
 
   if [[ -z "$password" && -f "$CREDS" ]]; then
     # shellcheck disable=SC1090
@@ -34,7 +38,7 @@ post_config_save() {
   fi
   [[ -n "$password" ]] || die "AIOMETADATA_PASSWORD required"
 
-  local payload http_code
+  local payload http_code response_tmp
   payload="$(AIOMETADATA_PASSWORD="$password" AIOMETADATA_UUID="$existing_uuid" python3 - "$config_tmp" <<'PY'
 import json, os, sys
 config = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -46,32 +50,56 @@ print(json.dumps(body))
 PY
 )"
 
-  http_code="$(printf '%s' "$payload" | curl -s -w '%{http_code}' -o /tmp/aiometadata-save.json \
-    -H "Content-Type: application/json" -X POST -d @- "$BASE_URL/api/config/save")"
+  response_tmp="$tmp_dir/save-response.json"
+  if ! http_code="$(printf '%s' "$payload" | curl -sS --connect-timeout 5 --max-time 30 -w '%{http_code}' -o "$response_tmp" \
+      -H "Content-Type: application/json" -X POST -d @- "$BASE_URL/api/config/save")"; then
+    die "POST /api/config/save failed (curl)"
+  fi
   if [[ "$http_code" != "200" ]]; then
-    cat /tmp/aiometadata-save.json >&2
     die "POST /api/config/save failed (HTTP $http_code)"
   fi
 
   mkdir -p "$(dirname "$CREDS")"
-  python3 - /tmp/aiometadata-save.json "$CREDS" "$password" <<'PY'
-import json, os, sys
+  AIOMETADATA_PASSWORD_OUT="$password" python3 - "$response_tmp" "$CREDS" <<'PY'
+import json, os, shlex, sys, tempfile
+from pathlib import Path
+
 resp = json.load(open(sys.argv[1], encoding="utf-8"))
-creds_path, password = sys.argv[2], sys.argv[3]
+creds_path = sys.argv[2]
+password = os.environ["AIOMETADATA_PASSWORD_OUT"]
 uuid = resp["userUUID"]
 manifest = resp.get("installUrl") or ""
 lines = [
-    f"AIOMETADATA_UUID={uuid}",
-    f"AIOMETADATA_PASSWORD={password}",
-    f"AIOMETADATA_MANIFEST_URL={manifest}",
+    f"AIOMETADATA_UUID={shlex.quote(uuid)}",
+    f"AIOMETADATA_PASSWORD={shlex.quote(password)}",
+    f"AIOMETADATA_MANIFEST_URL={shlex.quote(manifest)}",
 ]
-open(creds_path, "w", encoding="utf-8").write("\n".join(lines) + "\n")
-os.chmod(creds_path, 0o600)
+creds = Path(creds_path)
+creds.parent.mkdir(parents=True, exist_ok=True)
+fd, tmp_path = tempfile.mkstemp(prefix=f".{creds.name}.", suffix=".tmp", dir=creds.parent)
+tmp = Path(tmp_path)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, creds)
+    dir_fd = os.open(creds.parent, os.O_RDONLY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+finally:
+    try:
+        tmp.unlink()
+    except FileNotFoundError:
+        pass
 print(f"saved {creds_path}")
 if manifest:
-    print(f"manifest: {manifest}")
+    print("manifest saved")
 PY
-}
+)
 
 load_creds() {
   [[ -f "$CREDS" ]] || die "missing $CREDS — run import first"
@@ -143,25 +171,31 @@ print(json.dumps(config))
 PY
 }
 
-cmd_check() {
+cmd_check() (
+  set -euo pipefail
   local import_path="${1:-${MANGO_AIOMETADATA_IMPORT:-}}"
   [[ -n "$import_path" && -f "$import_path" ]] || die "export file required"
   local catalog_yaml="${MANGO_CATALOG_YAML:-$REPO_DIR/config/catalog.example.yaml}"
-  local manifest_tmp=""
+  local tmp_dir manifest_tmp
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT
   if aiometadata_manifest_ok 2>/dev/null; then
-    manifest_tmp="$(mktemp)"
-    curl -sf --max-time 10 "$(aiometadata_manifest_url)" >"$manifest_tmp"
+    manifest_tmp="$tmp_dir/manifest.json"
+    curl -sf --max-time 10 "$(aiometadata_manifest_url)" >"$manifest_tmp" \
+      || die "failed to fetch live AIOMetadata manifest"
     python3 "$SCRIPT_DIR/lib/aiometadata_mango.py" check "$import_path" "$catalog_yaml" "$manifest_tmp"
-    local rc=$?
-    rm -f "$manifest_tmp"
-    return "$rc"
+    return
   fi
   python3 "$SCRIPT_DIR/lib/aiometadata_mango.py" check "$import_path" "$catalog_yaml"
-}
+)
 
-cmd_import() {
+cmd_import() (
+  set -euo pipefail
   local import_path="${1:-${MANGO_AIOMETADATA_IMPORT:-}}"
   [[ -n "$import_path" && -f "$import_path" ]] || die "import file required (arg or MANGO_AIOMETADATA_IMPORT)"
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT
 
   local password="${MANGO_AIOMETADATA_PASSWORD:-}"
   local existing_uuid=""
@@ -179,16 +213,15 @@ PY
 )"
   fi
 
-  local config_tmp payload http_code
-  config_tmp="$(mktemp)"
-  trap 'rm -f "$config_tmp"' RETURN
+  local config_tmp
+  config_tmp="$tmp_dir/config.json"
   prepare_config "$import_path" >"$config_tmp" || {
     local rc=$?
     [[ $rc -eq 2 ]] && die "export missing catalogs required by catalog.yaml"
     exit "$rc"
   }
   post_config_save "$config_tmp" "$password" "$existing_uuid"
-}
+)
 
 cmd_manifest() {
   load_creds
@@ -235,23 +268,30 @@ PY
   fi
 }
 
-cmd_ensure_catalogs() {
+cmd_ensure_catalogs() (
+  set -euo pipefail
   local import_path="${1:-${MANGO_AIOMETADATA_IMPORT:-}}"
   shift || true
   [[ -n "$import_path" && -f "$import_path" ]] || die "export file required for ensure-catalogs"
   local catalog_yaml="${MANGO_CATALOG_YAML:-$REPO_DIR/config/catalog.example.yaml}"
   local mango_py="$SCRIPT_DIR/lib/aiometadata_mango.py"
-  local config_tmp
-  config_tmp="$(mktemp)"
-  trap 'rm -f "$config_tmp"' RETURN
-  python3 "$mango_py" ensure "$import_path" "$catalog_yaml" "$@" >"$config_tmp" || die "ensure catalog synthesis failed"
+  local tmp_dir config_tmp
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT
+  config_tmp="$tmp_dir/config.json"
+  python3 "$mango_py" ensure "$import_path" "$catalog_yaml" "$@" >"$config_tmp" \
+    || die "ensure catalog synthesis failed"
   post_config_save "$config_tmp"
   echo "ensure-catalogs ok${*:+: $*}"
-}
+)
 
-cmd_sync_rails() {
+cmd_sync_rails() (
+  set -euo pipefail
   local import_path="${1:-${MANGO_AIOMETADATA_IMPORT:-$HOME/.config/mango/aiometadata-import.json}}"
   [[ -n "$import_path" && -f "$import_path" ]] || die "export file required for sync-rails (arg or MANGO_AIOMETADATA_IMPORT)"
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT
 
   if ! aiometadata_health_ok; then
     echo "aiometadata-config: skip sync-rails — AIOMetadata not reachable at $(aiometadata_health_url)"
@@ -270,8 +310,7 @@ cmd_sync_rails() {
     return 0
   fi
 
-  manifest_tmp="$(mktemp)"
-  trap 'rm -f "$manifest_tmp"' RETURN
+  manifest_tmp="$tmp_dir/manifest.json"
   curl -sf --max-time 15 "$(aiometadata_manifest_url)" >"$manifest_tmp" \
     || die "failed to fetch live AIOMetadata manifest"
 
@@ -287,12 +326,12 @@ cmd_sync_rails() {
   done <<<"$missing_ids"
 
   local config_tmp
-  config_tmp="$(mktemp)"
+  config_tmp="$tmp_dir/config.json"
   prepare_config "$import_path" >"$config_tmp" || die "prepare mango config failed"
   post_config_save "$config_tmp"
   cmd_wire_export
   echo "aiometadata-config: sync-rails ok"
-}
+)
 
 cmd="${1:-}"
 shift || true

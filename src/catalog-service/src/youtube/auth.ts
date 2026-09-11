@@ -33,6 +33,11 @@ export type YoutubeAuthToken = {
 export type YoutubeAuthSummary = {
   configured: boolean;
   authenticated: boolean;
+  token_present: boolean;
+  access_token_valid: boolean;
+  renewable: boolean;
+  needs_reconnect: boolean;
+  status: 'disconnected' | 'ready' | 'refresh_required' | 'reconnect_required';
   token_file: string;
   expires_at: number | null;
   scopes: string[];
@@ -117,11 +122,32 @@ export function clearYoutubeAuth(config: YoutubeConfig): void {
 
 export function youtubeAuthSummary(config: YoutubeConfig): YoutubeAuthSummary {
   const token = readYoutubeToken(config);
+  const expiresAt = typeof token?.expires_at === 'number'
+    && Number.isFinite(token.expires_at)
+    && token.expires_at >= 0
+    ? token.expires_at
+    : null;
+  const tokenPresent = Boolean(token?.access_token);
+  const accessTokenValid = tokenPresent && expiresAt !== null && expiresAt > nowMs() + 60_000;
+  const renewable = tokenPresent && Boolean(token?.refresh_token);
+  const needsReconnect = tokenPresent && !accessTokenValid && !renewable;
+  const status: YoutubeAuthSummary['status'] = !tokenPresent
+    ? 'disconnected'
+    : accessTokenValid
+      ? 'ready'
+      : renewable
+        ? 'refresh_required'
+        : 'reconnect_required';
   return {
     configured: existsSync(config.oauth_client_file),
-    authenticated: Boolean(token?.access_token),
+    authenticated: tokenPresent && (accessTokenValid || renewable),
+    token_present: tokenPresent,
+    access_token_valid: accessTokenValid,
+    renewable,
+    needs_reconnect: needsReconnect,
+    status,
     token_file: config.auth_token_file,
-    expires_at: token?.expires_at ?? null,
+    expires_at: expiresAt,
     scopes: token?.scope ? token.scope.split(/\s+/).filter(Boolean) : [],
   };
 }

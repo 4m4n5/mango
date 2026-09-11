@@ -54,12 +54,15 @@ if [[ "${MANGO_PLAYABILITY_COORDINATOR_INTERNAL_OWNER:-0}" != "1" ]]; then
 import fcntl
 import json
 import os
+import re
 import sys
 import tempfile
 import time
 
 lock_file, active_file, result_file, script, run_id, level = sys.argv[1:]
 contender_started_at = int(time.time() * 1000)
+RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
+TERMINAL_STATES = {"succeeded", "partial", "failed"}
 
 def durable_json(target, payload):
     directory = os.path.dirname(target)
@@ -80,32 +83,98 @@ def durable_json(target, payload):
         if os.path.exists(tmp):
             os.unlink(tmp)
 
+def pid_alive(pid):
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+def read_json(path):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+def valid_run_id(value):
+    return isinstance(value, str) and RUN_ID_RE.match(value) is not None
+
+def terminal_state(value):
+    return isinstance(value, str) and value in TERMINAL_STATES
+
+def active_claim_is_current(active):
+    if active.get("state") != "claimed":
+        return False
+    try:
+        updated = int(active.get("updated_at") or active.get("claimed_at") or 0)
+    except (TypeError, ValueError):
+        updated = 0
+    pid = active.get("pid")
+    return pid_alive(pid) or updated >= contender_started_at - 5000
+
+def recover_interrupted_active_claim(reason):
+    active = read_json(active_file)
+    if active.get("state") != "claimed":
+        return
+    active_run_id = active.get("run_id")
+    if not valid_run_id(active_run_id):
+        return
+    run_file = os.path.join(os.path.dirname(active_file), f"{active_run_id}.json")
+    existing = read_json(run_file)
+    if terminal_state(existing.get("state")):
+        return
+    if existing.get("run_id") != active_run_id or existing.get("state") != "claimed":
+        return
+    source = existing if existing else active
+    now = int(time.time() * 1000)
+    interrupted = dict(source)
+    interrupted.update({
+        "run_id": active_run_id,
+        "level": source.get("level") or active.get("level", ""),
+        "state": "failed",
+        "previous_state": source.get("state") or active.get("state"),
+        "exit_code": 130,
+        "failure_category": "interrupted",
+        "failure_reason": reason,
+        "interrupted": True,
+        "interrupted_at": now,
+        "updated_at": now,
+    })
+    durable_json(run_file, interrupted)
+
 fd = os.open(lock_file, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o600)
 try:
     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 except BlockingIOError:
     active_run_id = ""
     for _ in range(500):
+        # Prefer the current lock owner. During a handoff, active.json may
+        # still describe an interrupted older run until the owner writes its
+        # own claimed receipt.
         try:
-            with open(active_file, encoding="utf-8") as handle:
-                active = json.load(handle)
-            if active.get("state") == "claimed":
-                active_run_id = active.get("run_id", "")
+            with open(lock_file, encoding="utf-8") as handle:
+                owner = json.load(handle)
+            claimed_at = int(owner.get("claimed_at", 0))
+            owner_run_id = owner.get("run_id", "")
+            if claimed_at >= contender_started_at - 5000 and valid_run_id(owner_run_id):
+                active_run_id = owner_run_id
         except Exception:
             pass
         if not active_run_id:
-            # The winning process writes its identity into the permanent lock
-            # inode immediately after flock.  Only accept this fast-path for a
-            # newly contending owner; old contents remain after unlock by
-            # design and must never be mistaken for a current owner.
-            try:
-                with open(lock_file, encoding="utf-8") as handle:
-                    owner = json.load(handle)
-                claimed_at = int(owner.get("claimed_at", 0))
-                if claimed_at >= contender_started_at - 5000:
-                    active_run_id = owner.get("run_id", "")
-            except Exception:
-                pass
+            active = read_json(active_file)
+            current_active_id = active.get("run_id", "")
+            if active_claim_is_current(active) and valid_run_id(current_active_id):
+                active_run_id = current_active_id
         if active_run_id:
             break
         time.sleep(0.01)
@@ -118,6 +187,7 @@ except BlockingIOError:
     })
     raise SystemExit(75)
 
+recover_interrupted_active_claim("coordinator_lock_recovered")
 os.ftruncate(fd, 0)
 os.lseek(fd, 0, os.SEEK_SET)
 os.write(fd, (json.dumps({

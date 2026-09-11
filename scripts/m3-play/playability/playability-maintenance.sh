@@ -91,6 +91,19 @@ RUN_ID="${MANGO_PLAYABILITY_RUN_ID:-playability-$(date +%Y%m%d-%H%M%S)}"
 export MANGO_OPS_RUN_ID="$RUN_ID"
 export MANGO_OPS_SOURCE="playability-maintenance"
 RUN_STARTED_MS="$(python3 -c 'import time; print(int(time.time()*1000))')"
+resolve_grow_preset_early() {
+  if [[ -z "${MANGO_GROW_PRESET:-}" ]]; then
+    if [[ "$MODE" == "grow" ]]; then
+      export MANGO_GROW_PRESET=quick
+    else
+      export MANGO_GROW_PRESET=nightly
+    fi
+  else
+    export MANGO_GROW_PRESET="${MANGO_GROW_PRESET}"
+  fi
+}
+resolve_grow_preset_early
+
 NIGHTLY_DEADLINE_MINUTES="${MANGO_PLAYABILITY_NIGHTLY_DEADLINE_MINUTES:-150}"
 ADMISSION_STOP_MINUTES="${MANGO_PLAYABILITY_ADMISSION_STOP_MINUTES:-135}"
 if [[ ! "$NIGHTLY_DEADLINE_MINUTES" =~ ^[0-9]+$ ]] || [[ "$NIGHTLY_DEADLINE_MINUTES" -lt 30 ]]; then
@@ -108,6 +121,19 @@ if [[ "$MANGO_GROW_PRESET" == "quick" ]]; then
   # independently for every rail. Stop admitting work at the advertised bound;
   # publication and couch restoration may finish immediately afterward.
   export MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS=$((RUN_STARTED_MS + 8 * 60 * 1000))
+fi
+if [[ "${MANGO_MAINTENANCE_DEADLINE_TEST_ONLY:-0}" == "1" ]]; then
+  python3 - <<'PY'
+import json
+import os
+payload = {
+    "preset": os.environ["MANGO_GROW_PRESET"],
+    "deadline_ms": int(os.environ["MANGO_PLAYABILITY_RUN_DEADLINE_MS"]),
+    "admission_deadline_ms": int(os.environ["MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS"]),
+}
+print(json.dumps(payload, sort_keys=True))
+PY
+  exit 0
 fi
 mkdir -p "$OPS_DIR"
 MAINT_LOG="${OPS_DIR}/maintenance-${RUN_ID}.log"
@@ -131,19 +157,6 @@ PY
 fi
 export MANGO_PLAYABILITY_PROBE_MS="${MANGO_PLAYABILITY_PROBE_MS:-8000}"
 echo "probe_ms: $MANGO_PLAYABILITY_PROBE_MS (aligned with couch auto_play_probe_ms)"
-
-resolve_grow_preset_early() {
-  if [[ -z "${MANGO_GROW_PRESET:-}" ]]; then
-    if [[ "$MODE" == "grow" ]]; then
-      export MANGO_GROW_PRESET=quick
-    else
-      export MANGO_GROW_PRESET=nightly
-    fi
-  else
-    export MANGO_GROW_PRESET="${MANGO_GROW_PRESET}"
-  fi
-}
-resolve_grow_preset_early
 
 grow_state() {
   python3 "$REPO_DIR/scripts/diag/grow_run_state.py" "$@"
@@ -498,12 +511,14 @@ if ! couch_is_idle; then
 fi
 
 # This configured-source mutation is inside the coordinator and after the
-# initial couch-idle decision. It remains an explicit existing-ecosystem step,
-# never part of a read-only status or source benchmark.
-if [[ "${MANGO_SKIP_AIOMETADATA_SYNC:-0}" != "1" ]]; then
+# initial couch-idle decision. It is still operator-owned addon state, so it is
+# opt-in only; ordinary maintenance must not rewrite AIOMetadata configuration.
+if [[ "${MANGO_SYNC_AIOMETADATA:-0}" == "1" && "${MANGO_SKIP_AIOMETADATA_SYNC:-0}" != "1" ]]; then
   bash "$REPO_DIR/scripts/m4-addons/sync-aiometadata-rail-catalogs.sh" || {
     echo "warn: AIOMetadata rail catalog sync failed — grow may miss mdblist sources" >&2
   }
+else
+  echo "aiometadata-sync: skipped (set MANGO_SYNC_AIOMETADATA=1 to opt in)"
 fi
 
 preflight_native_deps() {

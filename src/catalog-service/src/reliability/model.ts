@@ -181,7 +181,8 @@ export function evaluateReliability(facts: ReliabilityFacts): ReliabilityState {
           : 'live config unavailable',
   ));
 
-  const libraryStatus: ReliabilityLevel = !facts.playability.ok || facts.playability.verified_total < 9
+  const currentVerified = facts.playability.verified_distinct ?? facts.playability.verified_total;
+  const libraryStatus: ReliabilityLevel = !facts.playability.ok || currentVerified < 9
     ? 'red'
     : facts.playability.thin_rails.length > 0
       ? 'yellow'
@@ -192,12 +193,17 @@ export function evaluateReliability(facts: ReliabilityFacts): ReliabilityState {
     libraryStatus,
     libraryStatus === 'green'
       ? facts.playability.verified_distinct !== undefined
-        ? `${facts.playability.verified_distinct} distinct verified titles across ${facts.playability.rail_count} rails (${facts.playability.verified_total} rail placements)`
+        ? `${facts.playability.verified_distinct} current distinct verified titles across ${facts.playability.rail_count} rails (${facts.playability.verified_total} rail placements)`
         : `${facts.playability.verified_total} verified rail placements across ${facts.playability.rail_count} rails`
       : libraryStatus === 'yellow'
         ? `${facts.playability.thin_rails.length} thin rails need growth`
         : 'verified movie/TV pool is not displayable',
-    facts.playability.error,
+    [
+      facts.playability.expired_verified && facts.playability.expired_verified > 0
+        ? `${facts.playability.expired_verified} expired verified rows excluded from current distinct proof`
+        : '',
+      facts.playability.error ?? '',
+    ].filter(Boolean).join('; ') || undefined,
   ));
 
   const youtubeStatus: ReliabilityLevel = !facts.youtube.enabled

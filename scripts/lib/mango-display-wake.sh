@@ -12,12 +12,10 @@ if [[ "${1:-}" == "--focus-launcher-if-idle" ]]; then
 fi
 
 if command -v xset >/dev/null 2>&1; then
-  xset -dpms 2>/dev/null || true
-  xset s off 2>/dev/null || true
-  xset s noblank 2>/dev/null || true
-  xset s 0 0 2>/dev/null || true
-  xset dpms force on 2>/dev/null || true
-  xset s reset 2>/dev/null || true
+  # Both setting timeouts and `force on` re-enable DPMS. Clear the X server's
+  # accidental ten-minute defaults, wake, then disable it LAST. This preserves
+  # the current no-automatic-blank contract; it is not the future CEC sleep owner.
+  xset s off s noblank s 0 0 dpms 0 0 0 dpms force on -dpms s reset 2>/dev/null || true
 fi
 
 if [[ "$FOCUS_IDLE" == "1" ]] && ! pgrep -x mpv >/dev/null 2>&1; then

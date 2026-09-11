@@ -66,6 +66,14 @@ def maintenance_lock_path() -> Path:
     return cache_dir() / "playability-maintenance.lock"
 
 
+def playability_runs_dir() -> Path:
+    return cache_dir() / "playability-runs"
+
+
+def active_run_receipt_path() -> Path:
+    return playability_runs_dir() / "active.json"
+
+
 def grow_log_path() -> Path:
     return cache_dir() / "playability-grow.log"
 
@@ -261,6 +269,16 @@ def _lock_file_active(path: Path) -> bool:
     return False
 
 
+def _read_json_file(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
 def grow_run_state_path() -> Path:
     return cache_dir() / "grow-run-state.json"
 
@@ -361,6 +379,7 @@ def detect_grow_state() -> dict[str, Any]:
         pid = None
 
     lock_held = _lock_file_active(maintenance_lock_path())
+    active_run = _read_json_file(active_run_receipt_path())
     indexer_lines = _pgrep(GROW_INDEXER_PATTERN)
     topup_lines = _pgrep("playability-top-up-rail.sh")
     maintenance_lines = [
@@ -390,6 +409,12 @@ def detect_grow_state() -> dict[str, Any]:
         "pid": pid if pid_alive else None,
         "pidfile": str(pidfile),
         "maintenance_lock": lock_held,
+        "active_run": active_run,
+        "active_run_interrupted": (
+            active_run is not None
+            and active_run.get("state") == "claimed"
+            and not lock_held
+        ),
         "overnight": overnight,
         "couch_up": _couch_stack_up(),
         "active_probes": _count_active_probes(),

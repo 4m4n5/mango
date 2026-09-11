@@ -6,6 +6,7 @@
 #   bash scripts/m4-addons/sync-aiometadata-rail-catalogs.sh [import.json]
 #
 # Env:
+#   MANGO_SYNC_AIOMETADATA=1       opt in to config mutation
 #   MANGO_SKIP_AIOMETADATA_SYNC=1  no-op
 #   MANGO_CATALOG_YAML             rail source (default: resolve_catalog_yaml)
 
@@ -19,6 +20,10 @@ source "$REPO_DIR/scripts/lib/catalog-yaml.sh"
 
 if [[ "${MANGO_SKIP_AIOMETADATA_SYNC:-0}" == "1" ]]; then
   echo "aiometadata-sync: skipped (MANGO_SKIP_AIOMETADATA_SYNC=1)"
+  exit 0
+fi
+if [[ "${MANGO_SYNC_AIOMETADATA:-0}" != "1" ]]; then
+  echo "aiometadata-sync: skipped (set MANGO_SYNC_AIOMETADATA=1 to opt in)"
   exit 0
 fi
 

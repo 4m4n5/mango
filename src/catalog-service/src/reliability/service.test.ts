@@ -5,10 +5,13 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { computeStarvingRails } from './model.js';
 import {
+  ReliabilityService,
   playabilityFacts,
+  processFactsFromSnapshot,
   railGrowthHistory,
   sanitizeReliabilityProofMetadata,
   sanitizeReliabilityProofReason,
+  type ReliabilityRuntimeFacts,
   type PlayabilityStatusLike,
 } from './service.js';
 
@@ -68,6 +71,13 @@ function playabilityStatus(): PlayabilityStatusLike {
       failed: 0,
     },
     last_indexer_run_at: 1,
+    verification: {
+      legacy_verified: 20,
+      exact_main_verified: 12,
+      expired_verified: 0,
+      identity_type_conflicts: { verified: 0, stale: 0 },
+      exact_episodes: { verified: 0, stale: 0, failed: 0 },
+    },
     retry_queue: { total: 0, due: 0, oldest_requested_at: null, by_reason: {} },
     publication: null,
   };
@@ -101,6 +111,7 @@ function writeRefresh(dir: string, name: string, payload: Record<string, unknown
 test('library facts exclude historical status rows but preserve genuine active thin rails', () => {
   const healthy = playabilityFacts(playabilityStatus(), ['movies-active', 'series-active']);
   assert.equal(healthy.rail_count, 2);
+  assert.equal(healthy.verified_distinct, 32);
   assert.equal(healthy.verified_total, 32);
   assert.deepEqual(healthy.thin_rails, []);
 
@@ -109,6 +120,20 @@ test('library facts exclude historical status rows but preserve genuine active t
   const thin = playabilityFacts(status, ['movies-active', 'series-active']);
   assert.equal(thin.verified_total, 25);
   assert.deepEqual(thin.thin_rails, [{ rail_id: 'series-active', verified_pool: 5 }]);
+});
+
+test('library facts exclude expired distinct verified rows from current proof', () => {
+  const status = playabilityStatus();
+  status.verification = {
+    legacy_verified: 6680,
+    exact_main_verified: 2750,
+    expired_verified: 6680,
+    identity_type_conflicts: { verified: 0, stale: 0 },
+    exact_episodes: { verified: 0, stale: 0, failed: 0 },
+  };
+  const facts = playabilityFacts(status, ['movies-active', 'series-active']);
+  assert.equal(facts.verified_distinct, 2750);
+  assert.equal(facts.expired_verified, 6680);
 });
 
 test('rail growth counts one completed publishable refresh per local calendar date', () => {
@@ -182,6 +207,199 @@ test('invalid artifact bursts cannot evict older valid calendar-night evidence',
     assert.equal(history.length, 3);
     assert.equal(computeStarvingRails(history)[0]?.nights_missed, 3);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function runtimeFacts(): ReliabilityRuntimeFacts {
+  return {
+    commit: 'test-sha',
+    controller: { ok: true, fallback: false, reason: 'ok' },
+    voice: { expected: false, ok: true },
+    processes: {
+      launcher_browsers: 1,
+      stremio: 0,
+      kodi: 0,
+      mpv: 0,
+      indexer: 0,
+      orphan_debug: 0,
+      pad_processes: 1,
+      remapper_processes: 0,
+    },
+    maintenance: { busy: false, stale_locks: [] },
+  };
+}
+
+function testReliabilityService(options: {
+  runtimeFacts?: () => Promise<ReliabilityRuntimeFacts>;
+  commandRunner?: (command: string, args: string[], timeoutMs: number) => Promise<{ stdout: string; ok: boolean }>;
+  stateCacheTtlMs?: number;
+} = {}): ReliabilityService {
+  return new ReliabilityService({
+    catalogHealth: () => ({
+      ok: true,
+      core: 'ready',
+      rails_ready: true,
+      live: { config_ready: true, cache_fresh: true },
+      rss_mb: 128,
+    }),
+    playabilityStatus: async () => playabilityStatus() as PlayabilityStatusLike & { ok: true },
+    activePlayabilityRailIds: () => ['movies-active', 'series-active'],
+    youtubeState: () => ({
+      enabled: true,
+      configured: { api_key: true },
+      cache: { videos: 24, rail_count: 6 },
+      refresh: { last_success_at: Date.now(), last_error: null, phase_results: [] },
+    }),
+    ...(options.runtimeFacts ? { runtimeFacts: options.runtimeFacts } : {}),
+    ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
+    stateCacheTtlMs: options.stateCacheTtlMs ?? 200,
+  });
+}
+
+test('state snapshots coalesce concurrent expensive runtime probes', async () => {
+  let calls = 0;
+  const service = testReliabilityService({
+    runtimeFacts: async () => {
+      calls += 1;
+      await new Promise((resolve) => { setTimeout(resolve, 25); });
+      return runtimeFacts();
+    },
+  });
+  const [first, second] = await Promise.all([service.state(), service.state()]);
+  assert.equal(calls, 1);
+  assert.equal(first.generated_at, second.generated_at);
+  assert.equal(first.freshness?.fresh, true);
+  assert.equal(first.freshness?.cache_ttl_ms, 200);
+});
+
+test('warm state reads reuse the fresh snapshot and do not re-run runtime probes', async () => {
+  let calls = 0;
+  const service = testReliabilityService({
+    runtimeFacts: async () => {
+      calls += 1;
+      return runtimeFacts();
+    },
+    stateCacheTtlMs: 500,
+  });
+  const first = await service.state();
+  const warm = await service.state();
+  assert.equal(calls, 1);
+  assert.equal(warm.generated_at, first.generated_at);
+  assert.ok((warm.freshness?.snapshot_age_ms ?? -1) >= 0);
+});
+
+test('expired snapshots force a fresh runtime probe instead of stale readiness', async () => {
+  let calls = 0;
+  const service = testReliabilityService({
+    runtimeFacts: async () => {
+      calls += 1;
+      return runtimeFacts();
+    },
+    stateCacheTtlMs: 0,
+  });
+  const first = await service.state();
+  const second = await service.state();
+  assert.equal(calls, 2);
+  assert.ok((second.freshness?.probe_started_at ?? 0) >= (first.freshness?.probe_started_at ?? 0));
+});
+
+test('default runtime probes are asynchronous enough for unrelated timers to advance', async () => {
+  let calls = 0;
+  const service = testReliabilityService({
+    commandRunner: async (command, args) => {
+      calls += 1;
+      await new Promise((resolve) => { setTimeout(resolve, 20); });
+      if (command === 'git') return { stdout: 'async-sha', ok: true };
+      if (command === 'ps') {
+        return {
+          stdout: [
+            '123 chromium mango-launcher http://127.0.0.1:3000/',
+            '124 mango-tv-pad.py',
+          ].join('\n'),
+          ok: true,
+        };
+      }
+      if (command === 'bash' && args.some((arg) => arg.endsWith('pad-health.sh'))) {
+        return { stdout: JSON.stringify({ ok: true, reason: 'ok' }), ok: true };
+      }
+      return { stdout: '', ok: false };
+    },
+    stateCacheTtlMs: 0,
+  });
+  let ticks = 0;
+  const timer = setInterval(() => { ticks += 1; }, 1);
+  try {
+    const state = await service.state();
+    assert.equal(state.commit, 'async-sha');
+  } finally {
+    clearInterval(timer);
+  }
+  assert.ok(calls >= 4, `expected default probes to run, saw ${calls}`);
+  assert.ok(ticks > 0, 'timer did not advance while slow runtime probes were in flight');
+});
+
+test('process facts count full-path mpv without matching wrapper scripts', () => {
+  const facts = processFactsFromSnapshot([
+    '101 /usr/bin/mpv --idle=yes',
+    '102 mpv --no-config',
+    '103 /home/pi/mango/scripts/m2-catalog/service/mpv-play.sh --request',
+    '104 node /tmp/mention-mpv-in-wrapper.js',
+    '105 /usr/bin/python3 mango-tv-pad.py',
+  ].join('\n'));
+  assert.equal(facts.mpv, 2);
+  assert.equal(facts.pad_processes, 1);
+});
+
+test('forced state refreshes bypass warm cache but coalesce with an in-flight probe', async () => {
+  let calls = 0;
+  const service = testReliabilityService({
+    runtimeFacts: async () => {
+      calls += 1;
+      await new Promise((resolve) => { setTimeout(resolve, 25); });
+      return runtimeFacts();
+    },
+    stateCacheTtlMs: 500,
+  });
+  await service.state();
+  const [first, second] = await Promise.all([
+    service.state({ force: true }),
+    service.state({ force: true }),
+  ]);
+  assert.equal(calls, 2);
+  assert.equal(first.generated_at, second.generated_at);
+});
+
+test('idle-gated actions re-read couch activity instead of trusting a stale cached idle snapshot', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-reliability-idle-'));
+  const previous = process.env.MANGO_COUCH_ACTIVITY_STATE;
+  process.env.MANGO_COUCH_ACTIVITY_STATE = join(dir, 'couch-activity.json');
+  try {
+    writeFileSync(
+      process.env.MANGO_COUCH_ACTIVITY_STATE,
+      JSON.stringify({ ts: Date.now() - 3_600_000, source: 'test', hint: 'old' }),
+    );
+    const service = testReliabilityService({
+      runtimeFacts: async () => runtimeFacts(),
+      stateCacheTtlMs: 30_000,
+    });
+    const cached = await service.state();
+    assert.equal(cached.idle.idle, true);
+
+    writeFileSync(
+      process.env.MANGO_COUCH_ACTIVITY_STATE,
+      JSON.stringify({ ts: Date.now(), source: 'mpv', hint: 'playing' }),
+    );
+    const result = await service.repair();
+    assert.equal(result.ok, false);
+    assert.match(result.message, /active recently from mpv/);
+    assert.equal(result.state?.idle.idle, false);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.MANGO_COUCH_ACTIVITY_STATE;
+    } else {
+      process.env.MANGO_COUCH_ACTIVITY_STATE = previous;
+    }
     rmSync(dir, { recursive: true, force: true });
   }
 });

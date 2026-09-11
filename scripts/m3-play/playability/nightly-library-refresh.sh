@@ -86,46 +86,18 @@ bash "$REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh" --mode "
 echo "nightly library refresh: playability_rc=$PLAYABILITY_RC"
 
 RECOMMENDATION_RC=0
-RECOMMENDATION_STATUS="unknown"
-RECOMMENDATION_MESSAGE="missing_result"
-RECOMMENDATION_RESULT_PATH=""
+RECOMMENDATION_STATUS="skipped"
+RECOMMENDATION_MESSAGE="stale_mode"
 if [[ "$MODE" == "grow" || "$MODE" == "nightly" ]]; then
-  RECOMMENDATION_RESULT_PATH="$(
-    python3 - "$OPS_DIR" "$NIGHTLY_STARTED_MS" "${MANGO_PLAYABILITY_RUN_ID:-}" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-ops_dir = Path(sys.argv[1])
-started_ms = int(sys.argv[2])
-run_id = sys.argv[3].strip()
-if run_id:
-    candidate = ops_dir / f"recommendation-refresh-{run_id}.json"
-    if candidate.is_file():
-        print(candidate)
-        raise SystemExit(0)
-paths = sorted(ops_dir.glob("recommendation-refresh-playability-*.json"), key=lambda p: p.stat().st_mtime)
-for path in reversed(paths):
-    if int(path.stat().st_mtime * 1000) >= started_ms:
-        print(path)
-        raise SystemExit(0)
-print("")
-PY
-  )"
-  if [[ -n "$RECOMMENDATION_RESULT_PATH" && -f "$RECOMMENDATION_RESULT_PATH" ]]; then
-    read -r RECOMMENDATION_STATUS RECOMMENDATION_MESSAGE RECOMMENDATION_RC < <(
-      python3 - "$RECOMMENDATION_RESULT_PATH" <<'PY'
-import json
-import sys
-with open(sys.argv[1], encoding="utf-8") as handle:
-    payload = json.load(handle)
-status = str(payload.get("status") or "unknown")
-message = str(payload.get("message") or "")
-rc = 0 if payload.get("ok") is True else int(payload.get("rc") or 10)
-print(status, message.replace(" ", "_"), rc)
-PY
-    )
-  fi
+  # Missing/malformed evidence is partial, never a successful refresh. Match
+  # this exact coordinator run; a neighboring run cannot certify this one.
+  RECOMMENDATION_RC=10
+  RECOMMENDATION_STATUS="unknown"
+  RECOMMENDATION_MESSAGE="missing_result"
+  RECOMMENDATION_READBACK="$(python3 "$REPO_DIR/scripts/diag/recommendation_refresh_receipt.py" \
+    "$OPS_DIR" "${MANGO_PLAYABILITY_RUN_ID:-}" "$NIGHTLY_STARTED_MS")" \
+    || RECOMMENDATION_READBACK="unknown readback_failed 10"
+  read -r RECOMMENDATION_STATUS RECOMMENDATION_MESSAGE RECOMMENDATION_RC <<<"$RECOMMENDATION_READBACK"
 fi
 echo "nightly library refresh: recommendation_rc=$RECOMMENDATION_RC status=$RECOMMENDATION_STATUS message=$RECOMMENDATION_MESSAGE"
 

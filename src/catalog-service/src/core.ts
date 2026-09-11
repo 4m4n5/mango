@@ -38,6 +38,7 @@ import {
   allocateVodExploreSession,
   allocateTabRailSessions,
   getOrCreateRailSession,
+  hasKnownIdentityTypeCollision,
   getPlayabilityStatus,
   getTitlesPlayabilityBulk,
   listRailPoolMissingDisplay,
@@ -64,7 +65,7 @@ import {
   loadRailCurationOverrides,
   shouldSkipTitleFilter,
 } from './playability/rail-overrides.js';
-import { normalizeSeriesVerifyId, seriesBareId } from './playability/ids.js';
+import { isBareImdbId, normalizeSeriesVerifyId, seriesBareId } from './playability/ids.js';
 import { titleKey } from './playability/session-select.js';
 import {
   CatalogError,
@@ -135,6 +136,7 @@ import {
   type SeriesEpisodesResponse,
 } from './episodes.js';
 import { mergeCatalogMetaPieces, type VideoLayer } from './meta-merge.js';
+import { titleIdentityOverride } from './title-identity-overrides.js';
 import {
   bonusIndexerProbeIds,
   dedupeStreamsByUrl,
@@ -962,6 +964,28 @@ function metaEpisodeTitle(meta: Meta, episodeId: string): string | undefined {
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return undefined;
+}
+
+function metaHasEpisodeVideos(meta: Meta, seriesId: string): boolean {
+  if (!Array.isArray(meta.videos)) return false;
+  const bareSeriesId = seriesBareId(seriesId) ?? seriesId.trim();
+  const episodeId = new RegExp(`^${bareSeriesId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:\\d+:\\d+$`, 'i');
+  const numericEpisodeField = (value: unknown): boolean => (
+    (typeof value === 'number' || typeof value === 'string')
+    && Number.isInteger(Number(value))
+  );
+  return meta.videos.some((video) => (
+    video
+    && typeof video === 'object'
+    && (
+      (typeof (video as { id?: unknown }).id === 'string'
+        && episodeId.test(String((video as { id?: unknown }).id)))
+      || (
+        numericEpisodeField((video as { season?: unknown }).season)
+        && numericEpisodeField((video as { episode?: unknown }).episode)
+      )
+    )
+  ));
 }
 
 function installCoreNodeShims(): void {
@@ -3502,14 +3526,25 @@ export class CatalogCore {
     if (type === 'series') {
       filterContext.episodeRole = parsedSeasonRole(id);
     }
+    const identityOverride = titleIdentityOverride(
+      type === 'series' ? 'series' : type,
+      type === 'series' ? (seriesBareId(id) ?? id) : id,
+    );
+    // Episode ids (tt…:S:E) must resolve series meta by bare imdb id so title
+    // integrity always has metaTitle on couch episode play (fix 4).
+    const metaLookupId = type === 'series' ? (seriesBareId(id) ?? id) : id;
+    const knownMovieTypeCollision = type === 'movie'
+      && isBareImdbId(id)
+      && hasKnownIdentityTypeCollision('movie', id);
+    const primaryMeta = optionalWithBudget(
+      this.metaCached(type === 'series' ? 'series' : type, metaLookupId),
+      STREAM_META_CONTEXT_TIMEOUT_MS,
+    );
+    const seriesConflictMeta = knownMovieTypeCollision
+      ? optionalWithBudget(this.metaCached('series', id), STREAM_META_CONTEXT_TIMEOUT_MS)
+      : Promise.resolve(undefined);
     try {
-      // Episode ids (tt…:S:E) must resolve series meta by bare imdb id so title
-      // integrity always has metaTitle on couch episode play (fix 4).
-      const metaLookupId = type === 'series' ? (seriesBareId(id) ?? id) : id;
-      const meta = await optionalWithBudget(
-        this.metaCached(type === 'series' ? 'series' : type, metaLookupId),
-        STREAM_META_CONTEXT_TIMEOUT_MS,
-      );
+      const meta = await primaryMeta;
       if (meta && metaPieceMatchesRequest(meta, type === 'series' ? 'series' : type, metaLookupId)) {
         const metadataTitle = typeof meta.name === 'string' && meta.name.trim()
           ? meta.name.trim()
@@ -3550,6 +3585,40 @@ export class CatalogCore {
       }
     } catch {
       // Retain launcher/catalog identity hints when optional meta is unavailable.
+    }
+    if (knownMovieTypeCollision) {
+      const seriesMeta = await seriesConflictMeta;
+      if (
+        !seriesMeta
+        || (
+          metaPieceMatchesRequest(seriesMeta, 'series', id)
+          && metaHasEpisodeVideos(seriesMeta, id)
+        )
+      ) {
+        filterContext = {
+          ...filterContext,
+          identityCertifiable: false,
+        };
+      }
+    }
+    if (identityOverride) {
+      const overrideTitles = identityOverride.trusted_titles ?? [];
+      const trustedTitles = [
+        ...(filterContext.trustedTitles ?? []),
+        ...overrideTitles,
+      ].filter((title, index, titles): title is string => (
+        typeof title === 'string'
+        && title.length > 0
+        && titles.indexOf(title) === index
+      ));
+      filterContext = {
+        ...filterContext,
+        ...(identityOverride.country ? { metaCountry: identityOverride.country } : {}),
+        ...(trustedTitles.length > 0 ? { trustedTitles } : {}),
+        ...(identityOverride.require_explicit_edition !== undefined
+          ? { requireExplicitEdition: identityOverride.require_explicit_edition }
+          : {}),
+      };
     }
     const curation = await loadRailCurationOverrides();
     if (shouldSkipTitleFilter(type, id, curation)) {

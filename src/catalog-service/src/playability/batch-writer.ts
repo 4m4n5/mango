@@ -1,6 +1,7 @@
 import {
   getPlayabilityDb,
   initPlayabilityDb,
+  quarantineIdentityTypeCollisionForWrite,
   updateRetryQueueForVerifyRecord,
   validatePlayabilityProof,
   type PlayabilityVerifyRecord,
@@ -174,6 +175,7 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
           ...proof,
         });
         updateRetryQueueForVerifyRecord(db, record, observedAt);
+        quarantineIdentityTypeCollisionForWrite(db, record.type, record.id, observedAt);
       }
 
       for (const entry of this.poolEntries) {

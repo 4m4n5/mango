@@ -120,6 +120,11 @@ test('companion auth wrappers strip operator auth summaries and retain device-fl
     auth: {
       configured: true,
       authenticated: true,
+      token_present: true,
+      access_token_valid: true,
+      renewable: true,
+      needs_reconnect: false,
+      status: 'ready',
       token_file: '/etc/mango/youtube-auth.json',
       expires_at: 4_200_000,
       scopes: ['https://www.googleapis.com/auth/youtube.readonly', 'private-scope'],

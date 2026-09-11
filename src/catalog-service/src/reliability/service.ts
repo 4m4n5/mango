@@ -3,7 +3,8 @@ import http from 'node:http';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { PlayabilityStatus } from '../playability/db.js';
 import { startRefreshJob } from '../playability/refresh-control.js';
 import { computeStarvingRails, evaluateReliability } from './model.js';
@@ -14,6 +15,7 @@ import {
 } from './store.js';
 import type {
   RailGrowthNight,
+  ReliabilityActionId,
   ReliabilityFacts,
   ReliabilityProofRecord,
   ReliabilityState,
@@ -22,6 +24,7 @@ import type {
 
 type CatalogHealth = Record<string, unknown>;
 type YoutubeState = Record<string, unknown>;
+const execFileAsync = promisify(execFile);
 export type PlayabilityStatusLike = Omit<PlayabilityStatus, 'ok'> & {
   ok: boolean;
   error?: string;
@@ -32,7 +35,15 @@ export type ReliabilityServiceOptions = {
   playabilityStatus: () => Promise<PlayabilityStatus>;
   activePlayabilityRailIds: () => string[];
   youtubeState: () => YoutubeState;
+  runtimeFacts?: () => Promise<ReliabilityRuntimeFacts>;
+  commandRunner?: CommandRunner;
+  stateCacheTtlMs?: number;
 };
+
+export type ReliabilityRuntimeFacts = Pick<
+  ReliabilityFacts,
+  'commit' | 'controller' | 'voice' | 'processes' | 'maintenance'
+>;
 
 export type ReliabilityActionResult = {
   ok: boolean;
@@ -110,6 +121,11 @@ function nowMs(): number {
   return Date.now();
 }
 
+function reliabilityStateCacheTtlMs(): number {
+  const parsed = Number(process.env.MANGO_RELIABILITY_STATE_CACHE_MS || 2000);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.min(30_000, Math.floor(parsed)) : 2000;
+}
+
 function safeNumber(value: unknown, fallback = 0): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -176,32 +192,54 @@ function safeBool(value: unknown): boolean {
   return value === true;
 }
 
-function commandText(command: string, args: string[], timeoutMs = 2500): string {
-  const result = spawnSync(command, args, {
-    cwd: repoDir(),
-    encoding: 'utf8',
-    timeout: timeoutMs,
-    maxBuffer: 1024 * 1024,
-  });
-  return result.status === 0 ? String(result.stdout || '').trim() : '';
+type CommandRunner = (command: string, args: string[], timeoutMs: number) => Promise<{
+  stdout: string;
+  ok: boolean;
+}>;
+
+export const defaultCommandRunner: CommandRunner = async (command, args, timeoutMs) => {
+  try {
+    const result = await execFileAsync(command, args, {
+      cwd: repoDir(),
+      encoding: 'utf8',
+      timeout: timeoutMs,
+      maxBuffer: 1024 * 1024,
+    });
+    return { stdout: String(result.stdout || '').trim(), ok: true };
+  } catch (error) {
+    const partial = error && typeof error === 'object' && 'stdout' in error
+      ? String((error as { stdout?: unknown }).stdout || '').trim()
+      : '';
+    return { stdout: partial, ok: false };
+  }
+};
+
+async function commandText(
+  command: string,
+  args: string[],
+  timeoutMs = 2500,
+  runner: CommandRunner = defaultCommandRunner,
+): Promise<string> {
+  const result = await runner(command, args, timeoutMs);
+  return result.ok ? result.stdout.trim() : '';
 }
 
-function processCount(pattern: string): number {
-  const stdout = commandText('pgrep', ['-f', pattern], 1500);
-  return stdout ? stdout.split('\n').filter(Boolean).length : 0;
+async function commandOk(
+  command: string,
+  args: string[],
+  timeoutMs = 2500,
+  runner: CommandRunner = defaultCommandRunner,
+): Promise<boolean> {
+  return (await runner(command, args, timeoutMs)).ok;
 }
 
-function commandOk(command: string, args: string[], timeoutMs = 2500): boolean {
-  const result = spawnSync(command, args, {
-    cwd: repoDir(),
-    stdio: 'ignore',
-    timeout: timeoutMs,
-  });
-  return result.status === 0;
-}
-
-function commandJson(command: string, args: string[], timeoutMs = 2500): Record<string, unknown> {
-  const stdout = commandText(command, args, timeoutMs);
+async function commandJson(
+  command: string,
+  args: string[],
+  timeoutMs = 2500,
+  runner: CommandRunner = defaultCommandRunner,
+): Promise<Record<string, unknown>> {
+  const stdout = await commandText(command, args, timeoutMs, runner);
   if (!stdout) return {};
   try {
     const parsed = JSON.parse(stdout) as unknown;
@@ -260,8 +298,11 @@ async function readCouchIdle(): Promise<ReliabilityFacts['idle']> {
   };
 }
 
-function lockHeld(lockPath: string): boolean {
-  const result = spawnSync('python3', [
+async function lockHeld(
+  lockPath: string,
+  runner: CommandRunner = defaultCommandRunner,
+): Promise<boolean> {
+  const result = await runner('python3', [
     '-c',
     [
       'import fcntl, os, sys',
@@ -280,8 +321,8 @@ function lockHeld(lockPath: string): boolean {
       '    os.close(fd)',
     ].join('\n'),
     lockPath,
-  ], { stdio: 'ignore', timeout: 1500 });
-  return result.status === 0;
+  ], 1500);
+  return result.ok;
 }
 
 function staleLocks(): string[] {
@@ -292,16 +333,23 @@ function staleLocks(): string[] {
   return [];
 }
 
-function maintenanceBusy(): boolean {
-  if (processCount('[p]layability-maintenance.sh|[n]ightly-library-refresh.sh|[o]vernight-playability-grow.sh') > 0) {
+function processCount(snapshot: string, pattern: RegExp): number {
+  return snapshot.split('\n').filter((line) => pattern.test(line)).length;
+}
+
+async function maintenanceBusy(
+  processSnapshot: string,
+  runner: CommandRunner = defaultCommandRunner,
+): Promise<boolean> {
+  if (processCount(processSnapshot, /playability-maintenance\.sh|nightly-library-refresh\.sh|overnight-playability-grow\.sh/) > 0) {
     return true;
   }
   const lock = join(cacheDir(), 'playability-maintenance.lock');
-  return lockHeld(lock);
+  return lockHeld(lock, runner);
 }
 
-function gitCommit(): string {
-  return commandText('git', ['rev-parse', 'HEAD'], 1500) || 'unknown';
+async function gitCommit(runner: CommandRunner = defaultCommandRunner): Promise<string> {
+  return await commandText('git', ['rev-parse', 'HEAD'], 1500, runner) || 'unknown';
 }
 
 async function launcherHealth(): Promise<ReliabilityFacts['launcher']> {
@@ -318,11 +366,14 @@ async function launcherHealth(): Promise<ReliabilityFacts['launcher']> {
   };
 }
 
-function controllerHealth(): ReliabilityFacts['controller'] {
+async function controllerHealth(
+  processSnapshot: string,
+  runner: CommandRunner = defaultCommandRunner,
+): Promise<ReliabilityFacts['controller']> {
   const script = join(repoDir(), 'scripts/m1-foundation/pad/pad-health.sh');
-  const data = commandJson('bash', [script, '--json', '--quiet'], 3500);
+  const data = await commandJson('bash', [script, '--json', '--quiet'], 3500, runner);
   const ok = safeBool(data.ok);
-  const fallback = processCount('input-remapper-service') > 0;
+  const fallback = processCount(processSnapshot, /input-remapper-service/) > 0;
   let link: Record<string, unknown> = {};
   try {
     link = JSON.parse(readFileSync(controllerLinkStatusPath(), 'utf8')) as Record<string, unknown>;
@@ -388,13 +439,22 @@ export function playabilityFacts(
   const verification = status.verification && typeof status.verification === 'object'
     ? status.verification
     : undefined;
-  const distinctVerified = verification
-    ? safeNumber(verification.exact_main_verified, 0) + safeNumber(verification.legacy_verified, 0)
+  const expiredVerified = verification
+    ? safeNumber(verification.expired_verified, 0)
+    : 0;
+  const currentDistinctVerified = verification
+    ? Math.max(
+      0,
+      safeNumber(verification.exact_main_verified, 0)
+        + safeNumber(verification.legacy_verified, 0)
+        - expiredVerified,
+    )
     : 0;
   return {
     ok: status.ok === true,
     rail_count: rails.length,
-    verified_distinct: distinctVerified > 0 ? distinctVerified : undefined,
+    verified_distinct: verification ? currentDistinctVerified : undefined,
+    expired_verified: expiredVerified > 0 ? expiredVerified : undefined,
     verified_total: rails.reduce((sum, rail) => sum + safeNumber(rail.verified_pool, 0), 0),
     thin_rails: rails
       .filter((rail) => safeNumber(rail.verified_pool, 0) < 9)
@@ -414,12 +474,15 @@ function youtubeFacts(state: YoutubeState): ReliabilityFacts['youtube'] {
     ? state.cache as Record<string, unknown>
     : {};
   const railIds = Array.isArray(cache.rail_ids) ? cache.rail_ids : [];
+  const railCount = railIds.length > 0
+    ? railIds.length
+    : safeNumber(cache.rail_count, 0);
   const phases = Array.isArray(refresh.phase_results) ? refresh.phase_results : [];
   return {
     enabled: state.enabled !== false,
     configured: safeBool(configured.api_key),
     videos: safeNumber(cache.videos, 0),
-    rail_count: railIds.length,
+    rail_count: railCount,
     last_success_at: refresh.last_success_at === null ? null : safeNumber(refresh.last_success_at, 0) || null,
     last_error: typeof refresh.last_error === 'string' ? refresh.last_error : null,
     failed_phases: phases
@@ -428,29 +491,58 @@ function youtubeFacts(state: YoutubeState): ReliabilityFacts['youtube'] {
   };
 }
 
-function voiceFacts(): ReliabilityFacts['voice'] {
+async function voiceFacts(runner: CommandRunner = defaultCommandRunner): Promise<ReliabilityFacts['voice']> {
   const expected = process.env.MANGO_VOICE === '1';
   if (!expected) {
     return { expected, ok: true };
   }
-  const ok = commandOk('curl', ['-skf', '--max-time', '2', 'https://127.0.0.1:8765/health'], 3000)
-    || commandOk('curl', ['-sf', '--max-time', '2', 'http://127.0.0.1:8765/health'], 3000);
+  const ok = await commandOk('curl', ['-skf', '--max-time', '2', 'https://127.0.0.1:8765/health'], 3000, runner)
+    || await commandOk('curl', ['-sf', '--max-time', '2', 'http://127.0.0.1:8765/health'], 3000, runner);
   return { expected, ok };
 }
 
-function processFacts(): ReliabilityFacts['processes'] {
+export function processFactsFromSnapshot(processSnapshot: string): ReliabilityFacts['processes'] {
   const launcherPort = process.env.MANGO_LAUNCHER_PORT || '3000';
-  const chromium = processCount(`chromium.*mango-launcher.*127.0.0.1:${launcherPort}/`);
-  const firefox = processCount(`firefox.*127.0.0.1:${launcherPort}/`);
+  const escapedPort = launcherPort.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const chromium = processCount(processSnapshot, new RegExp(`chromium.*mango-launcher.*127\\.0\\.0\\.1:${escapedPort}/`));
+  const firefox = processCount(processSnapshot, new RegExp(`firefox.*127\\.0\\.0\\.1:${escapedPort}/`));
   return {
     launcher_browsers: chromium + firefox,
-    stremio: processCount('stremio'),
-    kodi: processCount('kodi'),
-    mpv: processCount('[m]pv'),
-    indexer: processCount('playability-indexer'),
-    orphan_debug: processCount('node --input-type=module -e.*CatalogCore'),
-    pad_processes: processCount('mango-tv-pad\\.py'),
-    remapper_processes: processCount('input-remapper-service'),
+    stremio: processCount(processSnapshot, /stremio/),
+    kodi: processCount(processSnapshot, /kodi/),
+    mpv: processCount(processSnapshot, /(^|\s)(?:\S*\/)?mpv(?:\s|$)/),
+    indexer: processCount(processSnapshot, /playability-indexer/),
+    orphan_debug: processCount(processSnapshot, /node --input-type=module -e.*CatalogCore/),
+    pad_processes: processCount(processSnapshot, /mango-tv-pad\.py/),
+    remapper_processes: processCount(processSnapshot, /input-remapper-service/),
+  };
+}
+
+async function processSnapshot(runner: CommandRunner = defaultCommandRunner): Promise<string> {
+  return commandText('ps', ['-axo', 'pid=,command='], 1500, runner);
+}
+
+async function defaultRuntimeFacts(
+  runner: CommandRunner = defaultCommandRunner,
+): Promise<ReliabilityRuntimeFacts> {
+  const [commit, snapshot, voice] = await Promise.all([
+    gitCommit(runner),
+    processSnapshot(runner),
+    voiceFacts(runner),
+  ]);
+  const [controller, busy] = await Promise.all([
+    controllerHealth(snapshot, runner),
+    maintenanceBusy(snapshot, runner),
+  ]);
+  return {
+    commit,
+    controller,
+    voice,
+    processes: processFactsFromSnapshot(snapshot),
+    maintenance: {
+      busy,
+      stale_locks: staleLocks(),
+    },
   };
 }
 
@@ -579,11 +671,22 @@ function runDetached(script: string, args: string[]): number {
 }
 
 export class ReliabilityService {
-  constructor(private readonly options: ReliabilityServiceOptions) {}
+  private readonly stateCacheTtlMs: number;
+  private stateCache: {
+    state: ReliabilityState;
+    probe_started_at: number;
+    probe_finished_at: number;
+  } | null = null;
+
+  private stateFlight: Promise<ReliabilityState> | null = null;
+
+  constructor(private readonly options: ReliabilityServiceOptions) {
+    this.stateCacheTtlMs = options.stateCacheTtlMs ?? reliabilityStateCacheTtlMs();
+  }
 
   private async gatherFacts(): Promise<ReliabilityFacts> {
     const activePlayabilityRailIds = this.options.activePlayabilityRailIds();
-    const [idle, launcher, playability] = await Promise.all([
+    const [idle, launcher, playability, runtime] = await Promise.all([
       readCouchIdle(),
       launcherHealth(),
       this.options.playabilityStatus().catch((error: unknown) => ({
@@ -597,6 +700,9 @@ export class ReliabilityService {
         publication: null,
         error: error instanceof Error ? error.message : String(error),
       } as PlayabilityStatusLike)),
+      this.options.runtimeFacts
+        ? this.options.runtimeFacts()
+        : defaultRuntimeFacts(this.options.commandRunner ?? defaultCommandRunner),
     ]);
     const playabilityInfo = playabilityFacts(playability, activePlayabilityRailIds);
     if ('error' in playability && playability.error) {
@@ -604,37 +710,97 @@ export class ReliabilityService {
     }
     return {
       generated_at: nowMs(),
-      commit: gitCommit(),
+      commit: runtime.commit,
       idle,
       catalog: catalogFacts(this.options.catalogHealth()),
       launcher,
-      controller: controllerHealth(),
+      controller: runtime.controller,
       playability: playabilityInfo,
       youtube: youtubeFacts(this.options.youtubeState()),
-      voice: voiceFacts(),
-      processes: processFacts(),
-      maintenance: {
-        busy: maintenanceBusy(),
-        stale_locks: staleLocks(),
-      },
+      voice: runtime.voice,
+      processes: runtime.processes,
+      maintenance: runtime.maintenance,
       rail_growth: railGrowthFacts(activePlayabilityRailIds),
       last_proof: latestReliabilityProof(),
     };
   }
 
-  async state(): Promise<ReliabilityState> {
+  private withFreshness(
+    state: ReliabilityState,
+    probeStartedAt: number,
+    probeFinishedAt: number,
+  ): ReliabilityState {
+    const snapshotAgeMs = Math.max(0, nowMs() - probeFinishedAt);
     return {
-      ...evaluateReliability(await this.gatherFacts()),
-      playability_runs: listPlayabilityRunReceipts(),
+      ...state,
+      freshness: {
+        snapshot_age_ms: snapshotAgeMs,
+        cache_ttl_ms: this.stateCacheTtlMs,
+        fresh: snapshotAgeMs <= this.stateCacheTtlMs,
+        probe_started_at: probeStartedAt,
+        probe_finished_at: probeFinishedAt,
+      },
     };
   }
 
+  private async buildState(): Promise<ReliabilityState> {
+    const probeStartedAt = nowMs();
+    const state = {
+      ...evaluateReliability(await this.gatherFacts()),
+      playability_runs: listPlayabilityRunReceipts(),
+    };
+    const probeFinishedAt = nowMs();
+    return this.withFreshness(state, probeStartedAt, probeFinishedAt);
+  }
+
+  async state(options: { force?: boolean } = {}): Promise<ReliabilityState> {
+    const cache = this.stateCache;
+    if (
+      !options.force
+      && this.stateCacheTtlMs > 0
+      && cache
+      && nowMs() - cache.probe_finished_at <= this.stateCacheTtlMs
+    ) {
+      return this.withFreshness(cache.state, cache.probe_started_at, cache.probe_finished_at);
+    }
+    if (this.stateFlight) {
+      return this.stateFlight;
+    }
+    this.stateFlight = this.buildState().then((state) => {
+      this.stateCache = {
+        state,
+        probe_started_at: state.freshness?.probe_started_at ?? state.generated_at,
+        probe_finished_at: state.freshness?.probe_finished_at ?? nowMs(),
+      };
+      return state;
+    }).finally(() => {
+      this.stateFlight = null;
+    });
+    return this.stateFlight;
+  }
+
   async controller(): Promise<ReliabilityFacts['controller']> {
-    return controllerHealth();
+    const runner = this.options.commandRunner ?? defaultCommandRunner;
+    const snapshot = await processSnapshot(runner);
+    return controllerHealth(snapshot, runner);
   }
 
   proofs(limit = 20): ReliabilityProofRecord[] {
     return listReliabilityProofs(limit);
+  }
+
+  private async idleActionState(actionId: ReliabilityActionId): Promise<{
+    state: ReliabilityState;
+    action: ReliabilityState['actions'][number] | undefined;
+    currentIdle: ReliabilityState['idle'];
+  }> {
+    const state = await this.state({ force: true });
+    const currentIdle = await readCouchIdle();
+    return {
+      state: { ...state, idle: currentIdle },
+      action: state.actions.find((entry) => entry.id === actionId),
+      currentIdle,
+    };
   }
 
   async runProof(reason = 'manual', metadata: Record<string, unknown> = {}): Promise<{
@@ -681,13 +847,14 @@ export class ReliabilityService {
   }
 
   async repair(): Promise<ReliabilityActionResult> {
-    const state = await this.state();
-    const action = state.actions.find((entry) => entry.id === 'repair');
-    if (!action?.enabled) {
+    const { state, action, currentIdle } = await this.idleActionState('repair');
+    if (!action?.enabled || !currentIdle.idle) {
       return {
         ok: false,
         action: 'repair',
-        message: action?.reason || 'repair requires idle couch state',
+        message: !currentIdle.idle
+          ? `repair requires idle couch state; active recently from ${currentIdle.source}`
+          : action?.reason || 'repair requires idle couch state',
         state,
       };
     }
@@ -696,13 +863,14 @@ export class ReliabilityService {
   }
 
   async repairController(): Promise<ReliabilityActionResult> {
-    const state = await this.state();
-    const action = state.actions.find((entry) => entry.id === 'controller_repair');
-    if (!action?.enabled) {
+    const { state, action, currentIdle } = await this.idleActionState('controller_repair');
+    if (!action?.enabled || !currentIdle.idle) {
       return {
         ok: false,
         action: 'controller_repair',
-        message: action?.reason || 'controller repair requires idle couch state',
+        message: !currentIdle.idle
+          ? `controller repair requires idle couch state; active recently from ${currentIdle.source}`
+          : action?.reason || 'controller repair requires idle couch state',
         state,
       };
     }
@@ -711,13 +879,14 @@ export class ReliabilityService {
   }
 
   async restartStack(): Promise<ReliabilityActionResult> {
-    const state = await this.state();
-    const action = state.actions.find((entry) => entry.id === 'stack_restart');
-    if (!action?.enabled) {
+    const { state, action, currentIdle } = await this.idleActionState('stack_restart');
+    if (!action?.enabled || !currentIdle.idle) {
       return {
         ok: false,
         action: 'stack_restart',
-        message: action?.reason || 'stack restart requires idle couch state',
+        message: !currentIdle.idle
+          ? `stack restart requires idle couch state; active recently from ${currentIdle.source}`
+          : action?.reason || 'stack restart requires idle couch state',
         state,
       };
     }
@@ -726,13 +895,14 @@ export class ReliabilityService {
   }
 
   async runRefresh(): Promise<ReliabilityActionResult> {
-    const state = await this.state();
-    const action = state.actions.find((entry) => entry.id === 'refresh');
-    if (!action?.enabled) {
+    const { state, action, currentIdle } = await this.idleActionState('refresh');
+    if (!action?.enabled || !currentIdle.idle) {
       return {
         ok: false,
         action: 'refresh',
-        message: action?.reason || 'refresh requires idle couch state',
+        message: !currentIdle.idle
+          ? `refresh requires idle couch state; active recently from ${currentIdle.source}`
+          : action?.reason || 'refresh requires idle couch state',
         state,
       };
     }

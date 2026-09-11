@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  isBareImdbId,
   isSeriesRailGateId,
   normalizeSeriesVerifyId,
   seriesBareId,
@@ -30,4 +31,10 @@ test('isSeriesRailGateId matches bare id and S1E1 only', () => {
 test('seriesBareId extracts bare id from episode id', () => {
   assert.equal(seriesBareId('tt0944947:1:1'), 'tt0944947');
   assert.equal(seriesBareId('tt0944947'), 'tt0944947');
+});
+
+test('isBareImdbId rejects episode-shaped and non-imdb ids', () => {
+  assert.equal(isBareImdbId('tt0944947'), true);
+  assert.equal(isBareImdbId('tt0944947:1:1'), false);
+  assert.equal(isBareImdbId('tmdb:1234'), false);
 });

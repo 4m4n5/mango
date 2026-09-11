@@ -40,6 +40,7 @@ import {
   upsertYoutubeV2CandidateProvenance,
   upsertYoutubeItems,
   youtubeV2ServingEpoch,
+  youtubeV2CandidateProvenanceSummary,
   youtubeCacheSummary,
   youtubeRefreshStatus,
   YOUTUBE_DAILY_SEARCH_CALL_BUDGET,
@@ -313,6 +314,12 @@ export type YoutubeCompanionStatus = {
   synced_at: number | null;
 };
 
+type YoutubeAuthLastError = {
+  category: 'invalid_grant' | 'auth' | 'network';
+  at: number;
+  reconnect_required: boolean;
+};
+
 export type YoutubeCompanionAuthStart = {
   session_id: string;
   user_code: string;
@@ -354,6 +361,30 @@ export function youtubeCompanionAuthPollResponse(
     ...(typeof poll.interval_sec === 'number' ? { interval_sec: poll.interval_sec } : {}),
     ...(account ? { account } : {}),
   };
+}
+
+function youtubeAuthLastError(): YoutubeAuthLastError | null {
+  return getYoutubeState<YoutubeAuthLastError | null>('youtube_auth_last_error', null);
+}
+
+function recordYoutubeAuthError(error: unknown): void {
+  const authError = error instanceof CatalogError && typeof error.details?.auth_error === 'string'
+    ? error.details.auth_error
+    : '';
+  const category: YoutubeAuthLastError['category'] = authError === 'invalid_grant'
+    ? 'invalid_grant'
+    : error instanceof TypeError
+      ? 'network'
+      : 'auth';
+  setYoutubeState('youtube_auth_last_error', {
+    category,
+    at: nowMs(),
+    reconnect_required: category === 'invalid_grant',
+  } satisfies YoutubeAuthLastError);
+}
+
+function clearYoutubeAuthError(): void {
+  setYoutubeState('youtube_auth_last_error', null);
 }
 
 type YoutubeConnectedAccountState = {
@@ -878,6 +909,8 @@ export class YoutubeService {
   state(): Record<string, unknown> {
     const auth = youtubeAuthSummary(this.config);
     const cache = youtubeCacheSummary();
+    const provenance = youtubeV2CandidateProvenanceSummary();
+    const authError = youtubeAuthLastError();
     return {
       ok: true,
       enabled: this.config.enabled,
@@ -895,7 +928,17 @@ export class YoutubeService {
       })),
       auth: {
         configured: auth.configured,
-        authenticated: auth.authenticated,
+        authenticated: auth.authenticated && authError?.reconnect_required !== true,
+        token_present: auth.token_present,
+        access_token_valid: auth.access_token_valid,
+        renewable: auth.renewable,
+        needs_reconnect: auth.needs_reconnect || authError?.reconnect_required === true,
+        status: authError?.reconnect_required ? 'reconnect_required' : auth.status,
+        last_error: authError ? {
+          category: authError.category,
+          at: authError.at,
+          reconnect_required: authError.reconnect_required,
+        } : null,
         expires_at: typeof auth.expires_at === 'number'
           && Number.isFinite(auth.expires_at)
           && auth.expires_at >= 0
@@ -909,6 +952,8 @@ export class YoutubeService {
         channels: cache.channels,
         playlists: cache.playlists,
         rail_count: cache.rail_ids.length,
+        v2_candidates: provenance.active,
+        v2_candidates_expired: provenance.expired,
       },
       recommendations_v2: youtubeV2Diagnostics(),
     };
@@ -917,8 +962,9 @@ export class YoutubeService {
   companionStatus(): YoutubeCompanionStatus {
     const auth = youtubeAuthSummary(this.config);
     const refresh = youtubeRefreshStatus();
+    const authError = youtubeAuthLastError();
     const account = getYoutubeState<YoutubeConnectedAccountState | null>('youtube_connected_account', null);
-    const authenticated = auth.authenticated;
+    const authenticated = auth.authenticated && authError?.reconnect_required !== true;
     const syncStatus = !authenticated
       ? 'disconnected' as const
       : account?.sync_status ?? (youtubeRecommendationsV2Mode() === 'off' ? 'paused' : 'syncing');
@@ -926,7 +972,10 @@ export class YoutubeService {
       api_key_configured: Boolean(this.config.api_key),
       oauth_configured: auth.configured,
       authenticated,
-      needs_attention: syncStatus === 'attention' || Boolean(refresh.last_error),
+      needs_attention: syncStatus === 'attention'
+        || Boolean(refresh.last_error)
+        || Boolean(authError?.reconnect_required)
+        || auth.needs_reconnect,
       sync_status: syncStatus,
       channel_title: authenticated ? account?.channel_title ?? null : null,
       channel_thumbnail: authenticated ? account?.channel_thumbnail ?? null : null,
@@ -942,11 +991,16 @@ export class YoutubeService {
   }
 
   async pollAuth(sessionId: string): Promise<YoutubeAuthPollResult> {
-    return pollYoutubeDeviceAuth(this.config, sessionId);
+    const poll = await pollYoutubeDeviceAuth(this.config, sessionId);
+    if (poll.status === 'authenticated') {
+      clearYoutubeAuthError();
+    }
+    return poll;
   }
 
   disconnectAuth(): Record<string, unknown> {
     clearYoutubeAuth(this.config);
+    clearYoutubeAuthError();
     if (youtubeRecommendationsV2Mode() !== 'off') {
       setYoutubeState('youtube_v2_source_stale', {
         stale: true,
@@ -1044,7 +1098,13 @@ export class YoutubeService {
   }
 
   private async refreshSubscriptionsIfAuthorized(reason: string): Promise<void> {
-    const token = await youtubeAccessToken(this.config).catch(() => null);
+    let token: string | null = null;
+    try {
+      token = await youtubeAccessToken(this.config);
+      if (token) clearYoutubeAuthError();
+    } catch (error) {
+      recordYoutubeAuthError(error);
+    }
     if (!token) {
       const authoritativeCount = listYoutubeV2Subscriptions()
         .filter((row) => row.source === 'oauth').length;

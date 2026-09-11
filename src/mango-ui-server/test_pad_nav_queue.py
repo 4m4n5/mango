@@ -27,10 +27,15 @@ def _reset_queue() -> None:
 
 class PadNavQueueTests(unittest.TestCase):
     def setUp(self) -> None:
+        self._temp_dir = tempfile.TemporaryDirectory()
+        self._original_playback_active_file = serve.PLAYBACK_ACTIVE_FILE
+        serve.PLAYBACK_ACTIVE_FILE = Path(self._temp_dir.name) / "playback-active"
         _reset_queue()
 
     def tearDown(self) -> None:
         _reset_queue()
+        serve.PLAYBACK_ACTIVE_FILE = self._original_playback_active_file
+        self._temp_dir.cleanup()
 
     def test_enqueue_and_peek(self) -> None:
         seq1 = serve.enqueue_pad_nav_command(
@@ -150,18 +155,12 @@ class PadNavQueueTests(unittest.TestCase):
         )
         with serve._pad_nav_lock:
             issued_at = float(serve._pad_nav_commands[0]["issued_at"])
-        with tempfile.TemporaryDirectory() as temp_dir:
-            original = serve.PLAYBACK_ACTIVE_FILE
-            try:
-                serve.PLAYBACK_ACTIVE_FILE = Path(temp_dir) / "playback-active"
-                serve.PLAYBACK_ACTIVE_FILE.touch()
-                self.assertIsNone(
-                    serve.pad_nav_recovery_reason(
-                        issued_at + serve.PAD_NAV_STALL_SEC + 0.01
-                    )
-                )
-            finally:
-                serve.PLAYBACK_ACTIVE_FILE = original
+        serve.PLAYBACK_ACTIVE_FILE.touch()
+        self.assertIsNone(
+            serve.pad_nav_recovery_reason(
+                issued_at + serve.PAD_NAV_STALL_SEC + 0.01
+            )
+        )
 
 
 if __name__ == "__main__":

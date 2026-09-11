@@ -55,11 +55,12 @@ export function sourceCircuitDecision(
   if (stat.catalog_errors >= playabilityGrowSourceCatalogErrorLimit()) {
     return { suppress: true, reason: 'catalog_errors' };
   }
+  const emptyFetchEvidence = stat.returned <= 0 && stat.requested >= noVerifyScanLimit;
   if (
     stat.verified <= 0
     && stat.linked_verified_seen <= 0
     && (stat.failed > 0 || stat.theme_rejected > 0 || stat.returned === 0 || stat.exhausted)
-    && stat.scanned >= noVerifyScanLimit
+    && (stat.scanned >= noVerifyScanLimit || emptyFetchEvidence)
   ) {
     return { suppress: true, reason: 'zero_verified_yield' };
   }

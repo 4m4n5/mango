@@ -513,6 +513,182 @@ test('same-name series editions use country, start year, and episode title witho
   assert.equal(pinned.meta.excluded.title_mismatch, 1);
 });
 
+test('India edition override requires explicit target-edition evidence for generic same-title releases', () => {
+  const release = (filename: string, description = filename): Stream => ({
+    url: `https://example.test/${encodeURIComponent(filename)}.mkv`,
+    source: 'AIOStreams',
+    name: '[TB⚡] Comet 1080p',
+    title: '[TB⚡] Comet 1080p',
+    description: `📁 ${description}`,
+    behaviorHints: {
+      filename,
+      bingeGroup: 'com.aiostreams|torbox|true|1080p',
+    },
+  });
+  const context = {
+    contentType: 'series',
+    metaTitle: 'The Traitors',
+    trustedTitles: ['The Traitors', 'The Traitors India'],
+    metaId: 'tt33347879:2:1',
+    metaCountry: 'India',
+    requireExplicitEdition: true,
+  } as const;
+  const indiaByReleaseTitle = release(
+    'The.Traitors.India.S02E01.1080p.WEB-DL.mkv',
+    'The Traitors India S02 • E01 WEB-DL FuegoPaaji Amazon 🌐 🇬🇧 / 🇮🇳 📝 🇬🇧',
+  );
+  const indiaByBoundedInSuffix = release(
+    'The.Traitors.IN.S02E01.1080p.WEB-DL.mkv',
+    'The Traitors IN S02 • E01 WEB-DL',
+  );
+  const indiaByMetaTitle = release(
+    'The.Traitors.India.S02E01.1080p.WEB-DL.alt.mkv',
+    'The Traitors India S02 • E01 WEB-DL',
+  );
+  const audioOnlyIndia = release(
+    'The.Traitors.S02E01.1080p.WEB-DL.mkv',
+    'The Traitors S02 • E01 WEB-DL FuegoPaaji Amazon 🌐 🇬🇧 / 🇮🇳 📝 🇬🇧',
+  );
+  const generic = release('The.Traitors.S02E01.1080p.WEB-DL.MeGusta.mkv');
+  const peacock = release(
+    'The.Traitors.S02E01.1080p.WEB-DL.NTb.mkv',
+    'The Traitors S02 • E01 WEB-DL NTb Peacock 🌐 🇬🇧 📝 🇬🇧 / 🇪🇸',
+  );
+  assert.equal(streamMatchesMetaTitle(indiaByReleaseTitle, context.metaTitle, context.metaId, context), true);
+  assert.equal(
+    streamMatchesMetaTitle(indiaByBoundedInSuffix, context.metaTitle, context.metaId, context),
+    true,
+    'IN certifies India only as a bounded suffix after the exact canonical show title',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(
+      indiaByMetaTitle,
+      'The Traitors India',
+      context.metaId,
+      context,
+    ),
+    true,
+    'release-title India remains explicit evidence even when India is also in metaTitle',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(audioOnlyIndia, context.metaTitle, context.metaId, context),
+    false,
+    'India/Hindi audio flags alone are language evidence, not production-edition evidence',
+  );
+  assert.equal(streamMatchesMetaTitle(generic, context.metaTitle, context.metaId, context), false);
+  assert.equal(streamMatchesMetaTitle(peacock, context.metaTitle, context.metaId, context), false);
+
+  const ranked = filterAndRankStreams(
+    [generic, peacock, audioOnlyIndia, indiaByReleaseTitle],
+    testConfig(),
+    context,
+  );
+  assert.equal(ranked.streams.length, 1);
+  assert.equal(ranked.streams[0]?.url, indiaByReleaseTitle.url);
+  assert.equal(ranked.meta.excluded.title_mismatch, 3);
+});
+
+test('live Traitors S2E1 labels fail closed when India only appears as audio/subtitle flags', () => {
+  const descriptions = [
+    'The Traitors S02 • E01 WEB-DL MeGusta HEVC 0.8GB',
+    'The Traitors S02 • E01 WEB-DL FuegoPaaji AVC Amazon 🌐 🇬🇧 / 🇮🇳 📝 🇬🇧',
+    'The Traitors S02 • E01 WEB-DL NTb Peacock 🌐 🇬🇧 📝 🇬🇧 / 🇪🇸',
+    'The Traitors S02 • E01 WEBRip CBFM 2GB',
+    'The Traitors S02 • E01 HDTV DARKFLiX 2GB',
+    'The Traitors S02 • E01 HEVC MeGusta 0.4GB',
+    'The Traitors S02 • E01 WEB-DL NTb 2GB',
+    'The Traitors S02 • E01 WEB-DL ROPATA 1.4GB',
+    'The Traitors S02 • E01 HDTV TORRENTGALAXY 0.6GB',
+    'The Traitors S02 • E01 3GB',
+  ];
+  const streams = descriptions.map((description, index) => stream(
+    `📁 ${description}`,
+    `https://example.test/live-traitors-${index}.mkv`,
+  ));
+  const result = filterAndRankStreams(
+    streams,
+    testConfig(),
+    {
+      contentType: 'series',
+      metaTitle: 'The Traitors',
+      trustedTitles: ['The Traitors', 'The Traitors India'],
+      metaId: 'tt33347879:2:1',
+      metaCountry: 'India',
+      requireExplicitEdition: true,
+    },
+  );
+  assert.equal(result.streams.length, 0);
+  assert.equal(result.meta.excluded.title_mismatch, 10);
+});
+
+test('short country words inside ordinary titles are not edition aliases', () => {
+  const passage = {
+    url: 'https://example.invalid/test',
+    source: 'AIOStreams',
+    name: 'A.Passage.to.India.1984.1080p',
+    title: 'A.Passage.to.India.1984.1080p',
+  } satisfies Stream;
+  const daughter = {
+    url: 'https://example.invalid/daughter',
+    source: 'AIOStreams',
+    name: "India's.Daughter.2015.1080p",
+    title: "India's.Daughter.2015.1080p",
+  } satisfies Stream;
+  const onceUpon = stream(
+    'Once Upon a Time in America 1984 1080p BluRay',
+    'https://example.test/once-upon.mkv',
+  );
+  onceUpon.behaviorHints = { filename: 'Once.Upon.a.Time.in.America.1984.1080p.BluRay.mkv' };
+  const canYou = stream(
+    'Can You Ever Forgive Me 2018 1080p BluRay',
+    'https://example.test/can-you.mkv',
+  );
+  canYou.behaviorHints = { filename: 'Can.You.Ever.Forgive.Me.2018.1080p.BluRay.mkv' };
+  assert.equal(streamMatchesMetaTitle(
+    passage,
+    'A Passage to India',
+    'tt0087892',
+    { contentType: 'movie', metaYear: 1984, metaCountry: 'United Kingdom' },
+  ), true);
+  assert.equal(streamMatchesMetaTitle(
+    daughter,
+    "India's Daughter",
+    'tt4058426',
+    { contentType: 'movie', metaYear: 2015, metaCountry: 'United Kingdom' },
+  ), true);
+  assert.equal(streamMatchesMetaTitle(
+    onceUpon,
+    'Once Upon a Time in America',
+    'tt0087843',
+    { contentType: 'movie', metaYear: 1984, metaCountry: 'United States' },
+  ), true);
+  assert.equal(streamMatchesMetaTitle(
+    canYou,
+    'Can You Ever Forgive Me?',
+    'tt4595882',
+    { contentType: 'movie', metaYear: 2018, metaCountry: 'United States' },
+  ), true);
+  assert.equal(streamMatchesMetaTitle(
+    canYou,
+    'Can You Ever Forgive Me?',
+    'tt4595882',
+    { contentType: 'movie', metaYear: 2018, metaCountry: 'Canada', requireExplicitEdition: true },
+  ), false);
+});
+
+test('uncertifiable metadata identity rejects streams before title fallback', () => {
+  const chimpMovie = stream(
+    'Chimp Empire S01E01 Paradise Lost 1080p WEB-DL',
+    'https://example.test/chimp-movie.mkv',
+  );
+  assert.equal(streamPassesIntegrity(chimpMovie, {
+    contentType: 'movie',
+    metaTitle: 'Chimp Empire',
+    metaId: 'tt27205918',
+    identityCertifiable: false,
+  }), false);
+});
+
 test('same-name movie remakes reject an explicit conflicting release year', () => {
   const dune1984: Stream = {
     url: 'https://example.test/dune-1984.mkv',

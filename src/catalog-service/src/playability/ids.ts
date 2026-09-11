@@ -1,6 +1,10 @@
 const BARE_IMDB_ID = /^tt\d+$/i;
 const EPISODE_IMDB_ID = /^tt\d+:\d+:\d+$/i;
 
+export function isBareImdbId(id: string): boolean {
+  return BARE_IMDB_ID.test(id.trim());
+}
+
 export function seriesBareId(id: string): string | null {
   const trimmed = id.trim();
   if (BARE_IMDB_ID.test(trimmed)) {

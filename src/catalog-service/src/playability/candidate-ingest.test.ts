@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { ListSource, CandidateMeta } from './list-source.js';
+import type { ListSource, CandidateMeta, ListSourceFetchStats } from './list-source.js';
 import type { TitlePlayabilityRecord } from './db.js';
 import type { SourceCursorListSource } from './source-cursors.js';
 import {
@@ -8,6 +8,7 @@ import {
   ingestPaginatedCandidates,
   isRecentFailedTitle,
 } from './candidate-ingest.js';
+import { sourceCircuitDecision } from './grow-source-circuit.js';
 
 class MockListSource implements ListSource {
   readonly sourceId = 'mock';
@@ -142,6 +143,101 @@ test('ingestPaginatedCandidates resets offset when catalog exhausted', async () 
   assert.equal(result.catalog_exhausted, true);
   assert.equal(result.next_offset, 0);
   assert.equal(result.fresh_queued, 2);
+});
+
+test('empty source suppression bounds repeated ingest loops and fetch calls', async () => {
+  class EmptySource implements ListSource, SourceCursorListSource {
+    readonly sourceId = 'composite';
+    readonly sourceType = 'composite_list' as const;
+    calls = 0;
+    private suppressed = new Set<string>();
+    private lastStats: ListSourceFetchStats[] = [];
+
+    listSourceKeys(): string[] {
+      return ['A:empty'];
+    }
+
+    readSourceOffsets(): ReadonlyMap<string, number> {
+      return new Map([['A:empty', 0]]);
+    }
+
+    writeSourceOffsets(): void {}
+
+    resetAllSourceOffsets(): void {}
+
+    setSuppressedSourceKeys(keys: ReadonlySet<string>): void {
+      this.suppressed = new Set(keys);
+    }
+
+    areAllSourcesExhausted(): boolean {
+      return this.suppressed.has('A:empty');
+    }
+
+    readLastSourceFetchStats(): ListSourceFetchStats[] {
+      return this.lastStats;
+    }
+
+    async candidates(options: { limit: number }): Promise<CandidateMeta[]> {
+      this.calls += 1;
+      this.lastStats = [{
+        source_key: 'A:empty',
+        source_label: 'A/empty',
+        requested: options.limit,
+        returned: 0,
+        errors: 0,
+        rate_limited: 0,
+        exhausted: false,
+      }];
+      return [];
+    }
+  }
+
+  const source = new EmptySource();
+  const aggregate = {
+    source_key: 'A:empty',
+    source_label: 'A/empty',
+    content_type: 'series',
+    scanned: 0,
+    fresh_queued: 0,
+    skipped_verified: 0,
+    skipped_recent_failed: 0,
+    linked_verified_seen: 0,
+    requested: 0,
+    returned: 0,
+    catalog_errors: 0,
+    rate_limited: 0,
+    exhausted: false,
+    verified: 0,
+    failed: 0,
+    theme_rejected: 0,
+  };
+  const suppressed = new Set<string>();
+
+  for (let loop = 0; loop < 3; loop += 1) {
+    source.setSuppressedSourceKeys(suppressed);
+    const result = await ingestPaginatedCandidates(source, {
+      startOffset: 0,
+      sourceOffsets: new Map([['A:empty', 0]]),
+      freshTarget: 1,
+      pageSize: 30,
+      maxScanned: 90,
+      lookupTitles: async () => new Map(),
+    });
+    for (const row of result.source_stats ?? []) {
+      aggregate.requested += row.requested;
+      aggregate.returned += row.returned;
+      aggregate.exhausted = aggregate.exhausted || row.exhausted;
+    }
+    const decision = sourceCircuitDecision(aggregate, { noVerifyScanLimit: 60 });
+    if (decision.suppress && decision.reason) {
+      suppressed.add('A:empty');
+    }
+  }
+
+  assert.equal(source.calls, 2);
+  assert.equal(aggregate.requested, 60);
+  assert.equal(aggregate.returned, 0);
+  assert.deepEqual([...suppressed], ['A:empty']);
 });
 
 test('ingestPaginatedCandidates does not reset source cursors on short composite page', async () => {

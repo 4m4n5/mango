@@ -56,6 +56,9 @@ fi
 PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
 # shellcheck source=../lib/mango-browse-display.sh
 source scripts/lib/mango-browse-display.sh
+python3 scripts/lib/test_display_wake.py \
+  && gate_pass "display wake cannot re-enable accidental DPMS timeouts" \
+  || gate_fail "display wake policy regression"
 if [[ "${MANGO_GATE_SOURCE_ONLY:-0}" == "1" ]]; then
   gate_warn "source-only mode — idle HDMI runtime enforcement deferred"
 elif playback_surface_active; then

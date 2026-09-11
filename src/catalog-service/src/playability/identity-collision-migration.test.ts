@@ -8,9 +8,12 @@ import { performance } from 'node:perf_hooks';
 import {
   getPlayabilityDb,
   getPlayabilityStatus,
+  hasKnownIdentityTypeCollision,
   initPlayabilityDb,
+  recordVerifyResult,
   resetPlayabilityDbForTests,
 } from './db.js';
+import { PlayabilityBatchWriter } from './batch-writer.js';
 
 const ENV = { ...process.env };
 
@@ -28,7 +31,7 @@ async function withTempDb(fn: () => Promise<void>): Promise<void> {
   }
 }
 
-test('migration 19 quarantines only verified bare IMDb dual-type identities and preserves state', async () => {
+test('migration 20 quarantines only verified bare IMDb dual-type identities and preserves state', async () => {
   await withTempDb(async () => {
     const db = getPlayabilityDb();
     const now = Date.now();
@@ -61,7 +64,7 @@ VALUES ('movies-global-popular', 'movie', 'tt1234567', 1, ?, 'Movie identity'),
 INSERT INTO verify_log(started_at, rail_id, type, id_value, stage, ms, outcome)
 VALUES (?, NULL, 'movie', 'tt1234567', 'verify', 1, 'verified');
 `).run(now - 1000);
-      db.prepare('DELETE FROM playability_migrations WHERE version = 19').run();
+      db.prepare('DELETE FROM playability_migrations WHERE version IN (19, 20)').run();
     })();
 
     resetPlayabilityDbForTests();
@@ -100,12 +103,182 @@ FROM playability_retry_queue WHERE id = 'tt1234567' ORDER BY type;
     assert.equal((migrated.prepare("SELECT status FROM titles WHERE type='series' AND id='tt2222222'").get() as { status: string }).status, 'verified');
     assert.equal((migrated.prepare("SELECT status FROM titles WHERE type='movie' AND id='tt3333333:1:2'").get() as { status: string }).status, 'verified');
 
-    migrated.prepare('DELETE FROM playability_migrations WHERE version = 19').run();
+    migrated.prepare('DELETE FROM playability_migrations WHERE version = 20').run();
     resetPlayabilityDbForTests();
     await initPlayabilityDb();
     assert.equal((getPlayabilityDb().prepare(`
 SELECT COUNT(*) AS count FROM playability_retry_queue WHERE id = 'tt1234567'
 `).get() as { count: number }).count, 2, 'rerunning migration is idempotent');
+  });
+});
+
+test('verified writes quarantine bare IMDb movie-series collisions after migration', async () => {
+  await withTempDb(async () => {
+    const now = Date.now();
+    await recordVerifyResult({
+      type: 'movie',
+      id: 'tt24681012',
+      status: 'verified',
+      observed_at: now,
+      proof_version: 2,
+      exact_main_win: true,
+      request_title_id: 'tt24681012',
+    });
+    assert.equal((getPlayabilityDb().prepare(`
+SELECT status FROM titles WHERE type='movie' AND id='tt24681012'
+`).get() as { status: string }).status, 'verified');
+
+    await recordVerifyResult({
+      type: 'series',
+      id: 'tt24681012',
+      status: 'verified',
+      observed_at: now + 1,
+      proof_version: 2,
+      exact_main_win: true,
+      request_title_id: 'tt24681012',
+    });
+
+    const rows = getPlayabilityDb().prepare(`
+SELECT type, status, fail_reason FROM titles WHERE id='tt24681012' ORDER BY type
+`).all() as Array<Record<string, unknown>>;
+    assert.deepEqual(rows, [
+      { type: 'movie', status: 'stale', fail_reason: 'identity_type_collision' },
+      { type: 'series', status: 'stale', fail_reason: 'identity_type_collision' },
+    ]);
+    assert.equal((getPlayabilityDb().prepare(`
+SELECT COUNT(*) AS count FROM playability_retry_queue WHERE id='tt24681012'
+`).get() as { count: number }).count, 2);
+  });
+});
+
+test('verified S1E1 series writes quarantine the mirrored bare movie-series collision', async () => {
+  await withTempDb(async () => {
+    const now = Date.now();
+    await recordVerifyResult({
+      type: 'movie',
+      id: 'tt13579135',
+      status: 'verified',
+      observed_at: now,
+      proof_version: 2,
+      exact_main_win: true,
+      request_title_id: 'tt13579135',
+    });
+    await recordVerifyResult({
+      type: 'series',
+      id: 'tt13579135:1:1',
+      status: 'verified',
+      observed_at: now + 1,
+      proof_version: 2,
+      exact_main_win: true,
+      request_title_id: 'tt13579135:1:1',
+    });
+
+    const bareRows = getPlayabilityDb().prepare(`
+SELECT type, status, fail_reason FROM titles WHERE id='tt13579135' ORDER BY type;
+`).all() as Array<Record<string, unknown>>;
+    assert.deepEqual(bareRows, [
+      { type: 'movie', status: 'stale', fail_reason: 'identity_type_collision' },
+      { type: 'series', status: 'stale', fail_reason: 'identity_type_collision' },
+    ]);
+    assert.equal((getPlayabilityDb().prepare(`
+SELECT status FROM titles WHERE type='series' AND id='tt13579135:1:1';
+`).get() as { status: string }).status, 'verified');
+    assert.equal((getPlayabilityDb().prepare(`
+SELECT COUNT(*) AS count FROM playability_retry_queue WHERE id='tt13579135';
+`).get() as { count: number }).count, 2);
+  });
+});
+
+test('batch writer S1E1 series writes quarantine the mirrored bare collision', async () => {
+  await withTempDb(async () => {
+    const writer = new PlayabilityBatchWriter();
+    const now = Date.now();
+    writer.queueVerify({
+      type: 'movie',
+      id: 'tt24681357',
+      status: 'verified',
+      observed_at: now,
+      proof_version: 2,
+      exact_main_win: true,
+      request_title_id: 'tt24681357',
+    });
+    writer.queueVerify({
+      type: 'series',
+      id: 'tt24681357:1:1',
+      status: 'verified',
+      observed_at: now + 1,
+      proof_version: 2,
+      exact_main_win: true,
+      request_title_id: 'tt24681357:1:1',
+    });
+    await writer.flush();
+
+    const bareRows = getPlayabilityDb().prepare(`
+SELECT type, status, fail_reason FROM titles WHERE id='tt24681357' ORDER BY type;
+`).all() as Array<Record<string, unknown>>;
+    assert.deepEqual(bareRows, [
+      { type: 'movie', status: 'stale', fail_reason: 'identity_type_collision' },
+      { type: 'series', status: 'stale', fail_reason: 'identity_type_collision' },
+    ]);
+    assert.equal((getPlayabilityDb().prepare(`
+SELECT status FROM titles WHERE type='series' AND id='tt24681357:1:1';
+`).get() as { status: string }).status, 'verified');
+  });
+});
+
+test('verified write collision check uses canonical identity index at library scale', async () => {
+  await withTempDb(async () => {
+    const db = getPlayabilityDb();
+    const insert = db.prepare(`
+INSERT INTO titles(type, id, status, proof_version, proof_exact_main, updated_at)
+VALUES (@type, @id, 'verified', 1, 0, 1);
+`);
+    db.transaction(() => {
+      for (let index = 1_100_000; index < 1_115_000; index += 1) {
+        insert.run({ type: index % 2 === 0 ? 'movie' : 'series', id: `tt${index}` });
+      }
+      insert.run({ type: 'movie', id: 'TT42424242' });
+    })();
+    const plan = db.prepare(`
+EXPLAIN QUERY PLAN
+SELECT 1
+FROM titles INDEXED BY idx_titles_identity_type_collision
+WHERE lower(id) = @id_key AND type = @counterpart AND status = 'verified'
+  AND type IN ('movie', 'series')
+LIMIT 1;
+`).all({ id_key: 'tt42424242', counterpart: 'movie' }) as Array<{ detail: string }>;
+    assert.match(plan.map((row) => row.detail).join('\n'), /idx_titles_identity_type_collision/);
+    const knownPlan = db.prepare(`
+EXPLAIN QUERY PLAN
+SELECT 1
+FROM titles INDEXED BY idx_titles_identity_collision_key
+WHERE lower(id) = @id_key
+  AND type = @counterpart
+  AND type IN ('movie', 'series')
+  AND (
+    status = 'verified'
+    OR fail_reason = 'identity_type_collision'
+  )
+LIMIT 1;
+`).all({ id_key: 'tt42424242', counterpart: 'movie' }) as Array<{ detail: string }>;
+    assert.match(knownPlan.map((row) => row.detail).join('\n'), /idx_titles_identity_collision_key/);
+    assert.equal(hasKnownIdentityTypeCollision('series', 'tt42424242'), true);
+
+    const started = performance.now();
+    await recordVerifyResult({
+      type: 'series',
+      id: 'tt42424242',
+      status: 'verified',
+      observed_at: Date.now(),
+      proof_version: 2,
+      exact_main_win: true,
+      request_title_id: 'tt42424242',
+    });
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed < 1_000, `write-time collision quarantine took ${elapsed.toFixed(1)}ms`);
+    assert.equal((getPlayabilityDb().prepare(`
+SELECT COUNT(*) AS count FROM titles WHERE lower(id)='tt42424242' AND status='stale'
+`).get() as { count: number }).count, 2);
   });
 });
 

@@ -6,7 +6,53 @@ Historical.
 
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [TESTING.md](TESTING.md)
 
-Latest recorded Pi deployment: **2026-08-21**,
+## Relocation health audit — 2026-09-11
+
+Latest live Pi readback: `2ef89f2f162c451c9f8970100af1145f51b88099` on
+`feat/native-experience`. Ethernet is connected, timezone is
+`America/New_York`, and NTP is synchronized. The catalog, recommendation
+worker, and launcher are active. Operator-owned Companion changes are preserved.
+
+**Repair status: local-pass; deployment authorized, not yet deployed.** Do not
+treat the repairs below as current Pi behavior until Git-only deployment and
+final exact-SHA Pi gates are recorded.
+
+- **YouTube:** reconnection and all refresh phases passed live. The opt-in
+  sustained playback gate passed with 154 seconds of advancing video, active
+  audio, and A/V readiness. A sampled frame check reported 1920×1080 with no
+  dropped frames. Picture/audio/lip-sync judgment remains couch-deferred.
+- **Traitors India S2E1:** the episode exists in metadata, but all ten current
+  AIO results expose generic edition labels. Local repairs add exact edition
+  identity rules; ambiguous/foreign releases must not be substituted. Correct
+  Indian-edition supply and post-deploy playback remain unproven.
+- **Identity and expiry:** the audit found duplicate movie/series identities
+  and thousands of expired verification rows. Local repairs tighten collision
+  handling and report only unexpired verification as current proof. A staged
+  maintenance catch-up and publication readback are still required.
+- **Efficiency and unattended recovery:** local repairs remove synchronous
+  Reliability Center subprocess probes, bound empty-source growth work,
+  protect action admission from cached idle state, recover interrupted receipts
+  under the maintenance lock, and stop missing recommendation receipts from
+  reporting success. Exhausted empty sources return to the first page on the next
+  pass without resetting healthy source cursors or mistaking rate limits for
+  catalog exhaustion. VOD ranking remains asynchronous; enqueue is not completion.
+- **Display and configuration:** local repairs zero idle DPMS timers and fix
+  wake-command ordering; this is not implementation of the deferred display
+  sleep/CEC feature. AIOMetadata synchronization remains opt-in, with private,
+  cleaned temporary files and atomic credential updates in its helper.
+
+Local validation: catalog **1203/1203**, launcher **142/142**, launcher and
+Companion builds, UI pad queue **10/10**, contextual controller **10/10**, HUD
+contract **10/10**, display ordering **3/3**, and the library-grow, stream-picker,
+maintenance recovery, AIOMetadata, and deployment-preflight suites passed.
+
+The prior deployed evidence below is **historical**, not a sign-off for the
+relocation repairs. Full couch acceptance and repeated unattended nights remain
+**DEFERRED**.
+
+## Historical recorded Pi deployment — 2026-08-21
+
+Previously recorded Pi deployment: **2026-08-21**,
 `d09f4dc493e58d7575809f6e0d014340d1430384`. The Trustworthy Recommendation
 Refactor is deployed and the exact-SHA pre-couch gate passes. A full staged
 nightly at `6d5d479` (the same recommendation/playability code) passed
@@ -25,7 +71,7 @@ evidence. Human couch verdict remains **DEFERRED** for picture, audio,
 lip-sync, controller feel, recommendation relevance, and VOD poster fill.
 Use `git status`, `git rev-parse HEAD`, and the Pi commands below before acting.
 
-## Current deployed source — 2026-08-21 (Trustworthy Recommendation Refactor)
+## Historical deployed source — 2026-08-21 (Trustworthy Recommendation Refactor)
 
 **Evidence level:** source-complete + local-pass + Pi-deployed + Pi-gated.
 **Not couch-observed.** Final tested Pi SHA:

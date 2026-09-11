@@ -2966,6 +2966,12 @@ test('full YouTube state and rails sanitize config, refresh, import, acquisition
   assert.deepEqual(state.auth, {
     configured: true,
     authenticated: true,
+    token_present: true,
+    access_token_valid: false,
+    renewable: true,
+    needs_reconnect: false,
+    status: 'refresh_required',
+    last_error: null,
     expires_at: now + 10_000,
     scope_count: 2,
   });
@@ -3105,8 +3111,74 @@ test('full YouTube state and rails sanitize config, refresh, import, acquisition
   }));
   const malformedAuthState = new YoutubeService().state();
   assert.equal((malformedAuthState.auth as Record<string, unknown>).expires_at, null);
+  assert.equal((malformedAuthState.auth as Record<string, unknown>).status, 'reconnect_required');
   assert.equal(JSON.stringify(malformedAuthState).includes('malformed-expiry-secret-marker'), false);
   assert.equal(JSON.stringify(malformedAuthState).includes('malformed-access-token-secret-marker'), false);
+}));
+
+test('auth diagnostics distinguish renewable expiry from reconnect-required invalid_grant', () => withTempState(async () => {
+  const now = Date.UTC(2026, 8, 11, 12);
+  const realNow = Date.now;
+  Date.now = () => now;
+  try {
+    process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+    process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+    const stateDir = dirname(process.env.MANGO_YOUTUBE_DB_PATH!);
+    const oauthClientPath = join(stateDir, 'oauth-client.json');
+    const tokenPath = join(stateDir, 'youtube-auth.json');
+    process.env.MANGO_YOUTUBE_OAUTH_CLIENT_FILE = oauthClientPath;
+    process.env.MANGO_YOUTUBE_AUTH_TOKEN_FILE = tokenPath;
+    writeFileSync(oauthClientPath, JSON.stringify({
+      installed: { client_id: 'client-id', client_secret: 'client-secret' },
+    }));
+    writeFileSync(tokenPath, JSON.stringify({
+      access_token: 'expired-access-token',
+      refresh_token: 'refresh-token',
+      expires_at: now - 60_000,
+      scope: 'https://www.googleapis.com/auth/youtube.readonly',
+    }));
+    replaceYoutubeV2Subscriptions([{
+      channel_key: 'subscribed-channel',
+      channel_id: 'subscribed-channel',
+      channel_title: 'Subscribed Channel',
+      channel_url: null,
+      source: 'oauth',
+      subscribed_at: null,
+    }], { source_generation: 'last-good-oauth', imported_at: now - 60_000 });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      error: 'invalid_grant',
+      error_description: 'Token has been expired or revoked.',
+    }), {
+      status: 400,
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch;
+    try {
+      const service = new YoutubeService();
+      const before = service.state().auth as Record<string, unknown>;
+      assert.equal(before.authenticated, true);
+      assert.equal(before.status, 'refresh_required');
+      const refreshed = await service.refresh('oauth_connected');
+      assert.equal(refreshed.ok, false);
+      const after = service.state().auth as Record<string, unknown>;
+      assert.equal(after.authenticated, false);
+      assert.equal(after.renewable, true);
+      assert.equal(after.needs_reconnect, true);
+      assert.equal(after.status, 'reconnect_required');
+      assert.deepEqual(after.last_error, {
+        category: 'invalid_grant',
+        at: now,
+        reconnect_required: true,
+      });
+      const companion = service.companionStatus();
+      assert.equal(companion.authenticated, false);
+      assert.equal(companion.needs_attention, true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  } finally {
+    Date.now = realNow;
+  }
 }));
 
 test('Your regulars mixes rewatch cooldown exemption with frequent-channel uploads', () => withTempState(() => {
@@ -3426,4 +3498,3 @@ test('offline holdout eval is deterministic across identical rebuilds', () => wi
   assert.deepEqual(first.variants, second.variants);
   assert.equal((first.variants as Array<{ variant: string }>).map((row) => row.variant).join(','), 'legacy,v3,v3-embed');
 }));
-

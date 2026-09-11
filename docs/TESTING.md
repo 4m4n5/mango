@@ -30,6 +30,10 @@ uses `MANGO_YOUTUBE_PLAY=1`.
 | `scripts/m6-ship/test-youtube-pot-server-fd.sh` | Mac full (POT fd 200 closure) |
 | `scripts/m6-ship/test-library-offline-compaction.sh` | Mac full (offline compaction hook) |
 | `scripts/m3-play/playability/test-wait-vod-recommendation-jobs.sh` | Mac full (waiter not on grow critical path) |
+| `scripts/m3-play/playability/test-coordinator-entrypoints.sh` | Mac full (default deadlines, interrupted receipts, lock contention) |
+| `scripts/m4-addons/test-aiometadata-opt-in-and-temp.sh` | Mac full (opt-in config sync, private temporary-file cleanup) |
+| `scripts/diag/test_recommendation_refresh_receipt.py` | Mac full (exact-run recommendation evidence, missing evidence is partial) |
+| `scripts/lib/test_display_wake.py` | Local regression; Pi playback SSOT gate (wake ordering and no-auto-blank policy) |
 | `scripts/gate-lite.sh` | Pi fast |
 | `scripts/m6-ship/gate-m6-ux-smoke.sh` | Pi fast |
 | `scripts/m6-ship/gate-m6-playback-ssot.sh` | Pi fast |
@@ -41,6 +45,14 @@ uses `MANGO_YOUTUBE_PLAY=1`.
 
 `scripts/gate-mango.sh` is the dispatcher. `gate-lite.sh` and
 `pi-pre-couch-gate.sh` remain compatibility entrypoints.
+
+After a long offline period, also check current (unexpired) playability proof,
+completion of the desired VOD revisions, YouTube OAuth renewal and source
+freshness, timezone/NTP and the next nightly timer, and preserved interrupted-run
+receipts. A queued recommendation job is accepted work, not completed ranking.
+Run concurrent catalog requests while reading Reliability Center to catch
+diagnostic probes that block playback or browsing. Re-test ambiguous series
+editions with exact season/episode IDs; dubbed audio is not proof of edition.
 
 ## Couch acceptance
 

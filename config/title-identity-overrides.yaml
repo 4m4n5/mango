@@ -1,0 +1,12 @@
+# Exact identity facts for titles whose upstream metadata is missing a country
+# or edition discriminator. These do not add streams; they only tighten
+# verification/playback matching for ambiguous same-title releases.
+titles:
+  # Evidence: Prime Video title 0NPUDV12CFZ3EA8Z5WJZFNIDIS and AboutAmazon India
+  # identify tt33347879 as the Indian Prime Video edition; S2 premiered 2026-08-13.
+  series:tt33347879:
+    country: India
+    trusted_titles:
+      - The Traitors
+      - The Traitors India
+    require_explicit_edition: true
