@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pi: install node deps only when package-lock.json changes (fast deploy path).
+# Pi: reuse deps only when both lockfile and native Node runtime match.
 # Usage: bash scripts/lib/pi-npm-deps.sh ensure <dir>
 #        bash scripts/lib/pi-npm-deps.sh build <dir>   # ensure + npm run build
 
@@ -23,6 +23,14 @@ lock_hash() {
   sha256sum "$lock" | awk '{print $1}'
 }
 
+dependency_fingerprint() {
+  local dir="$1" runtime lock
+  lock="$(lock_hash "$dir")" || return 1
+  runtime="$(node -p '[process.platform, process.arch, process.versions.modules, process.versions.napi].join(":")')" || return 1
+  [[ -n "$runtime" ]] || { echo "pi-npm-deps: cannot identify Node runtime" >&2; return 1; }
+  printf '%s\n%s\n' "$lock" "$runtime" | sha256sum | awk '{print $1}'
+}
+
 ensure_deps() {
   local dir="$1"
   [[ -f "${dir}/package.json" ]] || { echo "pi-npm-deps: no package.json in $dir" >&2; return 1; }
@@ -36,7 +44,7 @@ ensure_deps() {
 
   local stamp hash
   stamp="$(stamp_path "$dir")"
-  hash="$(lock_hash "$dir")"
+  hash="$(dependency_fingerprint "$dir")" || return 1
   mkdir -p "$CACHE_DIR"
 
   if [[ -d "${dir}/node_modules" ]] && [[ -f "$stamp" ]] && [[ "$(tr -d '[:space:]' <"$stamp")" == "$hash" ]]; then
@@ -44,7 +52,7 @@ ensure_deps() {
     return 0
   fi
 
-  echo "pi-npm-deps: npm ci ($dir — lock changed or node_modules missing)"
+  echo "pi-npm-deps: npm ci ($dir — lock/runtime changed or node_modules missing)"
   npm --prefix "$dir" ci --silent
   printf '%s\n' "$hash" >"$stamp"
 }

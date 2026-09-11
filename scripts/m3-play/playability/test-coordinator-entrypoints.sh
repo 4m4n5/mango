@@ -55,11 +55,112 @@ grow = json.loads(sys.argv[1])
 nightly = json.loads(sys.argv[2])
 grow_window = grow["admission_deadline_ms"] - (grow["deadline_ms"] - 150 * 60 * 1000)
 nightly_stop_before_deadline = nightly["deadline_ms"] - nightly["admission_deadline_ms"]
+nightly_stale_window = nightly["stale_child_admission_deadline_ms"] - nightly["started_ms"]
+nightly_global_window = nightly["admission_deadline_ms"] - nightly["started_ms"]
 if grow["preset"] != "quick" or grow_window != 8 * 60 * 1000:
     raise SystemExit(f"grow default preset/deadline wrong: {grow}")
 if nightly["preset"] != "nightly" or nightly_stop_before_deadline != 15 * 60 * 1000:
     raise SystemExit(f"nightly default preset/deadline wrong: {nightly}")
+if nightly["grow_child_admission_deadline_ms"] != nightly["admission_deadline_ms"]:
+    raise SystemExit(f"nightly grow child deadline was narrowed: {nightly}")
+if nightly["stale_budget_fraction"] != 0.25 or nightly_stale_window != int(nightly_global_window * 0.25):
+    raise SystemExit(f"nightly stale budget fraction not applied: {nightly}")
 PY
+
+inherited_long_quick_deadline="$(env -u MANGO_GROW_PRESET \
+  MANGO_PLAYABILITY_COORDINATOR_LOCK_HELD=1 \
+  MANGO_MAINTENANCE_DEADLINE_TEST_ONLY=1 \
+  MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS=9999999999999 \
+  bash "$REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh" --mode grow)"
+inherited_inverted_deadline="$(env -u MANGO_GROW_PRESET \
+  MANGO_PLAYABILITY_COORDINATOR_LOCK_HELD=1 \
+  MANGO_MAINTENANCE_DEADLINE_TEST_ONLY=1 \
+  MANGO_PLAYABILITY_RUN_DEADLINE_MS=1000 \
+  MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS=2000 \
+  bash "$REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh" --mode nightly)"
+python3 - "$inherited_long_quick_deadline" "$inherited_inverted_deadline" <<'PY'
+import json
+import sys
+
+quick = json.loads(sys.argv[1])
+inverted = json.loads(sys.argv[2])
+quick_window = quick["admission_deadline_ms"] - quick["started_ms"]
+if quick["preset"] != "quick" or quick_window != 8 * 60 * 1000:
+    raise SystemExit(f"inherited long quick deadline was not bounded: {quick}")
+if inverted["admission_deadline_ms"] <= inverted["started_ms"]:
+    raise SystemExit(f"inherited inverted deadline survived: {inverted}")
+if inverted["deadline_ms"] <= inverted["admission_deadline_ms"]:
+    raise SystemExit(f"inherited inverted run/admission ordering survived: {inverted}")
+PY
+
+make_policy() {
+  local fraction="$1"
+  local path="$2"
+  python3 - "$REPO_DIR/config/playability-policy.json" "$path" "$fraction" <<'PY'
+import json
+import sys
+
+source, target, fraction = sys.argv[1:]
+data = json.load(open(source, encoding="utf-8"))
+data["nightly"]["stale_budget_fraction"] = float(fraction)
+with open(target, "w", encoding="utf-8") as handle:
+    json.dump(data, handle)
+PY
+}
+
+for fraction in 0 0.25 0.5; do
+  policy_path="$TMP_DIR/policy-$fraction.json"
+  make_policy "$fraction" "$policy_path"
+  budget_deadline="$(env -u MANGO_GROW_PRESET \
+    MANGO_PLAYABILITY_COORDINATOR_LOCK_HELD=1 \
+    MANGO_MAINTENANCE_DEADLINE_TEST_ONLY=1 \
+    MANGO_PLAYABILITY_POLICY_PATH="$policy_path" \
+    bash "$REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh" --mode nightly)"
+  python3 - "$budget_deadline" "$fraction" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+fraction = float(sys.argv[2])
+global_window = payload["admission_deadline_ms"] - payload["started_ms"]
+expected = payload["started_ms"] + int(global_window * fraction)
+if payload["stale_child_admission_deadline_ms"] != min(payload["admission_deadline_ms"], expected):
+    raise SystemExit(f"stale child deadline mismatch for {fraction}: {payload}")
+if payload["grow_child_admission_deadline_ms"] != payload["admission_deadline_ms"]:
+    raise SystemExit(f"grow child deadline changed for {fraction}: {payload}")
+PY
+done
+
+policy_path="$TMP_DIR/policy-stale-mode.json"
+make_policy 0.25 "$policy_path"
+stale_mode_deadline="$(env -u MANGO_GROW_PRESET \
+  MANGO_PLAYABILITY_COORDINATOR_LOCK_HELD=1 \
+  MANGO_MAINTENANCE_DEADLINE_TEST_ONLY=1 \
+  MANGO_PLAYABILITY_POLICY_PATH="$policy_path" \
+  bash "$REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh" --mode stale)"
+python3 - "$stale_mode_deadline" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+if payload["stale_child_admission_deadline_ms"] != payload["admission_deadline_ms"]:
+    raise SystemExit(f"explicit stale mode should keep full allocation: {payload}")
+if payload["grow_child_admission_deadline_ms"] != payload["admission_deadline_ms"]:
+    raise SystemExit(f"explicit stale mode changed grow child deadline: {payload}")
+PY
+
+bad_policy="$TMP_DIR/policy-bad-fraction.json"
+make_policy 0.75 "$bad_policy"
+if env -u MANGO_GROW_PRESET \
+    MANGO_PLAYABILITY_COORDINATOR_LOCK_HELD=1 \
+    MANGO_MAINTENANCE_DEADLINE_TEST_ONLY=1 \
+    MANGO_PLAYABILITY_POLICY_PATH="$bad_policy" \
+    bash "$REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh" --mode nightly \
+    >"$TMP_DIR/bad-policy.out" 2>"$TMP_DIR/bad-policy.err"; then
+  echo "invalid stale_budget_fraction was accepted" >&2
+  exit 1
+fi
+grep -q 'stale_budget_fraction' "$TMP_DIR/bad-policy.err"
 
 RUNS_DIR="$XDG_CACHE_HOME/mango/playability-runs"
 cat >"$RUNS_DIR/active.json" <<'JSON'

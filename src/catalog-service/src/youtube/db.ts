@@ -1884,6 +1884,16 @@ GROUP BY provenance
   };
 }
 
+export function youtubeV2ActiveCandidateGenerationRefs(at = nowMs()): string[] {
+  return (ensureDb().prepare(`
+SELECT DISTINCT source_generation
+FROM youtube_v2_candidate_provenance
+WHERE expires_at > ?
+ORDER BY source_generation;
+`).all(Math.floor(at)) as Array<{ source_generation: string }>)
+    .map((row) => row.source_generation);
+}
+
 export type YoutubeV2GenerationItemInput = {
   rail_id: 'for_you' | 'beyond' | 'more_like' | 'new_from_subscriptions' | 'live_now' | 'frequently_watched';
   item: YoutubeItem;
@@ -2070,6 +2080,90 @@ function youtubeV2GenerationValue(
 
 export function latestYoutubeV2GenerationRecord(): YoutubeV2GenerationRecord | null {
   return readLatestYoutubeV2GenerationRecord(ensureDb());
+}
+
+export function latestYoutubeV2GenerationRailSummary(options: {
+  allowExpiredNonLive?: boolean;
+} = {}): {
+  generation: number | null;
+  status: 'ready' | 'empty' | null;
+  allocated_rail_count: number;
+  active_rail_count: number;
+  available_rail_count: number;
+  renderable_candidate_rail_count: number;
+  reserve_depths: Record<string, number>;
+  active_reserve_depths: Record<string, number>;
+  available_reserve_depths: Record<string, number>;
+  retained_expired_non_live_depths: Record<string, number>;
+} {
+  const db = ensureDb();
+  const generation = readLatestYoutubeV2GenerationRecord(db);
+  if (!generation || generation.status !== 'ready') {
+    return {
+      generation: generation?.generation ?? null,
+      status: generation?.status ?? null,
+      allocated_rail_count: 0,
+      active_rail_count: 0,
+      available_rail_count: 0,
+      renderable_candidate_rail_count: 0,
+      reserve_depths: {},
+      active_reserve_depths: {},
+      available_reserve_depths: {},
+      retained_expired_non_live_depths: {},
+    };
+  }
+  const at = nowMs();
+  const allowExpiredNonLive = options.allowExpiredNonLive === true;
+  const rows = db.prepare(`
+SELECT rail_id,
+       COUNT(*) AS count,
+       SUM(CASE WHEN source_expires_at > @at THEN 1 ELSE 0 END) AS active_count,
+       SUM(CASE
+         WHEN rail_id != 'live_now' AND source_expires_at <= @at THEN 1
+         ELSE 0
+       END) AS retained_expired_non_live_count,
+       SUM(CASE
+         WHEN source_expires_at > @at OR (@allow_expired_non_live = 1 AND rail_id != 'live_now') THEN 1
+         ELSE 0
+       END) AS available_count
+FROM youtube_v2_generation_items
+WHERE generation = @generation
+GROUP BY rail_id
+ORDER BY rail_id;
+`).all({
+    generation: generation.generation,
+    at,
+    allow_expired_non_live: allowExpiredNonLive ? 1 : 0,
+  }) as Array<{
+    rail_id: string;
+    count: number;
+    active_count: number;
+    retained_expired_non_live_count: number;
+    available_count: number;
+  }>;
+  const reserveDepths = Object.fromEntries(rows.map((row) => [row.rail_id, Number(row.count)]));
+  const activeReserveDepths = Object.fromEntries(rows.map((row) => [row.rail_id, Number(row.active_count)]));
+  const availableReserveDepths = Object.fromEntries(rows.map((row) => [row.rail_id, Number(row.available_count)]));
+  const retainedExpiredNonLiveDepths = Object.fromEntries(rows.map((row) => [
+    row.rail_id,
+    Number(row.retained_expired_non_live_count),
+  ]));
+  return {
+    generation: generation.generation,
+    status: generation.status,
+    allocated_rail_count: rows.length,
+    active_rail_count: rows.filter((row) => Number(row.active_count) > 0).length,
+    available_rail_count: rows.filter((row) => Number(row.available_count) > 0).length,
+    renderable_candidate_rail_count: rows.filter((row) => (
+      row.rail_id === 'live_now'
+        ? Number(row.active_count) > 0
+        : Number(row.count) >= 4
+    )).length,
+    reserve_depths: reserveDepths,
+    active_reserve_depths: activeReserveDepths,
+    available_reserve_depths: availableReserveDepths,
+    retained_expired_non_live_depths: retainedExpiredNonLiveDepths,
+  };
 }
 
 export function latestYoutubeV2Generation(): YoutubeV2Generation | null {

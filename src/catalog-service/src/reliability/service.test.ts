@@ -6,6 +6,7 @@ import test from 'node:test';
 import { computeStarvingRails } from './model.js';
 import {
   ReliabilityService,
+  catalogFacts,
   playabilityFacts,
   processFactsFromSnapshot,
   railGrowthHistory,
@@ -134,6 +135,64 @@ test('library facts exclude expired distinct verified rows from current proof', 
   const facts = playabilityFacts(status, ['movies-active', 'series-active']);
   assert.equal(facts.verified_distinct, 2750);
   assert.equal(facts.expired_verified, 6680);
+});
+
+test('catalog facts treat absent Live rails as optional disabled state', () => {
+  const facts = catalogFacts({
+    ok: true,
+    core: 'ready',
+    rails_ready: true,
+    live_rails: 0,
+    live_ready: false,
+    live: {
+      ready: false,
+      config_ready: false,
+      cache_fresh: false,
+      sources: [],
+      cache: { fresh: false, non_empty: false },
+    },
+  });
+  assert.equal(facts.live_enabled, false);
+  assert.equal(facts.live_config_ready, false);
+});
+
+test('catalog facts preserve configured empty-cache Live as enabled', () => {
+  const facts = catalogFacts({
+    ok: true,
+    core: 'ready',
+    rails_ready: true,
+    live_rails: 1,
+    live_ready: false,
+    live: {
+      ready: false,
+      config_ready: false,
+      cache_fresh: false,
+      sources: [{ addon: 'mango Live TV', catalog: 'tv' }],
+      cache: { fresh: false, non_empty: false },
+    },
+  });
+  assert.equal(facts.live_enabled, true);
+  assert.equal(facts.live_config_ready, false);
+});
+
+test('catalog facts preserve malformed configured Live as enabled from config error', () => {
+  const facts = catalogFacts({
+    ok: true,
+    core: 'ready',
+    rails_ready: true,
+    live_rails: 0,
+    live_ready: false,
+    live: {
+      ready: false,
+      config_ready: false,
+      cache_fresh: false,
+      config_error: 'live catalog rails must be a non-empty array',
+      sources: [],
+      cache: { fresh: false, non_empty: false },
+    },
+  });
+  assert.equal(facts.live_enabled, true);
+  assert.equal(facts.live_config_ready, false);
 });
 
 test('rail growth counts one completed publishable refresh per local calendar date', () => {

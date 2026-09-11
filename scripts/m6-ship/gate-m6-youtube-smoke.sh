@@ -23,10 +23,17 @@ post_json() {
     "$CATALOG$path"
 }
 
+if [[ "${MANGO_YOUTUBE_GATE_SKIP_YTDLP_EXEC:-0}" == "1" ]]; then
+  echo "WARN: skipping executable yt-dlp/runtime checks (MANGO_YOUTUBE_GATE_SKIP_YTDLP_EXEC=1)" >&2
+fi
+
 curl -sf --max-time 5 "$CATALOG/health" >/dev/null
 
-state_json="$(curl_json "/youtube/state" 10)"
-python3 - "$state_json" "${MANGO_YOUTUBE_POT:-1}" <<'PY'
+state_json=""
+state_deadline=$((SECONDS + ${MANGO_YOUTUBE_STATE_FRESHNESS_WAIT_SEC:-5}))
+while true; do
+  state_json="$(curl_json "/youtube/state" 10)"
+  if ! state_status="$(python3 - "$state_json" "${MANGO_YOUTUBE_POT:-1}" <<'PY'
 import json
 import sys
 payload = json.loads(sys.argv[1])
@@ -56,8 +63,29 @@ if kind == "mango_wrapper":
     assert playback.get("ejs_ready") is True, playback
     assert playback.get("js_runtime") == "deno", playback
     if sys.argv[2] != "0":
+        if configured.get("pot_server_fresh") is not True:
+            print("pending")
+            raise SystemExit(0)
         assert playback.get("pot_ready") is True, playback
+print("ok")
 PY
+)"; then
+    exit 1
+  fi
+  if [[ "$state_status" == "ok" ]]; then
+    break
+  fi
+  if [[ "$state_status" == "pending" && "$SECONDS" -lt "$state_deadline" ]]; then
+    sleep 0.25
+    continue
+  fi
+  if [[ "$state_status" == "pending" ]]; then
+    echo "FAIL: YouTube POT readiness probe is still pending" >&2
+    exit 1
+  fi
+  echo "FAIL: unexpected YouTube state validator result: ${state_status:-<empty>}" >&2
+  exit 1
+done
 
 yt_dlp_kind="$(
   python3 - "$state_json" <<'PY'
@@ -67,6 +95,7 @@ payload = json.loads(sys.argv[1])
 print(((payload.get("configured") or {}).get("yt_dlp_command_kind")) or "")
 PY
 )"
+if [[ "${MANGO_YOUTUBE_GATE_SKIP_YTDLP_EXEC:-0}" != "1" ]]; then
 case "$yt_dlp_kind" in
   yt_dlp)
     timeout 15 yt-dlp --version >/dev/null
@@ -168,6 +197,7 @@ assert re.search(
     diagnostic,
 ), "yt-dlp did not register the supervised HTTP POT provider"
 PY
+fi
 fi
 
 rails_json="$(curl_json "/youtube/rails" 20)"

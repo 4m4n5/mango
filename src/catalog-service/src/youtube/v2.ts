@@ -12,6 +12,7 @@ import {
   getYoutubeState,
   latestYoutubeV2Generation,
   latestYoutubeV2GenerationRecord,
+  latestYoutubeV2GenerationRailSummary,
   latestYoutubeV2TakeoutImport,
   listYoutubeV2CandidateProvenance,
   listYoutubeV2ImportedHistory,
@@ -21,6 +22,7 @@ import {
   setYoutubeState,
   YOUTUBE_V2_SERVING_POLICY_VERSION,
   youtubeDbPath,
+  youtubeV2ActiveCandidateGenerationRefs,
   youtubeV2CandidateProvenanceSummary,
   type YoutubeV2CandidateProvenance,
   type YoutubeV2Generation,
@@ -365,6 +367,34 @@ function householdWatchAnchors(
     watchUntil: options.watchUntil,
     includeLocal: options.includeLocal,
   });
+}
+
+let diagnosticWatchAnchorSnapshot: {
+  key: string;
+  built_at: number;
+  watches: WatchAnchor[];
+} | null = null;
+const DIAGNOSTIC_WATCH_ANCHOR_CACHE_MS = 5_000;
+
+function diagnosticHouseholdWatchAnchors(): WatchAnchor[] {
+  const now = Date.now();
+  const key = `${youtubeDbPath()}\u0000${libraryDbPath()}`;
+  if (
+    diagnosticWatchAnchorSnapshot?.key === key
+    && now - diagnosticWatchAnchorSnapshot.built_at < DIAGNOSTIC_WATCH_ANCHOR_CACHE_MS
+  ) {
+    return diagnosticWatchAnchorSnapshot.watches.map((watch) => ({
+      ...watch,
+      event_times: [...watch.event_times],
+    }));
+  }
+  const watches = loadHouseholdWatchAnchors();
+  diagnosticWatchAnchorSnapshot = {
+    key,
+    built_at: now,
+    watches: watches.map((watch) => ({ ...watch, event_times: [...watch.event_times] })),
+  };
+  return watches;
 }
 
 function scoringContextFor(
@@ -2383,11 +2413,22 @@ export function youtubeV2Diagnostics(): Record<string, unknown> {
   const generation = latestYoutubeV2GenerationRecord();
   const sourceStale = youtubeV2SourceStaleState();
   const ready = generation?.status === 'ready' ? latestYoutubeV2Generation() : null;
+  const railSummary = latestYoutubeV2GenerationRailSummary({
+    allowExpiredNonLive: sourceStale.stale,
+  });
   const subscriptions = authoritativeSubscriptions();
-  const activeProvenance = listYoutubeV2CandidateProvenance({ limit: V2_PROVENANCE_LIMIT });
   const takeout = latestYoutubeV2TakeoutImport();
   const reserveDepths = Object.fromEntries(V2_RESERVE_RAIL_IDS.map((railId) => (
-    [railId, ready?.items.filter((item) => item.rail_id === railId).length ?? 0]
+    [railId, railSummary.reserve_depths[railId] ?? 0]
+  )));
+  const activeReserveDepths = Object.fromEntries(V2_RESERVE_RAIL_IDS.map((railId) => (
+    [railId, railSummary.active_reserve_depths[railId] ?? 0]
+  )));
+  const availableReserveDepths = Object.fromEntries(V2_RESERVE_RAIL_IDS.map((railId) => (
+    [railId, railSummary.available_reserve_depths[railId] ?? 0]
+  )));
+  const retainedExpiredNonLiveDepths = Object.fromEntries(V2_RESERVE_RAIL_IDS.map((railId) => (
+    [railId, railSummary.retained_expired_non_live_depths[railId] ?? 0]
   )));
   const poolQuality = Object.fromEntries(V2_RESERVE_RAIL_IDS.map((railId) => {
     const items = ready?.items.filter((item) => item.rail_id === railId) ?? [];
@@ -2397,7 +2438,7 @@ export function youtubeV2Diagnostics(): Record<string, unknown> {
       seed_count: new Set(items.map((item) => item.provenance_ref)).size,
     }];
   }));
-  const watches = householdWatchAnchors();
+  const watches = diagnosticHouseholdWatchAnchors();
   const localWatches = watches.filter((watch) => watch.source === 'local' || watch.source === 'mixed');
   const takeoutWatches = watches.filter((watch) => watch.source === 'takeout' || watch.source === 'mixed');
   const affinity = channelAffinityMap(watches);
@@ -2450,7 +2491,14 @@ export function youtubeV2Diagnostics(): Record<string, unknown> {
     generation: generation?.generation ?? null,
     generated_at: generation?.generated_at ?? null,
     candidate_count: generation?.candidate_count ?? 0,
+    allocated_rail_count: railSummary.allocated_rail_count,
+    active_rail_count: railSummary.active_rail_count,
+    available_rail_count: railSummary.available_rail_count,
+    renderable_candidate_rail_count: railSummary.renderable_candidate_rail_count,
     reserve_depths: reserveDepths,
+    active_reserve_depths: activeReserveDepths,
+    available_reserve_depths: availableReserveDepths,
+    retained_expired_non_live_depths: retainedExpiredNonLiveDepths,
     pool_quality: poolQuality,
     sampling: {
       policy: YOUTUBE_V2_SERVING_POLICY_VERSION,
@@ -2532,7 +2580,7 @@ export function youtubeV2Diagnostics(): Record<string, unknown> {
         subscriptions.map((row) => row.source_generation),
       ),
       candidate_generation_refs: diagnosticOpaqueRefs(
-        activeProvenance.map((row) => row.source_generation),
+        youtubeV2ActiveCandidateGenerationRefs(),
       ),
     },
     latest_takeout_import: youtubeV2TakeoutDiagnostics(takeout),

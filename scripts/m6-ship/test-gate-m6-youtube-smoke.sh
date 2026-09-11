@@ -292,7 +292,7 @@ elif fixture == "off-custom-command":
         "stale_reason": None,
         "rails": [],
     }
-elif fixture != "serve-ready":
+elif fixture not in {"serve-ready", "wrapper-pot-pending-then-ready", "wrapper-pot-pending"}:
     raise SystemExit(f"unknown fixture: {fixture}")
 
 state = {
@@ -303,17 +303,45 @@ state = {
         "yt_dlp_command": "",
         "yt_dlp_command_kind": "custom" if fixture == "off-custom-command" else "missing",
     },
+    "playback": {},
     "cache": {},
     "recommendations_v2": v2,
 }
+if fixture in {"wrapper-pot-pending-then-ready", "wrapper-pot-pending"}:
+    state["configured"].update({
+        "yt_dlp_command": "mango_wrapper",
+        "yt_dlp_command_kind": "mango_wrapper",
+        "pot_server": False,
+        "pot_server_fresh": False,
+        "pot_server_checked_at": None,
+    })
+    state["playback"] = {
+        "slot_revision": "fixture-revision",
+        "slot_channel": "nightly",
+        "player_client_policy": "upstream_default",
+        "canary": "pass",
+        "fallback": "none",
+        "ejs_ready": True,
+        "js_runtime": "deno",
+        "pot_ready": False,
+    }
+
+state_requests = 0
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        global state_requests
         if self.path == "/health":
             body = {"ok": True}
         elif self.path == "/youtube/state":
-            body = state
+            state_requests += 1
+            body = json.loads(json.dumps(state))
+            if fixture == "wrapper-pot-pending-then-ready" and state_requests >= 2:
+                body["configured"]["pot_server"] = True
+                body["configured"]["pot_server_fresh"] = True
+                body["configured"]["pot_server_checked_at"] = 9999999999000
+                body["playback"]["pot_ready"] = True
         elif self.path == "/youtube/rails":
             body = payload
         else:
@@ -352,7 +380,20 @@ PY
   local port
   port="$(<"$port_file")"
   local rc=0
-  MANGO_CATALOG_URL="http://127.0.0.1:${port}" bash "$GATE" >"$output_file" 2>&1 || rc=$?
+  local skip_yt_dlp_exec=0
+  local freshness_wait_sec=5
+  if [[ "$fixture" == wrapper-pot-* ]]; then
+    skip_yt_dlp_exec=1
+  fi
+  if [[ "$fixture" == "wrapper-pot-pending" ]]; then
+    freshness_wait_sec=0
+  fi
+  env \
+    MANGO_CATALOG_URL="http://127.0.0.1:${port}" \
+    MANGO_YOUTUBE_POT=1 \
+    MANGO_YOUTUBE_GATE_SKIP_YTDLP_EXEC="$skip_yt_dlp_exec" \
+    MANGO_YOUTUBE_STATE_FRESHNESS_WAIT_SEC="$freshness_wait_sec" \
+    bash "$GATE" >"$output_file" 2>&1 || rc=$?
 
   kill "$mock_pid" 2>/dev/null || true
   wait "$mock_pid" 2>/dev/null || true
@@ -365,6 +406,11 @@ PY
   fi
   if [[ "$expectation" == "fail" && "$rc" -eq 0 ]]; then
     echo "FAIL: $fixture should fail" >&2
+    sed -n '1,120p' "$output_file" >&2
+    exit 1
+  fi
+  if [[ "$skip_yt_dlp_exec" == "1" ]] && ! grep -q "WARN: skipping executable yt-dlp/runtime checks" "$output_file"; then
+    echo "FAIL: $fixture used yt-dlp skip without emitting a warning" >&2
     sed -n '1,120p' "$output_file" >&2
     exit 1
   fi
@@ -387,6 +433,8 @@ run_case serve-invalid-sampling fail
 run_case serve-invalid-cap fail
 run_case serve-invalid-more-like-target fail
 run_case serve-diagnostics-leak fail
+run_case wrapper-pot-pending-then-ready pass
+run_case wrapper-pot-pending fail
 run_case shadow-utility pass
 run_case off-utility pass
 run_case off-empty pass

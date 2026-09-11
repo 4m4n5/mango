@@ -406,17 +406,26 @@ async function controllerHealth(
   };
 }
 
-function catalogFacts(health: CatalogHealth): ReliabilityFacts['catalog'] {
+export function catalogFacts(health: CatalogHealth): ReliabilityFacts['catalog'] {
   const live = health.live && typeof health.live === 'object'
     ? health.live as Record<string, unknown>
     : {};
   const liveCache = live.cache && typeof live.cache === 'object'
     ? live.cache as Record<string, unknown>
     : {};
+  const liveSources = Array.isArray(live.sources) ? live.sources : [];
+  const liveConfigError = safeString(live.config_error);
+  const liveEnabled = safeNumber(health.live_rails, 0) > 0
+    || liveSources.length > 0
+    || liveConfigError !== ''
+    || safeBool(live.config_ready)
+    || safeBool(health.live_ready)
+    || safeBool(live.ready);
   return {
     ok: safeBool(health.ok),
     core: safeString(health.core, 'unknown'),
     rails_ready: safeBool(health.rails_ready),
+    live_enabled: liveEnabled,
     live_config_ready: safeBool(live.config_ready) || safeBool(health.live_ready) || safeBool(live.ready),
     live_cache_fresh: safeBool(live.cache_fresh) || safeBool(liveCache.fresh),
     live_serving_stale: safeBool(live.serving_stale) || (

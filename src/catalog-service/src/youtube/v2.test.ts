@@ -38,6 +38,7 @@ import {
 import {
   refreshYoutubeAfterTakeoutImport,
   refreshYoutubeV2AfterLocalSignal,
+  resetYoutubeRuntimeDiagnosticsForTests,
   YoutubeService,
   youtubeV2AcquisitionQueryBudget,
 } from './service.js';
@@ -121,9 +122,11 @@ function withTempState<T>(fn: () => T | Promise<T>): T | Promise<T> {
   process.env.MANGO_YOUTUBE_API_KEY_FILE = join(dir, 'missing-api-key');
   process.env.MANGO_YOUTUBE_OAUTH_CLIENT_FILE = join(dir, 'missing-oauth.json');
   process.env.MANGO_YOUTUBE_AUTH_TOKEN_FILE = join(dir, 'missing-auth.json');
+  resetYoutubeRuntimeDiagnosticsForTests();
   resetYoutubeDbForTests();
   resetLibraryDbForTests();
   const cleanup = () => {
+    resetYoutubeRuntimeDiagnosticsForTests();
     resetYoutubeDbForTests();
     resetLibraryDbForTests();
     delete process.env.MANGO_YOUTUBE_DB_PATH;
@@ -2015,14 +2018,50 @@ test('OAuth-disconnected stale mode can serve expired non-live last-good rows bu
   seedV2();
   process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
   rebuildYoutubeV2Generation({ force: true, at: publishedAt });
-  new YoutubeService().disconnectAuth();
   const originalNow = Date.now;
   try {
     Date.now = () => publishedAt + 31 * 24 * 60 * 60 * 1_000;
+    const healthyDiagnostics = youtubeV2Diagnostics();
+    const healthyReserveDepths = healthyDiagnostics.reserve_depths as Record<string, number>;
+    const healthyAvailableDepths = healthyDiagnostics.available_reserve_depths as Record<string, number>;
+    const healthyRetainedDepths = healthyDiagnostics.retained_expired_non_live_depths as Record<string, number>;
+    assert.equal(
+      Object.values(healthyReserveDepths).reduce((sum, depth) => sum + depth, 0),
+      healthyDiagnostics.candidate_count,
+    );
+    assert.ok(Object.entries(healthyRetainedDepths)
+      .some(([railId, depth]) => railId !== 'live_now' && depth > 0));
+    assert.equal(Object.values(healthyAvailableDepths).reduce((sum, depth) => sum + depth, 0), 0);
+    const healthyCache = new YoutubeService().state().cache as Record<string, unknown>;
+    assert.equal(healthyCache.v2_available_rail_count, 0);
+    assert.equal(healthyCache.rail_count, 0);
+
+    new YoutubeService().disconnectAuth();
     const rails = youtubeV2RecommendationRails({ shuffle_epoch: 0 });
     assert.ok(rails.some((rail) => rail.rail_id !== 'live_now' && rail.items.length === 4));
     assert.equal(rails.some((rail) => rail.rail_id === 'live_now'), false);
     assert.ok(rails.every((rail) => rail.stale));
+    const diagnostics = youtubeV2Diagnostics();
+    const reserveDepths = diagnostics.reserve_depths as Record<string, number>;
+    const activeReserveDepths = diagnostics.active_reserve_depths as Record<string, number>;
+    const availableReserveDepths = diagnostics.available_reserve_depths as Record<string, number>;
+    const retainedDepths = diagnostics.retained_expired_non_live_depths as Record<string, number>;
+    assert.equal(
+      Object.values(reserveDepths).reduce((sum, depth) => sum + depth, 0),
+      diagnostics.candidate_count,
+    );
+    assert.ok(Object.entries(reserveDepths)
+      .some(([railId, depth]) => railId !== 'live_now' && depth >= 4));
+    assert.ok(reserveDepths.live_now > 0);
+    assert.equal(activeReserveDepths.live_now, 0);
+    assert.equal(availableReserveDepths.live_now, 0);
+    assert.ok(Object.entries(retainedDepths)
+      .some(([railId, depth]) => railId !== 'live_now' && depth > 0));
+    assert.ok(Object.entries(availableReserveDepths)
+      .some(([railId, depth]) => railId !== 'live_now' && depth >= 4));
+    const staleCache = new YoutubeService().state().cache as Record<string, unknown>;
+    assert.ok(Number(staleCache.v2_available_rail_count) > 0);
+    assert.equal(staleCache.rail_count, staleCache.v2_available_rail_count);
   } finally {
     Date.now = originalNow;
   }
@@ -2721,8 +2760,63 @@ test('rendered impression counters do not influence a weighted v2 slate', () => 
   );
 }));
 
+test('YouTube state cache rail_count reports serve-mode v2 allocation without off/shadow exposure', () => withTempState(() => {
+  const now = Date.now();
+  const sparse = video('SparseStateRail01', 'Sparse state rail fixture', 'sparse-state-channel');
+  publishYoutubeV2Generation({
+    model_version: YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION,
+    source_hash: 'sparse-state-rail',
+    watch_count: 1,
+    subscription_count: 0,
+    generated_at: now,
+    items: [{
+      rail_id: 'for_you',
+      item: sparse,
+      score: 0.9,
+      reason: 'youtube_v2:sparse_state',
+      provenance: 'history_topic',
+      provenance_ref: 'state-seed',
+      source_expires_at: now + 30 * 24 * 60 * 60 * 1_000,
+      context_id: '',
+    }],
+  });
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  assert.equal(getYoutubeState('youtube_v2_serving_epoch', null), null);
+  const sparseCache = new YoutubeService().state().cache as Record<string, unknown>;
+  assert.equal(sparseCache.legacy_rail_count, 0);
+  assert.equal(sparseCache.v2_allocated_rail_count, 1);
+  assert.equal(sparseCache.v2_available_rail_count, 1);
+  assert.equal(sparseCache.v2_renderable_candidate_rail_count, 0);
+  assert.equal(sparseCache.rail_count, 1);
+  assert.equal(getYoutubeState('youtube_v2_serving_epoch', null), null);
+
+  seedV2();
+  rebuildYoutubeV2Generation({ force: true });
+  const service = new YoutubeService();
+  for (const mode of ['off', 'shadow'] as const) {
+    process.env.MANGO_YOUTUBE_RECS_V2 = mode;
+    const hiddenState = service.state();
+    const hiddenCache = hiddenState.cache as Record<string, unknown>;
+    assert.equal((hiddenState.recommendations_v2 as Record<string, unknown>).mode, mode);
+    assert.equal(hiddenCache.legacy_rail_count, 0);
+    assert.ok(Number(hiddenCache.v2_allocated_rail_count) > 0);
+    assert.equal(hiddenCache.v2_available_rail_count, 0);
+    assert.equal(hiddenCache.v2_renderable_candidate_rail_count, 0);
+    assert.equal(hiddenCache.rail_count, 0);
+  }
+
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  const servedCache = service.state().cache as Record<string, unknown>;
+  assert.ok(Number(servedCache.v2_allocated_rail_count) > 0);
+  assert.ok(Number(servedCache.v2_available_rail_count) > 0);
+  assert.ok(Number(servedCache.v2_renderable_candidate_rail_count) > 0);
+  assert.equal(servedCache.rail_count, servedCache.v2_available_rail_count);
+  assert.equal(servedCache.legacy_rail_count, 0);
+  assert.equal(getYoutubeState('youtube_v2_serving_epoch', null), null);
+}));
+
 test('YouTube state exposes only allowlisted yt-dlp command descriptors', () => withTempState(() => {
-  process.env.MANGO_YTDLP_COMMAND = 'yt-dlp';
+  process.env.MANGO_YTDLP_COMMAND = '/missing-mango-test/yt-dlp';
   const ytDlpState = new YoutubeService().state().configured as Record<string, unknown>;
   assert.equal(ytDlpState.api_key, false);
   assert.equal(ytDlpState.oauth_client, false);
@@ -2730,13 +2824,18 @@ test('YouTube state exposes only allowlisted yt-dlp command descriptors', () => 
   assert.equal(ytDlpState.yt_dlp_command_kind, 'yt_dlp');
   assert.equal(typeof ytDlpState.playback_cookies, 'boolean');
   assert.equal(typeof ytDlpState.yt_dlp_version === 'string' || ytDlpState.yt_dlp_version === null, true);
+  assert.equal(ytDlpState.yt_dlp_version_fresh, false);
+  assert.equal(ytDlpState.yt_dlp_version_checked_at, null);
   assert.equal(typeof ytDlpState.pot_server, 'boolean');
+  assert.equal(ytDlpState.pot_server_fresh, false);
+  assert.equal(ytDlpState.pot_server_checked_at, null);
 
   process.env.MANGO_YTDLP_COMMAND = '/private/bin/scripts/m6-ship/youtube-yt-dlp.sh';
   const wrapperState = new YoutubeService().state().configured as Record<string, unknown>;
   assert.equal(wrapperState.yt_dlp_command, 'mango_wrapper');
   assert.equal(wrapperState.yt_dlp_command_kind, 'mango_wrapper');
   assert.equal(wrapperState.yt_dlp_version, null);
+  assert.equal(wrapperState.yt_dlp_version_fresh, false);
   assert.equal(typeof wrapperState.pot_server, 'boolean');
 
   process.env.MANGO_YTDLP_COMMAND = 'https://operator:custom-command-secret@private.example/runner';
@@ -2748,12 +2847,16 @@ test('YouTube state exposes only allowlisted yt-dlp command descriptors', () => 
     yt_dlp_command: customConfigured.yt_dlp_command,
     yt_dlp_command_kind: customConfigured.yt_dlp_command_kind,
     yt_dlp_version: customConfigured.yt_dlp_version,
+    yt_dlp_version_fresh: customConfigured.yt_dlp_version_fresh,
+    yt_dlp_version_checked_at: customConfigured.yt_dlp_version_checked_at,
   }, {
     api_key: false,
     oauth_client: false,
     yt_dlp_command: '',
     yt_dlp_command_kind: 'custom',
     yt_dlp_version: null,
+    yt_dlp_version_fresh: true,
+    yt_dlp_version_checked_at: null,
   });
   assert.equal(typeof customConfigured.playback_cookies, 'boolean');
   assert.equal(typeof customConfigured.pot_server, 'boolean');

@@ -8,43 +8,69 @@ Historical.
 
 ## Relocation health audit — 2026-09-11
 
-Latest live Pi readback: `2ef89f2f162c451c9f8970100af1145f51b88099` on
+Repair deployment readback: `4554c0a6cf6f1d79d58f9bb1d5afbe0441462fe9` on
 `feat/native-experience`. Ethernet is connected, timezone is
 `America/New_York`, and NTP is synchronized. The catalog, recommendation
 worker, and launcher are active. Operator-owned Companion changes are preserved.
 
-**Repair status: local-pass; deployment authorized, not yet deployed.** Do not
-treat the repairs below as current Pi behavior until Git-only deployment and
-final exact-SHA Pi gates are recorded.
+**Repair status: Pi-deployed; maintenance and final gates in progress.** The
+initial identity/diagnostic readbacks below passed; they are not the full
+release gate. Additional local follow-ups have not yet been deployed.
 
 - **YouTube:** reconnection and all refresh phases passed live. The opt-in
   sustained playback gate passed with 154 seconds of advancing video, active
   audio, and A/V readiness. A sampled frame check reported 1920×1080 with no
   dropped frames. Picture/audio/lip-sync judgment remains couch-deferred.
-- **Traitors India S2E1:** the episode exists in metadata, but all ten current
-  AIO results expose generic edition labels. Local repairs add exact edition
-  identity rules; ambiguous/foreign releases must not be substituted. Correct
-  Indian-edition supply and post-deploy playback remain unproven.
+- **Traitors India S2E1:** the episode exists in metadata, but current AIO
+  results are foreign editions or lack identifying edition evidence. Exact
+  edition rules are deployed; the live request returns zero accepted streams
+  instead of substituting those releases. Correct Indian-edition availability
+  and playback remain unproven.
 - **Identity and expiry:** the audit found duplicate movie/series identities
-  and thousands of expired verification rows. Local repairs tighten collision
+  and thousands of expired verification rows. Deployed repairs tighten collision
   handling and report only unexpired verification as current proof. A staged
   maintenance catch-up and publication readback are still required.
-- **Efficiency and unattended recovery:** local repairs remove synchronous
+- **Efficiency and unattended recovery:** deployed repairs remove synchronous
   Reliability Center subprocess probes, bound empty-source growth work,
   protect action admission from cached idle state, recover interrupted receipts
   under the maintenance lock, and stop missing recommendation receipts from
   reporting success. Exhausted empty sources return to the first page on the next
   pass without resetting healthy source cursors or mistaking rate limits for
   catalog exhaustion. VOD ranking remains asynchronous; enqueue is not completion.
-- **Display and configuration:** local repairs zero idle DPMS timers and fix
+- **Display and configuration:** deployed repairs zero idle DPMS timers and fix
   wake-command ordering; this is not implementation of the deferred display
   sleep/CEC feature. AIOMetadata synchronization remains opt-in, with private,
   cleaned temporary files and atomic credential updates in its helper.
+
+Initial Pi readbacks: playability schema **20**, zero simultaneously verified
+bare movie/series identity collisions, YouTube renewable authentication without
+reconnect required, and all idle DPMS timers **0** / **disabled**. A cold
+Reliability read took 1.91 seconds while a concurrent `/health` completed in
+**2.9 ms** (pre-repair concurrent health stalled for about 2.24 seconds).
+User-service lingering is enabled. The 03:00 playability and 06:00 Companion
+timers use the current Eastern timezone. The interrupted pre-move maintenance
+receipt is preserved as failed/interrupted by the new coordinator.
 
 Local validation: catalog **1203/1203**, launcher **142/142**, launcher and
 Companion builds, UI pad queue **10/10**, contextual controller **10/10**, HUD
 contract **10/10**, display ordering **3/3**, and the library-grow, stream-picker,
 maintenance recovery, AIOMetadata, and deployment-preflight suites passed.
+
+Follow-up release preparation adds bounded asynchronous YouTube status probes,
+allocated/active/retained recommendation diagnostics, optional-Live health parity,
+literal-only maintenance profile lookup, a reserved nightly stale-check budget,
+native dependency cache invalidation on ABI changes, and hostname-based relocation
+fallbacks. Clean dependency installs pass; npm audit reports **zero** findings in
+each of catalog, launcher, and Companion. These dependency audits do not certify
+the operating system: Pi admin authentication is still required to refresh and
+apply OS security updates, and the installed Debian Node runtime has unresolved
+[security-tracker issues](https://security-tracker.debian.org/tracker/source-package/nodejs). Platform changes have not been silently bundled into the
+application release.
+
+Follow-up local validation: catalog **1210/1210**, launcher **143/143**, UI
+server **18/18**, native dependency fingerprint **6/6**, all three package
+builds, optional-Live parity, YouTube smoke fixtures, maintenance profile and
+deadline/recovery, and deployment-hardening checks pass. Pi proof is still pending.
 
 The prior deployed evidence below is **historical**, not a sign-off for the
 relocation repairs. Full couch acceptance and repeated unattended nights remain

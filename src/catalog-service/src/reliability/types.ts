@@ -107,6 +107,7 @@ export type ReliabilityFacts = {
     ok: boolean;
     core: string;
     rails_ready: boolean;
+    live_enabled: boolean;
     live_config_ready: boolean;
     live_cache_fresh: boolean;
     live_serving_stale: boolean;

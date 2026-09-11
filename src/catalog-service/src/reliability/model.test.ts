@@ -22,6 +22,7 @@ function baseFacts(): ReliabilityFacts {
       ok: true,
       core: 'ready',
       rails_ready: true,
+      live_enabled: true,
       live_config_ready: true,
       live_cache_fresh: true,
       live_serving_stale: false,
@@ -129,6 +130,52 @@ test('thin library rails are yellow but still couch-usable', () => {
   assert.equal(state.status, 'yellow');
   assert.equal(state.ok, true);
   assert.match(state.components.find((entry) => entry.id === 'library')?.summary ?? '', /thin rails/);
+});
+
+test('disabled optional Live does not make overall reliability red', () => {
+  const facts = baseFacts();
+  facts.catalog.live_enabled = false;
+  facts.catalog.live_config_ready = false;
+  facts.catalog.live_cache_fresh = false;
+  facts.catalog.live_serving_stale = false;
+  facts.catalog.live_ready = false;
+  facts.catalog.live_stale_fallback = false;
+  const state = evaluateReliability(facts);
+  const live = state.components.find((entry) => entry.id === 'live');
+  assert.equal(live?.status, 'green');
+  assert.equal(live?.summary, 'live disabled');
+  assert.equal(state.status, 'yellow', 'missing proof remains yellow, but Live is not a red blocker');
+  assert.equal(state.ok, true);
+});
+
+test('configured Live without cache remains a red reliability blocker', () => {
+  const facts = baseFacts();
+  facts.catalog.live_enabled = true;
+  facts.catalog.live_config_ready = true;
+  facts.catalog.live_cache_fresh = false;
+  facts.catalog.live_serving_stale = false;
+  facts.catalog.live_stale_fallback = false;
+  const state = evaluateReliability(facts);
+  const live = state.components.find((entry) => entry.id === 'live');
+  assert.equal(live?.status, 'red');
+  assert.match(live?.summary ?? '', /no usable cache/);
+  assert.equal(state.status, 'red');
+  assert.equal(state.ok, false);
+});
+
+test('missing Live enabled fact is fail-safe red when config is unavailable', () => {
+  const facts = baseFacts();
+  delete (facts.catalog as Partial<typeof facts.catalog>).live_enabled;
+  facts.catalog.live_config_ready = false;
+  facts.catalog.live_cache_fresh = false;
+  facts.catalog.live_serving_stale = false;
+  facts.catalog.live_ready = false;
+  facts.catalog.live_stale_fallback = false;
+  const state = evaluateReliability(facts);
+  const live = state.components.find((entry) => entry.id === 'live');
+  assert.equal(live?.status, 'red');
+  assert.match(live?.summary ?? '', /config unavailable/);
+  assert.equal(state.status, 'red');
 });
 
 test('known zero current distinct proof is red even when stale rail placements remain', () => {

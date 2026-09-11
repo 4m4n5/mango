@@ -91,6 +91,7 @@ RUN_ID="${MANGO_PLAYABILITY_RUN_ID:-playability-$(date +%Y%m%d-%H%M%S)}"
 export MANGO_OPS_RUN_ID="$RUN_ID"
 export MANGO_OPS_SOURCE="playability-maintenance"
 RUN_STARTED_MS="$(python3 -c 'import time; print(int(time.time()*1000))')"
+export RUN_STARTED_MS
 resolve_grow_preset_early() {
   if [[ -z "${MANGO_GROW_PRESET:-}" ]]; then
     if [[ "$MODE" == "grow" ]]; then
@@ -103,6 +104,52 @@ resolve_grow_preset_early() {
   fi
 }
 resolve_grow_preset_early
+
+resolve_stale_budget_fraction() {
+  python3 - "$REPO_DIR" <<'PY'
+import json
+import math
+import os
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+path = Path(os.environ.get("MANGO_PLAYABILITY_POLICY_PATH") or repo / "config/playability-policy.json")
+try:
+    stat = path.stat()
+except OSError as exc:
+    raise SystemExit(f"playability-maintenance: policy not readable: {path}: {exc}")
+if stat.st_size > 1024 * 1024:
+    raise SystemExit(f"playability-maintenance: policy too large: {path}")
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except Exception as exc:
+    raise SystemExit(f"playability-maintenance: invalid playability policy JSON: {path}: {exc}")
+if not isinstance(data, dict):
+    raise SystemExit("playability-maintenance: playability policy must be a JSON object")
+nightly = data.get("nightly")
+if not isinstance(nightly, dict):
+    raise SystemExit("playability-maintenance: playability policy nightly must be an object")
+fraction = nightly.get("stale_budget_fraction")
+if not isinstance(fraction, (int, float)) or isinstance(fraction, bool) or not math.isfinite(float(fraction)):
+    raise SystemExit("playability-maintenance: nightly.stale_budget_fraction must be a finite number")
+fraction = float(fraction)
+if fraction < 0 or fraction > 0.5:
+    raise SystemExit("playability-maintenance: nightly.stale_budget_fraction must be in [0, 0.5]")
+print(f"{fraction:.12g}")
+PY
+}
+
+compute_stale_admission_deadline() {
+  python3 - "$RUN_STARTED_MS" "$MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS" "$STALE_BUDGET_FRACTION" <<'PY'
+import sys
+started = int(sys.argv[1])
+global_admission = int(sys.argv[2])
+fraction = float(sys.argv[3])
+candidate = started + int((global_admission - started) * fraction)
+print(min(global_admission, candidate))
+PY
+}
 
 NIGHTLY_DEADLINE_MINUTES="${MANGO_PLAYABILITY_NIGHTLY_DEADLINE_MINUTES:-150}"
 ADMISSION_STOP_MINUTES="${MANGO_PLAYABILITY_ADMISSION_STOP_MINUTES:-135}"
@@ -122,14 +169,25 @@ if [[ "$MANGO_GROW_PRESET" == "quick" ]]; then
   # publication and couch restoration may finish immediately afterward.
   export MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS=$((RUN_STARTED_MS + 8 * 60 * 1000))
 fi
+STALE_BUDGET_FRACTION="$(resolve_stale_budget_fraction)" || exit 1
+export STALE_BUDGET_FRACTION
+NIGHTLY_STALE_ADMISSION_DEADLINE_MS="$MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS"
+if [[ "$MODE" == "nightly" ]]; then
+  NIGHTLY_STALE_ADMISSION_DEADLINE_MS="$(compute_stale_admission_deadline)" || exit 1
+fi
+export NIGHTLY_STALE_ADMISSION_DEADLINE_MS
 if [[ "${MANGO_MAINTENANCE_DEADLINE_TEST_ONLY:-0}" == "1" ]]; then
   python3 - <<'PY'
 import json
 import os
 payload = {
     "preset": os.environ["MANGO_GROW_PRESET"],
+    "started_ms": int(os.environ["RUN_STARTED_MS"]),
     "deadline_ms": int(os.environ["MANGO_PLAYABILITY_RUN_DEADLINE_MS"]),
     "admission_deadline_ms": int(os.environ["MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS"]),
+    "stale_budget_fraction": float(os.environ["STALE_BUDGET_FRACTION"]),
+    "stale_child_admission_deadline_ms": int(os.environ["NIGHTLY_STALE_ADMISSION_DEADLINE_MS"]),
+    "grow_child_admission_deadline_ms": int(os.environ["MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS"]),
 }
 print(json.dumps(payload, sort_keys=True))
 PY
@@ -141,10 +199,15 @@ exec > >(tee -a "$MAINT_LOG") 2>&1
 
 # shellcheck source=../../lib/catalog-yaml.sh
 source "$REPO_DIR/scripts/lib/catalog-yaml.sh"
+# shellcheck source=lib/maintenance-catalog-filters.sh
+source "$REPO_DIR/scripts/m3-play/playability/lib/maintenance-catalog-filters.sh"
 export MANGO_CATALOG_YAML="$(resolve_catalog_yaml)" || exit 1
 echo "catalog: $MANGO_CATALOG_YAML"
 
-FILTERS_JSON="$(resolve_catalog_filters)"
+FILTERS_JSON="$(maintenance_resolve_catalog_filters)"
+maintenance_validate_catalog_filters "$FILTERS_JSON" || exit 1
+export MANGO_CATALOG_FILTERS="$FILTERS_JSON"
+echo "catalog-filters: $MANGO_CATALOG_FILTERS"
 if [[ -z "${MANGO_PLAYABILITY_PROBE_MS:-}" && -f "$FILTERS_JSON" ]]; then
   export MANGO_PLAYABILITY_PROBE_MS="$(
     python3 - "$FILTERS_JSON" <<'PY'
@@ -747,6 +810,7 @@ stage_playability_db_if_needed
 
 run_refresh() {
   local refresh_mode="$1"
+  local child_admission_deadline_ms="${2:-}"
   local -a args=(refresh --all --mode "$refresh_mode")
   if [[ -n "${MANGO_PLAYABILITY_CANDIDATE_LIMIT:-}" ]]; then
     args+=(--candidate-limit "$MANGO_PLAYABILITY_CANDIDATE_LIMIT")
@@ -755,7 +819,32 @@ run_refresh() {
     args+=(--bootstrap)
     echo "bootstrap: pool_target=min_display, early-exit enabled"
   fi
-  npm --prefix src/catalog-service exec tsx -- scripts/m3-play/playability/playability-indexer.ts "${args[@]}"
+  if [[ -n "$child_admission_deadline_ms" ]]; then
+    MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS="$child_admission_deadline_ms" \
+      npm --prefix src/catalog-service exec tsx -- scripts/m3-play/playability/playability-indexer.ts "${args[@]}"
+  else
+    npm --prefix src/catalog-service exec tsx -- scripts/m3-play/playability/playability-indexer.ts "${args[@]}"
+  fi
+}
+
+refresh_stop_reason_from_text() {
+  python3 -c '
+import json
+import sys
+
+text = sys.stdin.read()
+decoder = json.JSONDecoder()
+for index, char in enumerate(text):
+    if char != "{":
+        continue
+    try:
+        payload, _ = decoder.raw_decode(text[index:])
+    except Exception:
+        continue
+    if isinstance(payload, dict) and "stop_reason" in payload:
+        print(payload.get("stop_reason") or "")
+        break
+'
 }
 
 REFRESH_JSON=""
@@ -763,14 +852,25 @@ REFRESH_RC=0
 # Exit status of the phase whose work landed in the staged DB. REFRESH_RC is the
 # nightly aggregate and can carry an unrelated stale failure; publication must not.
 PUBLISH_RC=0
+STALE_BUDGET_YIELDED=0
 
 set +e
 if [[ "$MODE" == "nightly" ]]; then
-  grow_state set --phase stale --message "stale refresh in progress" --mode "$MODE" --preset "$MANGO_GROW_PRESET"
+  grow_state set --phase stale \
+    --message "stale refresh in progress (budget fraction=$STALE_BUDGET_FRACTION)" \
+    --mode "$MODE" --preset "$MANGO_GROW_PRESET"
   echo "== phase 1: stale refresh =="
-  STALE_JSON="$(run_refresh stale 2>&1)"
+  echo "stale budget: fraction=$STALE_BUDGET_FRACTION admission_deadline_ms=$NIGHTLY_STALE_ADMISSION_DEADLINE_MS global_admission_deadline_ms=$MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS"
+  STALE_JSON="$(run_refresh stale "$NIGHTLY_STALE_ADMISSION_DEADLINE_MS" 2>&1)"
   STALE_RC=$?
   echo "$STALE_JSON"
+  STALE_STOP_REASON="$(printf '%s' "$STALE_JSON" | refresh_stop_reason_from_text || true)"
+  if [[ "$STALE_STOP_REASON" == "admission_deadline" \
+      && "$NIGHTLY_STALE_ADMISSION_DEADLINE_MS" != "$MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS" ]]; then
+    STALE_BUDGET_YIELDED=1
+    echo "stale budget yielded safely: admission_deadline"
+    grow_state log "nightly stale phase budget-yielded at admission deadline; grow admission remains $MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS"
+  fi
   if [[ "$PHASE_COOLDOWN_SEC" -gt 0 ]]; then
     grow_state set --phase cooldown \
       --message "phase cooldown ${PHASE_COOLDOWN_SEC}s (stream rate-limit window)" \
@@ -825,6 +925,10 @@ set -e
 
 END_MS="$(python3 -c 'import time; print(int(time.time()*1000))')"
 echo "maintenance refresh rc=$REFRESH_RC duration_ms=$((END_MS - START_MS))"
+REFRESH_SUMMARY="maintenance mode=$MODE rc=$REFRESH_RC duration_ms=$((END_MS - START_MS))"
+if [[ "$STALE_BUDGET_YIELDED" == "1" ]]; then
+  REFRESH_SUMMARY="$REFRESH_SUMMARY stale_budget_yielded=1"
+fi
 
 REFRESH_OUT="${OPS_DIR}/refresh-${RUN_ID}.json"
 REFRESH_OUT_WRITTEN=0
@@ -844,7 +948,7 @@ if REFRESH_WRITE_KIND="$(printf '%s' "$REFRESH_JSON" | python3 "$REPO_DIR/script
     --run-id "$RUN_ID" \
     --source playability-maintenance \
     --write-report \
-    --summary "maintenance mode=$MODE rc=$REFRESH_RC duration_ms=$((END_MS - START_MS))" \
+    --summary "$REFRESH_SUMMARY" \
     --payload-file "$REFRESH_OUT"
 fi
 

@@ -26,11 +26,14 @@ uses `MANGO_YOUTUBE_PLAY=1`.
 | `scripts/m2-catalog/service/test_mango_hud_contract.py` | PR |
 | `scripts/m6-ship/gate-m6-stream-picker-source.sh` | PR |
 | `scripts/m6-ship/test-pi-deploy-hardening.sh` | PR |
+| `scripts/lib/test_pi_npm_deps.py` | Local (native dependency cache invalidation on Node ABI/platform changes) |
+| `scripts/lib/test-health-repair-live-contract.sh` / `src/mango-ui-server/test_catalog_health.py` | Local (disabled Live is optional; configured/malformed Live fails closed) |
 | `scripts/m3-play/playability/gate-m3-library-grow.sh` | Mac full / playability paths |
 | `scripts/m6-ship/test-youtube-pot-server-fd.sh` | Mac full (POT fd 200 closure) |
 | `scripts/m6-ship/test-library-offline-compaction.sh` | Mac full (offline compaction hook) |
 | `scripts/m3-play/playability/test-wait-vod-recommendation-jobs.sh` | Mac full (waiter not on grow critical path) |
 | `scripts/m3-play/playability/test-coordinator-entrypoints.sh` | Mac full (default deadlines, interrupted receipts, lock contention) |
+| `scripts/m3-play/playability/test-maintenance-catalog-filters.sh` | Mac full (literal-only operator profile lookup; no shell evaluation) |
 | `scripts/m4-addons/test-aiometadata-opt-in-and-temp.sh` | Mac full (opt-in config sync, private temporary-file cleanup) |
 | `scripts/diag/test_recommendation_refresh_receipt.py` | Mac full (exact-run recommendation evidence, missing evidence is partial) |
 | `scripts/lib/test_display_wake.py` | Local regression; Pi playback SSOT gate (wake ordering and no-auto-blank policy) |
@@ -50,9 +53,14 @@ After a long offline period, also check current (unexpired) playability proof,
 completion of the desired VOD revisions, YouTube OAuth renewal and source
 freshness, timezone/NTP and the next nightly timer, and preserved interrupted-run
 receipts. A queued recommendation job is accepted work, not completed ranking.
-Run concurrent catalog requests while reading Reliability Center to catch
+Run concurrent catalog requests while reading Reliability Center and YouTube state to catch
 diagnostic probes that block playback or browsing. Re-test ambiguous series
 editions with exact season/episode IDs; dubbed audio is not proof of edition.
+YouTube cold runtime probes are explicitly pending until their freshness fields
+are true; a fresh negative probe is a failure, not permission to retry forever.
+Allocated recommendation counts are not the same as active or available counts.
+After a Node runtime change, reinstall native dependencies and verify SQLite and
+the real MiniLM embedding path on the Pi before claiming runtime compatibility.
 
 ## Couch acceptance
 

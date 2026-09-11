@@ -10,6 +10,52 @@ PLAYABILITY_LOCK_FILE="${CACHE_DIR}/playability-maintenance.lock"
 RECOMMENDATION_LEASE_FILE="${MANGO_RECOMMENDATION_MAINTENANCE_LEASE:-${CACHE_DIR}/recommendation-maintenance.lease}"
 QUIET=0
 
+catalog_health_json_ready() {
+  local body="$1"
+  python3 - "$body" <<'PY'
+import json
+import sys
+
+try:
+    data = json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+
+ok = bool(data.get("ok")) and data.get("core") == "ready" and bool(data.get("rails_ready"))
+live = data.get("live")
+
+# New catalog health payloads explicitly describe optional Live with both
+# top-level live_rails and live.sources. Only that shape can mark Live disabled;
+# older/partial payloads keep the legacy fail-safe live_ready/live.ready checks.
+new_live_schema = isinstance(live, dict) and "live_rails" in data and "sources" in live
+if new_live_schema:
+    sources = live.get("sources")
+    if not isinstance(sources, list):
+        raise SystemExit(1)
+    try:
+        live_rails = int(data.get("live_rails") or 0)
+    except Exception:
+        raise SystemExit(1)
+    live_enabled = (
+        live_rails > 0
+        or len(sources) > 0
+        or bool(live.get("config_error"))
+        or bool(live.get("config_ready"))
+        or bool(data.get("live_ready"))
+        or bool(live.get("ready"))
+    )
+    if live_enabled:
+        ok = ok and bool(data.get("live_ready")) and bool(live.get("ready"))
+else:
+    if "live_ready" in data:
+        ok = ok and bool(data.get("live_ready"))
+    if isinstance(live, dict) and "ready" in live:
+        ok = ok and bool(live.get("ready"))
+
+raise SystemExit(0 if ok else 1)
+PY
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quiet) QUIET=1; shift ;;
@@ -20,6 +66,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
+
+if [[ "${MANGO_HEALTH_REPAIR_TEST_CATALOG_READY:-0}" == "1" ]]; then
+  catalog_health_json_ready "$(cat)"
+  exit $?
+fi
 
 cd "$REPO_DIR"
 mkdir -p "$CACHE_DIR"
@@ -111,21 +162,7 @@ catalog_ready() {
   local body
   body="$(curl -sf --max-time 4 "$(catalog_service_url)/health" 2>/dev/null || true)"
   [[ -n "$body" ]] || return 1
-  python3 - "$body" <<'PY'
-import json
-import sys
-try:
-    data = json.loads(sys.argv[1])
-except Exception:
-    raise SystemExit(1)
-ok = bool(data.get("ok")) and data.get("core") == "ready" and bool(data.get("rails_ready"))
-if "live_ready" in data:
-    ok = ok and bool(data.get("live_ready"))
-live = data.get("live")
-if isinstance(live, dict) and "ready" in live:
-    ok = ok and bool(live.get("ready"))
-raise SystemExit(0 if ok else 1)
-PY
+  catalog_health_json_ready "$body"
 }
 
 catalog_live() {

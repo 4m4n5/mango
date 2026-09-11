@@ -5,7 +5,7 @@
 #   bash scripts/pi-deploy.sh [--fast] [--full] [--gate]
 #
 #   --fast   default for agent iteration — build + restart; npm ci only when
-#            package-lock.json changes (see scripts/lib/pi-npm-deps.sh)
+#            lockfile/native runtime changes (see scripts/lib/pi-npm-deps.sh)
 #   --full   always npm ci both apps (deps change, first boot, handoff)
 #   --gate   run gate-lite after deploy (MANGO_GATE_FULL=1 for per-rail play sweep)
 #   MANGO_CONTROLLER_LINK_INSTALL=1 installs controller BlueZ policy before restart

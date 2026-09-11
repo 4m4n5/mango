@@ -648,6 +648,51 @@ def collect_health(port: int) -> dict[str, object]:
     return {"ok": ok, "checks": checks}
 
 
+def catalog_live_enabled_from_health(data: dict[str, object]) -> bool:
+    live = data.get("live")
+    if not isinstance(live, dict):
+        return True
+    # Only new catalog health payloads can explicitly disable optional Live.
+    # Older/partial payloads keep the legacy fail-safe live_ready/live.ready path.
+    if "live_rails" not in data or "sources" not in live:
+        return True
+    sources = live.get("sources")
+    if not isinstance(sources, list):
+        return True
+    try:
+        live_rails = int(data.get("live_rails") or 0)
+    except (TypeError, ValueError):
+        return True
+    return (
+        live_rails > 0
+        or len(sources) > 0
+        or bool(live.get("config_error"))
+        or bool(live.get("config_ready"))
+        or bool(data.get("live_ready"))
+        or bool(live.get("ready"))
+    )
+
+
+def catalog_live_ready_from_health(data: dict[str, object]) -> bool:
+    live = data.get("live")
+    new_live_schema = isinstance(live, dict) and "live_rails" in data and "sources" in live
+    if new_live_schema:
+        if not isinstance(live.get("sources"), list):
+            return False
+        try:
+            int(data.get("live_rails") or 0)
+        except (TypeError, ValueError):
+            return False
+    if not catalog_live_enabled_from_health(data):
+        return True
+    if new_live_schema:
+        return bool(data.get("live_ready")) and bool(live.get("ready"))
+    live_ready = bool(data.get("live_ready", True))
+    if isinstance(live, dict) and "ready" in live:
+        live_ready = live_ready and bool(live.get("ready"))
+    return live_ready
+
+
 def collect_catalog_health() -> dict[str, object]:
     try:
         request = Request(f"{CATALOG_UPSTREAM.rstrip('/')}/health", method="GET")
@@ -657,10 +702,7 @@ def collect_catalog_health() -> dict[str, object]:
         return {"ok": False, "core": "down", "rails_ready": False, "live_ready": False}
     if not isinstance(data, dict):
         return {"ok": False, "core": "invalid", "rails_ready": False, "live_ready": False}
-    live = data.get("live")
-    live_ready = bool(data.get("live_ready", True))
-    if isinstance(live, dict) and "ready" in live:
-        live_ready = live_ready and bool(live.get("ready"))
+    live_ready = catalog_live_ready_from_health(data)
     ready = (
         bool(data.get("ok"))
         and data.get("core") == "ready"
