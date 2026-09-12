@@ -84,6 +84,27 @@ Logs: `$HOME/.cache/mango/catalog-service.log`, `orchestrator.log`,
 Use `scripts/m6-ship/backup-library-state.sh` before schema work. Runtime
 DBs, AIOStreams `userData`, and YouTube OAuth stay on the device.
 
+## One-night recovery window
+
+`scripts/m3-play/playability/overnight-recovery.py` runs bounded, coordinated
+stale-reverification and discovery passes with an operator-specified absolute
+admission cutoff and finish target. Use explicit timezone-offset datetimes for
+`--admission-stop-at` and `--finish-at`; inspect `--dry-run` before launching it
+as a detached `systemd-run --user` service. Keep the Pi and network powered.
+
+The default allocation is 80% stale recovery by elapsed pass time. Required
+short verification probes remain enabled; playback gates, source benchmarks,
+and YouTube refresh are disabled. Existing identity rules and retry queues
+remain authoritative. The supervisor temporarily guards competing scheduled
+services while leaving their persistent timers active, avoiding morning
+catch-up. Runtime guards expire by clock even if the supervisor fails.
+
+Receipts live under `~/.cache/mango/ops/overnight-recovery-*.json`, alongside
+the existing per-pass maintenance receipts. Treat startup, verified-title yield,
+safe publication, and terminal completion as separate evidence. The finish
+time is a graceful target, not permission to kill SQLite publication; a stalled
+publication can exceed it and requires operator inspection.
+
 ## Expiry-only visibility recovery
 
 `scripts/m6-ship/restore-expiry-only-visibility.py` defaults to a read-only

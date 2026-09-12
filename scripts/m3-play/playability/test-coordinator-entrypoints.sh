@@ -111,6 +111,51 @@ with open(target, "w", encoding="utf-8") as handle:
 PY
 }
 
+for preset in quick nightly overnight; do
+  absolute_deadline="$(MANGO_GROW_PRESET="$preset" \
+    MANGO_PLAYABILITY_COORDINATOR_LOCK_HELD=1 \
+    MANGO_MAINTENANCE_DEADLINE_TEST_ONLY=1 \
+    MANGO_PLAYABILITY_ABSOLUTE_RUN_DEADLINE_MS=2000 \
+    MANGO_PLAYABILITY_ABSOLUTE_ADMISSION_DEADLINE_MS=1000 \
+    bash "$REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh" --mode stale)"
+  python3 - "$absolute_deadline" <<'PY'
+import json, sys
+p = json.loads(sys.argv[1])
+assert p['deadline_ms'] == 2000, p
+assert p['admission_deadline_ms'] == 1000, p
+assert p['hooks_child_admission_deadline_ms'] == 1000, p
+PY
+done
+future_cap="$(MANGO_GROW_PRESET=quick \
+  MANGO_PLAYABILITY_COORDINATOR_LOCK_HELD=1 \
+  MANGO_MAINTENANCE_DEADLINE_TEST_ONLY=1 \
+  MANGO_PLAYABILITY_ABSOLUTE_RUN_DEADLINE_MS=9007199254740991 \
+  MANGO_PLAYABILITY_ABSOLUTE_ADMISSION_DEADLINE_MS=9007199254740991 \
+  bash "$REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh" --mode grow)"
+run_only_cap="$(MANGO_GROW_PRESET=nightly \
+  MANGO_PLAYABILITY_COORDINATOR_LOCK_HELD=1 \
+  MANGO_MAINTENANCE_DEADLINE_TEST_ONLY=1 \
+  MANGO_PLAYABILITY_ABSOLUTE_RUN_DEADLINE_MS=2000 \
+  bash "$REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh" --mode nightly)"
+python3 - "$future_cap" "$run_only_cap" <<'PY'
+import json, sys
+future, run_only = map(json.loads, sys.argv[1:])
+assert future['admission_deadline_ms'] - future['started_ms'] == 8 * 60 * 1000, future
+assert future['deadline_ms'] - future['started_ms'] == 150 * 60 * 1000, future
+assert run_only['deadline_ms'] == run_only['admission_deadline_ms'] == 2000, run_only
+assert run_only['hooks_child_admission_deadline_ms'] <= 2000, run_only
+PY
+for invalid in -1 0 nan 1.5 9007199254740992; do
+  if MANGO_PLAYABILITY_COORDINATOR_LOCK_HELD=1 \
+    MANGO_MAINTENANCE_DEADLINE_TEST_ONLY=1 \
+    MANGO_PLAYABILITY_ABSOLUTE_RUN_DEADLINE_MS="$invalid" \
+    bash "$REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh" --mode stale \
+    >"$TMP_DIR/absolute-bad.out" 2>"$TMP_DIR/absolute-bad.err"; then
+    echo "invalid absolute deadline accepted: $invalid" >&2
+    exit 1
+  fi
+done
+
 for fraction in 0 0.25 0.5; do
   policy_path="$TMP_DIR/policy-$fraction.json"
   make_policy "$fraction" "$policy_path"

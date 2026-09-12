@@ -169,6 +169,29 @@ if [[ "$MANGO_GROW_PRESET" == "quick" ]]; then
   # publication and couch restoration may finish immediately afterward.
   export MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS=$((RUN_STARTED_MS + 8 * 60 * 1000))
 fi
+# Optional operator-owned overnight caps only shorten the normal budgets. Apply
+# after preset resolution so a delayed child cannot move an absolute cutoff.
+if [[ -n "${MANGO_PLAYABILITY_ABSOLUTE_ADMISSION_DEADLINE_MS:-}" \
+   || -n "${MANGO_PLAYABILITY_ABSOLUTE_RUN_DEADLINE_MS:-}" ]]; then
+  ABSOLUTE_DEADLINES="$(python3 - <<'PY'
+import os
+
+def cap(name, current):
+    raw = os.environ.get(name, "")
+    if not raw:
+        return current
+    if not raw.isascii() or not raw.isdecimal() or not 0 < int(raw) <= 9007199254740991:
+        raise SystemExit(f"playability-maintenance: invalid absolute deadline: {name}")
+    return min(current, int(raw))
+
+run = cap("MANGO_PLAYABILITY_ABSOLUTE_RUN_DEADLINE_MS", int(os.environ["MANGO_PLAYABILITY_RUN_DEADLINE_MS"]))
+admission = min(run, cap("MANGO_PLAYABILITY_ABSOLUTE_ADMISSION_DEADLINE_MS", int(os.environ["MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS"])))
+print(run, admission)
+PY
+  )" || exit 2
+  read -r MANGO_PLAYABILITY_RUN_DEADLINE_MS MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS <<<"$ABSOLUTE_DEADLINES"
+  export MANGO_PLAYABILITY_RUN_DEADLINE_MS MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS
+fi
 STALE_BUDGET_FRACTION="$(resolve_stale_budget_fraction)" || exit 1
 export STALE_BUDGET_FRACTION
 NIGHTLY_STALE_ADMISSION_DEADLINE_MS="$MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS"
