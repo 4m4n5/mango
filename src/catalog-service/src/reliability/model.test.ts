@@ -391,7 +391,7 @@ test('recommendation refresh warnings stay independent from playability publicat
   const state = evaluateReliability(facts);
   const proof = state.components.find((entry) => entry.id === 'proof');
   assert.equal(proof?.status, 'yellow');
-  assert.match(proof?.summary ?? '', /recommendation refresh warned/);
+  assert.match(proof?.summary ?? '', /recommendation refresh warning/);
   assert.match(proof?.detail ?? '', /recommendation_rc=10/);
 });
 

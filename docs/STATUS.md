@@ -8,9 +8,9 @@ Historical.
 
 ## Relocation release — 2026-09-11
 
-Application code revision:
+Library/playability feature revision:
 `d30445851b50659d712537341a23c023f6117d86`, `feat/native-experience`.
-The release includes a documentation-only descendant of that code revision;
+The release includes reliability-reporting and documentation follow-ups;
 the final Pi gate prints and checks its exact deployed HEAD against origin.
 Recorded runtime proof below is explicitly bound to `3759646` / `02d55d1`.
 Final follow-up evidence is captured separately on the workstation in
@@ -69,7 +69,7 @@ at `3759646`; bounded-retry maintenance and Traitors S2E2–E5 playback passed a
   and a now-playing timeout; a subsequent 45-second sample did not reproduce it
   (health 1.6–8.9 ms, active now-playing about 87–120 ms). This intermittent stall
   remains an observation to monitor, not a proven fixed defect.
-- **Local validation:** catalog **1,252/1,252**, including bounded/durable trigger
+- **Local validation:** catalog **1,255/1,255**, including bounded/durable trigger
   draining, exact release identity,
   episode metadata-year, receipt acknowledgement, fixture isolation, and
   event-loop starvation regressions. The earlier launcher **143/143**, UI server
@@ -79,6 +79,12 @@ at `3759646`; bounded-retry maintenance and Traitors S2E2–E5 playback passed a
   playback state, 4K/HDR profile, YouTube smoke, and stream-picker gates passed.
   The served-title resolver sample had **0 broken / 32 sampled**. Reliability
   remained usable-yellow for historical nightly proof and two rail-growth trends.
+  The later complete standard gate at `fa6aa68` passed **768/768** Pi catalog
+  tests and all integration checks. Its resolver sample again had **0/32**
+  broken titles. Separate exact-SHA targeted checks passed **25/25**, accepted
+  all 24 formerly rejected JioHotstar candidates for normal theme admission,
+  retained the foreign-title exclusion, and resolved exactly one stream for
+  each Traitors India S2E1–E5.
 - **Pi full sample:** the unmodified three-per-rail VOD sample passed
   **36/36** actual plays; the complete full pre-couch gate passed. Additional
   browse-to-play samples passed (movie 12,051 ms/one attempt; series 39,603 ms/two
@@ -108,6 +114,13 @@ at `3759646`; bounded-retry maintenance and Traitors S2E2–E5 playback passed a
   source-only normalization and exact affected-source rejection-cache retry
   passed local tests and independent review. Normal theme and stream identity
   checks still apply; no global cursor reset or provider expansion was made.
+- **Reliability proof follow-up:** the last remaining yellow warning was
+  self-referential: each new proof inherited the previous proof's yellow status.
+  New proof evaluation now uses fresh observations and current failure metadata;
+  it does not erase ledger history or suppress current component failures.
+  The display label is now “Last Reliability Proof,” since manual/gate records
+  are not evidence of an unattended nightly run. The targeted follow-up log
+  above records the final deployed check of this diagnostic-only change.
 
 Ethernet, `America/New_York`, synchronized NTP, user-service lingering, and the
 03:00 local nightly timer were checked live. OS updates still require the

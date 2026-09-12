@@ -828,10 +828,6 @@ export class ReliabilityService {
     const sanitizedReason = sanitizeReliabilityProofReason(reason);
     const sanitizedMetadata = sanitizeReliabilityProofMetadata(metadata);
     const facts = await this.gatherFacts();
-    const state = {
-      ...evaluateReliability(facts),
-      playability_runs: listPlayabilityRunReceipts(),
-    };
     const starvingRails = computeStarvingRails(facts.rail_growth.history)
       .filter((rail) => rail.nights_missed >= facts.rail_growth.threshold_nights);
     // Operator-only digest of starving rails, attached automatically so it is
@@ -846,6 +842,10 @@ export class ReliabilityService {
         grow_target: rail.grow_target,
       }));
     }
+    const state = {
+      ...evaluateReliability(facts, { currentProofMetadata: mergedMetadata }),
+      playability_runs: listPlayabilityRunReceipts(),
+    };
     const record: ReliabilityProofRecord = {
       proof_id: randomUUID(),
       reason: sanitizedReason,

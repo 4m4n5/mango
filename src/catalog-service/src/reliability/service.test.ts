@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -15,6 +16,7 @@ import {
   type ReliabilityRuntimeFacts,
   type PlayabilityStatusLike,
 } from './service.js';
+import type { ReliabilityProofRecord } from './types.js';
 
 test('proof metadata accepts bounded receipts and rejects privacy-risk fields', () => {
   assert.deepEqual(sanitizeReliabilityProofMetadata({
@@ -109,6 +111,88 @@ function refreshPayload(
 
 function writeRefresh(dir: string, name: string, payload: Record<string, unknown>): void {
   writeFileSync(join(dir, name), `${JSON.stringify(payload)}\n`, 'utf8');
+}
+
+function proofRecord(overrides: Partial<ReliabilityProofRecord> = {}): ReliabilityProofRecord {
+  const now = Date.now();
+  return {
+    proof_id: 'proof-previous',
+    reason: 'gate_m6_reliability',
+    status: 'yellow',
+    ok: true,
+    summary: 'Mango is usable, but reliability needs attention.',
+    generated_at: now - 60_000,
+    generated_at_iso: new Date(now - 60_000).toISOString(),
+    commit: 'previous-sha',
+    idle: true,
+    metadata: {},
+    components: [{
+      id: 'proof',
+      label: 'Last Reliability Proof',
+      status: 'yellow',
+      summary: 'last proof was yellow',
+    }],
+    ...overrides,
+  };
+}
+
+async function withTempProofLedger<T>(
+  proof: ReliabilityProofRecord,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-reliability-proof-'));
+  const previousPath = process.env.MANGO_RELIABILITY_PROOF_PATH;
+  process.env.MANGO_RELIABILITY_PROOF_PATH = join(dir, 'proofs.jsonl');
+  writeFileSync(process.env.MANGO_RELIABILITY_PROOF_PATH, `${JSON.stringify(proof)}\n`, 'utf8');
+  try {
+    return await fn();
+  } finally {
+    if (previousPath === undefined) {
+      delete process.env.MANGO_RELIABILITY_PROOF_PATH;
+    } else {
+      process.env.MANGO_RELIABILITY_PROOF_PATH = previousPath;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function withLauncherHealth<T>(fn: () => Promise<T>): Promise<T> {
+  const previousPort = process.env.MANGO_LAUNCHER_PORT;
+  const server = http.createServer((req, res) => {
+    if (req.url === '/api/health') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: true,
+        checks: {
+          launcher_browser: true,
+          openbox: 'active',
+          catalog: true,
+        },
+      }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve());
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  process.env.MANGO_LAUNCHER_PORT = String(address.port);
+  try {
+    return await fn();
+  } finally {
+    if (previousPort === undefined) {
+      delete process.env.MANGO_LAUNCHER_PORT;
+    } else {
+      process.env.MANGO_LAUNCHER_PORT = previousPort;
+    }
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
 }
 
 test('library facts exclude historical status rows but preserve genuine active thin rails', () => {
@@ -314,17 +398,18 @@ function runtimeFacts(): ReliabilityRuntimeFacts {
 
 function testReliabilityService(options: {
   runtimeFacts?: () => Promise<ReliabilityRuntimeFacts>;
+  catalogHealth?: () => Record<string, unknown>;
   commandRunner?: (command: string, args: string[], timeoutMs: number) => Promise<{ stdout: string; ok: boolean }>;
   stateCacheTtlMs?: number;
 } = {}): ReliabilityService {
   return new ReliabilityService({
-    catalogHealth: () => ({
+    catalogHealth: options.catalogHealth ?? (() => ({
       ok: true,
       core: 'ready',
       rails_ready: true,
-      live: { config_ready: true, cache_fresh: true },
+      live: { config_ready: true, cache_fresh: true, cache: { fresh: true } },
       rss_mb: 128,
-    }),
+    })),
     playabilityStatus: async () => playabilityStatus() as PlayabilityStatusLike & { ok: true },
     activePlayabilityRailIds: () => ['movies-active', 'series-active'],
     youtubeState: () => ({
@@ -484,4 +569,95 @@ test('idle-gated actions re-read couch activity instead of trusting a stale cach
     }
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('runProof records current healthy observations instead of inheriting prior yellow proof color', async () => {
+  await withTempProofLedger(proofRecord({ status: 'yellow' }), async () => {
+    await withLauncherHealth(async () => {
+      const service = testReliabilityService({ runtimeFacts: async () => runtimeFacts(), stateCacheTtlMs: 0 });
+      const historical = await service.state();
+      const historicalProof = historical.components.find((entry) => entry.id === 'proof');
+      assert.equal(historicalProof?.label, 'Last Reliability Proof');
+      assert.equal(historicalProof?.status, 'yellow');
+      assert.equal(historical.status, 'yellow');
+
+      const result = await service.runProof('gate_m6_reliability', {
+        sampled: 32,
+        broken_verified: 0,
+      });
+
+      assert.equal(result.proof.status, 'green');
+      assert.equal(result.ok, true);
+      assert.equal(result.state.status, 'green');
+      const recordedProof = result.proof.components.find((entry) => entry.id === 'proof');
+      assert.equal(recordedProof?.label, 'Last Reliability Proof');
+      assert.equal(recordedProof?.status, 'green');
+      assert.equal(recordedProof?.summary, 'current reliability proof uses fresh observations');
+    });
+  });
+});
+
+test('runProof preserves current rc metadata warnings while avoiding prior-proof inertia', async () => {
+  const cases: Array<{
+    metadata: Record<string, number>;
+    detail: RegExp;
+  }> = [
+    { metadata: { playability_rc: 1 }, detail: /playability_rc=1/ },
+    { metadata: { recommendation_rc: 10 }, detail: /recommendation_rc=10/ },
+    { metadata: { youtube_rc: 2 }, detail: /youtube_rc=2/ },
+    { metadata: { maintenance_rc: 3 }, detail: /maintenance_rc=3/ },
+    { metadata: { broken_verified: 1 }, detail: /broken_verified=1/ },
+  ];
+
+  for (const scenario of cases) {
+    await withTempProofLedger(proofRecord({ status: 'yellow' }), async () => {
+      await withLauncherHealth(async () => {
+        const service = testReliabilityService({ runtimeFacts: async () => runtimeFacts(), stateCacheTtlMs: 0 });
+        const result = await service.runProof('nightly_after_playability_nightly', scenario.metadata);
+        assert.equal(result.proof.status, 'yellow');
+        assert.equal(result.proof.ok, true);
+        const proof = result.proof.components.find((entry) => entry.id === 'proof');
+        assert.equal(proof?.status, 'yellow');
+        assert.match(proof?.detail ?? '', scenario.detail);
+      });
+    });
+  }
+});
+
+test('runProof preserves current red and yellow components when previous proof was the only historical warning', async () => {
+  await withTempProofLedger(proofRecord({ status: 'yellow' }), async () => {
+    await withLauncherHealth(async () => {
+      const service = testReliabilityService({
+        runtimeFacts: async () => runtimeFacts(),
+        stateCacheTtlMs: 0,
+        catalogHealth: () => ({
+          ok: true,
+          core: 'ready',
+          rails_ready: true,
+          live_rails: 1,
+          live: {
+            config_ready: true,
+            cache_fresh: false,
+            serving_stale: false,
+            stale_fallback_available: false,
+            sources: [{ addon: 'mango Live TV', catalog: 'tv' }],
+            cache: { fresh: false, non_empty: false },
+          },
+          rss_mb: 128,
+        }),
+      });
+
+      const result = await service.runProof('gate_m6_reliability', {
+        sampled: 32,
+        broken_verified: 0,
+      });
+
+      assert.equal(result.proof.status, 'red');
+      assert.equal(result.ok, false);
+      const live = result.proof.components.find((entry) => entry.id === 'live');
+      assert.equal(live?.status, 'red');
+      const proof = result.proof.components.find((entry) => entry.id === 'proof');
+      assert.equal(proof?.status, 'green');
+    });
+  });
 });
