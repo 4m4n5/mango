@@ -6,7 +6,112 @@ Historical.
 
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [TESTING.md](TESTING.md)
 
-## Relocation health audit — 2026-09-11
+## Relocation release — 2026-09-11
+
+Application code revision:
+`d30445851b50659d712537341a23c023f6117d86`, `feat/native-experience`.
+The release includes a documentation-only descendant of that code revision;
+the final Pi gate prints and checks its exact deployed HEAD against origin.
+Recorded runtime proof below is explicitly bound to `3759646` / `02d55d1`;
+the final source-label follow-up still requires its own Pi readback/gate.
+Git-only deployment and all three Pi builds passed at `02d55d1`; operator-owned
+Companion state remains preserved. **Standard and full Pi pre-couch gates passed
+at `3759646`; bounded-retry maintenance and Traitors S2E2–E5 playback passed at `02d55d1`.**
+
+- **Library preservation:** schema 21 is deployed. The guarded recovery restored
+  **6,440** baseline-proven expiry-only titles without renewing verification
+  dates. Immediately afterward, **9,275** canonical movie/show identities were
+  visible and **2,834** had unexpired proof. All **31,095** title records remained;
+  Saved, ratings, Takeout, overlays, watch state, and watch history hashes matched
+  before playback testing. A private pre-apply SQLite rollback snapshot exists.
+- **Failure policy:** expiry alone retains last-known-good visibility; actual
+  overall failure hides and queues the exact title/episode. Cancellation and a
+  successful stream fallback do not demote it. Nightly admission reserves half
+  for expiry rechecks, with remaining/unused time available for discovery.
+- **Traitors India S2E1:** provider comparison found a correctly scoped but
+  edition-unlabelled Hindi release among foreign editions. Container runtime
+  75:30, release date, programme branding, and subtitle evidence support India.
+  A content-confirmed exact episode/filename exception now admits one candidate;
+  it does not trust other episodes, Hindi flags, or a release group generally.
+  Separate fixes admit explicit India season-pack labels and the exact episode's
+  metadata release year. Foreign-edition and wrong-episode conflicts remain blocked.
+  Direct Pi playback passed on its first attempt (**11,491 ms** total,
+  **6,000 ms** first frame), with advancing position and 4,530.048-second runtime.
+  S2E2–E5 now have separately content-confirmed exact filename entries: Hindi
+  audio, episode-specific runtime/release dates, programme text and S2 cast
+  references (including Harman/Soundous in E4). All four actual app playback
+  checks passed at `02d55d1`, one attempt each: E2 16,264 ms, E3 12,416 ms,
+  E4 10,904 ms, E5 11,401 ms; all had advancing video and matching runtimes.
+  E6's similar candidate timed out during media inspection and is
+  not admitted. S2E7–E11 had no identifying India
+  candidate in the normal response. Ephemeral E7/E11 canaries raised AIO's
+  global cap 12→60 and enabled the already-configured Easynews fallback: more
+  rows appeared, but none established India identity. No provider configuration
+  was persisted. This is not a claim that the rest of S2 is unavailable globally.
+- **Recommendations:** the live manual refresh at `c4c61d1` completed movie
+  revision **34** at rank **331**, and series revision **50** at rank **332**.
+  Both job receipts record their exact activated rank; neither revision remains
+  pending. Enqueue alone is not treated as completion.
+  The later bounded maintenance's exact jobs also completed: movie desired
+  revision **37** at rank **336**, series desired revision **54** at rank **337**.
+- **YouTube diagnostics:** local loopback probing no longer uses the mutable
+  Stremio fetch shim. The probe now starts after synchronous status assembly
+  yields, preventing that work from consuming its own 250 ms timeout.
+  The opt-in sustained playback gate passed at **154.5 seconds**, active audio,
+  30 fps, ALSA, and conjunctive A/V readiness. Required resolver canaries **7/7**
+  passed; one optional canary reported a transport failure.
+- **Runtime health:** both SQLite quick checks passed with zero foreign-key
+  violations. Warm cached rails measured about 59–66 ms, YouTube state 54–62 ms,
+  and health 6–56 ms. One playback-time sample had a 4.06-second health response
+  and a now-playing timeout; a subsequent 45-second sample did not reproduce it
+  (health 1.6–8.9 ms, active now-playing about 87–120 ms). This intermittent stall
+  remains an observation to monitor, not a proven fixed defect.
+- **Local validation:** catalog **1,252/1,252**, including bounded/durable trigger
+  draining, exact release identity,
+  episode metadata-year, receipt acknowledgement, fixture isolation, and
+  event-loop starvation regressions. The earlier launcher **143/143**, UI server
+  **18/18**, restoration **15/15**, and prune-report **4/4** checks remain recorded
+  source evidence, not substitutes for final Pi gates.
+- **Pi standard gate:** **766/766** catalog unit tests, gate-lite, UX, voice,
+  playback state, 4K/HDR profile, YouTube smoke, and stream-picker gates passed.
+  The served-title resolver sample had **0 broken / 32 sampled**. Reliability
+  remained usable-yellow for historical nightly proof and two rail-growth trends.
+- **Pi full sample:** the unmodified three-per-rail VOD sample passed
+  **36/36** actual plays; the complete full pre-couch gate passed. Additional
+  browse-to-play samples passed (movie 12,051 ms/one attempt; series 39,603 ms/two
+  attempts; reference movie 14,923 ms/one attempt). These are sampled starts,
+  not a guarantee that every title starts immediately or every full video plays.
+- **Live TV:** all four normal app playback samples passed: cricket, racing,
+  news, and cartoons. This is sampled-start proof, not all-channel verification.
+- **Maintenance follow-up:** an actual catch-up exposed an unbounded pre-stage
+  failed-play trigger drain. Its exact hook subprocess was stopped; the owning
+  coordinator completed publication and couch restoration. The fix now shares
+  the stale admission deadline, saves each completed trigger group immediately,
+  and leaves unstarted titles queued. Local deadline/entrypoint tests and
+  independent review passed. The subsequent bounded run succeeded: its live
+  hook checked 34 titles (29 verified, 5 failed), yielded at the stale admission
+  deadline and retained unstarted retries. Discovery gained **20 fresh proof
+  rows**, including series gate-episode rows, with zero pruned pool entries.
+  Publication readback matched the staged DB, schema 21, quick check OK and no
+  foreign-key errors. All six user-state hashes remained unchanged. The live
+  readback had **31,119** title records, **9,281** visible canonical movie/show
+  identities and **2,870** freshly verified canonical identities.
+  The preceding run preserved all six user-state hashes and retained 31,111 title records.
+  Its grow phase added no verified titles; a successful publication is not a
+  successful growth claim. The two runs' backup retention replaced two older prepublication
+  snapshots, while the independent full rollback backup remains preserved.
+- **Discovery follow-up:** a real candidate audit found the exact source label
+  `JioHotstar` was not matching separate `jio`/`hotstar` theme tokens. The narrow
+  source-only normalization and exact affected-source rejection-cache retry
+  passed local tests and independent review. Normal theme and stream identity
+  checks still apply; no global cursor reset or provider expansion was made.
+
+Ethernet, `America/New_York`, synchronized NTP, user-service lingering, and the
+03:00 local nightly timer were checked live. OS updates still require the
+operator's administrator authentication. Physical picture/audio/lip-sync,
+controller wake/feel, and repeated unattended nights remain **DEFERRED**.
+
+## Historical relocation health audit — 2026-09-11
 
 Repair deployment readback: `4554c0a6cf6f1d79d58f9bb1d5afbe0441462fe9` on
 `feat/native-experience`. Ethernet is connected, timezone is
