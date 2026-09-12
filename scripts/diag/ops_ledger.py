@@ -9,6 +9,8 @@ import os
 import tempfile
 from pathlib import Path
 
+MAX_EVENT_BYTES = 1_000_000
+
 
 def _fsync_dir(path: Path) -> None:
     fd = os.open(path, os.O_RDONLY)
@@ -27,7 +29,7 @@ def _with_lock(root: Path):
 
 def append_json_line(path: Path, payload: dict) -> None:
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    if len(encoded.encode("utf-8")) > 1_000_000:
+    if len(encoded.encode("utf-8")) > MAX_EVENT_BYTES:
         raise ValueError("ops ledger event exceeds 1MB")
     lock = _with_lock(path.parent)
     try:

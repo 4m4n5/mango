@@ -79,6 +79,12 @@ catalog-service, launcher, and companion builds.
 Logs: `$HOME/.cache/mango/catalog-service.log`, `orchestrator.log`,
 `mpv-play.log`. Never paste secrets or signed URLs.
 
+Shell maintenance reports keep full detail in `~/.cache/mango/ops/reports/`.
+The append-only `events.jsonl` ledger retains its 1 MB per-event limit. Oversized
+events contain a bounded summary and a reference to the full, atomically written
+report; the report must exist before that reference is appended. Report size
+must not prevent an otherwise valid staged grow from reaching publication.
+
 ## Backup
 
 Use `scripts/m6-ship/backup-library-state.sh` before schema work. Runtime

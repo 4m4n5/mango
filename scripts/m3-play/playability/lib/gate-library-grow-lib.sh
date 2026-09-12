@@ -25,6 +25,8 @@ gate_library_grow_monitor() {
   python3 scripts/diag/grow_monitor.py --help >/dev/null
   python3 -m unittest discover -s scripts/diag -p 'test_grow_monitor.py' -v
   python3 -m unittest discover -s scripts/diag -p 'test_ops_grow_sla.py' -v
+  python3 -m unittest discover -s scripts/diag -p 'test_ops_ledger.py' -v
+  python3 -m unittest discover -s scripts/diag -p 'test_ops_write_run.py' -v
   python3 -m unittest discover -s scripts/diag -p 'test_playability_refresh_decision.py' -v
   python3 -m unittest discover -s scripts/diag -p 'test_recommendation_maintenance_lease.py' -v
   python3 -m unittest discover -s scripts/diag -p 'test_recommendation_refresh_receipt.py' -v
