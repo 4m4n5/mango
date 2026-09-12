@@ -65,6 +65,9 @@ if nightly["grow_child_admission_deadline_ms"] != nightly["admission_deadline_ms
     raise SystemExit(f"nightly grow child deadline was narrowed: {nightly}")
 if nightly["stale_budget_fraction"] != 0.5 or nightly_stale_window != int(nightly_global_window * 0.5):
     raise SystemExit(f"nightly stale budget fraction not applied: {nightly}")
+for payload in (grow, nightly):
+    if payload["hooks_child_admission_deadline_ms"] != payload["stale_child_admission_deadline_ms"]:
+        raise SystemExit(f"live trigger hooks escaped stale admission allocation: {payload}")
 PY
 
 inherited_long_quick_deadline="$(env -u MANGO_GROW_PRESET \
@@ -128,6 +131,8 @@ if payload["stale_child_admission_deadline_ms"] != min(payload["admission_deadli
     raise SystemExit(f"stale child deadline mismatch for {fraction}: {payload}")
 if payload["grow_child_admission_deadline_ms"] != payload["admission_deadline_ms"]:
     raise SystemExit(f"grow child deadline changed for {fraction}: {payload}")
+if payload["hooks_child_admission_deadline_ms"] != payload["stale_child_admission_deadline_ms"]:
+    raise SystemExit(f"live hooks ignored stale budget for {fraction}: {payload}")
 PY
 done
 
@@ -147,6 +152,8 @@ if payload["stale_child_admission_deadline_ms"] != payload["admission_deadline_m
     raise SystemExit(f"explicit stale mode should keep full allocation: {payload}")
 if payload["grow_child_admission_deadline_ms"] != payload["admission_deadline_ms"]:
     raise SystemExit(f"explicit stale mode changed grow child deadline: {payload}")
+if payload["hooks_child_admission_deadline_ms"] != payload["admission_deadline_ms"]:
+    raise SystemExit(f"explicit stale hooks should keep full allocation: {payload}")
 PY
 
 bad_policy="$TMP_DIR/policy-bad-fraction.json"

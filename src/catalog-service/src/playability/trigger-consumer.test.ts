@@ -304,6 +304,102 @@ test('H1: drainTriggers marks rail-only trigger rows handled without probing', a
   });
 });
 
+test('drainTriggers honors the admission deadline before starting the next title group', async () => {
+  await withTempDb(async () => {
+    const oldDeadline = process.env.MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS;
+    delete process.env.MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS;
+    try {
+      await enqueuePlayabilityTrigger({
+        trigger_type: 'play_failure_reverify',
+        rail_id: 'movies-india-trending',
+        type: 'movie',
+        id: 'tt-first',
+        reason: 'play_failure',
+      });
+      await enqueuePlayabilityTrigger({
+        trigger_type: 'play_failure_reverify',
+        rail_id: 'movies-india-trending',
+        type: 'movie',
+        id: 'tt-second',
+        reason: 'play_failure',
+      });
+
+      const verifyCalls: string[] = [];
+      const result = await drainTriggers(fakeCore, {
+        verify: (async (_core: CatalogCore, type: string, id: string) => {
+          verifyCalls.push(`${type}:${id}`);
+          process.env.MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS = String(Date.now() - 1);
+          return verifyResult(type, id, 'verified');
+        }) as unknown as typeof import('./verify.js').verifyTitle,
+        promote: (async (_core: RethemeCore, input: { type: string; id: string }) => ({
+          ok: true,
+          rail_id: 'movies-india-trending',
+          type: input.type,
+          id: input.id,
+          score: 10,
+          reason: 'preferred_fit',
+        })) as unknown as typeof import('./rail-pool-retheme.js').assignVerifiedTitleToBestRail,
+      });
+
+      assert.deepEqual(verifyCalls, ['movie:tt-first']);
+      assert.equal(result.drained, 1);
+      assert.equal(result.verified, 1);
+      assert.equal(result.failed, 0);
+      assert.equal(result.stop_reason, 'admission_deadline');
+      assert.deepEqual(result.by_trigger_type, { play_failure_reverify: 1 });
+
+      const remaining = await listUnhandledPlayabilityTriggers(10);
+      assert.equal(remaining.length, 1);
+      assert.equal(remaining[0].id_value, 'tt-second');
+    } finally {
+      if (oldDeadline === undefined) delete process.env.MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS;
+      else process.env.MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS = oldDeadline;
+    }
+  });
+});
+
+test('drainTriggers marks rail-only rows at deadline but leaves unstarted title rows queued', async () => {
+  await withTempDb(async () => {
+    const oldDeadline = process.env.MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS;
+    process.env.MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS = String(Date.now() - 1);
+    try {
+      await enqueuePlayabilityTrigger({
+        trigger_type: 'pool_low',
+        rail_id: 'movies-india-trending',
+        reason: 'pool=1 target=20',
+      });
+      await enqueuePlayabilityTrigger({
+        trigger_type: 'play_failure_reverify',
+        rail_id: 'movies-india-trending',
+        type: 'movie',
+        id: 'tt-unstarted',
+        reason: 'play_failure',
+      });
+
+      let verifyCalled = false;
+      const result = await drainTriggers(fakeCore, {
+        verify: (async (_core: CatalogCore, type: string, id: string) => {
+          verifyCalled = true;
+          return verifyResult(type, id, 'verified');
+        }) as unknown as typeof import('./verify.js').verifyTitle,
+      });
+
+      assert.equal(verifyCalled, false);
+      assert.equal(result.drained, 0);
+      assert.equal(result.failed, 0);
+      assert.equal(result.stop_reason, 'admission_deadline');
+      assert.deepEqual(result.by_trigger_type, { pool_low: 1 });
+
+      const remaining = await listUnhandledPlayabilityTriggers(10);
+      assert.equal(remaining.length, 1);
+      assert.equal(remaining[0].id_value, 'tt-unstarted');
+    } finally {
+      if (oldDeadline === undefined) delete process.env.MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS;
+      else process.env.MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS = oldDeadline;
+    }
+  });
+});
+
 test('H2: drainTriggers processes play_failure_reverify ahead of voice_request when batch-limited', async () => {
   await withTempDb(async () => {
     await enqueuePlayabilityTrigger({

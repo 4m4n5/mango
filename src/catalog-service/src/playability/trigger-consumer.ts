@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { CatalogCore } from '../core.js';
 import {
+  playabilityAdmissionDeadlineReached,
   triggerConsumerBatchLimit,
   triggerConsumerCooldownMs,
   triggerConsumerEnabled,
@@ -35,6 +36,7 @@ export type DrainTriggersResult = {
   failed: number;
   promoted: number;
   by_trigger_type: Record<string, number>;
+  stop_reason?: 'admission_deadline';
 };
 
 function isVerifiedVerification(
@@ -78,14 +80,15 @@ export async function drainTriggers(
     return result;
   }
 
-  const countType = (row: PlayabilityTriggerRow): void => {
-    result.by_trigger_type[row.trigger_type] = (result.by_trigger_type[row.trigger_type] ?? 0) + 1;
+  const countRows = (group: readonly PlayabilityTriggerRow[]): void => {
+    for (const row of group) {
+      result.by_trigger_type[row.trigger_type] = (result.by_trigger_type[row.trigger_type] ?? 0) + 1;
+    }
   };
 
   const byTitle = new Map<string, PlayabilityTriggerRow[]>();
   const rowsToHandleWithoutProbe: PlayabilityTriggerRow[] = [];
   for (const row of rows) {
-    countType(row);
     if (!row.type || !row.id_value) {
       rowsToHandleWithoutProbe.push(row);
       continue;
@@ -96,9 +99,17 @@ export async function drainTriggers(
     byTitle.set(key, group);
   }
 
-  const handledIds: number[] = rowsToHandleWithoutProbe.map((row) => row.id);
+  if (rowsToHandleWithoutProbe.length > 0) {
+    countRows(rowsToHandleWithoutProbe);
+    await markPlayabilityTriggersHandled(rowsToHandleWithoutProbe.map((row) => row.id), options.now);
+  }
 
   for (const group of byTitle.values()) {
+    if (playabilityAdmissionDeadlineReached()) {
+      result.stop_reason = 'admission_deadline';
+      break;
+    }
+    countRows(group);
     const type = group[0].type as string;
     const id = group[0].id_value as string;
     const railId = group.find((row) => row.rail_id)?.rail_id ?? null;
@@ -130,12 +141,8 @@ export async function drainTriggers(
         }`,
       );
     } finally {
-      handledIds.push(...group.map((row) => row.id));
+      await markPlayabilityTriggersHandled(group.map((row) => row.id), options.now);
     }
-  }
-
-  if (handledIds.length > 0) {
-    await markPlayabilityTriggersHandled(handledIds, options.now);
   }
 
   return result;

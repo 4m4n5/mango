@@ -187,6 +187,7 @@ payload = {
     "admission_deadline_ms": int(os.environ["MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS"]),
     "stale_budget_fraction": float(os.environ["STALE_BUDGET_FRACTION"]),
     "stale_child_admission_deadline_ms": int(os.environ["NIGHTLY_STALE_ADMISSION_DEADLINE_MS"]),
+    "hooks_child_admission_deadline_ms": int(os.environ["NIGHTLY_STALE_ADMISSION_DEADLINE_MS"]),
     "grow_child_admission_deadline_ms": int(os.environ["MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS"]),
 }
 print(json.dumps(payload, sort_keys=True))
@@ -786,7 +787,10 @@ run_maintenance_hooks_prestage() {
   set_live_playability_db_env
   local hooks_rc=0
   set +e
+  # Failed-play retries are re-verification work too. Share the stale budget
+  # so a large live queue cannot consume the time reserved for discovery.
   MANGO_MAINTENANCE_HOOKS_PRESTAGE=1 \
+    MANGO_PLAYABILITY_ADMISSION_DEADLINE_MS="$NIGHTLY_STALE_ADMISSION_DEADLINE_MS" \
     MANGO_PLAYABILITY_DB="$LIVE_PLAYABILITY_DB" \
     npm --prefix src/catalog-service exec tsx -- \
     scripts/m3-play/playability/playability-indexer.ts maintenance-hooks 2>&1
