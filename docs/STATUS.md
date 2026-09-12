@@ -12,8 +12,11 @@ Application code revision:
 `d30445851b50659d712537341a23c023f6117d86`, `feat/native-experience`.
 The release includes a documentation-only descendant of that code revision;
 the final Pi gate prints and checks its exact deployed HEAD against origin.
-Recorded runtime proof below is explicitly bound to `3759646` / `02d55d1`;
-the final source-label follow-up still requires its own Pi readback/gate.
+Recorded runtime proof below is explicitly bound to `3759646` / `02d55d1`.
+Final follow-up evidence is captured separately on the workstation in
+`/tmp/mango-release-final-pi-gate.log` and
+`/tmp/mango-release-final-targeted.log`; read their result and SHA header rather
+than attributing older samples to a later revision.
 Git-only deployment and all three Pi builds passed at `02d55d1`; operator-owned
 Companion state remains preserved. **Standard and full Pi pre-couch gates passed
 at `3759646`; bounded-retry maintenance and Traitors S2E2–E5 playback passed at `02d55d1`.**
