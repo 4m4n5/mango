@@ -8,6 +8,7 @@ import type { RailPlayabilityConfig } from '../rails.js';
 
 import {
   demoteTitle,
+  getPlayabilityDb,
   getOrCreateRailSession,
   getRailPoolTitleKeys,
   getRailPlayabilityStatus,
@@ -161,7 +162,7 @@ test('play_miss demotion keeps pool/session state but excludes the stale title f
   });
 });
 
-test('play failure invalidation removes title from all rail pools and sessions', async () => {
+test('play failure invalidation hides same-session title, preserves rail evidence, and queues reverify', async () => {
   await withTempDb(async () => {
     await recordVerifyResult({
       type: 'movie',
@@ -198,8 +199,14 @@ test('play failure invalidation removes title from all rail pools and sessions',
 
     const indiaStatus = await getRailPlayabilityStatus('movies-india-trending');
     const horrorStatus = await getRailPlayabilityStatus('ai-horror');
-    assert.equal(indiaStatus.pool_depth, 0);
-    assert.equal(horrorStatus.pool_depth, 0);
+    assert.equal(indiaStatus.pool_depth, 1);
+    assert.equal(horrorStatus.pool_depth, 1);
+    assert.equal(indiaStatus.visible_pool, 0);
+    assert.equal(horrorStatus.visible_pool, 0);
+    assert.equal(indiaStatus.failed, 1);
+    assert.equal(horrorStatus.failed, 1);
+    const indiaKeys = await getRailPoolTitleKeys('movies-india-trending');
+    assert.deepEqual([...indiaKeys], ['movie:tt-confirmed-fail']);
 
     const afterIndia = await getOrCreateRailSession({
       railId: 'movies-india-trending',
@@ -213,6 +220,12 @@ test('play failure invalidation removes title from all rail pools and sessions',
     });
     assert.equal(afterIndia.items.length, 0);
     assert.equal(afterHorror.items.length, 0);
+
+    const retry = getPlayabilityDb().prepare(`
+SELECT reason, priority FROM playability_retry_queue
+WHERE type = 'movie' AND id = 'tt-confirmed-fail'
+`).get() as { reason: string; priority: number } | undefined;
+    assert.deepEqual(retry, { reason: 'play_failure', priority: 100 });
   });
 });
 

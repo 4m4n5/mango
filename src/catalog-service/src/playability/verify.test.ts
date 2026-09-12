@@ -6,7 +6,12 @@ import test from 'node:test';
 import type { CatalogCore } from '../core.js';
 import { failedLadderReason, prepareVerifyTitle, verifyPreparedTitle } from './verify.js';
 import { defaultFilterConfig, mergeFilterConfig } from '../stream-filters.js';
-import { getTitlePlayability, recordVerifyResult, resetPlayabilityDbForTests } from './db.js';
+import {
+  getStaleTitlesForRefresh,
+  getTitlePlayability,
+  recordVerifyResult,
+  resetPlayabilityDbForTests,
+} from './db.js';
 
 const ENV = { ...process.env };
 
@@ -164,9 +169,10 @@ test('S3: prepare verification never accepts a last-resort-only stream', async (
   assert.equal(result.reason, 'no_stream');
 });
 
-test('failed verification reports the actual preserved verified or stale status', async () => {
+test('failed verification hides previously verified titles and queues reverify', async () => {
   await withTempPlayabilityDb(async () => {
     await recordVerifyResult({ type: 'movie', id: 'tt-preserved-verified', status: 'verified' });
+    await recordVerifyResult({ type: 'movie', id: 'tt-transient-verified', status: 'verified' });
     await recordVerifyResult({
       type: 'movie',
       id: 'tt-preserved-stale',
@@ -198,8 +204,28 @@ test('failed verification reports the actual preserved verified or stale status'
 
     const verified = await verifyPreparedTitle(preparedFailure('tt-preserved-verified'));
     assert.equal(verified.ok, false);
-    assert.equal(verified.status, 'verified');
+    assert.equal(verified.status, 'failed');
     assert.equal(verified.exact_main_win, false);
+    assert.equal((await getTitlePlayability('movie', 'tt-preserved-verified'))?.status, 'failed');
+    assert.equal((await getTitlePlayability('movie', 'tt-preserved-verified'))?.fail_reason, 'no_stream');
+    assert.equal(
+      (await getStaleTitlesForRefresh(10, Date.now() + 8 * 24 * 60 * 60 * 1000))
+        .some((row) => row.id === 'tt-preserved-verified' && row.reason === 'no_stream'),
+      true,
+    );
+
+    const transient = await verifyPreparedTitle({
+      ...preparedFailure('tt-transient-verified'),
+      reason: 'timeout',
+    });
+    assert.equal(transient.ok, false);
+    assert.equal(transient.status, 'stale');
+    assert.equal((await getTitlePlayability('movie', 'tt-transient-verified'))?.status, 'stale');
+    assert.equal((await getTitlePlayability('movie', 'tt-transient-verified'))?.fail_reason, 'timeout');
+    assert.equal(
+      (await getStaleTitlesForRefresh(10)).some((row) => row.id === 'tt-transient-verified' && row.reason === 'timeout'),
+      true,
+    );
 
     const stale = await verifyPreparedTitle(preparedFailure('tt-preserved-stale'));
     assert.equal(stale.ok, false);
@@ -215,5 +241,40 @@ test('failed verification reports the actual preserved verified or stale status'
     assert.equal(conflict.status, 'failed');
     assert.equal(conflict.identity_certifiable, false);
     assert.equal((await getTitlePlayability('movie', 'tt-identity-conflict'))?.fail_reason, 'identity_conflict');
+  });
+});
+
+test('exact-episode verification failure does not overwrite the bare show row', async () => {
+  await withTempPlayabilityDb(async () => {
+    const showId = 'tt12004706';
+    const episodeId = `${showId}:2:4`;
+    await recordVerifyResult({ type: 'series', id: showId, status: 'verified' });
+
+    const result = await verifyPreparedTitle({
+      type: 'series',
+      id: episodeId,
+      ok: false,
+      reason: 'no_stream',
+      prepare_ms: 1,
+      request: {
+        request_id: `test:series:${episodeId}`,
+        run_id: null,
+        type: 'series',
+        requested_id: episodeId,
+        canonical_title_id: `series:${episodeId}`,
+        verify_id: episodeId,
+        rail_id: null,
+        source_key: null,
+        title: null,
+        year: null,
+        season: 2,
+        episode: 4,
+        attempt_kind: 'main',
+      },
+    });
+
+    assert.equal(result.status, 'failed');
+    assert.equal((await getTitlePlayability('series', episodeId))?.status, 'failed');
+    assert.equal((await getTitlePlayability('series', showId))?.status, 'verified');
   });
 });

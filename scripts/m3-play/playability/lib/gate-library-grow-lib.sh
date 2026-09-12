@@ -105,6 +105,7 @@ import yaml
 from pathlib import Path
 
 catalog = yaml.safe_load(Path("config/catalog.example.yaml").read_text(encoding="utf-8"))
+rails = {rail.get("id"): rail for rail in catalog.get("rails") or []}
 for rail in catalog.get("rails") or []:
     if rail.get("enabled") is False:
         continue
@@ -114,6 +115,41 @@ for rail in catalog.get("rails") or []:
     assert play.get("grow_per_pass", 0) >= 20, f"{rail['id']} missing grow_per_pass"
     assert "growth_quota" not in play, f"{rail['id']} still has growth_quota"
     assert "growth_attempt_budget" not in play, f"{rail['id']} still has growth_attempt_budget"
+series_india = rails["series-india-picks"]
+sources = series_india["sources"]
+latest_head = [source["catalog"] for source in sources[:10]]
+assert latest_head == [
+    "tmdb-hi-recent-series",
+    "tmdb-hi-latest_episodes-series",
+    "tmdb-ta-recent-series",
+    "tmdb-ta-latest_episodes-series",
+    "tmdb-te-recent-series",
+    "tmdb-te-latest_episodes-series",
+    "tmdb-ml-recent-series",
+    "tmdb-ml-latest_episodes-series",
+    "tmdb-kn-recent-series",
+    "tmdb-kn-latest_episodes-series",
+], f"series-india-picks should prioritize existing recent/latest feeds first: {latest_head}"
+active_recent = [
+    source for source in sources[:6]
+    if str(source.get("catalog", "")).endswith("-recent-series")
+    and float(source.get("weight", 0)) > 0.08
+]
+assert len(active_recent) == 3, "series-india-picks primary healthy recent feeds must stay above probation"
+probation_latest = [
+    source for source in sources[:10]
+    if "latest_episodes" in str(source.get("catalog", ""))
+    and float(source.get("weight", 0)) <= 0.01
+]
+assert len(probation_latest) == 5, "empty latest-episode feeds must not consume active discovery budget"
+for rail_id, index in (("movies-global-popular", 1), ("movies-quick-watches", 0)):
+    source = rails[rail_id]["sources"][index]
+    assert source["addon"] == "Cinemeta" and source["catalog"] == "year", (
+        f"{rail_id} should keep verified recent-year Cinemeta source ahead of old breadth"
+    )
+    assert float(source.get("weight", 0)) > 0.08, (
+        f"{rail_id} Cinemeta/year must stay above probation"
+    )
 print("catalog grow_per_pass ok")
 PY
 }
@@ -134,6 +170,8 @@ gate_library_grow_maintenance() {
   bash scripts/m4-addons/test-aiometadata-opt-in-and-temp.sh
   bash scripts/m6-ship/test-youtube-pot-server-fd.sh
   bash scripts/m6-ship/test-library-offline-compaction.sh
+  python3 scripts/m6-ship/test_prune_mango_sqlite.py
+  python3 scripts/m6-ship/test_restore_expiry_only_visibility.py
   test -f scripts/m4-addons/sync-aiometadata-rail-catalogs.sh
 }
 

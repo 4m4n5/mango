@@ -38,6 +38,7 @@ import {
   getTitlePlayability,
   getTitleVerifyProfile,
   playabilityRecommendationCorpusGeneration,
+  playabilityRecommendationSemanticGeneration,
   recordVerifyResult,
 } from './playability/db.js';
 import { startTriggerConsumerBackgroundTick } from './playability/trigger-consumer.js';
@@ -111,6 +112,7 @@ import {
 import {
   captureVodRecommendationRevisions,
   createRecommendationRefreshJob,
+  createVodRecommendationRefreshJob,
   recommendationRefreshJobById,
   reconcileInterruptedRecommendationRefreshJobs,
   updateRecommendationRefreshJobs,
@@ -130,7 +132,6 @@ import {
   setStoryGraphLowWaterEnqueueHook,
   storyGraphStartupRefreshRequired,
 } from './recommendations/story-graph-service.js';
-import { updateDesiredRevision } from './recommendations/desired-revision.js';
 import { readFreshRecommendationMaintenanceLease } from './recommendations/maintenance.js';
 import { enrichStoryDnaInputsWithTmdb } from './recommendations/tmdb-metadata.js';
 import { previewStoryEvidence } from './playability/list-source.js';
@@ -1227,10 +1228,11 @@ async function handlePlay(
       }
     }
 
-    if (usePlayabilityIndex && isNoPlayableStream) {
+    if (usePlayabilityIndex) {
       const prior = await getTitlePlayability(body.type, playId).catch(() => null);
       const policyInput = {
-        isNoPlayableStream: true,
+        isNoPlayableStream,
+        terminalFailure: true,
         attempts,
         candidates: details?.candidates,
         obligationFloorRan,
@@ -1273,21 +1275,23 @@ async function handlePlay(
         });
       }
 
-      // Always enqueue fast-lane background reverify on couch miss (even transient).
-      await assertPlayEpoch(playEpoch);
-      await enqueuePlayabilityTrigger({
-        trigger_type: 'play_failure_reverify',
-        rail_id: body.rail_id,
-        type: body.type,
-        id: playId,
-        reason: confirmFailure ? 'play_failure' : demote ? 'play_miss' : 'play_retry',
-      }).catch((enqueueError) => {
-        console.warn(
-          `playability fast-lane enqueue failed type=${body.type} id=${body.id}: ${
-            enqueueError instanceof Error ? enqueueError.message : String(enqueueError)
-          }`,
-        );
-      });
+      if (confirmFailure || demote) {
+        // Always enqueue fast-lane background reverify on an actual couch play failure.
+        await assertPlayEpoch(playEpoch);
+        await enqueuePlayabilityTrigger({
+          trigger_type: 'play_failure_reverify',
+          rail_id: body.rail_id,
+          type: body.type,
+          id: playId,
+          reason: confirmFailure ? 'play_failure' : 'play_miss',
+        }).catch((enqueueError) => {
+          console.warn(
+            `playability fast-lane enqueue failed type=${body.type} id=${body.id}: ${
+              enqueueError instanceof Error ? enqueueError.message : String(enqueueError)
+            }`,
+          );
+        });
+      }
     }
     if (error instanceof CatalogError) {
       if (error.message === 'no_playable_stream') {
@@ -1583,6 +1587,9 @@ async function main(): Promise<void> {
     const corpusGeneration = typeof captured.corpus_generation === 'number'
       ? captured.corpus_generation
       : await playabilityRecommendationCorpusGeneration().catch(() => null);
+    const semanticGeneration = typeof captured.story_generation === 'number'
+      ? captured.story_generation
+      : await playabilityRecommendationSemanticGeneration().catch(() => null);
     // Capture per-tab revisions once so we can (a) enqueue the diagnostic
     // facade row after `updateDesiredRevision` has persisted the desired
     // state (b) feed the desired revision store the full personalization
@@ -1591,31 +1598,41 @@ async function main(): Promise<void> {
     const capturedByTab = tabs.map((tab) => ({
       tab,
       revisions: {
-        ...captureVodRecommendationRevisions(tab, { corpus_generation: corpusGeneration }),
+        ...captureVodRecommendationRevisions(tab, {
+          corpus_generation: corpusGeneration,
+          semantic_generation: semanticGeneration,
+        }),
         ...captured,
       },
     }));
-    // Persist the desired revision durably BEFORE creating the facade row so
-    // the facade cannot exist without a corresponding desired revision. Pass
-    // a stable taste signature and semantic generation so any rating or
-    // watch signal advances the revision even when the corpus is unchanged.
-    const persistedDesired = [];
+    // Persist the desired revision and diagnostic facade row together so the
+    // isolated worker never observes a desired revision without its exact
+    // durable receipt. Manual/force requests intentionally advance the
+    // desired revision even when inputs are unchanged; that is a real rerank,
+    // not an ensure-current no-op, so exact waiters terminate by worker claim.
+    const forceDesiredRevision = triggerReasons.some((reason) => (
+      /(?:manual|force|explicit)/i.test(reason)
+    ));
+    const jobs: RecommendationRefreshJob[] = [];
     for (const { tab, revisions } of capturedByTab) {
       try {
         const tasteSignature = currentStoryGraphTasteRevision(tab);
-        const semanticGeneration = typeof revisions.story_generation === 'number'
+        const capturedSemanticGeneration = typeof revisions.story_generation === 'number'
           ? revisions.story_generation
           : null;
-        updateDesiredRevision({
+        jobs.push(createVodRecommendationRefreshJob({
           content_type: tab === 'movies' ? 'movie' : 'series',
-          reason: triggerReasons.join(','),
-          corpus_generation: corpusGeneration,
-          semantic_generation: semanticGeneration,
-          taste_signature: tasteSignature,
-        });
-        persistedDesired.push({ tab, revisions });
+          trigger_reasons: triggerReasons,
+          captured_revisions: revisions,
+          desired_revision: {
+            corpus_generation: corpusGeneration,
+            semantic_generation: capturedSemanticGeneration,
+            taste_signature: tasteSignature,
+            force_revision: forceDesiredRevision,
+          },
+        }));
       } catch (error) {
-        console.warn(`desired revision persistence failed for ${tab}: ${
+        console.warn(`recommendation refresh enqueue failed for ${tab}: ${
           error instanceof Error ? error.message : String(error)
         }`);
       }
@@ -1626,12 +1643,6 @@ async function main(): Promise<void> {
     // `running → complete/failed/coalesced`. `profileId` is kept for
     // per-profile logging and future multi-profile scoping.
     void profileId;
-    const jobs = persistedDesired.map(({ tab, revisions }) => createRecommendationRefreshJob({
-      domain: 'vod',
-      content_type: tab === 'movies' ? 'movie' : 'series',
-      trigger_reasons: triggerReasons,
-      captured_revisions: revisions,
-    }));
     return jobs;
   };
   setStoryGraphLowWaterEnqueueHook((request) => (

@@ -33,6 +33,7 @@ import {
 import {
   initProgressDb,
   resetProgressDbForTests,
+  upsertWatchProgress,
 } from './progress/db.js';
 
 function rail(id: string, count: number): RailItemsResponse {
@@ -306,6 +307,222 @@ VALUES ('series', ?, ?, ?, '2026', ?)
     restore('recommendationMode', 'MANGO_VOD_RECS_V2');
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+async function withMetadataTempDbs(fn: () => Promise<void>): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), 'mango-core-playability-metadata-'));
+  const previous = {
+    libraryDb: process.env.MANGO_LIBRARY_DB_PATH,
+    playabilityDb: process.env.MANGO_PLAYABILITY_DB,
+    progressDb: process.env.MANGO_PROGRESS_DB_PATH,
+    browseMode: process.env.MANGO_VOD_BROWSE_V3,
+  };
+  process.env.MANGO_LIBRARY_DB_PATH = join(dir, 'library.db');
+  process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
+  process.env.MANGO_PROGRESS_DB_PATH = join(dir, 'progress.db');
+  process.env.MANGO_VOD_BROWSE_V3 = 'off';
+  resetLibraryDbForTests();
+  resetPlayabilityDbForTests();
+  resetProgressDbForTests();
+  try {
+    await initPlayabilityDb();
+    await initProgressDb();
+    await fn();
+  } finally {
+    resetLibraryDbForTests();
+    resetPlayabilityDbForTests();
+    resetProgressDbForTests();
+    const restore = (key: keyof typeof previous, envKey: string): void => {
+      const value = previous[key];
+      if (value === undefined) delete process.env[envKey];
+      else process.env[envKey] = value;
+    };
+    restore('libraryDb', 'MANGO_LIBRARY_DB_PATH');
+    restore('playabilityDb', 'MANGO_PLAYABILITY_DB');
+    restore('progressDb', 'MANGO_PROGRESS_DB_PATH');
+    restore('browseMode', 'MANGO_VOD_BROWSE_V3');
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+function recordMetadataPlayabilityFixtures(ids: {
+  fresh: string;
+  expiredVerified: string;
+  expiryStale: string;
+  failed: string;
+}, now: number): void {
+  const db = getPlayabilityDb();
+  const insert = db.prepare(`
+INSERT INTO titles(type, id, status, fail_reason, verified_at, expires_at, updated_at)
+VALUES ('movie', @id, @status, @fail_reason, @verified_at, @expires_at, @updated_at)
+`);
+  insert.run({
+    id: ids.fresh,
+    status: 'verified',
+    fail_reason: null,
+    verified_at: now,
+    expires_at: now + 60_000,
+    updated_at: now,
+  });
+  insert.run({
+    id: ids.expiredVerified,
+    status: 'verified',
+    fail_reason: null,
+    verified_at: now - 10_000,
+    expires_at: now - 1_000,
+    updated_at: now,
+  });
+  insert.run({
+    id: ids.expiryStale,
+    status: 'stale',
+    fail_reason: 'expired_stale',
+    verified_at: now - 20_000,
+    expires_at: now - 1_000,
+    updated_at: now,
+  });
+  insert.run({
+    id: ids.failed,
+    status: 'failed',
+    fail_reason: 'play_failure',
+    verified_at: null,
+    expires_at: null,
+    updated_at: now,
+  });
+}
+
+function fixtureCore(): CatalogCore {
+  const TestCatalogCore = CatalogCore as unknown as new (...args: unknown[]) => CatalogCore;
+  return new TestCatalogCore(
+    { available: false, error: 'fixture' },
+    [],
+    {},
+    {
+      version: 1,
+      rails: [{
+        id: 'movies-test',
+        label: 'Movies Test',
+        type: 'addon_catalog',
+        tab: 'movies',
+        content_type: 'movie',
+        addon: 'fixture',
+        catalog: 'fixture',
+        limit: 20,
+        enabled: true,
+        playability: {
+          display_limit: 9,
+          display_max: 9,
+          min_display: 0,
+          ingest_multiplier: 1,
+          pool_target: 4,
+          pool_growth_per_refresh: 0,
+          pool_max: null,
+          grow_per_pass: 0,
+        },
+      }],
+    },
+    null,
+    null,
+    null,
+    [],
+  );
+}
+
+test('Saved and Continue preserve user rows but report strict-fresh and visible playability counts', async () => {
+  await withMetadataTempDbs(async () => {
+    const now = Date.now();
+    const ids = {
+      fresh: 'tt-meta-fresh',
+      expiredVerified: 'tt-meta-expired-verified',
+      expiryStale: 'tt-meta-expiry-stale',
+      failed: 'tt-meta-failed',
+    };
+    recordMetadataPlayabilityFixtures(ids, now);
+    for (const [index, id] of Object.values(ids).entries()) {
+      saveLibraryItem({
+        source: 'mango',
+        type: 'movie',
+        id,
+        title: `Saved ${id}`,
+        poster: `https://img/${id}.jpg`,
+        tab: 'movies',
+        saved_at: now + index,
+        profile_id: 'household',
+      });
+      upsertWatchProgress({
+        source: 'mango',
+        type: 'movie',
+        id,
+        play_id: id,
+        title: `Continue ${id}`,
+        poster: `https://img/${id}.jpg`,
+        position_sec: 120,
+        duration_sec: 1200,
+        tab: 'movies',
+        profile_id: 'household',
+      });
+    }
+
+    const core = fixtureCore() as unknown as {
+      buildSavedRail: (tab: 'movies', profileId: string) => Promise<RailItemsResponse>;
+      buildContinueRail: (tab: 'movies', profileId: string) => Promise<RailItemsResponse>;
+    };
+    const saved = await core.buildSavedRail('movies', 'household');
+    const continued = await core.buildContinueRail('movies', 'household');
+
+    assert.equal(saved.items.length, 4);
+    assert.equal(saved.playability.verified_pool, 1);
+    assert.equal(saved.playability.visible_pool, 3);
+    assert.equal(continued.items.length, 4);
+    assert.equal(continued.playability.verified_pool, 1);
+    assert.equal(continued.playability.visible_pool, 3);
+  });
+});
+
+test('Related rails report strict-fresh and visible counts from playability state', async () => {
+  await withMetadataTempDbs(async () => {
+    const now = Date.now();
+    const ids = {
+      fresh: 'tt-related-fresh',
+      expiredVerified: 'tt-related-expired-verified',
+      expiryStale: 'tt-related-expiry-stale',
+      failed: 'tt-related-failed',
+    };
+    recordMetadataPlayabilityFixtures(ids, now);
+    const db = getPlayabilityDb();
+    const insertPool = db.prepare(`
+INSERT INTO rail_pool(rail_id, type, id, score, ingested_at, title, poster_url, year)
+VALUES ('movies-test', 'movie', @id, @score, @ingested_at, @title, @poster_url, '2026')
+`);
+    Object.values(ids).forEach((id, index) => insertPool.run({
+      id,
+      score: 10 - index,
+      ingested_at: now,
+      title: `Related ${id}`,
+      poster_url: `https://img/${id}.jpg`,
+    }));
+
+    const core = fixtureCore();
+    const related = await core.contentRelated('movie', 'tt-seed', 'movies-test', [], 8);
+
+    assert.deepEqual([...related.items.map((item) => item.id)].sort(), [
+      ids.expiredVerified,
+      ids.fresh,
+      ids.expiryStale,
+    ].sort());
+    assert.equal(related.playability.displayed, 3);
+    assert.equal(related.playability.verified_pool, 1);
+    assert.equal(related.playability.visible_pool, 3);
+  });
+});
+
+test('VOD rail metadata no longer synthesizes verified counts from rendered item count', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const sourcePath = existsSync(join(here, 'core.ts'))
+    ? join(here, 'core.ts')
+    : join(here, '../src/core.ts');
+  const source = readFileSync(sourcePath, 'utf8');
+  assert.equal(source.includes('verified_pool: items.length'), false);
+  assert.equal(source.includes('visible_pool: items.length'), false);
 });
 
 test('Browse v3 X recency-samples Continue and Saved instead of cloning the previous deal', () => {

@@ -37,15 +37,20 @@ test('catalog boot never instantiates the coalescing queue or reads inline env f
     false,
     'inlineRecsRefreshEnabled sentinel must be gone from catalog boot',
   );
-  assert.ok(source.includes('updateDesiredRevision('),
-    'signal/corpus/manual refresh must persist to vod_desired_revisions');
+  assert.ok(source.includes('createVodRecommendationRefreshJob('),
+    'signal/corpus/manual refresh must atomically persist desired revision plus durable receipt');
 });
 
-test('index.ts persists desired revisions on every trigger', () => {
+test('index.ts uses the atomic VOD desired-revision receipt helper on every trigger', () => {
   const source = readFileSync(INDEX_SOURCE_PATH, 'utf8');
-  const updates = source.match(/updateDesiredRevision\(/g) ?? [];
-  assert.ok(updates.length >= 1,
-    `expected at least one updateDesiredRevision call, found ${updates.length}`);
+  const atomicJobs = source.match(/createVodRecommendationRefreshJob\(/g) ?? [];
+  assert.ok(atomicJobs.length >= 1,
+    `expected at least one createVodRecommendationRefreshJob call, found ${atomicJobs.length}`);
+  assert.equal(
+    /createRecommendationRefreshJob\(\{\s*domain:\s*['"]vod['"]/s.test(source),
+    false,
+    'catalog must not create VOD facade jobs without the desired-revision update helper',
+  );
 });
 
 test('setup script installs and enables the isolated VOD recs worker unit', () => {

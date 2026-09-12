@@ -34,12 +34,27 @@ restore the exact launcher state.
 ## Playability and grow
 
 `/etc/mango/playability.db` stores verified titles, rail membership, and
-URL-free path evidence. Browse rails show only currently verified members.
+URL-free path evidence. Browse rails may show current verification and
+last-known-good titles whose only issue is expired verification. Expiry queues
+a background recheck; it does not erase previous playback evidence or establish
+fresh proof. Never-tested titles and titles with a subsequent failed attempt
+are not eligible filler.
+
+Any failed overall playback or verification attempt hides the affected title
+and queues reverification, including temporary provider/network failures.
+One failed candidate followed by a successful fallback is not a failed overall
+attempt; cancellation and normal stop are not failures. Episode failures remain
+episode-scoped, and wrong-edition/type identities stay quarantined. Saved,
+history, and title records remain durable even when browse eligibility is hidden.
 
 Grow is couch-silent maintenance: it uses a staged work DB, publishes
 atomically, and defers when the activity marker shows real pad, launcher,
 voice, or playback use. `grow_per_pass` defaults to 20. Missing a per-rail
 target is an SLA warning, not a publish blocker if the run completes cleanly.
+Nightly work prioritizes expired-title reverification and latest-title discovery:
+the default stale phase receives up to half the admission window, with discovery
+using the remaining time (including any unused stale budget). Current proof,
+last-known-good visibility, new titles, and reverified titles are separate counts.
 
 ## Shuffle and recommendations
 

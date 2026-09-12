@@ -17,10 +17,16 @@ function canonicalBrowseId(type: string, id: string): string {
   return canonicalTitleId(type, id);
 }
 
-function shouldMirrorSeriesGateRecord(type: string, id: string): boolean {
-  return type === 'series'
-    && isSeriesRailGateId(id)
-    && canonicalBrowseId(type, id) !== id;
+function shouldMirrorSeriesGateRecord(record: Pick<PlayabilityVerifyRecord, 'type' | 'id' | 'request_title_id'>): boolean {
+  if (record.type !== 'series' || !isSeriesRailGateId(record.id)) {
+    return false;
+  }
+  const canonicalId = canonicalBrowseId(record.type, record.id);
+  if (canonicalId === record.id) {
+    return false;
+  }
+  const requestTitleId = record.request_title_id?.trim();
+  return !requestTitleId || requestTitleId === canonicalId;
 }
 
 export class PlayabilityBatchWriter {
@@ -145,7 +151,7 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
           first_verified_at: verifiedAt,
           updated_at: observedAt,
         });
-        if (shouldMirrorSeriesGateRecord(record.type, record.id)) {
+        if (shouldMirrorSeriesGateRecord(record)) {
           upsertTitle.run({
             type: record.type,
             id: canonicalBrowseId(record.type, record.id),

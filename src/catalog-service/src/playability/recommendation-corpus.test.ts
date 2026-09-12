@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   getPlayabilityDb,
   initPlayabilityDb,
+  listVisibleRecommendationCatalogPage,
   listVerifiedRecommendationCatalogPage,
   playabilityRecommendationCorpusGeneration,
   playabilityRecommendationSemanticGeneration,
@@ -104,12 +105,46 @@ VALUES ('series-drama', 'series', 'tt0944947:1:1', 1, 1, 'Game of Thrones', 'pos
     });
     const ids = [...first.items, ...second.items].map((row) => row.id);
 
-    assert.equal(first.verified_count, 3);
+    assert.equal(first.verified_count, 2);
     assert.equal(ids.length, first.verified_count, 'COUNT and paged relation must be identical');
-    assert.deepEqual(ids, ['series-external', 'tt0944947', 'tt9999999']);
+    assert.deepEqual(ids, ['series-external', 'tt0944947']);
     const canonical = [...first.items, ...second.items].find((row) => row.id === 'tt0944947');
     assert.equal(canonical?.title, 'Game of Thrones');
     assert.deepEqual(canonical?.rail_ids, ['series-drama']);
+  });
+});
+
+test('series recommendation corpus does not recover a show from episode-only proof', async () => {
+  await withTempDb(async () => {
+    const db = getPlayabilityDb();
+    db.transaction(() => {
+      db.prepare(`
+INSERT INTO titles(type, id, status, verified_at, updated_at)
+VALUES ('series', 'tt2222222:1:1', 'verified', 1, 1)
+`).run();
+      db.prepare(`
+INSERT INTO titles(type, id, status, fail_reason, verified_at, updated_at)
+VALUES ('series', 'tt3333333', 'stale', 'play_miss', 2, 2)
+`).run();
+      db.prepare(`
+INSERT INTO titles(type, id, status, verified_at, updated_at)
+VALUES ('series', 'tt3333333:1:1', 'verified', 3, 3)
+`).run();
+      db.prepare(`
+INSERT INTO titles(type, id, status, verified_at, updated_at)
+VALUES ('series', 'tt4444444', 'verified', 4, 4)
+`).run();
+      db.prepare(`
+INSERT INTO titles(type, id, status, verified_at, updated_at)
+VALUES ('series', 'tt4444444:1:1', 'verified', 5, 5)
+`).run();
+    })();
+
+    const fresh = await listVerifiedRecommendationCatalogPage({ content_type: 'series' });
+    assert.deepEqual(fresh.items.map((row) => row.id), ['tt4444444']);
+
+    const visible = await listVisibleRecommendationCatalogPage({ content_type: 'series' });
+    assert.deepEqual(visible.items.map((row) => row.id), ['tt4444444']);
   });
 });
 
@@ -267,5 +302,32 @@ UPDATE titles SET status = 'stale', updated_at = 3
 WHERE type = 'movie' AND id = 'stable-title'
 `).run();
     assert.ok(await playabilityRecommendationCorpusGeneration() > displayChanged);
+  });
+});
+
+test('same-status expired_stale marker changes advance corpus generation and visible page', async () => {
+  await withTempDb(async () => {
+    const db = getPlayabilityDb();
+    db.prepare(`
+INSERT INTO titles(type, id, status, fail_reason, verified_at, expires_at, updated_at)
+VALUES ('movie', 'expiry-only-restored', 'stale', NULL, 1, 2, 3)
+`).run();
+    db.prepare(`
+INSERT INTO rail_pool(rail_id, type, id, score, ingested_at, title, poster_url, year)
+VALUES ('movies-global', 'movie', 'expiry-only-restored', 1, 1, 'Restored', 'poster.jpg', '2024')
+`).run();
+    const baseline = await playabilityRecommendationCorpusGeneration();
+    const hidden = await listVisibleRecommendationCatalogPage({ content_type: 'movie' });
+    assert.equal(hidden.verified_count, 0);
+
+    db.prepare(`
+UPDATE titles SET fail_reason = 'expired_stale'
+WHERE type = 'movie' AND id = 'expiry-only-restored' AND status = 'stale'
+`).run();
+
+    assert.ok(await playabilityRecommendationCorpusGeneration() > baseline);
+    const visible = await listVisibleRecommendationCatalogPage({ content_type: 'movie' });
+    assert.equal(visible.verified_count, 1);
+    assert.deepEqual(visible.items.map((row) => row.id), ['expiry-only-restored']);
   });
 });

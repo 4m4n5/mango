@@ -76,6 +76,27 @@ The prior deployed evidence below is **historical**, not a sign-off for the
 relocation repairs. Full couch acceptance and repeated unattended nights remain
 **DEFERRED**.
 
+### Approved library visibility follow-up — source implementation
+
+Expiry alone retains last-known-good browse and recommendation eligibility;
+strict fresh-proof counts remain separate. An overall unsuccessful play hides
+and queues the affected title or exact episode, including transient failures.
+Cancellation and successful stream fallback do not count as overall failures.
+Nightly admission reserves half its budget for expired-title rechecks and uses
+the remainder for discovery, preferring existing recent-title feeds. Saved,
+ratings, viewing history, and title records are not deleted by this policy.
+
+Schema 21 makes expiry-marker changes advance the recommendation corpus.
+Refresh receipts now bind atomically to the actual desired revision and semantic
+generation, including concurrent-worker guards. A guarded recovery utility can
+restore visibility only for baseline-proven expiry-only demotions without
+renewing verification dates; application and Pi proof are pending.
+
+Local validation for this follow-up: catalog **1240/1240**, launcher
+**143/143** plus build, UI server **18/18**, the full library-grow regression
+gate, guarded restoration **15/15**, and pruning-report tests **4/4** pass.
+Exact-episode S1E1 retry and direct/batched show-gate boundaries are covered.
+
 ## Historical recorded Pi deployment — 2026-08-21
 
 Previously recorded Pi deployment: **2026-08-21**,

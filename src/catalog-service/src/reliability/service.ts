@@ -459,15 +459,23 @@ export function playabilityFacts(
         - expiredVerified,
     )
     : 0;
+  const visiblePool = (rail: PlayabilityStatus['rails'][number]): number => (
+    safeNumber(rail.visible_pool, safeNumber(rail.verified_pool, 0))
+  );
   return {
     ok: status.ok === true,
     rail_count: rails.length,
     verified_distinct: verification ? currentDistinctVerified : undefined,
     expired_verified: expiredVerified > 0 ? expiredVerified : undefined,
     verified_total: rails.reduce((sum, rail) => sum + safeNumber(rail.verified_pool, 0), 0),
+    visible_total: rails.reduce((sum, rail) => sum + visiblePool(rail), 0),
     thin_rails: rails
-      .filter((rail) => safeNumber(rail.verified_pool, 0) < 9)
-      .map((rail) => ({ rail_id: rail.rail_id, verified_pool: safeNumber(rail.verified_pool, 0) })),
+      .filter((rail) => visiblePool(rail) < 9)
+      .map((rail) => ({
+        rail_id: rail.rail_id,
+        verified_pool: safeNumber(rail.verified_pool, 0),
+        visible_pool: visiblePool(rail),
+      })),
     last_indexer_run_at: status.last_indexer_run_at ?? null,
   };
 }
@@ -703,7 +711,7 @@ export class ReliabilityService {
         db_path: '',
         schema_version: 0,
         rails: [],
-        totals: { pool_depth: 0, verified_pool: 0, pending: 0, stale: 0, failed: 0 },
+        totals: { pool_depth: 0, verified_pool: 0, visible_pool: 0, pending: 0, stale: 0, failed: 0 },
         last_indexer_run_at: null,
         retry_queue: { total: 0, due: 0, oldest_requested_at: null, by_reason: {} },
         publication: null,

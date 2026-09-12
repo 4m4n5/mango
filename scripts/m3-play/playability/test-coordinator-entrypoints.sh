@@ -63,7 +63,7 @@ if nightly["preset"] != "nightly" or nightly_stop_before_deadline != 15 * 60 * 1
     raise SystemExit(f"nightly default preset/deadline wrong: {nightly}")
 if nightly["grow_child_admission_deadline_ms"] != nightly["admission_deadline_ms"]:
     raise SystemExit(f"nightly grow child deadline was narrowed: {nightly}")
-if nightly["stale_budget_fraction"] != 0.25 or nightly_stale_window != int(nightly_global_window * 0.25):
+if nightly["stale_budget_fraction"] != 0.5 or nightly_stale_window != int(nightly_global_window * 0.5):
     raise SystemExit(f"nightly stale budget fraction not applied: {nightly}")
 PY
 

@@ -7,21 +7,24 @@ import {
   shouldInvalidatePlayabilityAfterPlayError,
 } from './play-failure-policy.js';
 
-test('transient unreadable / opaque / cancelled do not demote', () => {
+test('transient unreadable / opaque overall failures demote, cancelled does not', () => {
   assert.equal(shouldDemoteAfterPlayError({
     isNoPlayableStream: true,
+    terminalFailure: true,
     obligationFloorRan: true,
     attempts: [{ ok: false, error: 'debrid_playback_unreadable' }],
     candidates: 2,
-  }), false);
+  }), true);
   assert.equal(shouldDemoteAfterPlayError({
     isNoPlayableStream: true,
+    terminalFailure: true,
     obligationFloorRan: true,
     attempts: [{ ok: false, error: 'mpv-play failed: no error detail captured (exit 1)' }],
     candidates: 3,
-  }), false);
+  }), true);
   assert.equal(shouldDemoteAfterPlayError({
     isNoPlayableStream: true,
+    terminalFailure: true,
     obligationFloorRan: true,
     attempts: [{ ok: false, error: 'play cancelled' }],
     candidates: 1,
@@ -31,49 +34,66 @@ test('transient unreadable / opaque / cancelled do not demote', () => {
 test('confirmed garbage (nfo / copyright / status_clip) demotes after obligation floor', () => {
   assert.equal(shouldDemoteAfterPlayError({
     isNoPlayableStream: true,
+    terminalFailure: true,
     obligationFloorRan: true,
     attempts: [{ ok: false, error: 'debrid_nfo_sidecar' }],
     candidates: 2,
   }), true);
   assert.equal(shouldDemoteAfterPlayError({
     isNoPlayableStream: true,
+    terminalFailure: true,
     obligationFloorRan: true,
     attempts: [{ ok: false, error: 'debrid_copyright_block' }],
     candidates: 2,
   }), true);
   assert.equal(shouldDemoteAfterPlayError({
     isNoPlayableStream: true,
+    terminalFailure: true,
     obligationFloorRan: true,
     attempts: [{ ok: false, error: 'debrid_status_clip' }],
     candidates: 2,
   }), true);
 });
 
-test('zero-candidate no_playable_stream does not demote or invalidate', () => {
+test('zero-candidate no_playable_stream hides and queues reverify', () => {
   assert.equal(shouldDemoteAfterPlayError({
     isNoPlayableStream: true,
+    terminalFailure: true,
     attempts: [],
     candidates: 0,
-  }), false);
+  }), true);
   assert.equal(shouldInvalidatePlayabilityAfterPlayError({
     isNoPlayableStream: true,
+    terminalFailure: true,
     attempts: [],
     candidates: 0,
-  }), false);
+  }), true);
 });
 
 test('obligation floor exhaustion with non-transient errors demotes', () => {
   assert.equal(shouldDemoteAfterPlayError({
     isNoPlayableStream: true,
+    terminalFailure: true,
     obligationFloorRan: true,
     attempts: [{ ok: false, error: 'mpv-play failed: HTTP error 403 for http(s)://<redacted>' }],
     candidates: 4,
   }), true);
 });
 
-test('preference ladder only (no obligation floor) does not demote', () => {
+test('terminal failures before obligation floor still hide and reverify', () => {
   assert.equal(shouldDemoteAfterPlayError({
     isNoPlayableStream: true,
+    terminalFailure: true,
+    obligationFloorRan: false,
+    attempts: [{ ok: false, error: 'mpv-play failed: HTTP error 403' }],
+    candidates: 2,
+  }), true);
+});
+
+test('candidate-local fallback failures do not demote unless the whole play fails', () => {
+  assert.equal(shouldDemoteAfterPlayError({
+    isNoPlayableStream: false,
+    terminalFailure: false,
     obligationFloorRan: false,
     attempts: [{ ok: false, error: 'mpv-play failed: HTTP error 403' }],
     candidates: 2,
@@ -84,6 +104,7 @@ test('second play_miss within 24h confirms play_failure tombstone', () => {
   const now = Date.now();
   assert.equal(shouldConfirmPlayFailure({
     isNoPlayableStream: true,
+    terminalFailure: true,
     obligationFloorRan: true,
     attempts: [{ ok: false, error: 'mpv-play failed: HTTP error 403' }],
     candidates: 3,
@@ -93,6 +114,7 @@ test('second play_miss within 24h confirms play_failure tombstone', () => {
   }), true);
   assert.equal(shouldConfirmPlayFailure({
     isNoPlayableStream: true,
+    terminalFailure: true,
     obligationFloorRan: true,
     attempts: [{ ok: false, error: 'mpv-play failed: HTTP error 403' }],
     candidates: 3,
@@ -102,6 +124,7 @@ test('second play_miss within 24h confirms play_failure tombstone', () => {
   }), false);
   assert.equal(shouldConfirmPlayFailure({
     isNoPlayableStream: true,
+    terminalFailure: true,
     obligationFloorRan: true,
     attempts: [{ ok: false, error: 'mpv-play failed: HTTP error 403' }],
     candidates: 3,
@@ -111,10 +134,11 @@ test('second play_miss within 24h confirms play_failure tombstone', () => {
   }), false);
 });
 
-test('play failure does not invalidate unresolved infrastructure errors', () => {
+test('terminal infrastructure errors hide unless they are cancellation-only', () => {
   assert.equal(shouldInvalidatePlayabilityAfterPlayError({
     isNoPlayableStream: false,
+    terminalFailure: true,
     attempts: [],
     candidates: undefined,
-  }), false);
+  }), true);
 });

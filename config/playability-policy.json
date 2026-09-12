@@ -6,7 +6,7 @@
     "deadline_minutes": 150,
     "admission_stop_minutes": 135,
     "stale_candidate_limit": 200,
-    "stale_budget_fraction": 0.25
+    "stale_budget_fraction": 0.5
   },
   "allocation": {
     "breadth_fraction": 0.2,

@@ -4,6 +4,8 @@ import {
 } from '../play-error-classify.js';
 
 export type PlayFailureInvalidationInput = {
+  /** True when the Play request itself failed overall; false for candidate-local fallback failures. */
+  terminalFailure?: boolean;
   isNoPlayableStream: boolean;
   attempts?: unknown;
   candidates?: unknown;
@@ -18,47 +20,40 @@ export type PlayFailureInvalidationInput = {
 
 const PLAY_MISS_CONFIRM_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** Policy-transient: retryable / non-confirming — does NOT count toward demotion. */
-function isPolicyTransientClass(cls: PlayErrorClass): boolean {
-  return cls === 'transient' || cls === 'cancelled';
+/** User/system cancellations are not failed attempts. Retryable transport errors are. */
+function isCancelledClass(cls: PlayErrorClass): boolean {
+  return cls === 'cancelled';
 }
 
-function isTransientPlayAttemptError(error: unknown): boolean {
+function isCancelledPlayAttemptError(error: unknown): boolean {
   if (typeof error !== 'string') {
     return false;
   }
-  return isPolicyTransientClass(classifyPlayError(error));
-}
-
-function hasNonTransientAttempt(attempts: unknown): boolean {
-  if (!Array.isArray(attempts) || attempts.length === 0) {
-    return false;
-  }
-  return attempts.some((attempt) => {
-    if (!attempt || typeof attempt !== 'object') {
-      return true;
-    }
-    const error = 'error' in attempt ? (attempt as { error?: unknown }).error : undefined;
-    return !isTransientPlayAttemptError(error);
-  });
+  return isCancelledClass(classifyPlayError(error));
 }
 
 /**
- * First couch miss after obligation-floor exhaustion → demote (stale/play_miss), not tombstone.
- * Zero-stream resolve and transient/cancelled errors never demote or invalidate.
- * Garbage attempts (copyright / status_clip / nfo) are confirmed failures for demotion.
+ * First failed overall couch play → demote (stale/play_miss), not tombstone.
+ * Cancellations/user stops never demote or invalidate. Once a Play request
+ * fails overall, zero-stream, auth, pipeline, and transient failures hide the
+ * affected identity while the reverify queue works in the background.
+ * Candidate-local probe failures that later fall back successfully never call
+ * this terminal policy.
  */
 export function shouldDemoteAfterPlayError(input: PlayFailureInvalidationInput): boolean {
-  if (!input.isNoPlayableStream) {
+  if (input.terminalFailure === false) {
     return false;
   }
-  if (typeof input.candidates === 'number' && input.candidates === 0) {
+  if (Array.isArray(input.attempts)
+    && input.attempts.length > 0
+    && input.attempts.every((attempt) => {
+      if (!attempt || typeof attempt !== 'object') return false;
+      const error = 'error' in attempt ? (attempt as { error?: unknown }).error : undefined;
+      return isCancelledPlayAttemptError(error);
+    })) {
     return false;
   }
-  if (!input.obligationFloorRan) {
-    return false;
-  }
-  return hasNonTransientAttempt(input.attempts);
+  return true;
 }
 
 /**
@@ -91,4 +86,4 @@ export function shouldInvalidatePlayabilityAfterPlayError(
   return shouldDemoteAfterPlayError(input) || shouldConfirmPlayFailure(input);
 }
 
-export { isTransientPlayAttemptError };
+export { isCancelledPlayAttemptError };

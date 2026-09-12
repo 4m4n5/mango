@@ -57,7 +57,7 @@ export async function buildSettingsRefresh(
 
   const intro = document.createElement("p");
   intro.className = "settings-note";
-  intro.textContent = "Shuffle re-picks verified titles on Movies, TV Shows, and YouTube. Live channels stay cached — no reshuffle.";
+  intro.textContent = "Shuffle re-picks available library titles on Movies, TV Shows, and YouTube. Live channels stay cached — no reshuffle.";
 
   container.append(heading, intro);
 

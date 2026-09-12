@@ -49,7 +49,7 @@ FROM playability_retry_queue WHERE type='movie' AND id='tt-no-stream'
   });
 });
 
-test('due queue is priority ordered and bounded across stale and play-failure rows', async () => {
+test('due queue prioritizes expiry-only backlog ahead of play-failure rows', async () => {
   await withTempDb(async () => {
     process.env.MANGO_PLAYABILITY_BOOTSTRAP = '1';
     await recordVerifyResult({
@@ -60,8 +60,8 @@ test('due queue is priority ordered and bounded across stale and play-failure ro
     });
     const due = await getStaleTitlesForRefresh(1, Date.now() + 10);
     assert.equal(due.length, 1);
-    assert.equal(due[0]?.id, 'tt-play-failure');
-    assert.equal(due[0]?.reason, 'play_failure');
+    assert.equal(due[0]?.id, 'tt-long-tail');
+    assert.equal(due[0]?.reason, 'expired_stale');
   });
 });
 

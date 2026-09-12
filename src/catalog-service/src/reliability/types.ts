@@ -140,7 +140,9 @@ export type ReliabilityFacts = {
     expired_verified?: number;
     /** Verified rail placements (sum of per-rail pools). */
     verified_total: number;
-    thin_rails: Array<{ rail_id: string; verified_pool: number }>;
+    /** Browse-visible rail placements, including last-known-good stale entries where allowed. */
+    visible_total: number;
+    thin_rails: Array<{ rail_id: string; verified_pool: number; visible_pool: number }>;
     last_indexer_run_at: number | null;
     error?: string;
   };

@@ -8,6 +8,7 @@ import { performance } from 'node:perf_hooks';
 import {
   getPlayabilityDb,
   getPlayabilityStatus,
+  getTitlePlayability,
   hasKnownIdentityTypeCollision,
   initPlayabilityDb,
   recordVerifyResult,
@@ -64,7 +65,7 @@ VALUES ('movies-global-popular', 'movie', 'tt1234567', 1, ?, 'Movie identity'),
 INSERT INTO verify_log(started_at, rail_id, type, id_value, stage, ms, outcome)
 VALUES (?, NULL, 'movie', 'tt1234567', 'verify', 1, 'verified');
 `).run(now - 1000);
-      db.prepare('DELETE FROM playability_migrations WHERE version IN (19, 20)').run();
+      db.prepare('DELETE FROM playability_migrations WHERE version IN (19, 20, 21)').run();
     })();
 
     resetPlayabilityDbForTests();
@@ -168,9 +169,6 @@ test('verified S1E1 series writes quarantine the mirrored bare movie-series coll
       id: 'tt13579135:1:1',
       status: 'verified',
       observed_at: now + 1,
-      proof_version: 2,
-      exact_main_win: true,
-      request_title_id: 'tt13579135:1:1',
     });
 
     const bareRows = getPlayabilityDb().prepare(`
@@ -207,9 +205,6 @@ test('batch writer S1E1 series writes quarantine the mirrored bare collision', a
       id: 'tt24681357:1:1',
       status: 'verified',
       observed_at: now + 1,
-      proof_version: 2,
-      exact_main_win: true,
-      request_title_id: 'tt24681357:1:1',
     });
     await writer.flush();
 
@@ -223,6 +218,58 @@ SELECT type, status, fail_reason FROM titles WHERE id='tt24681357' ORDER BY type
     assert.equal((getPlayabilityDb().prepare(`
 SELECT status FROM titles WHERE type='series' AND id='tt24681357:1:1';
 `).get() as { status: string }).status, 'verified');
+  });
+});
+
+test('failed S1E1 exact-episode retry does not hide the bare show', async () => {
+  await withTempDb(async () => {
+    const now = Date.now();
+    await recordVerifyResult({
+      type: 'series',
+      id: 'tt97531024',
+      status: 'verified',
+      observed_at: now,
+    });
+    await recordVerifyResult({
+      type: 'series',
+      id: 'tt97531024:1:1',
+      status: 'failed',
+      fail_reason: 'no_stream',
+      observed_at: now + 1,
+      request_title_id: 'tt97531024:1:1',
+    });
+
+    assert.equal((await getTitlePlayability('series', 'tt97531024'))?.status, 'verified');
+    const episode = await getTitlePlayability('series', 'tt97531024:1:1');
+    assert.equal(episode?.status, 'failed');
+    assert.equal(episode?.fail_reason, 'no_stream');
+  });
+});
+
+test('batch failed S1E1 exact-episode retry does not hide the bare show', async () => {
+  await withTempDb(async () => {
+    const writer = new PlayabilityBatchWriter();
+    const now = Date.now();
+    await recordVerifyResult({
+      type: 'series',
+      id: 'tt97531025',
+      status: 'verified',
+      observed_at: now,
+    });
+    writer.queueVerify({
+      type: 'series',
+      id: 'tt97531025:1:1',
+      status: 'failed',
+      fail_reason: 'no_stream',
+      observed_at: now + 1,
+      request_title_id: 'tt97531025:1:1',
+    });
+    await writer.flush();
+
+    assert.equal((await getTitlePlayability('series', 'tt97531025'))?.status, 'verified');
+    const episode = await getTitlePlayability('series', 'tt97531025:1:1');
+    assert.equal(episode?.status, 'failed');
+    assert.equal(episode?.fail_reason, 'no_stream');
   });
 });
 

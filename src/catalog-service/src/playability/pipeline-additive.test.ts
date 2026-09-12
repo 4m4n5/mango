@@ -95,6 +95,7 @@ test('grow queue can disable existing verified source links', async () => {
         id: candidate.id,
         status: 'verified' as const,
         fail_reason: null,
+        verified_at: now - 60_000,
         expires_at: now + 60_000,
         updated_at: now,
       }],

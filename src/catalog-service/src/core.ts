@@ -41,6 +41,7 @@ import {
   hasKnownIdentityTypeCollision,
   getPlayabilityStatus,
   getTitlesPlayabilityBulk,
+  isTitleLastKnownGoodVisible,
   listRailPoolMissingDisplay,
   patchRailPoolDisplay,
   pickRailRelatedFromPool,
@@ -52,6 +53,7 @@ import {
   type RailSessionPoolItem,
   type RailSessionSnapshot,
   enqueuePlayabilityTrigger,
+  type TitlePlayabilityRecord,
 } from './playability/db.js';
 import {
   AddonCatalogListSource,
@@ -385,7 +387,10 @@ export type RailItemsResponse = {
   cached?: boolean;
   playability: {
     displayed: number;
+    /** Strict fresh proof count. */
     verified_pool: number;
+    /** Couch-visible count including expiry-only last-known-good rows. */
+    visible_pool?: number;
     pending: number;
     low_water: boolean;
     session_id: string;
@@ -413,6 +418,33 @@ export function vodUtilityRailMembershipMatches(
   const items = rail?.items ?? [];
   return items.length === Math.min(limit, currentKeys.size)
     && items.every((item) => currentKeys.has(titleKey(item.type, item.id)));
+}
+
+function isTitleStrictFresh(record: TitlePlayabilityRecord | null, now: number): boolean {
+  return record?.status === 'verified'
+    && (record.expires_at === null || record.expires_at > now);
+}
+
+async function playabilityCountsForDisplayedItems(
+  items: Array<{ type: string; id: string }>,
+): Promise<{ verified_pool: number; visible_pool: number }> {
+  if (items.length === 0) {
+    return { verified_pool: 0, visible_pool: 0 };
+  }
+  const states = await getTitlesPlayabilityBulk(items);
+  const now = Date.now();
+  let verifiedPool = 0;
+  let visiblePool = 0;
+  for (const item of items) {
+    const state = states.get(titleKey(item.type, item.id)) ?? null;
+    if (isTitleStrictFresh(state, now)) {
+      verifiedPool += 1;
+    }
+    if (isTitleLastKnownGoodVisible(state, now)) {
+      visiblePool += 1;
+    }
+  }
+  return { verified_pool: verifiedPool, visible_pool: visiblePool };
 }
 
 export function mergeUserStateRails(
@@ -2501,6 +2533,7 @@ export class CatalogCore {
       async (item) => this.resolveSavedRailItem(item, options),
       RAIL_META_STAGGER_MS,
     );
+    const playabilityCounts = await playabilityCountsForDisplayedItems(items);
 
     return {
       rail_id: SAVED_RAIL_ID,
@@ -2510,7 +2543,8 @@ export class CatalogCore {
       skipped: 0,
       playability: {
         displayed: items.length,
-        verified_pool: items.length,
+        verified_pool: playabilityCounts.verified_pool,
+        visible_pool: playabilityCounts.visible_pool,
         pending: 0,
         low_water: false,
         session_id: this.playabilitySessionId,
@@ -2551,6 +2585,7 @@ export class CatalogCore {
       source: candidate.source,
       progress: candidate.progress,
     } satisfies RailItem));
+    const playabilityCounts = await playabilityCountsForDisplayedItems(items);
 
     return {
       rail_id: CONTINUE_RAIL_ID,
@@ -2560,7 +2595,8 @@ export class CatalogCore {
       skipped: 0,
       playability: {
         displayed: items.length,
-        verified_pool: items.length,
+        verified_pool: playabilityCounts.verified_pool,
+        visible_pool: playabilityCounts.visible_pool,
         pending: 0,
         low_water: false,
         session_id: this.playabilitySessionId,
@@ -2641,6 +2677,7 @@ export class CatalogCore {
       playability: {
         displayed: items.length,
         verified_pool: session.verified_pool,
+        visible_pool: session.visible_pool,
         pending,
         low_water: lowWater,
         session_id: session.session_id,
@@ -2664,6 +2701,7 @@ export class CatalogCore {
       playability: {
         displayed: items.length,
         verified_pool: session.verified_pool,
+        visible_pool: session.visible_pool,
         pending: Math.max(0, 6 - items.length),
         low_water: items.length < 6,
         session_id: session.session_id,
@@ -2714,6 +2752,20 @@ export class CatalogCore {
     this.vodBrowsePersistTail = this.vodBrowsePersistTail.then(work, work);
   }
 
+  private async discoveryRailItemsStillVisible(rails: RailItemsResponse[]): Promise<boolean> {
+    const discovery = rails
+      .filter((rail) => rail.rail_id !== SAVED_RAIL_ID && rail.rail_id !== CONTINUE_RAIL_ID)
+      .flatMap((rail) => rail.items)
+      .filter((item) => item.type === 'movie' || item.type === 'series')
+      .map((item) => ({ type: item.type, id: item.id }));
+    if (discovery.length === 0) return true;
+    const states = await getTitlesPlayabilityBulk(discovery);
+    const now = Date.now();
+    return discovery.every((item) => (
+      isTitleLastKnownGoodVisible(states.get(titleKey(item.type, item.id)) ?? null, now)
+    ));
+  }
+
   private async vodBrowseStoredDealUsable(
     tab: VodRecommendationTab,
     payload: TabRailItemsResponse,
@@ -2756,8 +2808,7 @@ export class CatalogCore {
     const now = Date.now();
     return discovery.every((item) => {
       const state = states.get(titleKey(item.type, item.id));
-      return state?.status === 'verified'
-        && (state.expires_at === null || state.expires_at > now);
+      return isTitleLastKnownGoodVisible(state ?? null, now);
     });
   }
 
@@ -3064,6 +3115,7 @@ export class CatalogCore {
       && cachedTab.profileId === personalization.active_profile_id
       && cachedTab.personalizationUpdatedAt === personalization.updated_at
       && cachedTab.payload.rails.every((rail) => rail.playability?.low_water !== true)
+      && await this.discoveryRailItemsStillVisible(cachedTab.payload.rails)
     ) {
       return { value: { ...cachedTab.payload, cached: true } };
     }
@@ -3292,6 +3344,7 @@ export class CatalogCore {
       cachedRail
       && cachedRail.expiresAt > Date.now()
       && cachedRail.payload.playability?.low_water !== true
+      && await this.discoveryRailItemsStillVisible([cachedRail.payload])
     ) {
       return { ...cachedRail.payload, cached: true };
     }
@@ -3336,6 +3389,7 @@ export class CatalogCore {
       year: row.year ?? undefined,
       source: row.best_source || '',
     }));
+    const playabilityCounts = await playabilityCountsForDisplayedItems(items);
     return {
       rail_id: rail.id,
       label: rail.label,
@@ -3344,7 +3398,8 @@ export class CatalogCore {
       skipped: 0,
       playability: {
         displayed: items.length,
-        verified_pool: poolRows.length,
+        verified_pool: playabilityCounts.verified_pool,
+        visible_pool: playabilityCounts.visible_pool,
         pending: 0,
         low_water: false,
         session_id: '',
@@ -3376,6 +3431,7 @@ export class CatalogCore {
         year: row.year ?? undefined,
         source: row.source,
       }));
+      const playabilityCounts = await playabilityCountsForDisplayedItems(items);
       return {
         rail_id: `related-${type}-${id}`,
         label: 'Related Titles',
@@ -3384,7 +3440,8 @@ export class CatalogCore {
         skipped: 0,
         playability: {
           displayed: items.length,
-          verified_pool: items.length,
+          verified_pool: playabilityCounts.verified_pool,
+          visible_pool: playabilityCounts.visible_pool,
           pending: 0,
           low_water: false,
           session_id: '',
@@ -3401,6 +3458,7 @@ export class CatalogCore {
       playability: {
         displayed: 0,
         verified_pool: 0,
+        visible_pool: 0,
         pending: 0,
         low_water: false,
         session_id: '',

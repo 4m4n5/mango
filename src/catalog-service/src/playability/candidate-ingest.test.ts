@@ -65,6 +65,7 @@ test('ingestPaginatedCandidates pages past verified and failed to find fresh tit
       id: `seen-${index}`,
       status: index % 2 === 0 ? 'verified' : 'failed',
       fail_reason: 'timeout',
+      verified_at: index % 2 === 0 ? Date.now() - 60_000 : null,
       expires_at: Date.now() + 60_000,
       updated_at: Date.now(),
     });
@@ -116,6 +117,7 @@ test('ingestPaginatedCandidates can skip collecting active verified links during
         id: candidate.id,
         status: 'verified' as const,
         fail_reason: null,
+        verified_at: now - 60_000,
         expires_at: now + 60_000,
         updated_at: now,
       }])),
@@ -424,6 +426,7 @@ test('ingestPaginatedCandidates only bypasses tombstoned no_stream when explicit
         id: 'retry-me',
         status: 'failed',
         fail_reason: 'no_stream',
+        verified_at: null,
         expires_at: null,
         updated_at: now - 1000,
       }],
@@ -453,6 +456,7 @@ test('ingestPaginatedCandidates skips recent no_stream without explicit bypass',
         id: 'skip-me',
         status: 'failed',
         fail_reason: 'no_stream',
+        verified_at: null,
         expires_at: null,
         updated_at: now - 1000,
       }],
@@ -479,6 +483,7 @@ test('Q2: isRecentFailedTitle clears play_failure well before the generic no_str
       id: 'couch-fail',
       status: 'failed',
       fail_reason: 'play_failure',
+      verified_at: null,
       expires_at: null,
       updated_at: twoHoursAgo,
     }, now), false);
@@ -489,6 +494,7 @@ test('Q2: isRecentFailedTitle clears play_failure well before the generic no_str
       id: 'no-stream-fail',
       status: 'failed',
       fail_reason: 'no_stream',
+      verified_at: null,
       expires_at: null,
       updated_at: twoHoursAgo,
     }, now), true);
@@ -504,6 +510,7 @@ test('isRecentFailedTitle respects retry window', () => {
     id: 'x',
     status: 'failed',
     fail_reason: 'timeout',
+    verified_at: null,
     expires_at: null,
     updated_at: now - 1000,
   }, now), true);
@@ -512,6 +519,7 @@ test('isRecentFailedTitle respects retry window', () => {
     id: 'x',
     status: 'failed',
     fail_reason: 'no_stream',
+    verified_at: null,
     expires_at: null,
     updated_at: now - 8 * 24 * 60 * 60 * 1000,
   }, now), false);

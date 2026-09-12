@@ -152,7 +152,7 @@ test('bare and :1:1 rail-gate series behavior stays on the existing path', async
   assert.deepEqual(writes, []);
 });
 
-test('a transient exact-episode miss queues only an exact recheck', async () => {
+test('a transient overall exact-episode miss hides that episode and queues an exact recheck', async () => {
   const mutations: string[] = [];
   const action = await reconcileFailedEpisodePlayability({
     contentType: 'series',
@@ -172,11 +172,11 @@ test('a transient exact-episode miss queues only an exact recheck', async () => 
     enqueue: async (record) => { mutations.push(`enqueue:${record.id}:${record.reason}`); },
   });
 
-  assert.equal(action, 'retry');
-  assert.deepEqual(mutations, ['enqueue:tt12004706:2:4:play_retry']);
+  assert.equal(action, 'stale');
+  assert.deepEqual(mutations, ['demote', 'enqueue:tt12004706:2:4:play_miss']);
 });
 
-test('an exact-episode infrastructure failure also queues only an exact recheck', async () => {
+test('an exact-episode infrastructure failure hides and queues an exact recheck', async () => {
   const mutations: string[] = [];
   const action = await reconcileFailedEpisodePlayability({
     contentType: 'series',
@@ -193,8 +193,54 @@ test('an exact-episode infrastructure failure also queues only an exact recheck'
     enqueue: async (record) => { mutations.push(`enqueue:${record.id}:${record.reason}`); },
   });
 
-  assert.equal(action, 'retry');
-  assert.deepEqual(mutations, ['enqueue:tt12004706:2:4:play_retry']);
+  assert.equal(action, 'stale');
+  assert.deepEqual(mutations, ['demote', 'enqueue:tt12004706:2:4:play_miss']);
+});
+
+test('a picker exact-episode terminal failure hides and queues an exact recheck', async () => {
+  const mutations: string[] = [];
+  const action = await reconcileFailedEpisodePlayability({
+    contentType: 'series',
+    playId: 'tt12004706:2:4',
+    playMode: 'picker',
+    usePlayabilityIndex: false,
+    playEpoch: 42,
+    isNoPlayableStream: false,
+    attempts: [{ error: 'mpv-play failed: HTTP error 403' }],
+    candidates: 1,
+  }, {
+    assertCurrent: async () => undefined,
+    readState: async () => null,
+    demote: async () => { mutations.push('demote'); },
+    invalidate: async () => { mutations.push('invalidate'); },
+    enqueue: async (record) => { mutations.push(`enqueue:${record.id}:${record.reason}`); },
+  });
+
+  assert.equal(action, 'stale');
+  assert.deepEqual(mutations, ['demote', 'enqueue:tt12004706:2:4:play_miss']);
+});
+
+test('a cancelled exact-episode play does not mutate or requeue playability', async () => {
+  const mutations: string[] = [];
+  const action = await reconcileFailedEpisodePlayability({
+    contentType: 'series',
+    playId: 'tt12004706:2:4',
+    playMode: 'auto',
+    usePlayabilityIndex: false,
+    playEpoch: 42,
+    isNoPlayableStream: true,
+    attempts: [{ error: 'play cancelled' }],
+    candidates: 1,
+  }, {
+    assertCurrent: async () => undefined,
+    readState: async () => null,
+    demote: async () => { mutations.push('demote'); },
+    invalidate: async () => { mutations.push('invalidate'); },
+    enqueue: async (record) => { mutations.push(`enqueue:${record.id}:${record.reason}`); },
+  });
+
+  assert.equal(action, null);
+  assert.deepEqual(mutations, []);
 });
 
 test('confirmed exact-episode misses become stale then failed without demoting the show', async () => {
@@ -222,13 +268,15 @@ test('confirmed exact-episode misses become stale then failed without demoting t
     const dependencies = { assertCurrent: async () => undefined };
 
     assert.equal(await reconcileFailedEpisodePlayability(miss, dependencies), 'stale');
-    assert.deepEqual(await getTitlePlayability('series', episodeId), {
+    const episodeState = await getTitlePlayability('series', episodeId);
+    assert.deepEqual(episodeState, {
       type: 'series',
       id: episodeId,
       status: 'stale',
       fail_reason: 'play_miss',
+      verified_at: null,
       expires_at: null,
-      updated_at: (await getTitlePlayability('series', episodeId))?.updated_at,
+      updated_at: episodeState?.updated_at,
     });
     assert.equal((await getTitlePlayability('series', showId))?.status, 'verified');
 

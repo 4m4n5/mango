@@ -15,7 +15,9 @@ import {
 } from './story-graph-service.js';
 import { buildColdStartTopPicksSlate } from './activation-gates.js';
 import { desiredRevisionDiagnostics } from './desired-revision.js';
-import { listVerifiedRecommendationCatalogPage } from '../playability/db.js';
+import {
+  listVisibleRecommendationCatalogPage,
+} from '../playability/db.js';
 import {
   VOD_BROWSE_MODEL_VERSION,
   VOD_RELATED_MODEL_VERSION,
@@ -218,8 +220,8 @@ async function truthfulTopPicksRail(
     // fill a six-card rail with exclusions and cache reuse.
     const MAX_CATALOG_SCAN = 600;
     while (scanned.length < MAX_CATALOG_SCAN) {
-      const page: Awaited<ReturnType<typeof listVerifiedRecommendationCatalogPage>> =
-        await listVerifiedRecommendationCatalogPage({
+      const page: Awaited<ReturnType<typeof listVisibleRecommendationCatalogPage>> =
+        await listVisibleRecommendationCatalogPage({
           content_type: contentType,
           cursor,
           limit: 200,

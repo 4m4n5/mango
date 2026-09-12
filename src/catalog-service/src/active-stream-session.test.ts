@@ -208,6 +208,7 @@ test('failed foreground switch restores the original stream at the same position
     'Example.S01E03.720p.AVC.WEB-DL',
   );
   const playCalls: Array<{ url: string; start?: number; reopen?: boolean }> = [];
+  const terminalReconciles: unknown[] = [];
   const service = new ActiveStreamService({
     getPlaybackState: async () => ({ position_sec: 901, duration_sec: 2400 }),
     getProperty: async (property) => {
@@ -226,6 +227,9 @@ test('failed foreground switch restores the original stream at the same position
       playCalls.push({ url, start: options?.startSec, reopen: options?.hud?.reopenStreams });
       if (url === alternate.url) throw new Error('replacement launch failed');
       return { ok: true, ttff_ms: 100 };
+    },
+    reconcileTerminalSwitchFailure: async (input) => {
+      terminalReconciles.push(input);
     },
   });
   const config = mergeFilterConfig({
@@ -268,6 +272,101 @@ test('failed foreground switch restores the original stream at the same position
       { url: alternate.url, start: 901, reopen: undefined },
       { url: current.url, start: 901, reopen: true },
     ]);
+    assert.deepEqual(terminalReconciles, []);
+  } finally {
+    resetPlayabilityDbForTests();
+    delete process.env.MANGO_PLAYABILITY_DB;
+    delete process.env.MANGO_ACTIVE_STREAMS_PATH;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('terminal failed-after-frame switch failure requeues the exact active title', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mango-active-stream-terminal-'));
+  process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
+  process.env.MANGO_ACTIVE_STREAMS_PATH = join(dir, 'active-streams.json');
+  resetPlayabilityDbForTests();
+  await initPlayabilityDb();
+
+  const current = stream(
+    'https://signed.example/original-terminal',
+    'Example.S01E03.1080p.HEVC.WEB-DL',
+  );
+  const alternate = stream(
+    'https://signed.example/replacement-terminal',
+    'Example.S01E03.720p.AVC.WEB-DL',
+  );
+  const terminalReconciles: Array<{
+    playEpoch: number;
+    contentType: string;
+    contentId: string;
+    reason: string;
+    error: string;
+  }> = [];
+  const service = new ActiveStreamService({
+    getPlaybackState: async () => ({ position_sec: 901, duration_sec: 2400 }),
+    getProperty: async (property) => {
+      if (property === 'track-list') return [];
+      if (property === 'sub-visibility') return false;
+      return null;
+    },
+    setProperty: async () => true,
+    probe: async () => ({
+      ok: true,
+      ttff_ms: 50,
+      duration_sec: 2400,
+      technical: { width: 1280, height: 720, codec: 'h264', hdr: false },
+    }),
+    play: async () => {
+      throw new Error('player transport failed');
+    },
+    reconcileTerminalSwitchFailure: async (input) => {
+      terminalReconciles.push(input);
+    },
+  });
+  const config = mergeFilterConfig({
+    ...defaultFilterConfig(),
+    strict_unknown_cache: false,
+    max_quality: '2160p',
+  });
+  try {
+    await service.register({
+      sessionId: 'session-terminal',
+      playEpoch: 10,
+      contentType: 'series',
+      contentId: 'tt1234567:1:3',
+      title: 'Example',
+      streams: [current, alternate],
+      config,
+      filterContext: {
+        contentType: 'series',
+        metaTitle: 'Example',
+        metaId: 'tt1234567:1:3',
+      },
+      currentFingerprint: streamReleaseFingerprint(current),
+      resolveFresh: async () => [current, alternate],
+    });
+    const initial = await service.state();
+    const target = initial.candidates.find((candidate) => !candidate.current)!;
+    const checking = await service.beginSwitch({
+      sessionId: initial.session_id!,
+      revision: initial.revision,
+      candidateId: target.candidate_id,
+    });
+    let settled = await service.state(checking.revision, 2_000);
+    while (settled.status === 'checking' || settled.status === 'switching') {
+      settled = await service.state(settled.revision, 2_000);
+    }
+
+    assert.equal(settled.status, 'failed');
+    assert.match(settled.error || '', /neither stream could start/i);
+    assert.deepEqual(terminalReconciles, [{
+      playEpoch: 10,
+      contentType: 'series',
+      contentId: 'tt1234567:1:3',
+      reason: 'play_miss',
+      error: 'Playback stopped because neither stream could start.',
+    }]);
   } finally {
     resetPlayabilityDbForTests();
     delete process.env.MANGO_PLAYABILITY_DB;

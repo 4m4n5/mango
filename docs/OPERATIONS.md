@@ -83,3 +83,20 @@ Logs: `$HOME/.cache/mango/catalog-service.log`, `orchestrator.log`,
 
 Use `scripts/m6-ship/backup-library-state.sh` before schema work. Runtime
 DBs, AIOStreams `userData`, and YouTube OAuth stay on the device.
+
+## Expiry-only visibility recovery
+
+`scripts/m6-ship/restore-expiry-only-visibility.py` defaults to a read-only
+comparison of `--database` and a preserved pre-sweep `--baseline`. It admits only
+unchanged prior verification with one later expiry sweep, no intervening attempt,
+no conflicting retry evidence, and no episode-as-show or dual-type identity.
+It tags `expired_stale`; it never renews verification timestamps or restores a
+whole database. Ordinary failures must pass reverification instead.
+
+Deploy the visibility-aware schema first. Review the dry-run count and digest,
+stop catalog/worker/watchdog for the apply window, then pass `--apply`, that
+`--expected-count` and `--expected-digest`, a new `--rollback-snapshot` path,
+and the stable `--maintenance-lock` path. The tool holds the lock and applies
+transactionally after creating and checking its private rollback snapshot.
+Always restore services afterwards, refresh recommendation publications, and
+verify fresh counts separately from visible last-known-good counts.

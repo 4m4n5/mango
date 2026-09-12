@@ -253,15 +253,6 @@ async function recordFailure(
   const staleReprobe = options.forceReprobe === true;
   const existing = await getTitlePlayability(type, id);
 
-  if (
-    options.preserveVerified !== false
-    && existing?.status === 'verified'
-    && !staleReprobe
-    && reason !== 'identity_conflict'
-  ) {
-    return { status: 'verified', persisted: false };
-  }
-
   // Couch play-first: do not overwrite a couch demotion (stale/play_miss) with
   // background failed unless this is an explicit force reprobe.
   if (

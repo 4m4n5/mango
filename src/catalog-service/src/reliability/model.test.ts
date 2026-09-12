@@ -45,6 +45,7 @@ function baseFacts(): ReliabilityFacts {
       ok: true,
       rail_count: 4,
       verified_total: 120,
+      visible_total: 120,
       thin_rails: [],
       last_indexer_run_at: now - 6 * 60 * 60 * 1000,
     },
@@ -125,11 +126,21 @@ test('catalog or launcher couch breakers make reliability red', () => {
 
 test('thin library rails are yellow but still couch-usable', () => {
   const facts = baseFacts();
-  facts.playability.thin_rails = [{ rail_id: 'series-india-picks', verified_pool: 5 }];
+  facts.playability.thin_rails = [{ rail_id: 'series-india-picks', verified_pool: 12, visible_pool: 5 }];
   const state = evaluateReliability(facts);
   assert.equal(state.status, 'yellow');
   assert.equal(state.ok, true);
   assert.match(state.components.find((entry) => entry.id === 'library')?.summary ?? '', /thin rails/);
+});
+
+test('low visible library pool is red even when strict verified proof exists', () => {
+  const facts = baseFacts();
+  facts.playability.verified_total = 120;
+  facts.playability.visible_total = 5;
+  const state = evaluateReliability(facts);
+  assert.equal(state.status, 'red');
+  assert.equal(state.ok, false);
+  assert.equal(state.components.find((entry) => entry.id === 'library')?.status, 'red');
 });
 
 test('disabled optional Live does not make overall reliability red', () => {
@@ -178,24 +189,40 @@ test('missing Live enabled fact is fail-safe red when config is unavailable', ()
   assert.equal(state.status, 'red');
 });
 
-test('known zero current distinct proof is red even when stale rail placements remain', () => {
+test('expired fresh proof with visible library is yellow but still couch-usable', () => {
   const facts = baseFacts();
   facts.playability.verified_distinct = 0;
   facts.playability.expired_verified = 120;
-  facts.playability.verified_total = 120;
+  facts.playability.verified_total = 0;
+  facts.playability.visible_total = 120;
   const state = evaluateReliability(facts);
   const library = state.components.find((entry) => entry.id === 'library');
-  assert.equal(library?.status, 'red');
+  assert.equal(library?.status, 'yellow');
+  assert.match(library?.summary ?? '', /proof needs refresh/);
   assert.match(library?.detail ?? '', /expired verified rows excluded/);
-  assert.equal(state.status, 'red');
+  assert.equal(state.ok, true);
 });
 
-test('known low current distinct proof, not rail placements, controls library readiness', () => {
+test('known low current distinct proof is yellow when visible pool remains displayable', () => {
   const facts = baseFacts();
   facts.playability.verified_distinct = 8;
+  facts.playability.verified_total = 8;
+  facts.playability.visible_total = 120;
+  const state = evaluateReliability(facts);
+  assert.equal(state.components.find((entry) => entry.id === 'library')?.status, 'yellow');
+  assert.equal(state.ok, true);
+});
+
+test('old playability facts fall back to verified pool for visible availability', () => {
+  const facts = baseFacts();
+  delete (facts.playability as Partial<typeof facts.playability>).visible_total;
   facts.playability.verified_total = 120;
   const state = evaluateReliability(facts);
-  assert.equal(state.components.find((entry) => entry.id === 'library')?.status, 'red');
+  assert.equal(state.components.find((entry) => entry.id === 'library')?.status, 'green');
+
+  facts.playability.verified_total = 5;
+  const red = evaluateReliability(facts);
+  assert.equal(red.components.find((entry) => entry.id === 'library')?.status, 'red');
 });
 
 test('stale locks are red because they block maintenance', () => {

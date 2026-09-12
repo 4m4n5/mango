@@ -42,11 +42,12 @@ test('proof metadata accepts bounded receipts and rejects privacy-risk fields', 
   assert.equal(sanitizeReliabilityProofReason('nightly_after_playability_grow'), 'nightly_after_playability_grow');
 });
 
-function statusRail(railId: string, verifiedPool: number) {
+function statusRail(railId: string, verifiedPool: number, visiblePool = verifiedPool) {
   return {
     rail_id: railId,
     pool_depth: verifiedPool,
     verified_pool: verifiedPool,
+    visible_pool: visiblePool,
     pending: 0,
     stale: 0,
     failed: 0,
@@ -67,6 +68,7 @@ function playabilityStatus(): PlayabilityStatusLike {
     totals: {
       pool_depth: 32,
       verified_pool: 32,
+      visible_pool: 32,
       pending: 0,
       stale: 0,
       failed: 0,
@@ -114,13 +116,34 @@ test('library facts exclude historical status rows but preserve genuine active t
   assert.equal(healthy.rail_count, 2);
   assert.equal(healthy.verified_distinct, 32);
   assert.equal(healthy.verified_total, 32);
+  assert.equal(healthy.visible_total, 32);
   assert.deepEqual(healthy.thin_rails, []);
 
   const status = playabilityStatus();
   status.rails[1] = statusRail('series-active', 5);
   const thin = playabilityFacts(status, ['movies-active', 'series-active']);
   assert.equal(thin.verified_total, 25);
-  assert.deepEqual(thin.thin_rails, [{ rail_id: 'series-active', verified_pool: 5 }]);
+  assert.equal(thin.visible_total, 25);
+  assert.deepEqual(thin.thin_rails, [{ rail_id: 'series-active', verified_pool: 5, visible_pool: 5 }]);
+});
+
+test('library facts use visible pool for browse-thin rails without relabeling it fresh', () => {
+  const status = playabilityStatus();
+  status.rails[1] = statusRail('series-active', 5, 12);
+  status.totals.verified_pool = 25;
+  status.totals.visible_pool = 32;
+  const facts = playabilityFacts(status, ['movies-active', 'series-active']);
+  assert.equal(facts.verified_total, 25);
+  assert.equal(facts.visible_total, 32);
+  assert.deepEqual(facts.thin_rails, []);
+
+  status.rails[1] = statusRail('series-active', 12, 5);
+  const visibleThin = playabilityFacts(status, ['movies-active', 'series-active']);
+  assert.equal(visibleThin.verified_total, 32);
+  assert.equal(visibleThin.visible_total, 25);
+  assert.deepEqual(visibleThin.thin_rails, [
+    { rail_id: 'series-active', verified_pool: 12, visible_pool: 5 },
+  ]);
 });
 
 test('library facts exclude expired distinct verified rows from current proof', () => {

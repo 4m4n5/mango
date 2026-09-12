@@ -90,6 +90,23 @@ def identity(connection: sqlite3.Connection) -> dict[str, int]:
     }
 
 
+def prune_refresh_jobs(connection: sqlite3.Connection) -> int:
+    connection.execute(f"""
+WITH kept AS (
+  SELECT job_id FROM recommendation_refresh_jobs
+  WHERE status IN ('coalesced', 'complete', 'failed')
+  ORDER BY queued_at DESC
+  LIMIT {JOB_TERMINAL_RETENTION}
+)
+DELETE FROM recommendation_refresh_jobs
+WHERE status IN ('coalesced', 'complete', 'failed')
+  AND job_id NOT IN (SELECT job_id FROM kept)
+""")
+    # sqlite3.Cursor.rowcount is -1 for a CTE-prefixed DELETE, even when it
+    # succeeds. Read the actual affected-row count on this same connection.
+    return int(connection.execute("SELECT changes()").fetchone()[0])
+
+
 def prune_library(connection: sqlite3.Connection, now: int) -> dict[str, int | bool]:
     stats: dict[str, int | bool] = {
         "dna_edges": 0,
@@ -178,17 +195,7 @@ SELECT generation_id FROM vod_story_dna_generations WHERE status = 'building'
         )
 
     if table_exists(connection, "recommendation_refresh_jobs"):
-        stats["refresh_jobs"] = int(connection.execute(f"""
-WITH kept AS (
-  SELECT job_id FROM recommendation_refresh_jobs
-  WHERE status IN ('coalesced', 'complete', 'failed')
-  ORDER BY queued_at DESC
-  LIMIT {JOB_TERMINAL_RETENTION}
-)
-DELETE FROM recommendation_refresh_jobs
-WHERE status IN ('coalesced', 'complete', 'failed')
-  AND job_id NOT IN (SELECT job_id FROM kept)
-""").rowcount)
+        stats["refresh_jobs"] = prune_refresh_jobs(connection)
     if table_exists(connection, "recommendation_runtime_state"):
         lookup = int(connection.execute("""
 DELETE FROM recommendation_runtime_state

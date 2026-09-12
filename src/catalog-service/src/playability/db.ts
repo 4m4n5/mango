@@ -46,7 +46,8 @@ import {
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const DEFAULT_VERIFY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const SCHEMA_VERSION = 20;
+const SCHEMA_VERSION = 21;
+const EXPIRED_STALE_REASON = 'expired_stale';
 
 export type StreamCapabilityClass = 'proven_smooth' | 'unknown' | 'known_risky';
 
@@ -68,6 +69,7 @@ export type PlayabilityRailStatus = {
   rail_id: string;
   pool_depth: number;
   verified_pool: number;
+  visible_pool: number;
   pending: number;
   stale: number;
   failed: number;
@@ -82,6 +84,7 @@ export type PlayabilityStatus = {
   totals: {
     pool_depth: number;
     verified_pool: number;
+    visible_pool: number;
     pending: number;
     stale: number;
     failed: number;
@@ -218,6 +221,7 @@ export type TitlePlayabilityRecord = {
   id: string;
   status: 'verified' | 'failed' | 'pending' | 'stale';
   fail_reason: string | null;
+  verified_at: number | null;
   expires_at: number | null;
   updated_at: number;
 };
@@ -283,7 +287,10 @@ export type RailSessionSnapshot = {
   rail_id: string;
   session_id: string;
   items: RailSessionPoolItem[];
+  /** Strict fresh proof pool, excluding expiry-only last-known-good rows. */
   verified_pool: number;
+  /** Couch-visible pool: strict fresh plus expiry-only last-known-good rows. */
+  visible_pool: number;
 };
 
 export type RailSessionOptions = {
@@ -373,6 +380,7 @@ type StatusRow = {
   rail_id: string;
   pool_depth: number | null;
   verified_pool: number | null;
+  visible_pool: number | null;
   pending: number | null;
   stale: number | null;
   failed: number | null;
@@ -388,6 +396,7 @@ type TitleRow = {
   id: string;
   status: 'verified' | 'failed' | 'pending' | 'stale';
   fail_reason: string | null;
+  verified_at: number | null;
   expires_at: number | null;
   updated_at: number;
 };
@@ -476,10 +485,16 @@ function canonicalBrowseId(type: string, id: string): string {
   return canonicalTitleId(type, id);
 }
 
-function shouldMirrorSeriesGateRecord(type: string, id: string): boolean {
-  return type === 'series'
-    && isSeriesRailGateId(id)
-    && canonicalBrowseId(type, id) !== id;
+function shouldMirrorSeriesGateRecord(record: Pick<PlayabilityVerifyRecord, 'type' | 'id' | 'request_title_id'>): boolean {
+  if (record.type !== 'series' || !isSeriesRailGateId(record.id)) {
+    return false;
+  }
+  const canonicalId = canonicalBrowseId(record.type, record.id);
+  if (canonicalId === record.id) {
+    return false;
+  }
+  const requestTitleId = record.request_title_id?.trim();
+  return !requestTitleId || requestTitleId === canonicalId;
 }
 
 let dbSingleton: Database.Database | null = null;
@@ -493,6 +508,7 @@ function invalidateRailPoolCache(): void {
   railPoolCache.clear();
   railPoolCacheGeneration = null;
   railPoolCacheDataVersion = null;
+  visibleTitleKeysCache.clear();
 }
 
 // One tab-wide VOD shuffle updates the current sessions and recent-title rows
@@ -536,7 +552,7 @@ export function resetPlayabilityDbForTests(): void {
   vodBrowseReservoirPreparation.clear();
   vodBrowseReservoirPreparationTail = Promise.resolve();
   lastVodBrowseShuffleOutcome = null;
-  verifiedTitleKeysCache.clear();
+  visibleTitleKeysCache.clear();
   schemaInitialized = false;
 }
 
@@ -939,6 +955,24 @@ function toNumber(value: number | null | undefined): number {
   return Number(value || 0);
 }
 
+function freshVerifiedTitleSql(alias: string, nowRef: string): string {
+  return `(${alias}.status = 'verified' AND (${alias}.expires_at IS NULL OR ${alias}.expires_at > ${nowRef}))`;
+}
+
+function visiblePlayableTitleSql(alias: string, nowRef: string): string {
+  return `(
+    ${alias}.status = 'verified'
+    OR (
+      ${alias}.status = 'stale'
+      AND ${alias}.fail_reason = '${EXPIRED_STALE_REASON}'
+      AND ${alias}.verified_at IS NOT NULL
+      AND ${alias}.verified_at > 0
+      AND ${alias}.expires_at IS NOT NULL
+      AND ${alias}.expires_at <= ${nowRef}
+    )
+  )`;
+}
+
 function readSiblingSessionOccupiedKeys(
   db: Database.Database,
   sessionId: string,
@@ -992,9 +1026,9 @@ SELECT
 FROM rail_pool rp
 JOIN titles t ON t.type = rp.type AND t.id = rp.id
 WHERE rp.rail_id = @rail_id
-  AND t.status = 'verified'
+  AND ${visiblePlayableTitleSql('t', '@now')}
 ORDER BY rp.score DESC;
-`).all({ rail_id: railId }) as RailPoolRow[];
+`).all({ rail_id: railId, now: _now }) as RailPoolRow[];
   if (railPoolCache.size >= RAIL_POOL_CACHE_LIMIT) {
     railPoolCache.delete(railPoolCache.keys().next().value as string);
   }
@@ -1030,7 +1064,7 @@ JOIN rail_pool rp ON rp.rail_id = rs.rail_id AND rp.type = rs.type AND rp.id = r
 JOIN titles t ON t.type = rs.type AND t.id = rs.id
 WHERE rs.rail_id = @rail_id
   AND rs.session_id = @session_id
-  AND t.status = 'verified'
+  AND ${visiblePlayableTitleSql('t', '@now')}
 ORDER BY rs.slot ASC;
 `).all({
     rail_id: railId,
@@ -1107,6 +1141,7 @@ function emptyRailStatus(railId: string): PlayabilityRailStatus {
     rail_id: railId,
     pool_depth: 0,
     verified_pool: 0,
+    visible_pool: 0,
     pending: 0,
     stale: 0,
     failed: 0,
@@ -1833,6 +1868,36 @@ VALUES (20, @applied_at);
     });
     migrateIdentityTypeCollisions();
   }
+  if (appliedVersion < 21) {
+    db.exec(`
+DROP TRIGGER IF EXISTS recommendation_corpus_titles_update;
+CREATE TRIGGER recommendation_corpus_titles_update
+AFTER UPDATE OF status, fail_reason, verified_at, expires_at ON titles
+WHEN NEW.type IN ('movie', 'series')
+  AND (
+    NEW.status IS NOT OLD.status
+    OR (
+      (NEW.status = 'stale' OR OLD.status = 'stale')
+      AND (NEW.fail_reason = '${EXPIRED_STALE_REASON}' OR OLD.fail_reason = '${EXPIRED_STALE_REASON}')
+      AND (
+        NEW.fail_reason IS NOT OLD.fail_reason
+        OR NEW.verified_at IS NOT OLD.verified_at
+        OR NEW.expires_at IS NOT OLD.expires_at
+      )
+    )
+  )
+BEGIN
+  UPDATE recommendation_corpus_state
+  SET generation = generation + 1,
+      updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+  WHERE state_id = 1;
+END;
+`);
+    db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (21, @applied_at);
+`).run({ applied_at: nowMs() });
+  }
 }
 
 function enqueueIdentityTypeCollision(
@@ -2130,7 +2195,7 @@ ON CONFLICT(type, id) DO UPDATE SET
   updated_at = excluded.updated_at;
 `);
   for (const row of seriesTitleRows) {
-    if (!shouldMirrorSeriesGateRecord(row.type, row.id)) {
+    if (!shouldMirrorSeriesGateRecord({ ...row, request_title_id: null })) {
       continue;
     }
     upsertTitle.run({
@@ -2324,7 +2389,7 @@ export async function getUniqueVerifiedLibraryCount(now = nowMs()): Promise<numb
   const row = db.prepare(`
 SELECT COUNT(*) AS c
 FROM titles
-WHERE status = 'verified';
+WHERE ${freshVerifiedTitleSql('titles', '@now')};
 `).get({ now }) as { c: number } | undefined;
   return toNumber(row?.c);
 }
@@ -2524,7 +2589,8 @@ export async function getPlayabilityStatus(railIds: string[]): Promise<Playabili
 SELECT
   rp.rail_id AS rail_id,
   COUNT(*) AS pool_depth,
-  SUM(CASE WHEN t.status = 'verified' THEN 1 ELSE 0 END) AS verified_pool,
+  SUM(CASE WHEN ${freshVerifiedTitleSql('t', '@now')} THEN 1 ELSE 0 END) AS verified_pool,
+  SUM(CASE WHEN ${visiblePlayableTitleSql('t', '@now')} THEN 1 ELSE 0 END) AS visible_pool,
   SUM(CASE WHEN t.status = 'pending' THEN 1 ELSE 0 END) AS pending,
   SUM(CASE WHEN t.status = 'stale' THEN 1 ELSE 0 END) AS stale,
   SUM(CASE WHEN t.status = 'failed' THEN 1 ELSE 0 END) AS failed,
@@ -2533,7 +2599,7 @@ FROM rail_pool rp
 LEFT JOIN titles t ON t.type = rp.type AND t.id = rp.id
 GROUP BY rp.rail_id
 ORDER BY rp.rail_id;
-`).all() as StatusRow[];
+`).all({ now: statusNow }) as StatusRow[];
   const lastRun = db.prepare(`
 SELECT MAX(started_at) AS last_indexer_run_at
 FROM verify_log;
@@ -2581,7 +2647,7 @@ ORDER BY generations.tab, rails.rail_id
   }>;
   const currentVisible = new Set((db.prepare(`
 SELECT type, id FROM titles
-WHERE status = 'verified' AND (expires_at IS NULL OR expires_at > ?)
+WHERE ${visiblePlayableTitleSql('titles', '?')}
 `).all(statusNow) as Array<{ type: string; id: string }>).map((row) => titleKey(row.type, row.id)));
   const browseRails = activeBrowseRows.flatMap((row) => {
     try {
@@ -2691,6 +2757,7 @@ FROM (
       rail_id: railId,
       pool_depth: toNumber(row.pool_depth),
       verified_pool: toNumber(row.verified_pool),
+        visible_pool: toNumber(row.visible_pool),
       pending: toNumber(row.pending),
       stale: toNumber(row.stale),
       failed: toNumber(row.failed),
@@ -2707,11 +2774,12 @@ FROM (
       (totals, rail) => ({
         pool_depth: totals.pool_depth + rail.pool_depth,
         verified_pool: totals.verified_pool + rail.verified_pool,
+          visible_pool: totals.visible_pool + rail.visible_pool,
         pending: totals.pending + rail.pending,
         stale: totals.stale + rail.stale,
         failed: totals.failed + rail.failed,
       }),
-      { pool_depth: 0, verified_pool: 0, pending: 0, stale: 0, failed: 0 },
+        { pool_depth: 0, verified_pool: 0, visible_pool: 0, pending: 0, stale: 0, failed: 0 },
     ),
     verification: {
       legacy_verified: toNumber(verification.legacy_verified),
@@ -2797,7 +2865,7 @@ ON CONFLICT(type, id) DO UPDATE SET
       first_verified_at: firstVerifiedAt,
       updated_at: timestamp,
     });
-    if (shouldMirrorSeriesGateRecord(record.type, record.id)) {
+    if (shouldMirrorSeriesGateRecord(record)) {
       db.prepare(`
 INSERT INTO titles (
   type, id, status, verified_at, expires_at, fail_reason, best_source,
@@ -2914,7 +2982,7 @@ export async function getTitlesPlayabilityBulk(
       params[`id_${index}`] = entry.id;
     });
     const rows = db.prepare(`
-SELECT type, id, status, fail_reason, expires_at, updated_at
+SELECT type, id, status, fail_reason, verified_at, expires_at, updated_at
 FROM titles
 WHERE (type, id) IN ( VALUES ${placeholders} );
 `).all(params) as TitleRow[];
@@ -2936,9 +3004,9 @@ export type PlayabilityRetryCandidate = {
 
 function retryPriority(reason?: string | null, visible = false): number {
   if (reason === 'play_failure' || reason === 'play_miss') return 100;
+  if (reason === EXPIRED_STALE_REASON) return 80;
   if (visible) return 70;
   if (reason === 'pre_expiry_renewal') return 60;
-  if (reason === 'expired_stale') return 50;
   return 20;
 }
 
@@ -3029,6 +3097,7 @@ INSERT OR IGNORE INTO playability_retry_queue (
 SELECT t.type, t.id, COALESCE(t.fail_reason, 'stale'),
   CASE
     WHEN t.fail_reason IN ('play_failure', 'play_miss') THEN 100
+    WHEN t.fail_reason = '${EXPIRED_STALE_REASON}' THEN 80
     WHEN EXISTS (SELECT 1 FROM rail_pool rp WHERE rp.type=t.type AND rp.id=t.id) THEN 70
     ELSE 20
   END,
@@ -3066,7 +3135,7 @@ FROM playability_retry_queue q
 JOIN titles t ON t.type=q.type AND t.id=q.id
 WHERE (
     t.status = 'stale'
-    OR (t.status = 'failed' AND t.fail_reason = 'play_failure')
+    OR t.status = 'failed'
     OR (
       q.reason = 'pre_expiry_renewal'
       AND t.status = 'verified'
@@ -3077,7 +3146,17 @@ WHERE (
   )
   AND NOT (t.type = 'series' AND instr(t.id, char(58)) > 0)
   AND q.next_eligible_at <= @now
-ORDER BY q.priority DESC, q.next_eligible_at, q.requested_at, q.type, q.id
+ORDER BY
+  CASE
+    WHEN q.reason = '${EXPIRED_STALE_REASON}' THEN 0
+    WHEN q.reason IN ('play_failure', 'play_miss') THEN 1
+    ELSE 2
+  END,
+  q.priority DESC,
+  q.next_eligible_at,
+  q.requested_at,
+  q.type,
+  q.id
 LIMIT @limit;
 `).all({ now, renewal_cutoff: renewalCutoff, limit }) as PlayabilityRetryCandidate[];
   });
@@ -3532,9 +3611,9 @@ SELECT rp.rail_id, COUNT(*) AS c
 FROM rail_pool rp
 JOIN titles t ON t.type = rp.type AND t.id = rp.id
 WHERE rp.rail_id IN (${placeholders})
-  AND t.status = 'verified'
+  AND ${freshVerifiedTitleSql('t', '?')}
 GROUP BY rp.rail_id;
-`).all(...railIds) as Array<{ rail_id: string; c: number }>;
+`).all(...railIds, nowMs()) as Array<{ rail_id: string; c: number }>;
   for (const row of rows) {
     counts.set(row.rail_id, row.c);
   }
@@ -3577,8 +3656,9 @@ function activeRailPool<T extends RailPoolRow>(
   return pool.slice(0, maximum);
 }
 
-const verifiedTitleKeysCache = new Map<'movie' | 'series', {
+const visibleTitleKeysCache = new Map<'movie' | 'series', {
   dataVersion: number;
+  totalChanges: number;
   keys: Set<string>;
 }>();
 
@@ -3592,18 +3672,13 @@ function currentlyVerifiedTitleKeys(
   db: Database.Database,
   contentType: 'movie' | 'series',
 ): Set<string> {
-  const dataVersion = Number(db.pragma('data_version', { simple: true }));
-  const cached = verifiedTitleKeysCache.get(contentType);
-  if (cached && cached.dataVersion === dataVersion) return cached.keys;
-  const keys = new Set((db.prepare(`
+  return new Set((db.prepare(`
 SELECT type, id
 FROM titles
-WHERE type = ? AND status = 'verified' AND (expires_at IS NULL OR expires_at > ?)
+WHERE type = ? AND ${freshVerifiedTitleSql('titles', '?')}
 `).all(contentType, nowMs()) as Array<{ type: string; id: string }>).map(
     (row) => titleKey(row.type, row.id),
   ));
-  verifiedTitleKeysCache.set(contentType, { dataVersion, keys });
-  return keys;
 }
 
 /** Couch For You filters with this set instead of chunked title lookups. */
@@ -3612,6 +3687,53 @@ export function listCurrentlyVerifiedTitleKeys(
 ): Set<string> {
   return currentlyVerifiedTitleKeys(openDb(), contentType);
 }
+function currentlyVisibleTitleKeys(
+  db: Database.Database,
+  contentType: 'movie' | 'series',
+): Set<string> {
+  const dataVersion = Number(db.pragma('data_version', { simple: true }));
+  const totalChanges = Number((db.prepare('SELECT total_changes() AS total_changes').get() as {
+    total_changes?: number;
+  } | undefined)?.total_changes ?? 0);
+  const cached = visibleTitleKeysCache.get(contentType);
+  if (cached && cached.dataVersion === dataVersion && cached.totalChanges === totalChanges) {
+    return cached.keys;
+  }
+  const keys = new Set((db.prepare(`
+SELECT type, id
+FROM titles
+WHERE type = ? AND ${visiblePlayableTitleSql('titles', '?')}
+`).all(contentType, nowMs()) as Array<{ type: string; id: string }>).map(
+    (row) => titleKey(row.type, row.id),
+  ));
+  visibleTitleKeysCache.set(contentType, { dataVersion, totalChanges, keys });
+  return keys;
+}
+
+/** Couch-visible title keys: fresh verified plus expiry-only last-known-good rows. */
+export function listCurrentlyVisibleTitleKeys(
+  contentType: 'movie' | 'series',
+): Set<string> {
+  return currentlyVisibleTitleKeys(openDb(), contentType);
+}
+
+export function isTitleLastKnownGoodVisible(record: TitlePlayabilityRecord | null, now: number = nowMs()): boolean {
+  if (!record) return false;
+  if (record.status === 'verified') {
+    return true;
+  }
+  const verifiedAt = record.verified_at;
+  const expiresAt = record.expires_at;
+  return record.status === 'stale'
+    && record.fail_reason === EXPIRED_STALE_REASON
+    && typeof verifiedAt === 'number'
+    && Number.isFinite(verifiedAt)
+    && verifiedAt > 0
+    && typeof expiresAt === 'number'
+    && Number.isFinite(expiresAt)
+    && expiresAt <= now;
+}
+
 
 function toRailSessionPoolItem(
   railId: string,
@@ -3638,6 +3760,10 @@ function toRailSessionPoolItem(
     year: full?.year ?? null,
   };
 }
+function freshVisiblePoolCount(pool: Array<{ expires_at: number | null }>, now: number): number {
+  return pool.filter((item) => item.expires_at === null || item.expires_at > now).length;
+}
+
 
 function resolveRailDisplayLimit(
   rail: { displayLimit: number; playability?: RailPlayabilityConfig },
@@ -3857,8 +3983,8 @@ INSERT INTO vod_browse_reservoir_generations_v3(
     const trustedCatalogQuality = new Map<string, number>();
     const verifiedKeys = new Set((db.prepare(`
 SELECT type, id FROM titles
-WHERE status = 'verified' AND type IN ('movie', 'series')
-  AND (expires_at IS NULL OR expires_at > ?)
+WHERE type IN ('movie', 'series')
+	  AND ${visiblePlayableTitleSql('titles', '?')}
   AND (type != 'series' OR instr(id, char(58)) = 0)
 `).all(now) as Array<{ type: string; id: string }>).map((row) => titleKey(row.type, row.id)));
     const type = input.tab === 'series' ? 'series' : 'movie';
@@ -3868,8 +3994,7 @@ SELECT titles.type, titles.id, titles.first_verified_at, titles.best_source,
        evidence.title, evidence.poster_url, evidence.year, evidence.evidence_json
 FROM titles
 JOIN title_story_evidence evidence ON evidence.type = titles.type AND evidence.id = titles.id
-WHERE titles.type = ? AND titles.status = 'verified'
-  AND (titles.expires_at IS NULL OR titles.expires_at > ?)
+WHERE titles.type = ? AND ${visiblePlayableTitleSql('titles', '?')}
   AND (titles.type != 'series' OR instr(titles.id, char(58)) = 0)
   AND NULLIF(TRIM(evidence.title), '') IS NOT NULL
   AND NULLIF(TRIM(evidence.poster_url), '') IS NOT NULL
@@ -4067,20 +4192,10 @@ export function prepareVodBrowseReservoirV3(input: {
   return running;
 }
 
-/** Remove pool rows only for confirmed failed titles; stale remains published until confirmed. */
+/** Confirmed failures are hidden by title state; retain rail membership for reverify restoration. */
 export async function pruneNonPlayableFromRailPools(_now: number = nowMs()): Promise<number> {
   const quarantined = await quarantineLegacyBackgroundUncachedVerifiedTitles(_now);
-  await initPlayabilityDb();
-  const db = openDb();
-  const result = db.prepare(`
-DELETE FROM rail_pool
-WHERE EXISTS (
-  SELECT 1 FROM titles t
-  WHERE t.type = rail_pool.type AND t.id = rail_pool.id
-    AND t.status = 'failed'
-);
-`).run();
-  return quarantined.rail_pool + result.changes;
+  return quarantined.rail_pool;
 }
 
 export async function upsertRailPoolTitle(entry: RailPoolEntry): Promise<void> {
@@ -4296,7 +4411,14 @@ WHERE semantic_evidence_hash IS NOT excluded.semantic_evidence_hash
 // once for the S1E1 stream-probe id. Recommendation coverage is show-level, so
 // both the COUNT and page query must operate on this identical canonical
 // relation rather than counting the physical gate rows.
-const VERIFIED_RECOMMENDATION_CORPUS_CTE = `
+function recommendationCorpusCte(visibility: 'fresh' | 'visible'): string {
+  const predicate = visibility === 'visible'
+    ? visiblePlayableTitleSql('t', '@now')
+    : freshVerifiedTitleSql('t', '@now');
+  const barePredicate = visibility === 'visible'
+    ? visiblePlayableTitleSql('bare', '@now')
+    : freshVerifiedTitleSql('bare', '@now');
+  return `
 WITH verified_recommendation_sources AS (
   SELECT
     t.*,
@@ -4308,7 +4430,21 @@ WITH verified_recommendation_sources AS (
       ELSE t.id
     END AS canonical_id
   FROM titles t
-  WHERE t.status = 'verified' AND t.type = @content_type
+	  WHERE ${predicate} AND t.type = @content_type
+      AND (
+        t.type != 'series'
+        OR NOT (
+          LOWER(t.id) GLOB 'tt[0-9]*:[0-9]*:[0-9]*'
+          AND INSTR(t.id, ':') > 0
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM titles bare
+          WHERE bare.type = 'series'
+            AND bare.id = SUBSTR(t.id, 1, INSTR(t.id, ':') - 1)
+            AND ${barePredicate}
+        )
+      )
 ), canonical_verified_titles AS (
   SELECT sources.*,
     ROW_NUMBER() OVER (
@@ -4322,6 +4458,7 @@ WITH verified_recommendation_sources AS (
   FROM verified_recommendation_sources sources
 )
 `;
+}
 
 /**
  * Deterministically pages the entire active verified movie/show corpus. This
@@ -4330,26 +4467,28 @@ WITH verified_recommendation_sources AS (
  * accounting. Missing title/artwork rows are returned and excluded later with
  * an auditable reason.
  */
-export async function listVerifiedRecommendationCatalogPage(input: {
+async function listRecommendationCatalogPage(input: {
   content_type: 'movie' | 'series';
   cursor?: string | null;
   limit?: number;
-}): Promise<VerifiedRecommendationCatalogPage> {
+}, visibility: 'fresh' | 'visible'): Promise<VerifiedRecommendationCatalogPage> {
   await initPlayabilityDb();
   const db = openDb();
   const limit = Math.max(1, Math.min(1_000, Math.floor(input.limit ?? 250)));
   const afterId = input.cursor?.trim() || '';
+  const now = nowMs();
+  const corpusCte = recommendationCorpusCte(visibility);
   const readPage = db.transaction(() => {
     const state = db.prepare(`
 SELECT generation FROM recommendation_corpus_state WHERE state_id = 1
 `).get() as { generation: number };
-    const count = db.prepare(`${VERIFIED_RECOMMENDATION_CORPUS_CTE}
+    const count = db.prepare(`${corpusCte}
 SELECT COUNT(*) AS verified_count
 FROM canonical_verified_titles
 WHERE source_rank = 1
-`).get({ content_type: input.content_type }) as { verified_count: number };
+`).get({ content_type: input.content_type, now }) as { verified_count: number };
     const rows = db.prepare(`
-${VERIFIED_RECOMMENDATION_CORPUS_CTE}, membership_sources AS (
+${corpusCte}, membership_sources AS (
   SELECT
     type,
     CASE
@@ -4416,6 +4555,7 @@ LIMIT @limit
 `).all({
       content_type: input.content_type,
       after_id: afterId,
+	      now,
       limit,
     }) as Array<Omit<VerifiedRecommendationCatalogRow, 'rail_ids'> & { rail_ids: string }>;
     return {
@@ -4440,6 +4580,22 @@ LIMIT @limit
     items,
   };
 }
+export async function listVerifiedRecommendationCatalogPage(input: {
+  content_type: 'movie' | 'series';
+  cursor?: string | null;
+  limit?: number;
+}): Promise<VerifiedRecommendationCatalogPage> {
+  return listRecommendationCatalogPage(input, 'fresh');
+}
+
+export async function listVisibleRecommendationCatalogPage(input: {
+  content_type: 'movie' | 'series';
+  cursor?: string | null;
+  limit?: number;
+}): Promise<VerifiedRecommendationCatalogPage> {
+  return listRecommendationCatalogPage(input, 'visible');
+}
+
 
 export async function listVerifiedLibraryCatalogRows(
   limit = 500,
@@ -4452,7 +4608,7 @@ WITH memberships AS (
   SELECT rp.type, rp.id, GROUP_CONCAT(DISTINCT rp.rail_id) AS rail_ids
   FROM rail_pool rp
   JOIN titles t ON t.type = rp.type AND t.id = rp.id
-  WHERE t.status = 'verified'
+  WHERE ${visiblePlayableTitleSql('t', '@now')}
     AND (@content_type IS NULL OR rp.type = @content_type)
   GROUP BY rp.type, rp.id
 ), ranked AS (
@@ -4473,7 +4629,7 @@ WITH memberships AS (
     ) AS row_rank
   FROM rail_pool rp
   JOIN titles t ON t.type = rp.type AND t.id = rp.id
-  WHERE t.status = 'verified'
+  WHERE ${visiblePlayableTitleSql('t', '@now')}
     AND (@content_type IS NULL OR rp.type = @content_type)
     AND rp.title IS NOT NULL
     AND trim(rp.title) != ''
@@ -4496,6 +4652,7 @@ ORDER BY rail_rank ASC, verified_at DESC, rail_id ASC, type ASC, id ASC
 LIMIT @limit;
   `).all({
     content_type: contentType ?? null,
+	    now: nowMs(),
     limit: Math.max(1, limit),
   }) as Array<Omit<VerifiedLibraryCatalogRow, 'rail_ids'> & { rail_ids: string }>;
   return rows.map((row) => ({
@@ -4515,10 +4672,10 @@ SELECT
   COUNT(*) AS row_count
 FROM rail_pool rp
 JOIN titles t ON t.type = rp.type AND t.id = rp.id
-WHERE t.status = 'verified'
+WHERE ${visiblePlayableTitleSql('t', '@now')}
   AND rp.title IS NOT NULL
   AND trim(rp.title) != '';
-`).get() as {
+`).get({ now: nowMs() }) as {
     titles_updated_at: number;
     pool_updated_at: number;
     row_count: number;
@@ -4605,12 +4762,12 @@ SELECT DISTINCT
   rp.year
 FROM rail_pool rp
 JOIN titles t ON t.type = rp.type AND t.id = rp.id
-WHERE t.status = 'verified'
+WHERE ${visiblePlayableTitleSql('t', '@now')}
   AND rp.title IS NOT NULL
   AND trim(rp.title) != ''
   AND lower(rp.title) LIKE @like
 LIMIT @limit;
-`).all({ like, limit: Math.max(1, limit) }) as VerifiedRailPoolSearchRow[];
+`).all({ like, now: nowMs(), limit: Math.max(1, limit) }) as VerifiedRailPoolSearchRow[];
 }
 
 export async function listRailPoolMissingDisplay(limit: number): Promise<RailPoolDisplayRow[]> {
@@ -4671,6 +4828,9 @@ export async function allocateTabRailSessions(
     throw new Error('Browse v3 reservoir is not ready; retain the previous complete tab deal');
   }
   const browseVerifiedKeys = options.browseV3
+    ? currentlyVisibleTitleKeys(db, options.browseV3Tab === 'series' ? 'series' : 'movie')
+    : null;
+  const browseFreshKeys = options.browseV3
     ? currentlyVerifiedTitleKeys(db, options.browseV3Tab === 'series' ? 'series' : 'movie')
     : null;
 
@@ -4732,7 +4892,10 @@ export async function allocateTabRailSessions(
         rail_id: rail.railId,
         session_id: options.sessionId,
         items: existing,
-        verified_pool: poolSizes.get(rail.railId) ?? 0,
+	        verified_pool: browseFreshKeys
+	          ? (curatedPools.get(rail.railId) ?? []).filter((item) => browseFreshKeys.has(titleKey(item.type, item.id))).length
+	          : freshVisiblePoolCount(curatedPools.get(rail.railId) ?? [], now),
+	        visible_pool: poolSizes.get(rail.railId) ?? 0,
       });
     }
     return snapshots;
@@ -4802,7 +4965,10 @@ export async function allocateTabRailSessions(
         rail_id: rail.railId,
         session_id: options.sessionId,
         items: rows,
-        verified_pool: pool.length,
+	        verified_pool: browseFreshKeys
+	          ? pool.filter((item) => browseFreshKeys.has(titleKey(item.type, item.id))).length
+	          : freshVisiblePoolCount(pool, now),
+	        visible_pool: pool.length,
       });
     }
   };
@@ -4864,7 +5030,11 @@ export async function allocateVodExploreSession(options: {
   if (!reservoir || rows.length === 0) {
     throw new Error(`Browse v3 ${options.tab} Explore reservoir is not ready`);
   }
-  const verifiedKeys = currentlyVerifiedTitleKeys(
+  const verifiedKeys = currentlyVisibleTitleKeys(
+    db,
+    options.tab === 'series' ? 'series' : 'movie',
+  );
+  const freshKeys = currentlyVerifiedTitleKeys(
     db,
     options.tab === 'series' ? 'series' : 'movie',
   );
@@ -4893,7 +5063,8 @@ export async function allocateVodExploreSession(options: {
   return {
     rail_id: railId,
     session_id: options.sessionId,
-    verified_pool: candidates.length,
+	    verified_pool: candidates.filter((item) => freshKeys.has(titleKey(item.type, item.id))).length,
+	    visible_pool: candidates.length,
     items: selected.map((item, slot) => ({
       rail_id: railId,
       type: item.type,
@@ -5000,7 +5171,8 @@ export async function getOrCreateRailSession(
       rail_id: options.railId,
       session_id: options.sessionId,
       items: existing,
-      verified_pool: pool.length,
+	      verified_pool: freshVisiblePoolCount(pool, now),
+	      visible_pool: pool.length,
     };
   }
 
@@ -5048,7 +5220,8 @@ WHERE created_at < @prune_before;
     rail_id: options.railId,
     session_id: options.sessionId,
     items: rows,
-    verified_pool: pool.length,
+	      verified_pool: freshVisiblePoolCount(pool, now),
+	      visible_pool: pool.length,
   };
 }
 
@@ -5097,6 +5270,69 @@ INSERT INTO playability_triggers (
     reason: record.reason ?? null,
   });
 }
+function materializeDueEpisodeRetryTriggers(
+  db: Database.Database,
+  limit: number,
+  now: number,
+): number {
+  const rows = db.prepare(`
+SELECT q.type, q.id, q.reason
+FROM playability_retry_queue q
+JOIN titles t ON t.type = q.type AND t.id = q.id
+WHERE q.type = 'series'
+  AND instr(q.id, char(58)) > 0
+  AND q.next_eligible_at <= @now
+  AND t.status IN ('stale', 'failed')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM playability_triggers pt
+    WHERE pt.handled_at IS NULL
+      AND pt.trigger_type = 'play_failure_reverify'
+      AND pt.type = q.type
+      AND pt.id_value = q.id
+  )
+ORDER BY
+  CASE
+    WHEN q.reason = '${EXPIRED_STALE_REASON}' THEN 0
+    WHEN q.reason IN ('play_failure', 'play_miss') THEN 1
+    ELSE 2
+  END,
+  q.priority DESC,
+  q.next_eligible_at,
+  q.requested_at,
+  q.type,
+  q.id
+LIMIT @limit;
+`).all({ now, limit }) as Array<{ type: string; id: string; reason: string }>;
+  if (rows.length === 0) {
+    return 0;
+  }
+  const insert = db.prepare(`
+INSERT OR IGNORE INTO playability_triggers (
+  created_at, trigger_type, rail_id, type, id_value, reason, handled_at
+) VALUES (
+  @now, 'play_failure_reverify', NULL, @type, @id, @reason, NULL
+);
+`);
+  const update = db.prepare(`
+UPDATE playability_retry_queue
+SET attempt_count = attempt_count + 1,
+    last_attempt_at = @now,
+    next_eligible_at = @next_eligible_at
+WHERE type = @type AND id = @id;
+`);
+  let inserted = 0;
+  for (const row of rows) {
+    inserted += insert.run({ ...row, now }).changes;
+    update.run({
+      ...row,
+      now,
+      next_eligible_at: now + playabilityFailedRetryMsForReason(row.reason),
+    });
+  }
+  return inserted;
+}
+
 
 /**
  * H1/H2: unhandled playability_triggers, prioritized so play_failure_reverify (couch fast-lane)
@@ -5107,6 +5343,10 @@ export async function listUnhandledPlayabilityTriggers(
 ): Promise<PlayabilityTriggerRow[]> {
   await initPlayabilityDb();
   const db = openDb();
+  const boundedLimit = Math.max(1, limit);
+  db.transaction(() => {
+    materializeDueEpisodeRetryTriggers(db, boundedLimit, nowMs());
+  })();
   return db.prepare(`
 SELECT id, created_at, trigger_type, rail_id, type, id_value, reason, handled_at
 FROM playability_triggers
@@ -5116,7 +5356,7 @@ ORDER BY
   created_at ASC,
   id ASC
 LIMIT @limit;
-`).all({ limit: Math.max(1, limit) }) as PlayabilityTriggerRow[];
+`).all({ limit: boundedLimit }) as PlayabilityTriggerRow[];
 }
 
 /** Marks drained trigger rows handled (success OR failure) so the queue never grows unbounded. */
@@ -5167,12 +5407,12 @@ WHERE status = 'verified' AND expires_at IS NOT NULL AND expires_at <= @now;
     }
     const updateStmt = db.prepare(`
 UPDATE titles
-SET status = 'stale', updated_at = @now
+SET status = 'stale', fail_reason = '${EXPIRED_STALE_REASON}', updated_at = @now
 WHERE type = @type AND id = @id AND status = 'verified' AND expires_at IS NOT NULL AND expires_at <= @now;
 `);
     const logStmt = db.prepare(`
 INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)
-VALUES (@started_at, NULL, @type, @id, 'sweep', 0, 'expired_stale');
+VALUES (@started_at, NULL, @type, @id, 'sweep', 0, '${EXPIRED_STALE_REASON}');
 `);
     let swept = 0;
     for (const row of rows) {
@@ -5185,9 +5425,9 @@ SELECT 1 FROM rail_pool WHERE type=@type AND id=@id LIMIT 1;
 `).get(row));
         enqueueRetryNow(db, {
           ...row,
-          reason: 'expired_stale',
+	          reason: EXPIRED_STALE_REASON,
           now,
-          priority: retryPriority('expired_stale', visible),
+	          priority: retryPriority(EXPIRED_STALE_REASON, visible),
         });
       }
     }
@@ -5226,7 +5466,7 @@ export async function invalidateTitle(record: {
   const db = openDb();
   const timestamp = nowMs();
   const reason = record.reason ?? 'invalidated';
-  // play_miss is a soft demotion (stale, keep pool). Only play_failure purges.
+  // Both outcomes hide by status while retaining rail membership for reverify.
   const status = reason === 'play_failure' ? 'failed' : 'stale';
   const confirmedFailure = status === 'failed';
   const preserveSession = record.preserve_session === true || reason === 'play_miss';
@@ -5250,16 +5490,6 @@ ON CONFLICT(type, id) DO UPDATE SET
       reason,
       updated_at: timestamp,
     });
-
-    if (confirmedFailure) {
-      db.prepare(`
-DELETE FROM rail_pool
-WHERE type = @type AND id = @id;
-`).run({
-        type: record.type,
-        id: record.id,
-      });
-    }
 
     if (!preserveSession) {
       const sessionWhere = record.rail_id && !confirmedFailure

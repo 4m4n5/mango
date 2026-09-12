@@ -33,7 +33,10 @@ import {
   readDesiredRevision,
 } from './desired-revision.js';
 import {
-  claimQueuedRecommendationRefreshJobsForContent,
+  claimQueuedVodRecommendationRefreshJobsForDesired,
+  completeSatisfiedQueuedVodRecommendationRefreshJobs,
+  queuedVodRecommendationRefreshJobForDesired,
+  updateRecommendationRefreshJobRuntime,
   updateRecommendationRefreshJobs,
 } from './jobs.js';
 
@@ -254,7 +257,10 @@ async function processOne(
   // `running` while the worker is building this revision. The claim runs
   // in a transaction; concurrent readers only ever see `queued` or the
   // terminal state.
-  const claimedJobIds = claimQueuedRecommendationRefreshJobsForContent('vod', contentType, now());
+  const desiredAtClaim = readDesiredRevision(contentType, now());
+  const claimedJobIds = desiredAtClaim?.revision === revision
+    ? claimQueuedVodRecommendationRefreshJobsForDesired(contentType, desiredAtClaim, now())
+    : [];
   try {
     const result = await deps.refresh(tab, {
       expected_desired_revision: revision,
@@ -271,17 +277,33 @@ async function processOne(
         error: 'desired_revision_advanced_during_build',
       });
       if (claimedJobIds.length > 0) {
-        updateRecommendationRefreshJobs(
-          claimedJobIds,
-          'coalesced',
-          'superseded by a newer desired revision',
-          now(),
-        );
+        const successorJobId = current
+          ? queuedVodRecommendationRefreshJobForDesired(contentType, current)
+          : null;
+        if (successorJobId) {
+          updateRecommendationRefreshJobRuntime(claimedJobIds, {
+            successor_job_id: successorJobId,
+            error_code: 'superseded',
+          });
+          updateRecommendationRefreshJobs(
+            claimedJobIds,
+            'coalesced',
+            'superseded by a newer desired revision',
+            now(),
+          );
+        } else {
+          updateRecommendationRefreshJobs(
+            claimedJobIds,
+            'failed',
+            'superseded by a newer desired revision; durable desired revision remains pending',
+            now(),
+          );
+        }
       }
       log(`vod-recs-worker: ${tab} rank ${revision} discarded; desired advanced to ${current.revision}`);
       return;
     }
-    acknowledgeDesiredRevision({
+    const acknowledged = acknowledgeDesiredRevision({
       content_type: contentType,
       revision,
       rank_generation_id: result.rank_generation_id ?? null,
@@ -296,6 +318,12 @@ async function processOne(
         result.activated ? undefined : (result.reason ?? 'not_activated'),
         now(),
       );
+    }
+    if (result.activated && acknowledged) {
+      const completed = completeSatisfiedQueuedVodRecommendationRefreshJobs([acknowledged], now());
+      if (completed > 0) {
+        log(`vod-recs-worker: ${tab} reconciled ${completed} already-satisfied refresh job(s)`);
+      }
     }
     log(`vod-recs-worker: ${tab} rank ${revision} ${result.activated ? 'activated' : 'last-good-retained'}`);
   } catch (error) {
@@ -334,6 +362,8 @@ export async function runWorkerLoop(
   while (iterations < maxIterations) {
     iterations += 1;
     writeHeartbeat(heartbeatPath, 'poll', now());
+    const reconciled = completeSatisfiedQueuedVodRecommendationRefreshJobs(readAllDesiredRevisions(now()), now());
+    if (reconciled > 0) log(`vod-recs-worker: reconciled ${reconciled} already-satisfied refresh job(s)`);
     const pending = pickPendingRevisions(now());
     if (pending.length === 0) {
       if (oneshot) return { iterations, processed };

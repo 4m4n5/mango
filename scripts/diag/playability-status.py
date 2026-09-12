@@ -51,12 +51,15 @@ def _main_table() -> int:
     print(f"db: {data.get('db_path', '-')}")
     print(f"last indexer: {age(data.get('last_indexer_run_at'))}")
     print()
-    print(f"{'rail':24} {'verified':>8} {'pool':>6} {'pending':>8} {'stale':>6} {'failed':>6} {'last ok':>8}")
-    print("-" * 76)
+    print(f"{'rail':24} {'fresh':>8} {'visible':>8} {'pool':>6} {'pending':>8} {'stale':>6} {'failed':>6} {'last ok':>8}")
+    print("-" * 86)
     for rail in data.get("rails", []):
+        verified_pool = int(rail.get("verified_pool") or 0)
+        visible_pool = int(rail.get("visible_pool") if rail.get("visible_pool") is not None else verified_pool)
         print(
             f"{rail.get('rail_id', '-')[:24]:24} "
-            f"{int(rail.get('verified_pool') or 0):8d} "
+            f"{verified_pool:8d} "
+            f"{visible_pool:8d} "
             f"{int(rail.get('pool_depth') or 0):6d} "
             f"{int(rail.get('pending') or 0):8d} "
             f"{int(rail.get('stale') or 0):6d} "
@@ -64,10 +67,13 @@ def _main_table() -> int:
             f"{age(rail.get('last_verified_at')):>8}"
         )
     totals = data.get("totals") or {}
-    print("-" * 76)
+    total_verified = int(totals.get("verified_pool") or 0)
+    total_visible = int(totals.get("visible_pool") if totals.get("visible_pool") is not None else total_verified)
+    print("-" * 86)
     print(
         f"{'total':24} "
-        f"{int(totals.get('verified_pool') or 0):8d} "
+        f"{total_verified:8d} "
+        f"{total_visible:8d} "
         f"{int(totals.get('pool_depth') or 0):6d} "
         f"{int(totals.get('pending') or 0):8d} "
         f"{int(totals.get('stale') or 0):6d} "

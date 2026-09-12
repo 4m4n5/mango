@@ -133,7 +133,6 @@ export async function reconcileFailedEpisodePlayability(
     input.contentType !== 'series'
     || !isSeriesEpisodeId(input.playId)
     || input.usePlayabilityIndex
-    || input.playMode !== 'auto'
   ) {
     return null;
   }
@@ -148,6 +147,7 @@ export async function reconcileFailedEpisodePlayability(
   const prior = await readState('series', input.playId);
   const policyInput = {
     isNoPlayableStream: input.isNoPlayableStream,
+    terminalFailure: true,
     attempts: input.attempts,
     candidates: input.candidates,
     obligationFloorRan: input.obligationFloorRan === true,
@@ -174,9 +174,13 @@ export async function reconcileFailedEpisodePlayability(
     }), assertCurrent);
   }
 
+  if (!confirmFailure && !demoteFailure) {
+    return null;
+  }
+
   const action: FailedEpisodePlayabilityAction = confirmFailure
     ? 'failed'
-    : demoteFailure ? 'stale' : 'retry';
+    : 'stale';
   await guardPlayMutation(input.playEpoch, () => enqueue({
     trigger_type: 'play_failure_reverify',
     rail_id: null,

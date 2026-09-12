@@ -18,6 +18,7 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INDEX_SOURCE_PATH = resolve(HERE, '../../src/index.ts');
+const JOBS_SOURCE_PATH = resolve(HERE, '../../src/recommendations/jobs.ts');
 
 function withLibrary(fn: () => void): void {
   const dir = mkdtempSync(join(tmpdir(), 'mango-desired-revision-integration-'));
@@ -92,13 +93,31 @@ test('rating change advances desired revision even when corpus_generation is unc
   });
 });
 
-test('index.ts feeds semantic_generation and taste_signature into updateDesiredRevision', () => {
+test('index.ts feeds actual semantic generation and taste signature through the atomic desired receipt helper', () => {
   const source = readFileSync(INDEX_SOURCE_PATH, 'utf8');
-  const call = source.match(/updateDesiredRevision\(\{[\s\S]*?\}\)/);
-  assert.ok(call, 'updateDesiredRevision call site not found in index.ts');
+  assert.match(source, /playabilityRecommendationSemanticGeneration\(\)/,
+    'index.ts must read the actual recommendation semantic generation');
+  assert.match(source, /captureVodRecommendationRevisions\([\s\S]*semantic_generation:\s*semanticGeneration/,
+    'index.ts must capture actual semantic generation in the VOD receipt tuple');
+  assert.match(source, /const tasteSignature = currentStoryGraphTasteRevision\(tab\)/,
+    'index.ts must compute the live taste signature per tab');
+  const call = source.match(/createVodRecommendationRefreshJob\(\{[\s\S]*?desired_revision:\s*\{[\s\S]*?\}\s*,[\s\S]*?\}\)/);
+  assert.ok(call, 'createVodRecommendationRefreshJob call site not found in index.ts');
   const body = call![0];
-  assert.ok(body.includes('semantic_generation'),
-    'updateDesiredRevision must be called with semantic_generation');
-  assert.ok(body.includes('taste_signature'),
-    'updateDesiredRevision must be called with taste_signature');
+  assert.match(body, /semantic_generation:\s*capturedSemanticGeneration/,
+    'atomic VOD receipt helper must receive semantic_generation');
+  assert.match(body, /taste_signature:\s*tasteSignature/,
+    'atomic VOD receipt helper must receive taste_signature');
+  assert.match(body, /force_revision:\s*forceDesiredRevision/,
+    'manual/force requests must still be explicit real reranks');
+
+  const jobsSource = readFileSync(JOBS_SOURCE_PATH, 'utf8');
+  const helper = jobsSource.match(/export function createVodRecommendationRefreshJob[\s\S]*?return createRecommendationRefreshJob/);
+  assert.ok(helper, 'atomic VOD desired-revision receipt helper not found');
+  assert.match(helper![0], /updateDesiredRevision\(\{\s*\.\.\.input\.desired_revision/,
+    'atomic helper must forward desired_revision into updateDesiredRevision');
+  assert.match(helper![0], /content_type:\s*input\.content_type/,
+    'atomic helper must bind content_type inside the same transaction');
+  assert.match(helper![0], /reason:\s*input\.trigger_reasons\.join/,
+    'atomic helper must bind trigger reasons into desired revision');
 });

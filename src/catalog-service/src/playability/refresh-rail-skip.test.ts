@@ -68,6 +68,7 @@ function emptyStatus(railId: string): PlayabilityRailStatus {
     rail_id: railId,
     pool_depth: 0,
     verified_pool: 0,
+    visible_pool: 0,
     pending: 0,
     stale: 0,
     failed: 0,

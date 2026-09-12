@@ -235,7 +235,7 @@ INSERT INTO rail_pool(
   });
 });
 
-test('serve-time category and Explore deals fence titles that expired after reservoir publication', async () => {
+test('serve-time category and Explore deals retain expiry-only last-known-good but fence non-expiry stale', async () => {
   await withBrowseDb(async () => {
     const db = getPlayabilityDb();
     const now = Date.now();
@@ -284,6 +284,7 @@ VALUES ('series-reality-casual', 'series', ?, ?, ?, ?, ?, '2026')
     });
     const category = sessions.get('series-reality-casual');
     assert.equal(category?.verified_pool, 9);
+    assert.equal(category?.visible_pool, 10);
     assert.equal(category?.items.length, 9);
     assert.ok(category?.items.every((item) => !staleIds.has(item.id)));
 
@@ -294,6 +295,7 @@ VALUES ('series-reality-casual', 'series', ?, ?, ?, ?, ?, '2026')
       seed: 'post-expiry-explore',
     });
     assert.equal(explore.verified_pool, 9);
+    assert.equal(explore.visible_pool, 10);
     assert.equal(explore.items.length, 9);
     assert.ok(explore.items.every((item) => !staleIds.has(item.id)));
   });

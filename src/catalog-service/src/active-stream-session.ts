@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { Stream } from './core.js';
+import { assertPlayEpoch } from './play-cancel.js';
 import {
   getMpvPlaybackState,
   getMpvProperty,
@@ -36,6 +37,8 @@ import {
   type StreamTechnicalProfile,
 } from './playback-capability.js';
 import {
+  demoteTitle,
+  enqueuePlayabilityTrigger,
   recordStreamPlaybackIssue,
   undoStreamPlaybackIssue,
   upsertStreamPathEvidence,
@@ -383,7 +386,38 @@ type ActiveStreamDependencies = {
   setProperty: typeof setMpvProperty;
   probe: typeof probeUrl;
   play: typeof playUrl;
+  reconcileTerminalSwitchFailure: (input: {
+    playEpoch: number;
+    contentType: string;
+    contentId: string;
+    reason: 'play_miss';
+    error: string;
+  }) => Promise<void>;
 };
+
+async function reconcileTerminalSwitchFailure(input: {
+  playEpoch: number;
+  contentType: string;
+  contentId: string;
+  reason: 'play_miss';
+  error: string;
+}): Promise<void> {
+  await assertPlayEpoch(input.playEpoch);
+  await demoteTitle({
+    rail_id: null,
+    type: input.contentType,
+    id: input.contentId,
+    reason: input.reason,
+  });
+  await assertPlayEpoch(input.playEpoch);
+  await enqueuePlayabilityTrigger({
+    trigger_type: 'play_failure_reverify',
+    rail_id: null,
+    type: input.contentType,
+    id: input.contentId,
+    reason: input.reason,
+  });
+}
 
 async function capturePlaybackPreferences(
   dependencies: ActiveStreamDependencies,
@@ -452,6 +486,8 @@ export class ActiveStreamService {
       setProperty: dependencies.setProperty ?? setMpvProperty,
       probe: dependencies.probe ?? probeUrl,
       play: dependencies.play ?? playUrl,
+      reconcileTerminalSwitchFailure: dependencies.reconcileTerminalSwitchFailure
+        ?? reconcileTerminalSwitchFailure,
     };
   }
 
@@ -552,6 +588,22 @@ export class ActiveStreamService {
     return session;
   }
 
+  private async reconcileTerminalFailure(session: ActiveSession): Promise<void> {
+    await this.dependencies.reconcileTerminalSwitchFailure({
+      playEpoch: session.play_epoch,
+      contentType: session.content_type,
+      contentId: session.content_id,
+      reason: 'play_miss',
+      error: session.error || 'Playback stopped during stream switch.',
+    }).catch((error) => {
+      console.warn(
+        `active stream terminal failure reconcile failed type=${session.content_type} id=${session.content_id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
+  }
+
   async beginSwitch(input: {
     sessionId: string;
     revision: number;
@@ -593,6 +645,7 @@ export class ActiveStreamService {
           await transitionPlaybackSession(session.session_id, 'failed_after_frame', {
             error: session.error,
           }).catch(() => null);
+          await this.reconcileTerminalFailure(session);
         }
         session.revision += 1;
         session.updated_at = Date.now();
@@ -751,6 +804,7 @@ export class ActiveStreamService {
         await transitionPlaybackSession(session.session_id, 'failed_after_frame', {
           error: session.error,
         }).catch(() => null);
+        await this.reconcileTerminalFailure(session);
       }
       selected.unavailable = true;
       session.switch_undo_candidate_id = null;

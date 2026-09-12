@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { libraryDatabase } from '../library/db.js';
+import { updateDesiredRevision, type DesiredRevisionRow, type DesiredRevisionSignal } from './desired-revision.js';
 
 export type RecommendationRefreshJobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'coalesced';
 
@@ -126,6 +127,37 @@ INSERT INTO recommendation_refresh_jobs(
   };
 }
 
+export function createVodRecommendationRefreshJob(input: {
+  content_type: 'movie' | 'series';
+  trigger_reasons: readonly string[];
+  captured_revisions: Record<string, string | number | null>;
+  desired_revision: Omit<DesiredRevisionSignal, 'content_type' | 'reason'>;
+  queued_at?: number;
+}): RecommendationRefreshJob {
+  const db = libraryDatabase();
+  return db.transaction(() => {
+    const desired = updateDesiredRevision({
+      ...input.desired_revision,
+      content_type: input.content_type,
+      reason: input.trigger_reasons.join(',') || 'refresh',
+    });
+    const capturedRevisions = {
+      ...input.captured_revisions,
+      desired_revision: desired.revision,
+      corpus_generation: desired.corpus_generation,
+      story_generation: desired.semantic_generation,
+      taste_revision: desired.taste_signature,
+    };
+    return createRecommendationRefreshJob({
+      domain: 'vod',
+      content_type: input.content_type,
+      trigger_reasons: input.trigger_reasons,
+      captured_revisions: capturedRevisions,
+      queued_at: input.queued_at,
+    });
+  })();
+}
+
 export type RecommendationRefreshJobRuntimeUpdate = {
   phase?: string | null;
   phase_cursor?: string | null;
@@ -250,6 +282,156 @@ WHERE job_id = @job_id AND status IN ('queued', 'running')
   ))();
 }
 
+type FulfilledVodDesiredRevision = {
+  content_type: 'movie' | 'series';
+};
+
+type PersistedFulfilledVodDesiredRevision = FulfilledVodDesiredRevision & {
+  revision: number;
+  corpus_generation: number | null;
+  semantic_generation: number | null;
+  taste_signature: string | null;
+  acknowledged_revision: number;
+  acknowledged_rank_generation_id: number | null;
+};
+
+function isManualOrForceRefresh(reasons: string[]): boolean {
+  return reasons.some((reason) => /(?:manual|force|explicit)/i.test(reason));
+}
+
+function capturedValueMatches(
+  captured: Record<string, string | number | null>,
+  key: string,
+  value: string | number | null,
+): boolean {
+  if (!Object.prototype.hasOwnProperty.call(captured, key)) return false;
+  return captured[key] === value;
+}
+
+function capturedRevisionsMatchFulfilledDesired(
+  captured: Record<string, string | number | null>,
+  desired: PersistedFulfilledVodDesiredRevision,
+): boolean {
+  if (desired.acknowledged_rank_generation_id === null) return false;
+  if (desired.acknowledged_revision !== desired.revision) return false;
+  if (desired.corpus_generation === null) return false;
+  if (desired.semantic_generation === null) return false;
+  if (desired.taste_signature === null || desired.taste_signature.trim().length === 0) return false;
+  if (!capturedValueMatches(captured, 'desired_revision', desired.revision)) return false;
+  if (!capturedValueMatches(captured, 'corpus_generation', desired.corpus_generation)) return false;
+  if (!capturedValueMatches(captured, 'story_generation', desired.semantic_generation)) return false;
+  if (!capturedValueMatches(captured, 'taste_revision', desired.taste_signature)) return false;
+  return true;
+}
+
+function capturedRevisionsMatchDesiredRevision(
+  captured: Record<string, string | number | null>,
+  desired: DesiredRevisionRow,
+): boolean {
+  if (desired.corpus_generation === null) return false;
+  if (desired.semantic_generation === null) return false;
+  if (desired.taste_signature === null || desired.taste_signature.trim().length === 0) return false;
+  return capturedValueMatches(captured, 'desired_revision', desired.revision)
+    && capturedValueMatches(captured, 'corpus_generation', desired.corpus_generation)
+    && capturedValueMatches(captured, 'story_generation', desired.semantic_generation)
+    && capturedValueMatches(captured, 'taste_revision', desired.taste_signature);
+}
+
+function desiredSnapshotMatchesCurrent(
+  current: Pick<DesiredRevisionRow, 'revision' | 'corpus_generation' | 'semantic_generation' | 'taste_signature'> | undefined,
+  desired: DesiredRevisionRow,
+): boolean {
+  return Boolean(current)
+    && current!.revision === desired.revision
+    && current!.corpus_generation === desired.corpus_generation
+    && current!.semantic_generation === desired.semantic_generation
+    && current!.taste_signature === desired.taste_signature;
+}
+
+function capturedDesiredRevision(captured: Record<string, string | number | null>): number | null {
+  const raw = captured.desired_revision;
+  return typeof raw === 'number' && Number.isSafeInteger(raw) && raw > 0 ? raw : null;
+}
+
+/**
+ * Recover facade rows that were enqueued after the durable desired revision
+ * had already been satisfied (or during the small window between rank publish
+ * and acknowledgement). This is intentionally narrow: it only completes queued
+ * VOD jobs whose captured desired revision/corpus/taste/story inputs match the current
+ * fulfilled desired revision, and whose acknowledged rank is the active,
+ * complete rank. Manual/force refresh facades are left queued so they cannot
+ * be silently converted into a synthetic pass.
+ */
+export function completeSatisfiedQueuedVodRecommendationRefreshJobs(
+  desiredRows: readonly FulfilledVodDesiredRevision[],
+  at = Date.now(),
+): number {
+  const contentTypes = new Set(desiredRows.map((row) => row.content_type));
+  if (contentTypes.size === 0) return 0;
+  const db = libraryDatabase();
+  return db.transaction((): number => {
+    const queued = db.prepare(`
+SELECT job_id, content_type, trigger_reasons_json, captured_revisions_json
+FROM recommendation_refresh_jobs
+WHERE domain = 'vod' AND status = 'queued' AND content_type IN ('movie', 'series')
+ORDER BY queued_at ASC, job_id ASC
+`).all() as Array<{
+      job_id: string;
+      content_type: 'movie' | 'series';
+      trigger_reasons_json: string;
+      captured_revisions_json: string;
+    }>;
+    if (queued.length === 0) return 0;
+    const desiredRevision = db.prepare(`
+SELECT content_type, revision, corpus_generation, semantic_generation, taste_signature,
+       acknowledged_revision, acknowledged_rank_generation_id
+FROM vod_desired_revisions
+WHERE content_type = ?
+`);
+    const active = db.prepare(`
+SELECT active_rank_generation_id FROM vod_active_generations WHERE content_type = ?
+`);
+    const rank = db.prepare(`
+SELECT status FROM vod_rank_generations
+WHERE content_type = ? AND rank_generation_id = ?
+`);
+    const complete = db.prepare(`
+UPDATE recommendation_refresh_jobs
+SET status = 'complete',
+    completed_at = ?,
+    error = NULL,
+    phase = COALESCE(phase, 'already_satisfied'),
+    rank_generation_id = ?,
+    error_code = NULL
+WHERE job_id = ? AND status = 'queued' AND (rank_generation_id IS NULL OR rank_generation_id = ?)
+`);
+    let changes = 0;
+    for (const job of queued) {
+      if (!contentTypes.has(job.content_type)) continue;
+      const reasons = parseJsonList(job.trigger_reasons_json);
+      if (isManualOrForceRefresh(reasons)) continue;
+      const desired = desiredRevision.get(job.content_type) as PersistedFulfilledVodDesiredRevision | undefined;
+      if (!desired) continue;
+      if (!capturedRevisionsMatchFulfilledDesired(parseJsonObject(job.captured_revisions_json), desired)) {
+        continue;
+      }
+      const activeRow = active.get(job.content_type) as { active_rank_generation_id: number | null } | undefined;
+      if (activeRow?.active_rank_generation_id !== desired.acknowledged_rank_generation_id) continue;
+      const rankRow = rank.get(job.content_type, desired.acknowledged_rank_generation_id) as {
+        status: string;
+      } | undefined;
+      if (rankRow?.status !== 'complete') continue;
+      changes += complete.run(
+        at,
+        desired.acknowledged_rank_generation_id,
+        job.job_id,
+        desired.acknowledged_rank_generation_id,
+      ).changes;
+    }
+    return changes;
+  })();
+}
+
 /**
  * A committed page is recoverable. Preserve queued work and return interrupted
  * running rows to queued state; the newly captured startup request coalesces
@@ -295,6 +477,97 @@ WHERE job_id = ? AND status = 'queued'
   })();
 }
 
+/**
+ * VOD worker-side claim for the exact desired revision being processed. Older
+ * queued receipts for the same content type are coalesced to the matching
+ * successor, but only receipts whose captured desired revision/corpus/semantic
+ * story/taste tuple matches the worker input are transitioned to `running`.
+ */
+export function claimQueuedVodRecommendationRefreshJobsForDesired(
+  contentType: 'movie' | 'series',
+  desired: DesiredRevisionRow,
+  at = Date.now(),
+): string[] {
+  const db = libraryDatabase();
+  return db.transaction((): string[] => {
+    const current = db.prepare(`
+SELECT revision, corpus_generation, semantic_generation, taste_signature
+FROM vod_desired_revisions
+WHERE content_type = ?
+`).get(contentType) as Pick<
+      DesiredRevisionRow,
+      'revision' | 'corpus_generation' | 'semantic_generation' | 'taste_signature'
+    > | undefined;
+    if (!desiredSnapshotMatchesCurrent(current, desired)) return [];
+    const rows = db.prepare(`
+SELECT job_id, trigger_reasons_json, captured_revisions_json
+FROM recommendation_refresh_jobs
+WHERE domain = 'vod' AND content_type = ? AND status = 'queued'
+ORDER BY queued_at ASC, job_id ASC
+`).all(contentType) as Array<{
+      job_id: string;
+      trigger_reasons_json: string;
+      captured_revisions_json: string;
+    }>;
+    if (rows.length === 0) return [];
+    const matchingIds = rows
+      .filter((row) => capturedRevisionsMatchDesiredRevision(
+        parseJsonObject(row.captured_revisions_json),
+        desired,
+      ))
+      .map((row) => row.job_id);
+    if (matchingIds.length === 0) return [];
+    const successorJobId = matchingIds[matchingIds.length - 1] ?? matchingIds[0];
+    const coalesce = db.prepare(`
+UPDATE recommendation_refresh_jobs
+SET status = 'coalesced',
+    completed_at = ?,
+    successor_job_id = ?,
+    error_code = 'superseded',
+    error = 'superseded by matching desired revision receipt'
+WHERE job_id = ? AND status = 'queued'
+`);
+    const start = db.prepare(`
+UPDATE recommendation_refresh_jobs
+SET status = 'running',
+    started_at = COALESCE(started_at, ?),
+    heartbeat_at = ?
+WHERE job_id = ? AND status = 'queued'
+`);
+    for (const row of rows) {
+      if (matchingIds.includes(row.job_id)) continue;
+      const captured = parseJsonObject(row.captured_revisions_json);
+      const revision = capturedDesiredRevision(captured);
+      if (revision === null || revision >= desired.revision) continue;
+      const reasons = parseJsonList(row.trigger_reasons_json);
+      if (isManualOrForceRefresh(reasons)) continue;
+      coalesce.run(at, successorJobId, row.job_id);
+    }
+    for (const id of matchingIds) start.run(at, at, id);
+    return matchingIds;
+  })();
+}
+
+export function queuedVodRecommendationRefreshJobForDesired(
+  contentType: 'movie' | 'series',
+  desired: DesiredRevisionRow,
+): string | null {
+  const db = libraryDatabase();
+  const rows = db.prepare(`
+SELECT job_id, captured_revisions_json
+FROM recommendation_refresh_jobs
+WHERE domain = 'vod' AND content_type = ? AND status = 'queued'
+ORDER BY queued_at ASC, job_id ASC
+`).all(contentType) as Array<{
+    job_id: string;
+    captured_revisions_json: string;
+  }>;
+  return rows.find((row) => capturedRevisionsMatchDesiredRevision(
+    parseJsonObject(row.captured_revisions_json),
+    desired,
+  ))?.job_id ?? null;
+}
+
 export function reconcileInterruptedRecommendationRefreshJobs(
   at = Date.now(),
   reason = 'service restarted; committed checkpoint retained for resume',
@@ -313,6 +586,7 @@ export function captureVodRecommendationRevisions(
   tab: VodRecommendationRefreshTab,
   options: {
     corpus_generation?: number | null;
+    semantic_generation?: number | null;
     captured_at?: number;
   },
 ): Record<string, string | number | null> {
@@ -355,7 +629,7 @@ WHERE content_type = ?
     latest_rank_generation: latest?.rank_generation_id ?? null,
     active_rank_generation: active?.active_rank_generation_id ?? null,
     previous_complete_rank_generation: active?.previous_complete_rank_generation_id ?? null,
-    story_generation: latest?.story_generation_id ?? null,
+    story_generation: options.semantic_generation ?? latest?.story_generation_id ?? null,
     taste_generation: latest?.taste_generation_id ?? null,
     taste_revision: latest?.taste_revision ?? null,
     rank_corpus_generation: latest?.corpus_generation ?? null,

@@ -9,10 +9,12 @@ import {
   getPlayabilityDb,
   initPlayabilityDb,
   resetPlayabilityDbForTests,
+  type TitlePlayabilityRecord,
 } from '../playability/db.js';
 import {
   refreshStoryGraphForYou,
   isStoryGraphTrueNegativeRating,
+  recommendationTitleVisible,
   resetStoryGraphServingWorkCounters,
   storyGraphHighPreferenceConcordance,
   storyGraphServingWorkSnapshot,
@@ -181,6 +183,71 @@ test('only ratings below one on both axes are true-negative intrusion labels', (
   assert.equal(isStoryGraphTrueNegativeRating({ fire: 1, water: 0 }), false);
   assert.equal(isStoryGraphTrueNegativeRating({ fire: 2, water: 2 }), false);
   assert.equal(isStoryGraphTrueNegativeRating({ fire: 2.5, water: 0.5 }), false);
+});
+
+test('recommendation visibility keeps expiry-only last-good and hides real failures', () => {
+  const base = {
+    type: 'movie',
+    id: 'm-policy',
+    verified_at: 1_000,
+    updated_at: 2_000,
+  };
+  assert.equal(recommendationTitleVisible({
+    ...base,
+    status: 'verified',
+    fail_reason: null,
+    expires_at: Date.now() - 1,
+  } satisfies TitlePlayabilityRecord), true, 'expired verified remains visible until sweep marker lands');
+  assert.equal(recommendationTitleVisible({
+    ...base,
+    status: 'stale',
+    fail_reason: 'expired_stale',
+    expires_at: Date.now() - 1,
+  } satisfies TitlePlayabilityRecord), true, 'expiry-only stale marker remains last-known-good visible');
+  assert.equal(recommendationTitleVisible({
+    ...base,
+    status: 'failed',
+    fail_reason: 'play_failed',
+    expires_at: null,
+  } satisfies TitlePlayabilityRecord), false, 'real failures hide/requeue instead of staying visible');
+});
+
+test('progressive candidate generation includes expiry-only last-good and excludes failures', async () => {
+  await withProgressiveDatabases(async () => {
+    seedTitles('movie', 25);
+    const playability = getPlayabilityDb();
+    playability.prepare(`
+UPDATE titles
+SET status = 'stale', fail_reason = 'expired_stale', verified_at = COALESCE(verified_at, updated_at),
+    expires_at = 1, updated_at = updated_at + 1
+WHERE type = 'movie' AND id = 'm005'
+`).run();
+    playability.prepare(`
+UPDATE titles
+SET status = 'failed', fail_reason = 'play_failed', updated_at = updated_at + 1
+WHERE type = 'movie' AND id = 'm006'
+`).run();
+    putRating({
+      profile_id: 'household', type: 'movie', id: 'm000', title: 'Movie 0',
+      fire: 5, water: 4.5, expected_revision: 0, origin: 'couch', taste_tags: [],
+    });
+    const result = await refreshStoryGraphForYou('movies', {
+      bootstrap_minimum: 20,
+      cached_service_p95_ms: 1,
+      dependencies: { evaluate: passingEvaluation },
+    });
+    assert.equal(result.verified_count, 24, 'failed titles leave the visible recommendation corpus');
+    assert.equal((libraryDatabase().prepare(`
+SELECT COUNT(*) AS count FROM vod_rank_items
+WHERE rank_generation_id = ? AND content_id = 'm005'
+`).get(result.rank_generation_id) as { count: number }).count, 1,
+    'expiry-only stale titles participate in fresh candidate generation');
+    assert.equal((libraryDatabase().prepare(`
+SELECT COUNT(*) AS count FROM vod_rank_items
+WHERE rank_generation_id = ? AND content_id = 'm006'
+`).get(result.rank_generation_id) as { count: number }).count, 0,
+    'real failures are excluded before candidate generation, not just filtered from cached slates');
+  });
 });
 
 test('offline quality labels require a thematically rankable profile', () => {
@@ -414,6 +481,61 @@ UPDATE titles SET status = 'stale', updated_at = updated_at + 1
 WHERE type = 'movie' AND id = 'm001'
 `).run();
     assert.equal(await storyGraphRefreshRequired('movies'), true);
+  });
+});
+
+test('cached For You deals keep expiry-only last-good titles and drop real failures', async () => {
+  await withProgressiveDatabases(async () => {
+    process.env.MANGO_VOD_RECS_V2 = 'serve';
+    seedTitles('movie', 25);
+    putRating({
+      profile_id: 'household', type: 'movie', id: 'm000', title: 'Movie 0',
+      fire: 5, water: 4.5, expected_revision: 0, origin: 'couch', taste_tags: [],
+    });
+    await refreshStoryGraphForYou('movies', {
+      bootstrap_minimum: 20,
+      cached_service_p95_ms: 1,
+      dependencies: { evaluate: passingEvaluation },
+    });
+    const initial = await loadForYouRail('movies', { profileId: 'household' });
+    assert.equal(initial?.items.length, 6);
+    const initialIds = initial!.items.map((item) => item.id);
+    const [expiredVerified, expiredStale, failed] = initialIds;
+    assert.ok(expiredVerified && expiredStale && failed);
+
+    const playability = getPlayabilityDb();
+    playability.prepare(`
+UPDATE titles
+SET status = 'verified', verified_at = COALESCE(verified_at, updated_at), expires_at = 1, fail_reason = NULL,
+    updated_at = updated_at + 1
+WHERE type = 'movie' AND id = ?
+`).run(expiredVerified);
+    playability.prepare(`
+UPDATE titles
+SET status = 'stale', fail_reason = 'expired_stale', verified_at = COALESCE(verified_at, updated_at),
+    expires_at = 1, updated_at = updated_at + 1
+WHERE type = 'movie' AND id = ?
+`).run(expiredStale);
+
+    const stillCached = await loadForYouRail('movies', { profileId: 'household' });
+    assert.deepEqual(
+      stillCached?.items.map((item) => item.id),
+      initialIds,
+      'expiry-only transitions must not invalidate an otherwise unchanged cached slate',
+    );
+
+    playability.prepare(`
+UPDATE titles
+SET status = 'failed', fail_reason = 'play_failed', updated_at = updated_at + 1
+WHERE type = 'movie' AND id = ?
+`).run(failed);
+    const repaired = await loadForYouRail('movies', { profileId: 'household' });
+    assert.ok(repaired);
+    assert.equal(
+      repaired!.items.some((item) => item.id === failed),
+      false,
+      'real failed titles must be hidden even when a cached slate/rank exists',
+    );
   });
 });
 

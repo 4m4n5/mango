@@ -31,6 +31,8 @@ uses `MANGO_YOUTUBE_PLAY=1`.
 | `scripts/m3-play/playability/gate-m3-library-grow.sh` | Mac full / playability paths |
 | `scripts/m6-ship/test-youtube-pot-server-fd.sh` | Mac full (POT fd 200 closure) |
 | `scripts/m6-ship/test-library-offline-compaction.sh` | Mac full (offline compaction hook) |
+| `scripts/m6-ship/test_restore_expiry_only_visibility.py` | Local (backup-proven expiry restoration, failure/identity exclusion, unchanged verification evidence) |
+| `scripts/m6-ship/test_prune_mango_sqlite.py` | Local (accurate internal cleanup counts; in-flight job retention) |
 | `scripts/m3-play/playability/test-wait-vod-recommendation-jobs.sh` | Mac full (waiter not on grow critical path) |
 | `scripts/m3-play/playability/test-coordinator-entrypoints.sh` | Mac full (default deadlines, interrupted receipts, lock contention) |
 | `scripts/m3-play/playability/test-maintenance-catalog-filters.sh` | Mac full (literal-only operator profile lookup; no shell evaluation) |
@@ -50,6 +52,7 @@ uses `MANGO_YOUTUBE_PLAY=1`.
 `pi-pre-couch-gate.sh` remain compatibility entrypoints.
 
 After a long offline period, also check current (unexpired) playability proof,
+expiry-only last-known-good visibility separately, failure hide/requeue behavior,
 completion of the desired VOD revisions, YouTube OAuth renewal and source
 freshness, timezone/NTP and the next nightly timer, and preserved interrupted-run
 receipts. A queued recommendation job is accepted work, not completed ranking.

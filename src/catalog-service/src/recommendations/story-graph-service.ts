@@ -10,12 +10,13 @@ import {
 import { listRatings, type FireWaterRating, type RatingContentType } from '../library/ratings.js';
 import {
   getTitlesPlayabilityBulk,
-  initPlayabilityDb,
-  listCurrentlyVerifiedTitleKeys,
-  listVerifiedRecommendationCatalogPage,
+  isTitleLastKnownGoodVisible,
+  listCurrentlyVisibleTitleKeys,
+  listVisibleRecommendationCatalogPage,
   playabilityRecommendationCorpusGeneration,
   playabilityRecommendationSemanticGeneration,
   recordRecommendationSemanticEvidence,
+  type TitlePlayabilityRecord,
   type VerifiedRecommendationCatalogPage,
   type VerifiedRecommendationCatalogRow,
 } from '../playability/db.js';
@@ -409,7 +410,7 @@ export type StoryGraphRefreshResult = {
 };
 
 export type StoryGraphRefreshDependencies = {
-  listPage?: typeof listVerifiedRecommendationCatalogPage;
+  listPage?: typeof listVisibleRecommendationCatalogPage;
   corpusGeneration?: typeof playabilityRecommendationCorpusGeneration;
   semanticGeneration?: typeof playabilityRecommendationSemanticGeneration;
   recordSemanticEvidence?: typeof recordRecommendationSemanticEvidence;
@@ -552,6 +553,10 @@ function contentKey(type: RatingContentType, id: string): StoryGraphContentId {
   return `${type}:${id}`;
 }
 
+export function recommendationTitleVisible(record: TitlePlayabilityRecord | null): boolean {
+  return isTitleLastKnownGoodVisible(record);
+}
+
 function sha256(value: unknown): string {
   return createHash('sha256').update(stableStoryDnaJson(value)).digest('hex');
 }
@@ -691,12 +696,12 @@ ON CONFLICT(state_key) DO UPDATE SET value_json = excluded.value_json, updated_a
 }
 async function scanVerifiedCorpus(
   type: RatingContentType,
-  listPage: typeof listVerifiedRecommendationCatalogPage,
+  listPage: typeof listVisibleRecommendationCatalogPage,
 ): Promise<{ rows: VerifiedRecommendationCatalogRow[]; generation: number; verifiedCount: number }> {
   const rows: VerifiedRecommendationCatalogRow[] = [];
   let cursor: string | null = null;
   let generation: number | null = null;
-  let verifiedCount = 0;
+  let visibleCount = 0;
   do {
     const page: VerifiedRecommendationCatalogPage = await listPage({
       content_type: type,
@@ -707,16 +712,16 @@ async function scanVerifiedCorpus(
       throw new StaleStoryGraphGenerationError('verified corpus changed during StoryDNA scan');
     }
     generation = page.corpus_generation;
-    verifiedCount = page.verified_count;
+    visibleCount = page.verified_count;
     rows.push(...page.items);
     cursor = page.next_cursor;
   } while (cursor !== null);
-  if (rows.length !== verifiedCount) {
+  if (rows.length !== visibleCount) {
     throw new StaleStoryGraphGenerationError(
-      `verified corpus accounting drifted during scan (${rows.length}/${verifiedCount})`,
+      `visible recommendation corpus accounting drifted during scan (${rows.length}/${visibleCount})`,
     );
   }
-  return { rows, generation: generation ?? 1, verifiedCount };
+  return { rows, generation: generation ?? 1, verifiedCount: visibleCount };
 }
 
 function readHouseholdSignals(type: RatingContentType): HouseholdSignals {
@@ -1845,12 +1850,11 @@ ORDER BY rank ASC
     eligibleRankRowsCache.set(type, { db, rank_generation_id: rankGenerationId, rows });
   }
   storyGraphServingWorkCounters.full_reserve_rows_loaded += rows.length;
-  await initPlayabilityDb();
-  const verified = listCurrentlyVerifiedTitleKeys(type);
+  const visible = listCurrentlyVisibleTitleKeys(type);
   const excluded = currentExactExclusions(type);
   return rows.filter((row) => {
     const key = contentKey(row.content_type, row.content_id);
-    return verified.has(key) && !excluded.has(key);
+    return visible.has(key) && !excluded.has(key);
   });
 }
 
@@ -2831,7 +2835,7 @@ async function refreshStoryGraphForYouUnserialized(
   checkpoint('scan', '0');
   try {
   reconcileInterruptedStoryDnaGenerations(now);
-  const listPage = dependencies.listPage ?? listVerifiedRecommendationCatalogPage;
+  const listPage = dependencies.listPage ?? listVisibleRecommendationCatalogPage;
   const currentCorpusGeneration = dependencies.corpusGeneration ?? playabilityRecommendationCorpusGeneration;
   const currentSemanticGeneration = dependencies.semanticGeneration
     ?? playabilityRecommendationSemanticGeneration;
@@ -3554,12 +3558,11 @@ async function validateSlateRows(rows: PersistedRankRow[], type: RatingContentTy
   }
   if (rows.some((row) => !row.poster)) return false;
   storyGraphServingWorkCounters.slate_items_revalidated += rows.length;
-  await initPlayabilityDb();
-  const verified = listCurrentlyVerifiedTitleKeys(type);
+  const visible = listCurrentlyVisibleTitleKeys(type);
   const exclusions = currentExactExclusions(type);
   return rows.every((row) => {
     const key = contentKey(type, row.content_id);
-    return verified.has(key) && !exclusions.has(key);
+    return visible.has(key) && !exclusions.has(key);
   });
 }
 
@@ -3917,7 +3920,7 @@ ORDER BY edges.content_id, edges.family, edges.node_key
     id: candidate.id,
   })));
   const eligible = candidates.filter((candidate) => (
-    playability.get(contentKey(type, candidate.id))?.status === 'verified'
+    recommendationTitleVisible(playability.get(contentKey(type, candidate.id)) ?? null)
   ));
   // Weighting rotates within a high-confidence semantic frontier. Letting the
   // 16x sampler draw from every merely admissible candidate reintroduced weak

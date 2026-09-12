@@ -32,6 +32,7 @@ export type DesiredRevisionSignal = {
   corpus_generation?: number | null;
   semantic_generation?: number | null;
   taste_signature?: string | null;
+  force_revision?: boolean;
   now?: number;
 };
 
@@ -149,7 +150,10 @@ function toRow(row: PersistedRow, now = Date.now()): DesiredRevisionRow {
  * diagnostics reflect the latest observation. A signal that DOES change
  * inputs (i.e. `revision` advances) also resets retry state — a new input
  * is picked up immediately, without waiting on the previous failure's
- * exponential backoff.
+ * exponential backoff. `force_revision` is reserved for explicit operator
+ * reranks such as manual refresh; it advances the revision even when inputs
+ * are unchanged so exact job waiters cannot be stranded behind an
+ * already-acknowledged desired row.
  */
 export function updateDesiredRevision(signal: DesiredRevisionSignal): DesiredRevisionRow {
   const reason = signal.reason.trim();
@@ -166,8 +170,9 @@ SELECT ${SELECT_COLUMNS} FROM vod_desired_revisions WHERE content_type = ?
       || existing.corpus_generation !== (signal.corpus_generation ?? null)
       || existing.semantic_generation !== (signal.semantic_generation ?? null)
       || existing.taste_signature !== (signal.taste_signature ?? null);
+    const forceRevision = Boolean(existing && signal.force_revision);
     const nextRevision = existing
-      ? (inputsChanged ? existing.revision + 1 : existing.revision)
+      ? (inputsChanged || forceRevision ? existing.revision + 1 : existing.revision)
       : 1;
     if (!existing) {
       db.prepare(`
@@ -187,8 +192,9 @@ INSERT INTO vod_desired_revisions(
         JSON.stringify(mergedReasons),
         now,
       );
-    } else if (inputsChanged) {
-      // New desired input → reset retry state so the worker retries now.
+    } else if (inputsChanged || forceRevision) {
+      // New desired input or explicit force rerank → reset retry state so the
+      // worker retries now.
       db.prepare(`
 UPDATE vod_desired_revisions SET
   revision = ?,

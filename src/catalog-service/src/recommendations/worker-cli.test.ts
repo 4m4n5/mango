@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import {
   initLibraryDb,
+  libraryDatabase,
   resetLibraryDbForTests,
 } from '../library/db.js';
 import {
@@ -12,6 +13,10 @@ import {
   readDesiredRevision,
   updateDesiredRevision,
 } from './desired-revision.js';
+import {
+  createVodRecommendationRefreshJob,
+  recommendationRefreshJobById,
+} from './jobs.js';
 import { acquireExclusiveLease, pickPendingRevisions, runWorkerLoop } from './worker-cli.js';
 
 test('persistent worker idle polling keeps a referenced timer', () => {
@@ -82,6 +87,173 @@ test('worker loop activates on success and stops when nothing is pending', async
     const hb = JSON.parse(readFileSync(heartbeat, 'utf8')) as { phase: string };
     assert.ok(hb.phase.startsWith('rank:') || hb.phase === 'poll');
     assert.ok(logs.some((line) => line.includes('activated')));
+  });
+});
+
+test('manual unchanged-input refresh advances desired revision and completes exact receipt', async () => {
+  await withLibrary(async () => {
+    updateDesiredRevision({
+      content_type: 'movie',
+      reason: 'service_startup',
+      corpus_generation: 1,
+      semantic_generation: 2,
+      taste_signature: 'taste-a',
+      now: 10,
+    });
+    const initial = await runWorkerLoop({
+      refresh: async () => ({ rank_generation_id: 42, activated: true, published: true }),
+      now: () => 20,
+    }, { oneshot: true });
+    assert.equal(initial.processed, 1);
+    assert.equal(readDesiredRevision('movie', 20)?.pending, false);
+
+    const job = createVodRecommendationRefreshJob({
+      content_type: 'movie',
+      trigger_reasons: ['manual_refresh'],
+      captured_revisions: {
+        corpus_generation: 1,
+        story_generation: 2,
+        taste_revision: 'taste-a',
+      },
+      desired_revision: {
+        corpus_generation: 1,
+        semantic_generation: 2,
+        taste_signature: 'taste-a',
+        force_revision: true,
+        now: 30,
+      },
+      queued_at: 30,
+    });
+    assert.equal(readDesiredRevision('movie', 30)?.revision, 2);
+    assert.equal(recommendationRefreshJobById(job.job_id)?.status, 'queued');
+
+    const manual = await runWorkerLoop({
+      refresh: async (_tab, options) => {
+        assert.equal(options.expected_desired_revision, 2);
+        return { rank_generation_id: 43, activated: true, published: true };
+      },
+      now: () => 40,
+    }, { oneshot: true });
+    assert.equal(manual.processed, 1);
+    assert.equal(readDesiredRevision('movie', 40)?.acknowledged_revision, 2);
+    const stored = recommendationRefreshJobById(job.job_id);
+    assert.equal(stored?.status, 'complete');
+    assert.equal(stored?.started_at, 40);
+    assert.equal(stored?.completed_at, 40);
+  });
+});
+
+test('worker claims only the exact desired-revision receipt and coalesces stale queued jobs', async () => {
+  await withLibrary(async () => {
+    updateDesiredRevision({
+      content_type: 'movie',
+      reason: 'playability_corpus_publication',
+      corpus_generation: 1,
+      semantic_generation: 2,
+      taste_signature: 'taste-old',
+      now: 10,
+    });
+    const current = createVodRecommendationRefreshJob({
+      content_type: 'movie',
+      trigger_reasons: ['playability_corpus_publication'],
+      captured_revisions: {
+        corpus_generation: 2,
+        story_generation: 3,
+        taste_revision: 'taste-new',
+      },
+      desired_revision: {
+        corpus_generation: 2,
+        semantic_generation: 3,
+        taste_signature: 'taste-new',
+        now: 20,
+      },
+      queued_at: 20,
+    });
+    libraryDatabase().prepare(`
+INSERT INTO recommendation_refresh_jobs(
+  job_id, domain, content_type, trigger_reasons_json, captured_revisions_json,
+  status, queued_at, started_at, completed_at, error
+) VALUES (
+  'old-corpus-1-job', 'vod', 'movie', ?, ?, 'queued', 15, NULL, NULL, NULL
+)
+`).run(JSON.stringify(['playability_corpus_publication']), JSON.stringify({
+      desired_revision: 1,
+      corpus_generation: 1,
+      story_generation: 2,
+      taste_revision: 'taste-old',
+    }));
+
+    const result = await runWorkerLoop({
+      refresh: async (_tab, options) => {
+        assert.equal(options.expected_desired_revision, 2);
+        return { rank_generation_id: 50, activated: true, published: true };
+      },
+      now: () => 30,
+    }, { oneshot: true });
+    assert.equal(result.processed, 1);
+    assert.equal(readDesiredRevision('movie', 30)?.acknowledged_revision, 2);
+    const old = recommendationRefreshJobById('old-corpus-1-job');
+    assert.equal(old?.status, 'coalesced');
+    assert.equal(old?.successor_job_id, current.job_id);
+    assert.equal(old?.started_at, null);
+    const storedCurrent = recommendationRefreshJobById(current.job_id);
+    assert.equal(storedCurrent?.status, 'complete');
+    assert.equal(storedCurrent?.started_at, 30);
+    assert.equal(storedCurrent?.completed_at, 30);
+  });
+});
+
+test('stale claimed build is coalesced to the next real receipt when desired advances mid-flight', async () => {
+  await withLibrary(async () => {
+    const first = createVodRecommendationRefreshJob({
+      content_type: 'movie',
+      trigger_reasons: ['startup'],
+      captured_revisions: {
+        corpus_generation: 1,
+        story_generation: 2,
+        taste_revision: 'taste-old',
+      },
+      desired_revision: {
+        corpus_generation: 1,
+        semantic_generation: 2,
+        taste_signature: 'taste-old',
+        now: 10,
+      },
+      queued_at: 10,
+    });
+    let successorJobId: string | null = null;
+    const result = await runWorkerLoop({
+      refresh: async (_tab, options) => {
+        assert.equal(options.expected_desired_revision, 1);
+        const successor = createVodRecommendationRefreshJob({
+          content_type: 'movie',
+          trigger_reasons: ['signal_change'],
+          captured_revisions: {
+            corpus_generation: 2,
+            story_generation: 3,
+            taste_revision: 'taste-new',
+          },
+          desired_revision: {
+            corpus_generation: 2,
+            semantic_generation: 3,
+            taste_signature: 'taste-new',
+            now: 30,
+          },
+          queued_at: 30,
+        });
+        successorJobId = successor.job_id;
+        return { rank_generation_id: 70, activated: true, published: true };
+      },
+      now: () => 40,
+    }, { oneshot: true });
+    assert.equal(result.processed, 1);
+    assert.equal(readDesiredRevision('movie', 40)?.revision, 2);
+    assert.equal(readDesiredRevision('movie', 40)?.acknowledged_revision, 0);
+    const old = recommendationRefreshJobById(first.job_id);
+    assert.equal(old?.status, 'coalesced');
+    assert.equal(old?.successor_job_id, successorJobId);
+    assert.equal(old?.completed_at, 40);
+    assert.equal(recommendationRefreshJobById(successorJobId!)?.status, 'queued');
   });
 });
 
