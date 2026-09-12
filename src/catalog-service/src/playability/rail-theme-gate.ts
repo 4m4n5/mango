@@ -50,11 +50,20 @@ function evaluateHaystack(
   return { fit: true, score, reason: 'title_match' };
 }
 
+function normalizeKnownSourceThemeText(value: string): string {
+  return value.replace(/\bJioHotstar\b/gi, 'Jio Hotstar');
+}
+
 function candidateThemeText(candidate: CandidateMeta): string {
-  return [
-    candidate.title,
+  const sourceText = [
     candidate.source_name,
     candidate.source,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+    .map(normalizeKnownSourceThemeText);
+  return [
+    candidate.title,
+    ...sourceText,
   ]
     .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
     .join(' ');

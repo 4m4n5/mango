@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { classifyGrowFailure } from './grow-rail.js';
+import {
+  classifyGrowFailure,
+  shouldBypassActiveRailCandidateRejection,
+} from './grow-rail.js';
 
 function source(overrides: Partial<Parameters<typeof classifyGrowFailure>[0]['sourceStats'][number]> = {}) {
   return {
@@ -53,5 +56,60 @@ test('classifyGrowFailure keeps rate limits dominant when they explain the short
       failed: 3,
     }),
     'rate_limited',
+  );
+});
+
+test('JioHotstar theme evidence fix bypasses only exact stale theme rejections', () => {
+  const candidate = {
+    type: 'series',
+    id: 'tt33441658',
+    title: 'Honeymoon Photographer',
+    source_key: 'AIOMetadata:mdblist.160359',
+    source_addon: 'AIOMetadata',
+    source_catalog: 'mdblist.160359',
+  };
+  assert.equal(
+    shouldBypassActiveRailCandidateRejection('series-india-picks', candidate, {
+      rail_id: 'series-india-picks',
+      type: 'series',
+      id: 'tt33441658',
+      reason: 'theme_probe_skip',
+      source_key: 'AIOMetadata:mdblist.160359',
+    }),
+    true,
+  );
+  assert.equal(
+    shouldBypassActiveRailCandidateRejection('series-india-picks', candidate, {
+      rail_id: 'series-india-picks',
+      type: 'series',
+      id: 'tt33441658',
+      reason: 'no_stream',
+      source_key: 'AIOMetadata:mdblist.160359',
+    }),
+    false,
+  );
+  assert.equal(
+    shouldBypassActiveRailCandidateRejection('series-comedy', candidate, {
+      rail_id: 'series-comedy',
+      type: 'series',
+      id: 'tt33441658',
+      reason: 'theme_probe_skip',
+      source_key: 'AIOMetadata:mdblist.160359',
+    }),
+    false,
+  );
+  assert.equal(
+    shouldBypassActiveRailCandidateRejection('series-india-picks', {
+      ...candidate,
+      source_key: 'AIOMetadata:mdblist.999999',
+      source_catalog: 'mdblist.999999',
+    }, {
+      rail_id: 'series-india-picks',
+      type: 'series',
+      id: 'tt33441658',
+      reason: 'theme_probe_skip',
+      source_key: 'AIOMetadata:mdblist.160359',
+    }),
+    false,
   );
 });

@@ -128,6 +128,62 @@ test('scoreTitleOnly uses Indian web-series source evidence for India series rai
   assert.equal(fit.fit, true);
 });
 
+test('scoreTitleOnly normalizes exact JioHotstar source evidence for India series rail', () => {
+  const gate = RailThemeGate.forTest(
+    new Map([
+      ['series-india-picks', profile(
+        'series-india-picks',
+        'india hindi bollywood tamil telugu malayalam kannada desi hotstar zee sonyliv voot jio panchayat sacred games',
+        'hollywood american british korean japanese anime french german spanish hbo worldwide western european',
+        10,
+      )],
+    ]),
+    parseRailCurationOverrides('version: 1\npins: []\nblocks: []'),
+  );
+
+  const fit = gate.scoreTitleOnly('series-india-picks', {
+    type: 'series',
+    id: 'tt33441658',
+    title: 'Honeymoon Photographer',
+    source: 'AIOMetadata/mdblist.160359 · JioHotstar Latest Shows',
+    source_name: 'JioHotstar Latest Shows',
+  });
+  assert.equal(fit.fit, true);
+  assert.equal(fit.reason, 'title_match');
+
+  const lowerCaseSource = gate.scoreTitleOnly('series-india-picks', {
+    type: 'series',
+    id: 'tt-lower',
+    title: 'Unknown Title',
+    source_name: 'jiohotstar latest shows',
+  });
+  assert.equal(lowerCaseSource.fit, true);
+
+  const titleOnlyBrand = gate.scoreTitleOnly('series-india-picks', {
+    type: 'series',
+    id: 'tt-title-only',
+    title: 'JioHotstar Latest Shows',
+  });
+  assert.equal(titleOnlyBrand.fit, false);
+
+  const embeddedNonBrand = gate.scoreTitleOnly('series-india-picks', {
+    type: 'series',
+    id: 'tt-embedded',
+    title: 'Unknown Title',
+    source_name: 'MegaJioHotstarish Latest Shows',
+  });
+  assert.equal(embeddedNonBrand.fit, false);
+
+  const foreignConflict = gate.scoreTitleOnly('series-india-picks', {
+    type: 'series',
+    id: 'tt-foreign',
+    title: 'Unknown Title',
+    source_name: 'JioHotstar Hollywood Shows',
+  });
+  assert.equal(foreignConflict.fit, false);
+  assert.equal(foreignConflict.reason, 'exclude_match');
+});
+
 test('shouldSkipProbe skips clear exclude matches', () => {
   const gate = RailThemeGate.forTest(
     new Map([
