@@ -25,6 +25,7 @@ import {
   verifyPreparedTitle,
   type PreparedVerifyTitleResult,
   type VerifyContext,
+  type VerifyTitleResult,
 } from './verify.js';
 import {
   RailThemeGate,
@@ -180,6 +181,17 @@ export type ProcessVerifyQueueOptions = {
   earlyExitMinDisplay?: boolean;
   growthPass?: GrowthPassState;
   context?: VerifyContext;
+  prepareQueueItemForTest?: (
+    queueId: number,
+    item: VerifyQueueItem,
+    core: CatalogCore,
+  ) => Promise<PreparedQueueItem>;
+  verifyPreparedTitleForTest?: (
+    prepared: PreparedVerifyTitleResult,
+    options: { railId: string | null; forceReprobe?: boolean },
+    context?: VerifyContext,
+  ) => Promise<VerifyTitleResult>;
+  onPendingProbeQueuedForTest?: (prepared: PreparedQueueItem, pendingDepth: number) => void;
 };
 
 export async function processVerifyQueue(
@@ -195,6 +207,9 @@ export async function processVerifyQueue(
     earlyExitMinDisplay = playabilityEarlyExitMinDisplay(),
     growthPass,
     context = {},
+    prepareQueueItemForTest,
+    verifyPreparedTitleForTest,
+    onPendingProbeQueuedForTest,
   } = options;
 
   const results: ProcessVerifyQueueResult['results'] = [];
@@ -211,6 +226,25 @@ export async function processVerifyQueue(
   const prepareInFlight = new Map<number, Promise<PreparedQueueItem>>();
   const pendingProbes: PreparedQueueItem[] = [];
   const activeProbes = new Set<Promise<void>>();
+
+  const stopAtWorkBoundary = (): boolean => {
+    if (earlyStopped) {
+      return true;
+    }
+    if (playabilityAdmissionDeadlineReached()) {
+      deadlineStopped = true;
+      earlyStopped = true;
+      pendingProbes.length = 0;
+      return true;
+    }
+    if (playabilityCouchYieldRequested()) {
+      couchStopped = true;
+      earlyStopped = true;
+      pendingProbes.length = 0;
+      return true;
+    }
+    return false;
+  };
 
   const allRailsMeetMinDisplay = (): boolean => {
     if (!earlyExitMinDisplay || !railMinDisplays || railMinDisplays.size === 0) {
@@ -254,7 +288,8 @@ export async function processVerifyQueue(
     }
 
     const primaryRailId = eligibleRefs[0]?.railId ?? null;
-    const result = await verifyPreparedTitle(
+    const verifyPrepared = verifyPreparedTitleForTest ?? verifyPreparedTitle;
+    const result = await verifyPrepared(
       prepared.prepared,
       { railId: primaryRailId, forceReprobe: item.forceReprobe },
       context,
@@ -332,10 +367,13 @@ export async function processVerifyQueue(
   };
 
   const scheduleProbes = () => {
-    if (earlyStopped) {
+    if (stopAtWorkBoundary()) {
       return;
     }
     while (activeProbes.size < probeConcurrency && pendingProbes.length > 0) {
+      if (stopAtWorkBoundary()) {
+        return;
+      }
       const prepared = pendingProbes.shift();
       if (!prepared) break;
       const task = applyVerifyResult(prepared).finally(() => {
@@ -351,6 +389,7 @@ export async function processVerifyQueue(
       return;
     }
     pendingProbes.push(prepared);
+    onPendingProbeQueuedForTest?.(prepared, pendingProbes.length);
     scheduleProbes();
   };
 
@@ -358,16 +397,7 @@ export async function processVerifyQueue(
     if (earlyStopped) {
       return;
     }
-    if (playabilityAdmissionDeadlineReached()) {
-      deadlineStopped = true;
-      earlyStopped = true;
-      pendingProbes.length = 0;
-      return;
-    }
-    if (playabilityCouchYieldRequested()) {
-      couchStopped = true;
-      earlyStopped = true;
-      pendingProbes.length = 0;
+    if (stopAtWorkBoundary()) {
       return;
     }
     while (
@@ -381,7 +411,8 @@ export async function processVerifyQueue(
       }
       const queueId = nextQueueId;
       nextQueueId += 1;
-      prepareInFlight.set(queueId, prepareQueueItem(queueId, item, core));
+      const prepare = prepareQueueItemForTest ?? prepareQueueItem;
+      prepareInFlight.set(queueId, prepare(queueId, item, core));
     }
   };
 
