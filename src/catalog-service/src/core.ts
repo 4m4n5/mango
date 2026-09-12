@@ -998,6 +998,15 @@ function metaEpisodeTitle(meta: Meta, episodeId: string): string | undefined {
   return undefined;
 }
 
+function metaEpisodeReleaseYear(meta: Meta, episodeId: string): number | undefined {
+  if (!Array.isArray(meta.videos)) return undefined;
+  const episode = meta.videos.find((candidate) => (
+    candidate && typeof candidate === 'object'
+    && (candidate as { id?: unknown }).id === episodeId
+  )) as { released?: unknown } | undefined;
+  return identityYear(episode?.released);
+}
+
 function metaHasEpisodeVideos(meta: Meta, seriesId: string): boolean {
   if (!Array.isArray(meta.videos)) return false;
   const bareSeriesId = seriesBareId(seriesId) ?? seriesId.trim();
@@ -3633,6 +3642,7 @@ export class CatalogCore {
           identityCertifiable,
           ...(identityCertifiable ? {
             metaYear: metadataYear ?? requestedYear,
+            episodeReleaseYear: type === 'series' ? metaEpisodeReleaseYear(meta, id) : undefined,
             metaCountry: metaCountry(meta),
             episodeTitle: type === 'series' ? metaEpisodeTitle(meta, id) : undefined,
             metaRuntimeMinutes: parseRuntimeMinutes(meta.runtime)

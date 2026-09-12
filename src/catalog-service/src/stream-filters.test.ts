@@ -541,13 +541,49 @@ test('India edition override requires explicit target-edition evidence for gener
     'The.Traitors.IN.S02E01.1080p.WEB-DL.mkv',
     'The Traitors IN S02 • E01 WEB-DL',
   );
+  const indiaSeasonPack = release(
+    'The.Traitors.India.S02.1080p.AMZN.WEB-DL.mkv',
+    'The Traitors India S02 1080p AMZN WEB-DL',
+  );
+  const indiaSeasonReleaseYear = release(
+    'The.Traitors.India.2026.S02E01.1080p.AMZN.WEB-DL.mkv',
+    'The Traitors India 2026 S02 • E01 WEB-DL',
+  );
+  const indiaFutureYear = release(
+    'The.Traitors.India.2099.S02E01.1080p.AMZN.WEB-DL.mkv',
+    'The Traitors India 2099 S02 • E01 WEB-DL',
+  );
   const indiaByMetaTitle = release(
     'The.Traitors.India.S02E01.1080p.WEB-DL.alt.mkv',
     'The Traitors India S02 • E01 WEB-DL',
   );
+  const genericSeasonPack = release(
+    'The.Traitors.S02.1080p.AMZN.WEB-DL.mkv',
+    'The Traitors S02 1080p AMZN WEB-DL',
+  );
+  const genericYearDifferentLabel = release(
+    'The.Traitors.India.S02E01.1080p.AMZN.WEB-DL.mkv',
+    'The Traitors 2026 S02 • E01 WEB-DL',
+  );
+  const foreignWithTargetImdb = release(
+    'The.Traitors.UK.2026.S02E01.tt33347879.1080p.AMZN.WEB-DL.mkv',
+    'The Traitors UK 2026 S02 • E01 WEB-DL tt33347879',
+  );
+  const wrongEpisode = release(
+    'The.Traitors.India.2026.S02E02.1080p.AMZN.WEB-DL.mkv',
+    'The Traitors India 2026 S02 • E02 WEB-DL',
+  );
+  const wrongSeasonPack = release(
+    'The.Traitors.India.2026.S03.1080p.AMZN.WEB-DL.mkv',
+    'The Traitors India 2026 S03 1080p AMZN WEB-DL',
+  );
   const audioOnlyIndia = release(
     'The.Traitors.S02E01.1080p.WEB-DL.mkv',
     'The Traitors S02 • E01 WEB-DL FuegoPaaji Amazon 🌐 🇬🇧 / 🇮🇳 📝 🇬🇧',
+  );
+  const wrongPriorYear = release(
+    'The.Traitors.India.2024.S02E01.1080p.AMZN.WEB-DL.mkv',
+    'The Traitors India 2024 S02 • E01 WEB-DL',
   );
   const generic = release('The.Traitors.S02E01.1080p.WEB-DL.MeGusta.mkv');
   const peacock = release(
@@ -559,6 +595,31 @@ test('India edition override requires explicit target-edition evidence for gener
     streamMatchesMetaTitle(indiaByBoundedInSuffix, context.metaTitle, context.metaId, context),
     true,
     'IN certifies India only as a bounded suffix after the exact canonical show title',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(indiaSeasonPack, context.metaTitle, context.metaId, context),
+    true,
+    'standalone S02 season-pack markers should not hide an explicit India release title',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(
+      indiaSeasonReleaseYear,
+      context.metaTitle,
+      context.metaId,
+      { ...context, metaYear: 2025, episodeReleaseYear: 2026 },
+    ),
+    true,
+    'series season release years can differ from show start only when the exact episode metadata says so',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(
+      indiaSeasonReleaseYear,
+      context.metaTitle,
+      context.metaId,
+      { ...context, metaYear: 2025 },
+    ),
+    false,
+    'without exact episode release metadata, non-start-year series labels fail closed',
   );
   assert.equal(
     streamMatchesMetaTitle(
@@ -575,17 +636,100 @@ test('India edition override requires explicit target-edition evidence for gener
     false,
     'India/Hindi audio flags alone are language evidence, not production-edition evidence',
   );
+  assert.equal(streamMatchesMetaTitle(genericSeasonPack, context.metaTitle, context.metaId, context), false);
+  assert.equal(
+    streamMatchesMetaTitle(indiaByReleaseTitle, context.metaTitle, context.metaId, { ...context, metaYear: 2025 }),
+    true,
+    'yearless explicit target identity remains valid with a series start-year context',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(
+      indiaFutureYear,
+      context.metaTitle,
+      context.metaId,
+      { ...context, metaYear: 2025, episodeReleaseYear: 2026 },
+    ),
+    false,
+    'future years are not admitted by the season-year exception',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(
+      genericYearDifferentLabel,
+      context.metaTitle,
+      context.metaId,
+      { ...context, metaYear: 2025, episodeReleaseYear: 2026 },
+    ),
+    false,
+    'season release-year evidence must be certified on the same provider label as the year',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(
+      foreignWithTargetImdb,
+      context.metaTitle,
+      context.metaId,
+      { ...context, metaYear: 2025, episodeReleaseYear: 2026 },
+    ),
+    false,
+    'target IMDb evidence cannot override an explicit foreign edition',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(
+      wrongEpisode,
+      context.metaTitle,
+      context.metaId,
+      { ...context, metaYear: 2025, episodeReleaseYear: 2026 },
+    ),
+    false,
+    'the year exception does not bypass exact episode mismatch rejection',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(
+      wrongSeasonPack,
+      context.metaTitle,
+      context.metaId,
+      { ...context, metaYear: 2025, episodeReleaseYear: 2026 },
+    ),
+    false,
+    'season-pack labels still must match the requested season',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(
+      wrongPriorYear,
+      context.metaTitle,
+      context.metaId,
+      { ...context, metaYear: 2025 },
+    ),
+    false,
+    'release years before the series start year remain explicit identity conflicts',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(
+      release('Some.Movie.India.2026.1080p.WEB-DL.mkv', 'Some Movie India 2026 WEB-DL'),
+      'Some Movie',
+      'tt1234567',
+      {
+        contentType: 'movie',
+        metaYear: 2025,
+        episodeReleaseYear: 2026,
+        metaCountry: 'India',
+        trustedTitles: ['Some Movie', 'Some Movie India'],
+        requireExplicitEdition: true,
+      },
+    ),
+    false,
+    'series-only release-year exception does not relax movie remake fences',
+  );
   assert.equal(streamMatchesMetaTitle(generic, context.metaTitle, context.metaId, context), false);
   assert.equal(streamMatchesMetaTitle(peacock, context.metaTitle, context.metaId, context), false);
 
   const ranked = filterAndRankStreams(
-    [generic, peacock, audioOnlyIndia, indiaByReleaseTitle],
+    [generic, peacock, audioOnlyIndia, genericSeasonPack, indiaByReleaseTitle],
     testConfig(),
     context,
   );
   assert.equal(ranked.streams.length, 1);
   assert.equal(ranked.streams[0]?.url, indiaByReleaseTitle.url);
-  assert.equal(ranked.meta.excluded.title_mismatch, 3);
+  assert.equal(ranked.meta.excluded.title_mismatch, 4);
 });
 
 test('live Traitors S2E1 labels fail closed when India only appears as audio/subtitle flags', () => {

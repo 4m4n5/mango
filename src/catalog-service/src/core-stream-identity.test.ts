@@ -138,6 +138,7 @@ titles:
       type: 'series',
       name: 'The Traitors',
       year: 2025,
+      videos: [{ id: 'tt33347879:2:1', title: 'Episode 1', released: '2026-08-13' }],
     }));
     const context = await core.buildStreamFilterContext(
       'series',
@@ -145,6 +146,7 @@ titles:
       { title: 'The Traitors', year: 2025 },
     );
     assert.equal(context.metaCountry, 'India');
+    assert.equal(context.episodeReleaseYear, 2026);
     assert.equal(context.requireExplicitEdition, true);
     assert.deepEqual(context.trustedTitles, ['The Traitors', 'The Traitors India']);
   } finally {

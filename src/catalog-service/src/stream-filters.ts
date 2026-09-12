@@ -119,6 +119,8 @@ export type StreamFilterContext = {
   metaId?: string;
   /** Original release/start year used to distinguish same-name remakes. */
   metaYear?: number;
+  /** Exact episode release year when metadata has the requested episode row. */
+  episodeReleaseYear?: number;
   /** Origin country used for explicit edition qualifiers such as UK/US. */
   metaCountry?: string;
   /** Expected series episode title (e.g. Downsize, not Pilot). */
@@ -295,6 +297,7 @@ function stripReleaseIdentityJunk(value: string): string {
     .replace(/\b(?:19|20)\d{2}\b/g, ' ')
     .replace(/\bs\d{1,2}\s*[•·._\-\s]*e\s*\d{1,2}\b.*/i, ' ')
     .replace(/\bs\d{1,2}e\d{1,2}\b.*/i, ' ')
+    .replace(/\bs\d{1,2}\b.*/i, ' ')
     .replace(/\b\d{1,2}\s*x\s*\d{1,2}\b.*/i, ' ')
     .replace(/\bep?\s*\d{1,3}\b.*/i, ' ')
     .replace(/\bseason\s*\d+\b.*/i, ' ')
@@ -405,14 +408,68 @@ function releaseHasEdition(
 function explicitReleaseYears(stream: Stream): Set<number> {
   const years = new Set<number>();
   for (const label of streamIdentityLabels(stream)) {
-    const normalized = normalizeEditionAbbreviations(label);
-    const episodeMarker = normalized.search(/\bs\d{1,2}\s*[•·._\-\s]*e\s*\d{1,3}\b/i);
-    const identityPrefix = episodeMarker >= 0 ? normalized.slice(0, episodeMarker) : normalized;
-    for (const match of identityPrefix.matchAll(/\b((?:19|20)\d{2})\b/g)) {
-      years.add(Number(match[1]));
-    }
+    explicitReleaseYearsForLabel(label).forEach((year) => years.add(year));
   }
   return years;
+}
+
+function explicitReleaseYearsForLabel(label: string): Set<number> {
+  const years = new Set<number>();
+  const normalized = normalizeEditionAbbreviations(label);
+  const episodeMarker = normalized.search(/\bs\d{1,2}\s*[•·._\-\s]*e\s*\d{1,3}\b/i);
+  const identityPrefix = episodeMarker >= 0 ? normalized.slice(0, episodeMarker) : normalized;
+  for (const match of identityPrefix.matchAll(/\b((?:19|20)\d{2})\b/g)) {
+    years.add(Number(match[1]));
+  }
+  return years;
+}
+
+function targetImdbIdMatchesLabel(label: string, metaId?: string): boolean {
+  const targetImdbId = metaId?.toLowerCase().match(/tt\d{5,10}/)?.[0];
+  if (!targetImdbId) return false;
+  const haystack = label.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+  if (new Set(haystack.match(/\btt\d{5,10}\b/g) || []).has(targetImdbId)) return true;
+  const digits = targetImdbId.slice(2);
+  return new RegExp(`(?:^|[^a-z0-9])${digits}(?:[^a-z0-9]|$)`).test(haystack);
+}
+
+function labelHasSeriesSeasonOrEpisodeMarker(label: string): boolean {
+  return /\bs\d{1,2}\s*[•·._\-\s]*e\s*\d{1,3}\b/i.test(label)
+    || /\bs\d{1,2}e\d{1,3}\b/i.test(label)
+    || /\bs\d{1,2}\b/i.test(label)
+    || /\b\d{1,2}\s*x\s*\d{1,3}\b/i.test(label)
+    || /\bseason\s*\d+\b/i.test(label);
+}
+
+function seriesSeasonReleaseYearMismatchIsAllowed(
+  stream: Stream,
+  metaTitle: string,
+  metaId: string | undefined,
+  context: Pick<
+    StreamFilterContext,
+    'contentType' | 'metaYear' | 'episodeReleaseYear' | 'trustedTitles'
+  >,
+  targetEdition: Edition | null,
+): boolean {
+  if (context.contentType !== 'series' || !context.metaYear || !context.episodeReleaseYear) return false;
+  const labels = streamIdentityLabels(stream);
+  for (const label of labels) {
+    const years = explicitReleaseYearsForLabel(label);
+    if (years.size === 0 || [...years].every((year) => year === context.metaYear)) continue;
+    if ([...years].some((year) => year !== context.episodeReleaseYear)) return false;
+    if (!labelHasSeriesSeasonOrEpisodeMarker(label)) return false;
+    if (targetImdbIdMatchesLabel(label, metaId)) continue;
+    const releaseLabel = stripReleaseIdentityJunk(label.replace(/[._]/g, ' '));
+    if (!targetEdition || !releaseHasEdition(
+      releaseLabel,
+      targetEdition,
+      metaTitle,
+      context.trustedTitles,
+    )) {
+      return false;
+    }
+  }
+  return true;
 }
 
 const EPISODE_TECH_TOKEN_RE = /\b(?:19\d{2}|20\d{2}|2160p|1080p|720p|480p|4k|uhd|web(?:-?dl|rip)?|bluray|brrip|hdtv|dvdrip|remux|hevc|x26[45]|h26[45]|av1|hdr10?\+?|hdr|dovi|dv|atmos|aac|eac3|ac3|ddp?\d*|proper|repack|extended|multi|amzn|nf|atvp)\b/i;
@@ -500,10 +557,20 @@ function streamEpisodeMarkers(stream: Stream): EpisodeIdentityMarker[] {
 function streamEpisodeIdentityContradicts(stream: Stream, metaId?: string): boolean {
   const target = targetEpisodeIdentity(metaId);
   if (!target) return false;
-  return streamEpisodeMarkers(stream).some((marker) => (
+  if (streamEpisodeMarkers(stream).some((marker) => (
     marker.episode !== target.episode
     || (marker.season !== null && target.season !== null && marker.season !== target.season)
-  ));
+  ))) {
+    return true;
+  }
+  return streamIdentityLabels(stream).some((label) => {
+    const seasonOnly = label.match(/\bs\s*(\d{1,2})\b/i)
+      ?? label.match(/\bseason\s*(\d{1,2})\b/i);
+    const season = validEpisodeNumber(seasonOnly?.[1]);
+    return season !== null
+      && target.season !== null
+      && season !== target.season;
+  });
 }
 
 /** Numeric identity dominates; localized episode-title text is only a tiebreaker. */
@@ -561,7 +628,7 @@ export function streamHasExplicitIdentityConflict(
   context: Pick<
     StreamFilterContext,
     'contentType' | 'metaYear' | 'metaCountry' | 'episodeTitle'
-    | 'requireExplicitEdition' | 'trustedTitles'
+    | 'episodeReleaseYear' | 'requireExplicitEdition' | 'trustedTitles'
   > = {},
 ): boolean {
   const haystack = streamRelevanceHaystack(stream);
@@ -592,7 +659,17 @@ export function streamHasExplicitIdentityConflict(
   }
   if (context.metaYear) {
     const releaseYears = explicitReleaseYears(stream);
-    if (releaseYears.size > 0 && !releaseYears.has(context.metaYear)) {
+    if (
+      releaseYears.size > 0
+      && [...releaseYears].some((year) => year !== context.metaYear)
+      && !seriesSeasonReleaseYearMismatchIsAllowed(
+        stream,
+        metaTitle,
+        metaId,
+        context,
+        targetEdition,
+      )
+    ) {
       return true;
     }
   }
@@ -647,7 +724,7 @@ export function streamMatchesMetaTitle(
   context: Pick<
     StreamFilterContext,
     'contentType' | 'metaYear' | 'metaCountry' | 'episodeTitle'
-    | 'requireExplicitEdition' | 'trustedTitles'
+    | 'episodeReleaseYear' | 'requireExplicitEdition' | 'trustedTitles'
   > = {},
 ): boolean {
   const haystack = streamRelevanceHaystack(stream);

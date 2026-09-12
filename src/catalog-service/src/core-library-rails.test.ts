@@ -313,11 +313,13 @@ async function withMetadataTempDbs(fn: () => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), 'mango-core-playability-metadata-'));
   const previous = {
     libraryDb: process.env.MANGO_LIBRARY_DB_PATH,
+    userPinsPath: process.env.MANGO_USER_PINS_PATH,
     playabilityDb: process.env.MANGO_PLAYABILITY_DB,
     progressDb: process.env.MANGO_PROGRESS_DB_PATH,
     browseMode: process.env.MANGO_VOD_BROWSE_V3,
   };
   process.env.MANGO_LIBRARY_DB_PATH = join(dir, 'library.db');
+  process.env.MANGO_USER_PINS_PATH = join(dir, 'no-legacy-pins.json');
   process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
   process.env.MANGO_PROGRESS_DB_PATH = join(dir, 'progress.db');
   process.env.MANGO_VOD_BROWSE_V3 = 'off';
@@ -338,6 +340,7 @@ async function withMetadataTempDbs(fn: () => Promise<void>): Promise<void> {
       else process.env[envKey] = value;
     };
     restore('libraryDb', 'MANGO_LIBRARY_DB_PATH');
+    restore('userPinsPath', 'MANGO_USER_PINS_PATH');
     restore('playabilityDb', 'MANGO_PLAYABILITY_DB');
     restore('progressDb', 'MANGO_PROGRESS_DB_PATH');
     restore('browseMode', 'MANGO_VOD_BROWSE_V3');

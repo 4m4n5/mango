@@ -140,6 +140,7 @@ test('manual unchanged-input refresh advances desired revision and completes exa
     assert.equal(stored?.status, 'complete');
     assert.equal(stored?.started_at, 40);
     assert.equal(stored?.completed_at, 40);
+    assert.equal(stored?.rank_generation_id, 43);
   });
 });
 
@@ -200,6 +201,43 @@ INSERT INTO recommendation_refresh_jobs(
     assert.equal(storedCurrent?.status, 'complete');
     assert.equal(storedCurrent?.started_at, 30);
     assert.equal(storedCurrent?.completed_at, 30);
+    assert.equal(storedCurrent?.rank_generation_id, 50);
+  });
+});
+
+test('worker does not complete claimed receipt when rank activation is not acknowledged', async () => {
+  await withLibrary(async () => {
+    const job = createVodRecommendationRefreshJob({
+      content_type: 'series',
+      trigger_reasons: ['manual_refresh'],
+      captured_revisions: {
+        corpus_generation: 7,
+        story_generation: 8,
+        taste_revision: 'taste-series',
+      },
+      desired_revision: {
+        corpus_generation: 7,
+        semantic_generation: 8,
+        taste_signature: 'taste-series',
+        now: 10,
+      },
+      queued_at: 10,
+    });
+    const result = await runWorkerLoop({
+      refresh: async (_tab, options) => {
+        assert.equal(options.expected_desired_revision, 1);
+        return { rank_generation_id: 90, activated: false, published: false, reason: 'not_eligible' };
+      },
+      now: () => 20,
+    }, { oneshot: true });
+    assert.equal(result.processed, 1);
+    const desired = readDesiredRevision('series', 20);
+    assert.equal(desired?.acknowledged_revision, 0);
+    assert.equal(desired?.pending, true);
+    const stored = recommendationRefreshJobById(job.job_id);
+    assert.equal(stored?.status, 'failed');
+    assert.equal(stored?.rank_generation_id, null);
+    assert.equal(stored?.error, 'not_eligible');
   });
 });
 

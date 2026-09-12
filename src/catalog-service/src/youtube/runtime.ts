@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import http from 'node:http';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -111,6 +112,8 @@ export function youtubePotBaseUrl(): string {
     const parsed = new URL(configured);
     const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
     if (
+      // The bgutil POT sidecar is a local HTTP-only provider. Reject HTTPS,
+      // credentials, and non-loopback targets before any readiness probe runs.
       parsed.protocol !== 'http:'
       || parsed.username
       || parsed.password
@@ -128,23 +131,53 @@ export function youtubePotEnabled(): boolean {
   return process.env.MANGO_YOUTUBE_POT !== '0';
 }
 
+function probeLoopbackHttpOk(url: URL, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (ok: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    const req = http.request(url, { method: 'GET' }, (res) => {
+      const ok = (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300;
+      let complete = false;
+      res.resume();
+      res.once('end', () => {
+        complete = true;
+        finish(ok);
+      });
+      res.once('close', () => finish(complete && ok));
+      res.once('error', () => finish(false));
+    });
+    const timer = setTimeout(() => {
+      req.destroy();
+      finish(false);
+    }, Math.max(1, timeoutMs));
+    req.once('error', () => finish(false));
+    req.end();
+  });
+}
+
 export async function probeYoutubePotReady(timeoutMs = 250): Promise<boolean> {
   if (!youtubePotEnabled()) return false;
   const base = youtubePotBaseUrl().replace(/\/$/, '');
-  if (!/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/i.test(base)) {
+  if (!/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/i.test(base)) {
     return false;
   }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const deadlineAt = Date.now() + Math.max(1, timeoutMs);
+  const remainingMs = (): number => Math.max(1, deadlineAt - Date.now());
   try {
-    const response = await fetch(`${base}/ping`, { signal: controller.signal });
-    if (response.ok) return true;
-    const fallback = await fetch(base, { signal: controller.signal });
-    return fallback.ok;
+    const pingUrl = new URL(`${base}/ping`);
+    if (pingUrl.protocol !== 'http:') return false;
+    if (await probeLoopbackHttpOk(pingUrl, remainingMs())) return true;
+    if (Date.now() >= deadlineAt) return false;
+    const baseUrl = new URL(base);
+    if (baseUrl.protocol !== 'http:') return false;
+    return probeLoopbackHttpOk(baseUrl, remainingMs());
   } catch {
     return false;
-  } finally {
-    clearTimeout(timer);
   }
 }
 

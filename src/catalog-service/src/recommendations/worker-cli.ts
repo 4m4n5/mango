@@ -311,15 +311,28 @@ async function processOne(
       error: result.activated ? null : (result.reason ?? 'not_activated'),
       now: now(),
     });
+    const activatedRankGenerationId = result.rank_generation_id ?? null;
+    const activationAcknowledged = Boolean(result.activated
+      && acknowledged
+      && acknowledged.acknowledged_revision === revision
+      && activatedRankGenerationId !== null
+      && acknowledged.acknowledged_rank_generation_id === activatedRankGenerationId);
     if (claimedJobIds.length > 0) {
+      if (activationAcknowledged) {
+        updateRecommendationRefreshJobRuntime(claimedJobIds, {
+          rank_generation_id: activatedRankGenerationId,
+        });
+      }
       updateRecommendationRefreshJobs(
         claimedJobIds,
-        result.activated ? 'complete' : 'failed',
-        result.activated ? undefined : (result.reason ?? 'not_activated'),
+        activationAcknowledged ? 'complete' : 'failed',
+        activationAcknowledged
+          ? undefined
+          : (result.reason ?? 'activation acknowledgement did not land'),
         now(),
       );
     }
-    if (result.activated && acknowledged) {
+    if (activationAcknowledged && acknowledged) {
       const completed = completeSatisfiedQueuedVodRecommendationRefreshJobs([acknowledged], now());
       if (completed > 0) {
         log(`vod-recs-worker: ${tab} reconciled ${completed} already-satisfied refresh job(s)`);
