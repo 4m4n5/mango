@@ -253,7 +253,9 @@ function youtubeYtDlpVersionSnapshot(command: string): YoutubeProbeSnapshot<stri
 function refreshYoutubePotServer(): void {
   if (potServerFlight) return;
   const probeGeneration = runtimeProbeGeneration;
-  const promise = probeYoutubePotReady(250)
+  const promise = new Promise<void>((resolve) => {
+    setImmediate(() => {
+      probeYoutubePotReady(250)
     .then((up) => {
       if (probeGeneration === runtimeProbeGeneration) {
         cachedPotServer = { checked_at: Date.now(), up };
@@ -264,7 +266,9 @@ function refreshYoutubePotServer(): void {
         cachedPotServer = { checked_at: Date.now(), up: false };
       }
     })
-    .finally(() => {
+        .finally(resolve);
+    });
+  }).finally(() => {
       if (potServerFlight === promise) potServerFlight = null;
         });
   potServerFlight = promise;
