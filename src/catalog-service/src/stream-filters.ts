@@ -113,6 +113,11 @@ export type StreamFilterContext = {
   metaTitle?: string;
   /** Bounded trusted aliases for the same requested identity. */
   trustedTitles?: readonly string[];
+  /** Content-confirmed exact provider filenames scoped to exact episode ids. */
+  contentConfirmedReleases?: readonly {
+    episodeId: string;
+    behaviorFilename: string;
+  }[];
   /** False only when exact-id metadata contradicts the requested title. */
   identityCertifiable?: boolean;
   /** Stremio/Cinemeta id (e.g. tt0111161) for torrent name matching. */
@@ -249,6 +254,24 @@ function streamFilenameHaystack(stream: Stream): string {
   return filename
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ');
+}
+
+function streamBehaviorFilename(stream: Stream): string | null {
+  const hints = stream.behaviorHints;
+  if (
+    hints
+    && typeof hints === 'object'
+    && !Array.isArray(hints)
+    && typeof (hints as Record<string, unknown>).filename === 'string'
+  ) {
+    const filename = String((hints as Record<string, unknown>).filename).trim();
+    return filename || null;
+  }
+  return null;
+}
+
+function normalizeExactOverrideFilename(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 function streamReleaseNameHaystack(stream: Stream): string {
@@ -403,6 +426,22 @@ function releaseHasEdition(
   trustedTitles?: readonly string[],
 ): boolean {
   return editionTokensForRelease(releaseTitle, metaTitle, trustedTitles).includes(edition);
+}
+
+function streamMatchesContentConfirmedRelease(
+  stream: Stream,
+  metaId: string | undefined,
+  context: Pick<StreamFilterContext, 'contentConfirmedReleases'>,
+): boolean {
+  const targetId = metaId?.trim().toLowerCase();
+  if (!targetId) return false;
+  const filename = streamBehaviorFilename(stream);
+  if (!filename) return false;
+  const normalizedFilename = normalizeExactOverrideFilename(filename);
+  return (context.contentConfirmedReleases ?? []).some((release) => (
+    release.episodeId.trim().toLowerCase() === targetId
+    && normalizeExactOverrideFilename(release.behaviorFilename) === normalizedFilename
+  ));
 }
 
 function explicitReleaseYears(stream: Stream): Set<number> {
@@ -629,6 +668,7 @@ export function streamHasExplicitIdentityConflict(
     StreamFilterContext,
     'contentType' | 'metaYear' | 'metaCountry' | 'episodeTitle'
     | 'episodeReleaseYear' | 'requireExplicitEdition' | 'trustedTitles'
+    | 'contentConfirmedReleases'
   > = {},
 ): boolean {
   const haystack = streamRelevanceHaystack(stream);
@@ -646,7 +686,11 @@ export function streamHasExplicitIdentityConflict(
         metaTitle,
         context.trustedTitles,
       ));
-    if (context.requireExplicitEdition && !hasTargetEdition) {
+    if (
+      context.requireExplicitEdition
+      && !hasTargetEdition
+      && !streamMatchesContentConfirmedRelease(stream, metaId, context)
+    ) {
       return true;
     }
     for (const label of streamIdentityLabels(stream)) {
@@ -725,6 +769,7 @@ export function streamMatchesMetaTitle(
     StreamFilterContext,
     'contentType' | 'metaYear' | 'metaCountry' | 'episodeTitle'
     | 'episodeReleaseYear' | 'requireExplicitEdition' | 'trustedTitles'
+    | 'contentConfirmedReleases'
   > = {},
 ): boolean {
   const haystack = streamRelevanceHaystack(stream);

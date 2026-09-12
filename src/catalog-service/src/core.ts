@@ -3671,6 +3671,12 @@ export class CatalogCore {
     }
     if (identityOverride) {
       const overrideTitles = identityOverride.trusted_titles ?? [];
+      const contentConfirmedReleases = (identityOverride.content_confirmed_releases ?? [])
+        .filter((release) => release.episode_id === id.trim().toLowerCase())
+        .map((release) => ({
+          episodeId: release.episode_id,
+          behaviorFilename: release.behavior_filename,
+        }));
       const trustedTitles = [
         ...(filterContext.trustedTitles ?? []),
         ...overrideTitles,
@@ -3686,6 +3692,7 @@ export class CatalogCore {
         ...(identityOverride.require_explicit_edition !== undefined
           ? { requireExplicitEdition: identityOverride.require_explicit_edition }
           : {}),
+        ...(contentConfirmedReleases.length > 0 ? { contentConfirmedReleases } : {}),
       };
     }
     const curation = await loadRailCurationOverrides();

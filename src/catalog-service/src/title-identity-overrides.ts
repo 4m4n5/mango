@@ -2,10 +2,16 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
+export type ContentConfirmedReleaseOverride = {
+  episode_id: string;
+  behavior_filename: string;
+};
+
 export type TitleIdentityOverride = {
   country?: string;
   trusted_titles?: string[];
   require_explicit_edition?: boolean;
+  content_confirmed_releases?: ContentConfirmedReleaseOverride[];
 };
 
 type OverrideConfig = {
@@ -23,7 +29,12 @@ function configPath(): string {
   return process.env.MANGO_TITLE_IDENTITY_OVERRIDES || defaultConfigPath();
 }
 
-function normalizeOverride(value: unknown): TitleIdentityOverride | null {
+function overrideSeriesId(normalizedKey: string): string | null {
+  const match = normalizedKey.match(/^(?:series:)?(tt\d{5,10})$/);
+  return match?.[1] ?? null;
+}
+
+function normalizeOverride(value: unknown, normalizedKey: string): TitleIdentityOverride | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
   }
@@ -40,6 +51,31 @@ function normalizeOverride(value: unknown): TitleIdentityOverride | null {
   }
   if (typeof record.require_explicit_edition === 'boolean') {
     override.require_explicit_edition = record.require_explicit_edition;
+  }
+  if (Array.isArray(record.content_confirmed_releases)) {
+    const seriesId = overrideSeriesId(normalizedKey);
+    const releases = seriesId
+      ? record.content_confirmed_releases
+        .map((item): ContentConfirmedReleaseOverride | null => {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+          const release = item as Record<string, unknown>;
+          const episodeId = typeof release.episode_id === 'string'
+            ? release.episode_id.trim().toLowerCase()
+            : '';
+          const filename = typeof release.behavior_filename === 'string'
+            ? release.behavior_filename.trim()
+            : '';
+          if (!episodeId.startsWith(`${seriesId}:`) || !/^tt\d{5,10}:\d{1,3}:\d{1,3}$/.test(episodeId)) {
+            return null;
+          }
+          if (!filename) return null;
+          return { episode_id: episodeId, behavior_filename: filename };
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null)
+      : [];
+    if (releases.length > 0) {
+      override.content_confirmed_releases = releases;
+    }
   }
   return Object.keys(override).length > 0 ? override : null;
 }
@@ -65,7 +101,7 @@ function loadConfig(): OverrideConfig {
   const normalized: Record<string, TitleIdentityOverride> = {};
   for (const [key, value] of Object.entries(titles)) {
     const id = key.trim().toLowerCase();
-    const override = normalizeOverride(value);
+    const override = normalizeOverride(value, id);
     if (id && override) {
       normalized[id] = override;
     }

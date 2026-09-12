@@ -130,6 +130,17 @@ titles:
       - The Traitors
       - The Traitors India
     require_explicit_edition: true
+    content_confirmed_releases:
+      - episode_id: TT33347879:2:1
+        behavior_filename: " The.Traitors.S02E01.1080p.AMZN.WEB-DL.Hindi.DDP5.1.ESub.x264-FuegoPaaji.mkv "
+      - episode_id: tt33347879:2:2
+        behavior_filename: The.Traitors.S02E02.1080p.AMZN.WEB-DL.Hindi.DDP5.1.ESub.x264-FuegoPaaji.mkv
+      - episode_id: tt0000000:2:1
+        behavior_filename: wrong-series.mkv
+      - episode_id: tt33347879
+        behavior_filename: missing-episode-scope.mkv
+      - episode_id: tt33347879:2:1
+        behavior_filename: ""
 `);
   resetTitleIdentityOverridesForTests();
   try {
@@ -149,6 +160,10 @@ titles:
     assert.equal(context.episodeReleaseYear, 2026);
     assert.equal(context.requireExplicitEdition, true);
     assert.deepEqual(context.trustedTitles, ['The Traitors', 'The Traitors India']);
+    assert.deepEqual(context.contentConfirmedReleases, [{
+      episodeId: 'tt33347879:2:1',
+      behaviorFilename: 'The.Traitors.S02E01.1080p.AMZN.WEB-DL.Hindi.DDP5.1.ESub.x264-FuegoPaaji.mkv',
+    }]);
   } finally {
     process.env = { ...env };
     resetTitleIdentityOverridesForTests();

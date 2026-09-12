@@ -590,6 +590,18 @@ test('India edition override requires explicit target-edition evidence for gener
     'The.Traitors.S02E01.1080p.WEB-DL.NTb.mkv',
     'The Traitors S02 • E01 WEB-DL NTb Peacock 🌐 🇬🇧 📝 🇬🇧 / 🇪🇸',
   );
+  const confirmedFilename = 'The.Traitors.S02E01.1080p.AMZN.WEB-DL.Hindi.DDP5.1.ESub.x264-FuegoPaaji.mkv';
+  const confirmedGeneric = release(
+    'the.traitors.s02e01.1080p.amzn.web-dl.hindi.ddp5.1.esub.x264-fuegopaaji.mkv',
+    'The Traitors S02 • E01 WEB-DL FuegoPaaji Amazon 🌐 🇬🇧 / 🇮🇳 📝 🇬🇧',
+  );
+  const confirmedContext = {
+    ...context,
+    contentConfirmedReleases: [{
+      episodeId: 'tt33347879:2:1',
+      behaviorFilename: ` ${confirmedFilename} `,
+    }],
+  };
   assert.equal(streamMatchesMetaTitle(indiaByReleaseTitle, context.metaTitle, context.metaId, context), true);
   assert.equal(
     streamMatchesMetaTitle(indiaByBoundedInSuffix, context.metaTitle, context.metaId, context),
@@ -636,6 +648,84 @@ test('India edition override requires explicit target-edition evidence for gener
     false,
     'India/Hindi audio flags alone are language evidence, not production-edition evidence',
   );
+  assert.equal(
+    streamMatchesMetaTitle(confirmedGeneric, context.metaTitle, context.metaId, confirmedContext),
+    true,
+    'content-confirmed exact behaviorHints.filename waives only missing explicit edition evidence',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(
+      confirmedGeneric,
+      context.metaTitle,
+      'tt33347879:2:2',
+      confirmedContext,
+    ),
+    false,
+    'content-confirmed releases are scoped to the exact requested episode id',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(
+      release(
+        confirmedFilename.replace('FuegoPaaji', 'FuegoPaaj1'),
+        'The Traitors S02 • E01 WEB-DL FuegoPaaji Amazon 🌐 🇬🇧 / 🇮🇳 📝 🇬🇧',
+      ),
+      context.metaTitle,
+      context.metaId,
+      confirmedContext,
+    ),
+    false,
+    'content-confirmed release filenames are exact after case/trim normalization only',
+  );
+  assert.equal(
+    streamMatchesMetaTitle({
+      url: 'https://example.test/description-only.mkv',
+      source: 'AIOStreams',
+      name: '[TB⚡] Comet 1080p',
+      title: '[TB⚡] Comet 1080p',
+      description: `📁 ${confirmedFilename}`,
+      behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|1080p' },
+    }, context.metaTitle, context.metaId, confirmedContext),
+    false,
+    'content-confirmed release matching never trusts description/title without behaviorHints.filename',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(
+      release(
+        'The.Traitors.UK.S02E01.1080p.AMZN.WEB-DL.Hindi.DDP5.1.ESub.x264-FuegoPaaji.mkv',
+        'The Traitors UK S02 • E01 WEB-DL',
+      ),
+      context.metaTitle,
+      context.metaId,
+      {
+        ...context,
+        contentConfirmedReleases: [{
+          episodeId: 'tt33347879:2:1',
+          behaviorFilename: 'The.Traitors.UK.S02E01.1080p.AMZN.WEB-DL.Hindi.DDP5.1.ESub.x264-FuegoPaaji.mkv',
+        }],
+      },
+    ),
+    false,
+    'content-confirmed filename matching does not bypass explicit foreign-edition conflicts',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(
+      release(
+        'The.Traitors.S02E02.1080p.AMZN.WEB-DL.Hindi.DDP5.1.ESub.x264-FuegoPaaji.mkv',
+        'The Traitors S02 • E02 WEB-DL',
+      ),
+      context.metaTitle,
+      context.metaId,
+      {
+        ...context,
+        contentConfirmedReleases: [{
+          episodeId: 'tt33347879:2:1',
+          behaviorFilename: 'The.Traitors.S02E02.1080p.AMZN.WEB-DL.Hindi.DDP5.1.ESub.x264-FuegoPaaji.mkv',
+        }],
+      },
+    ),
+    false,
+    'content-confirmed filename matching does not bypass wrong episode markers',
+  );
   assert.equal(streamMatchesMetaTitle(genericSeasonPack, context.metaTitle, context.metaId, context), false);
   assert.equal(
     streamMatchesMetaTitle(indiaByReleaseTitle, context.metaTitle, context.metaId, { ...context, metaYear: 2025 }),
@@ -651,6 +741,27 @@ test('India edition override requires explicit target-edition evidence for gener
     ),
     false,
     'future years are not admitted by the season-year exception',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(
+      release(
+        'The.Traitors.2099.S02E01.1080p.AMZN.WEB-DL.Hindi.DDP5.1.ESub.x264-FuegoPaaji.mkv',
+        'The Traitors 2099 S02 • E01 WEB-DL',
+      ),
+      context.metaTitle,
+      context.metaId,
+      {
+        ...confirmedContext,
+        metaYear: 2025,
+        episodeReleaseYear: 2026,
+        contentConfirmedReleases: [{
+          episodeId: 'tt33347879:2:1',
+          behaviorFilename: 'The.Traitors.2099.S02E01.1080p.AMZN.WEB-DL.Hindi.DDP5.1.ESub.x264-FuegoPaaji.mkv',
+        }],
+      },
+    ),
+    false,
+    'content-confirmed filename matching does not bypass explicit wrong release years',
   );
   assert.equal(
     streamMatchesMetaTitle(
