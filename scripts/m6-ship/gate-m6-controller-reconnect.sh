@@ -11,6 +11,12 @@ failures=0
 pass() { echo "PASS $*"; }
 fail() { echo "FAIL $*" >&2; failures=$((failures + 1)); }
 
+for suite in test-controller-link-state.py test-controller-link-supervisor.py test-controller-link-config.py; do
+  python3 "$REPO_DIR/scripts/m1-foundation/pad/$suite" \
+    && pass "controller regression ${suite}" \
+    || fail "controller regression ${suite}"
+done
+
 systemctl is-active --quiet mango-controller-link.service \
   && pass "controller link service active" \
   || fail "controller link service inactive"

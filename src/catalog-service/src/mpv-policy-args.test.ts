@@ -134,6 +134,115 @@ test('S4: YouTube proves seek and decoded A/V before hide and release', async ()
   assert.match(source, /--mute=yes/);
   assert.match(source, /set_property mute no/);
   assert.doesNotMatch(source, /video-pts/);
+  const freeze = handoff.indexOf('youtube_handoff_position="$(mpv_property_optional playback-time)"');
+  assert.ok(freeze > seekProof && freeze < preHideReady, 'freeze reference follows paused seek proof');
+  assert.match(handoff, /wait_mpv_split_audio_ready pre_hide_post_seek "\$youtube_handoff_position"/);
+  assert.match(handoff, /wait_mpv_split_audio_ready post_display "\$youtube_handoff_position"/);
+});
+
+// Execute the production shell predicate with controlled mpv properties. These
+// cases reproduce the Pi's valid post-seek freeze at 0.883s: the old predicate
+// rejected it forever because it compared to START_SEC=0 instead of the proven
+// paused position. No player, display, socket, or network is touched.
+test('S4: YouTube handoff accepts its proven freeze point without weakening A/V guards', async (t) => {
+  const source = await readFile(script, 'utf8');
+  const readiness = source.match(/wait_mpv_split_audio_ready\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(readiness);
+  const fixture = {
+    TEST_AO: 'alsa', TEST_AID: '1', TEST_VID: '1', TEST_AUDIO: '0.861167',
+    TEST_POSITION: '0.883', TEST_SYNC: '0', TEST_VO: 'true', TEST_FPS: '60',
+    TEST_MUTED: 'true', TEST_TARGET: '0.883', START_SEC: '0',
+  };
+  const cases = [
+    { name: 'start at zero with proof beyond the old tolerance', ok: true, overrides: {} },
+    { name: 'resume with proof beyond the old tolerance', ok: true, overrides: {
+      START_SEC: '120', TEST_TARGET: '120.918', TEST_POSITION: '120.918', TEST_AUDIO: '120.882',
+    } },
+    { name: 'original seek target reproduces the prior failure', ok: false, overrides: { TEST_TARGET: '0' } },
+    { name: 'position drift across display transition', ok: false, overrides: { TEST_POSITION: '2', TEST_AUDIO: '1.98' } },
+    { name: 'missing freeze reference', ok: false, overrides: { TEST_TARGET: '' } },
+    { name: 'nonfinite freeze reference', ok: false, overrides: { TEST_TARGET: 'NaN' } },
+    { name: 'nonfinite clock', ok: false, overrides: { TEST_AUDIO: 'nan' } },
+    { name: 'missing clock', ok: false, overrides: { TEST_POSITION: '' } },
+    { name: 'audio/video clocks diverge', ok: false, overrides: { TEST_AUDIO: '0.1' } },
+    { name: 'A/V sync invalid', ok: false, overrides: { TEST_SYNC: '0.6' } },
+    { name: 'no configured video output', ok: false, overrides: { TEST_VO: 'false' } },
+    { name: 'no decoded video', ok: false, overrides: { TEST_FPS: '0' } },
+    { name: 'no video track', ok: false, overrides: { TEST_VID: '0' } },
+    { name: 'no audio track', ok: false, overrides: { TEST_AID: '0' } },
+    { name: 'null audio output', ok: false, overrides: { TEST_AO: 'null' } },
+    { name: 'premature unmute', ok: false, overrides: { TEST_MUTED: 'false' } },
+  ];
+  for (const row of cases) {
+    await t.test(row.name, async () => {
+      const code = await new Promise<number>((resolvePromise) => {
+        execFile('bash', ['-c', `
+${readiness}
+NULL_BUFFER=true
+BUFFER_AO_MUTED=true
+MANGO_MPV_SPLIT_AUDIO_READY_TIMEOUT_MS=2
+is_youtube_stream() { return 0; }
+now_ms() { echo 0; }
+mpv_property_optional() {
+  case "$1" in
+    current-ao) echo "$TEST_AO";; aid) echo "$TEST_AID";; vid) echo "$TEST_VID";;
+    audio-pts) echo "$TEST_AUDIO";; playback-time) echo "$TEST_POSITION";;
+    avsync) echo "$TEST_SYNC";; vo-configured) echo "$TEST_VO";;
+    estimated-vf-fps) echo "$TEST_FPS";; mute) echo "$TEST_MUTED";;
+  esac
+}
+# Rejected samples should exercise the predicate once, then expire the loop.
+sleep() { exit 1; }
+wait_mpv_split_audio_ready test "$TEST_TARGET"
+`], { env: { ...process.env, ...fixture, ...row.overrides }, timeout: 5000 }, (error) => {
+          resolvePromise(error ? (typeof error.code === 'number' ? error.code : 1) : 0);
+        });
+      });
+      assert.equal(code, row.ok ? 0 : 1);
+    });
+  }
+});
+
+test('S4: a freeze reference can only follow advancing audio and decoded video proof', async (t) => {
+  const source = await readFile(script, 'utf8');
+  const proof = source.match(/prove_youtube_seek_advancing\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(proof);
+  for (const row of [
+    { name: 'both clocks advance', video: '0.883', audio: '0.861', ok: true },
+    { name: 'both clocks frozen', video: '0', audio: '0', ok: false },
+    { name: 'only audio advances', video: '0', audio: '0.861', ok: false },
+    { name: 'only video advances', video: '0.883', audio: '0', ok: false },
+    { name: 'missing video clock', video: '', audio: '0.861', ok: false },
+    { name: 'nonfinite audio clock', video: '0.883', audio: 'nan', ok: false },
+  ]) {
+    await t.test(row.name, async () => {
+      const code = await new Promise<number>((resolvePromise) => {
+        execFile('bash', ['-c', `
+${proof}
+BUFFER_AO_MUTED=true
+SCRIPT_DIR=/unused
+PROOF_RUNNING=false
+is_youtube_stream() { return 0; }
+now_ms() { echo 0; }
+bash() { PROOF_RUNNING=true; }
+hold_null_buffer_at_handoff() { return 0; }
+sleep() { exit 1; }
+mpv_property_optional() {
+  case "$1" in
+    playback-time) if $PROOF_RUNNING; then echo "$TEST_VIDEO"; else echo 0; fi;;
+    audio-pts) if $PROOF_RUNNING; then echo "$TEST_AUDIO"; else echo 0; fi;;
+    current-ao) echo alsa;; aid|vid) echo 1;; avsync) echo 0;;
+    vo-configured|mute) echo true;; estimated-vf-fps) echo 60;;
+  esac
+}
+prove_youtube_seek_advancing
+`], { env: { ...process.env, TEST_VIDEO: row.video, TEST_AUDIO: row.audio }, timeout: 5000 }, (error) => {
+          resolvePromise(error ? (typeof error.code === 'number' ? error.code : 1) : 0);
+        });
+      });
+      assert.equal(code, row.ok ? 0 : 1);
+    });
+  }
 });
 
 test('S4: every probe teardown is display-neutral', async () => {

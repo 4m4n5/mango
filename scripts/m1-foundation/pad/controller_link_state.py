@@ -156,7 +156,7 @@ class LinkRetryState:
         if error:
             self.last_error = error
         delay = min(
-            self.asleep_probe_sec * (2 ** self.asleep_probe_streak),
+            self.asleep_probe_sec * (2 ** min(self.asleep_probe_streak, 16)),
             self.asleep_probe_max_sec,
         )
         self.asleep_probe_streak += 1
@@ -185,7 +185,10 @@ class LinkRetryState:
             not self.connected
             and not self.attempt_in_flight
             and now >= self.next_scan_at
-            and (self.peripheral_asleep or not self.device_present)
+            # BlueZ HID often reports only br-connection-create-socket while
+            # logging the underlying Host-is-down errno privately. Do not
+            # permanently disable discovery for these ambiguous failures.
+            and (self.peripheral_asleep or not self.device_present or self.fast_retry_exhausted)
         )
 
     def begin_attempt(self, now: float) -> None:
@@ -219,8 +222,8 @@ class LinkRetryState:
 
     def force_retry(self, now: float) -> None:
         if not self.connected:
-            self.attempt_in_flight = False
-            self.attempt_started_at = 0.0
+            # A retry request cannot cancel a live D-Bus Connect operation.
+            # Keep ownership until its reply or explicit cancellation settles.
             self.retry_index = 0
             self.fast_retry_exhausted = False
             self.peripheral_asleep = False

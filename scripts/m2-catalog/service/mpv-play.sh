@@ -435,7 +435,7 @@ persist_playback_terminal_evidence() {
   python3 - "$PLAYBACK_TERMINAL_FILE" "$reason" "$youtube" "$LIVE" \
     "${START_SEC:-0}" "$(( $(now_ms) - START_MS ))" "$playback" \
     "$audio_pts" "$avsync" "$vo" "$fps" "$current_ao" "$aid" "$vid" \
-    "$muted" "$paused" "$cache" <<'PY' || true
+    "$muted" "$paused" "$cache" "${HANDOFF_PHASE:-none}" <<'PY' || true
 import json
 import math
 import os
@@ -451,7 +451,8 @@ names = (
     "estimated_vf_fps", "current_ao", "aid", "vid", "muted", "paused",
     "demuxer_cache_duration",
 )
-raw = dict(zip(names, sys.argv[7:]))
+raw = dict(zip(names, sys.argv[7:-1]))
+phase = sys.argv[-1]
 
 def number(value):
     try:
@@ -464,6 +465,10 @@ record = {
     "ts": int(time.time() * 1000),
     "outcome": "failed_before_frame",
     "reason": reason[:64],
+    "handoff_phase": phase if phase in {
+        "hold", "rewind", "post_seek_advancing", "pre_hide_post_seek",
+        "display_enable", "post_display", "release",
+    } else None,
     "youtube": youtube == "true",
     "live": live == "true",
     "start_sec": number(start_sec),
@@ -1163,9 +1168,12 @@ wait_mpv_split_audio_ready() {
     return 0
   fi
   local phase="${1:-post_display}"
-  local target="${START_SEC:-0}"
+  # After the seek proof, playback has intentionally advanced while muted.
+  # Compare the paused A/V clocks to that proven freeze point, not the original
+  # seek target: IPC/decoder latency can carry valid proof beyond 750 ms.
+  local target="${2-${START_SEC:-0}}"
   local timeout_ms="${MANGO_MPV_SPLIT_AUDIO_READY_TIMEOUT_MS:-5000}"
-  [[ "$target" =~ ^[0-9]+$ ]] || target=0
+  [[ "$target" =~ ^[0-9]+([.][0-9]+)?$ ]] || return 1
   [[ "$timeout_ms" =~ ^[0-9]+$ ]] || timeout_ms=5000
   local started current_ao aid vid audio_pts position avsync vo fps muted
   started="$(now_ms)"
@@ -1420,23 +1428,32 @@ PY
 
 foreground_handoff() {
   $HANDOFF_DONE && return 0
+  local youtube_handoff_position=""
   # The null VO buffer proves the transport while Chromium remains visible.
   # YouTube already owns the final AO muted, so seek and prove the exact target
   # before taking the display. This keeps a failed range fetch display-neutral.
+  HANDOFF_PHASE=hold
   if ! hold_null_buffer_at_handoff; then
     echo "FAIL: mpv could not hold buffered playback for handoff" >&2
     return 1
   fi
   if $NULL_BUFFER && is_youtube_stream; then
+    HANDOFF_PHASE=rewind
     if ! rewind_null_buffer_to_intended_start; then
       echo "FAIL: mpv could not restore the intended start position" >&2
       return 1
     fi
+    HANDOFF_PHASE=post_seek_advancing
     if ! prove_youtube_seek_advancing; then
       echo "FAIL: mpv did not advance synchronized A/V after the intended seek" >&2
       return 1
     fi
-    if ! wait_mpv_split_audio_ready pre_hide_post_seek; then
+    # prove_youtube_seek_advancing leaves playback paused after proving real
+    # synchronized movement from the exact seek. Preserve that actual position
+    # across the display transition; do not demand it still equal START_SEC.
+    youtube_handoff_position="$(mpv_property_optional playback-time)"
+    HANDOFF_PHASE=pre_hide_post_seek
+    if ! wait_mpv_split_audio_ready pre_hide_post_seek "$youtube_handoff_position"; then
       echo "FAIL: mpv did not prove synchronized A/V at the intended start" >&2
       return 1
     fi
@@ -1476,6 +1493,7 @@ foreground_handoff() {
   # the HDMI match) is what produced the "browse-res video → flash → black → 4K"
   # start on both debrid 4K and YouTube.
   if $NULL_BUFFER && ! $DISPLAY_ENABLED; then
+    HANDOFF_PHASE=display_enable
     local vo_attempt vo_timeout
     vo_timeout="$(mpv_vo_ready_timeout_ms)"
     for vo_attempt in 1 2 3; do
@@ -1503,8 +1521,9 @@ foreground_handoff() {
       echo "FAIL: mpv display enable failed" >&2
       return 1
     fi
+    HANDOFF_PHASE=post_display
     if is_youtube_stream; then
-      if ! wait_mpv_split_audio_ready post_display; then
+      if ! wait_mpv_split_audio_ready post_display "$youtube_handoff_position"; then
         echo "FAIL: mpv lost synchronized A/V after display enable" >&2
         return 1
       fi
@@ -1529,11 +1548,13 @@ foreground_handoff() {
   if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" && -n "${MPV_PID:-}" ]]; then
     start_mpv_exit_monitor "$MPV_PID"
   fi
+  HANDOFF_PHASE=release
   if ! release_null_buffer_start; then
     echo "FAIL: mpv could not release synchronized playback" >&2
     return 1
   fi
   HANDOFF_DONE=true
+  HANDOFF_PHASE=none
   if ! $PROBE; then
     ensure_playback_osd
   fi

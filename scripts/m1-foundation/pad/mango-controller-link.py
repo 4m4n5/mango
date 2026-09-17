@@ -137,6 +137,9 @@ class ControllerLinkSupervisor:
         self.discovery_active = False
         self.repair_count = 0
         self.force_repair_requested = False
+        self.connect_generation = 0
+        self.active_connect_generation: int | None = None
+        self.connect_cancel_pending = False
         self.bus.add_signal_receiver(
             self._properties_changed,
             dbus_interface="org.freedesktop.DBus.Properties",
@@ -246,6 +249,8 @@ class ControllerLinkSupervisor:
                 self.retry.paired = bool(changed["Paired"])
             if "Connected" in changed:
                 if bool(changed["Connected"]):
+                    self.active_connect_generation = None
+                    self.connect_cancel_pending = False
                     self.retry.mark_connected(now)
                     self.last_connected_wall_at = time.time()
                     if self.discovery_active:
@@ -263,24 +268,29 @@ class ControllerLinkSupervisor:
         elif interface == "org.bluez.Adapter1":
             if "Powered" in changed and not bool(changed["Powered"]):
                 self.retry.last_error = "adapter_powered_off"
-            elif not self.retry.connected:
+            elif "Powered" in changed and bool(changed["Powered"]) and not self.retry.connected:
                 self._resolve_device()
-                self.retry.mark_wake_detected(now)
+                self.retry.force_retry(now)
             if "Pairable" in changed and bool(changed["Pairable"]):
                 self._enforce_adapter_policy()
             self.write_status(force=True)
 
-    def _connect_ok(self) -> None:
+    def _connect_ok(self, generation: int) -> None:
         # A PropertiesChanged signal is authoritative. A method success only
         # means BlueZ accepted the request, so keep waiting for that signal.
-        if not self.retry.attempt_in_flight:
+        if generation != self.active_connect_generation or self.connect_cancel_pending:
             return
+        self.active_connect_generation = None
         self.retry.complete_attempt(time.monotonic())
         self.write_status(force=True)
 
-    def _connect_error(self, error: dbus.DBusException) -> None:
-        if not self.retry.attempt_in_flight:
+    def _connect_error(self, generation: int, error: dbus.DBusException) -> None:
+        if generation != self.active_connect_generation or self.connect_cancel_pending:
             return
+        if "NoReply" in str(error):
+            self._cancel_connect()
+            return
+        self.active_connect_generation = None
         message = str(error)
         now = time.monotonic()
         if self._is_missing_device_error(message):
@@ -289,6 +299,43 @@ class ControllerLinkSupervisor:
             self.retry.mark_device_missing(now, message)
         else:
             self.retry.complete_attempt(now, message)
+        self.write_status(force=True)
+
+    def _cancel_connect(self) -> None:
+        """Cancel BlueZ's operation before releasing single-flight ownership.
+
+        A local timer alone does not cancel Device1.Connect. Its late callback
+        must never complete a newer attempt. Also never disconnect an inbound
+        wake that has already connected while its signal is queued.
+        """
+        generation = self.active_connect_generation
+        if generation is None or self.connect_cancel_pending:
+            return
+        try:
+            if self._device_connected():
+                self.active_connect_generation = None
+                self.retry.mark_connected(time.monotonic())
+                return
+            self.connect_cancel_pending = True
+            self.device.Disconnect(
+                reply_handler=lambda: self._cancel_connect_done(generation),
+                error_handler=lambda error: self._cancel_connect_done(generation, error),
+                timeout=5.0,
+            )
+        except (dbus.DBusException, RuntimeError) as exc:
+            self._cancel_connect_done(generation, exc)
+
+    def _cancel_connect_done(self, generation: int, error: Exception | None = None) -> None:
+        if generation != self.active_connect_generation:
+            return
+        self.connect_cancel_pending = False
+        if error is not None and "NotConnected" not in str(error) and not self._is_missing_device_error(str(error)):
+            # Do not overlap a new Connect when cancellation is unconfirmed.
+            self.retry.last_error = f"connect_cancel:{error}"
+            self.retry.attempt_started_at = time.monotonic()
+            return
+        self.active_connect_generation = None
+        self.retry.complete_attempt(time.monotonic(), "connect_attempt_timeout")
         self.write_status(force=True)
 
     @staticmethod
@@ -311,10 +358,8 @@ class ControllerLinkSupervisor:
         now = time.monotonic()
         # Do not invent wake evidence after an empty inquiry — Connect probes
         # own ordinary paging. Restart inquiry soon if still awaiting.
-        if not self.retry.connected and (
-            self.retry.peripheral_asleep or not self.retry.device_present
-        ):
-            self.retry.next_scan_at = now
+        if not self.retry.connected:
+            self.retry.next_scan_at = now + self.retry.asleep_scan_sec
         self.write_status(force=True)
         return False
 
@@ -339,12 +384,13 @@ class ControllerLinkSupervisor:
 
     def _try_connect(self) -> None:
         now = time.monotonic()
-        if self.retry.needs_re_pair:
+        if self.retry.needs_re_pair or self.active_connect_generation is not None:
             return
         # Inquiry helps RSSI wake evidence; sole-owner Connect probes page the
         # bonded Micro without waiting on a long discovery dark window.
-        if self.retry.peripheral_asleep or not self.retry.device_present:
-            self._maybe_discover_known_device()
+        self._maybe_discover_known_device()
+        if self.discovery_active:
+            return
         if not self.retry.due(now):
             return
         try:
@@ -360,9 +406,17 @@ class ControllerLinkSupervisor:
                     return
             self._enforce_adapter_policy()
             self.retry.begin_attempt(now)
+            self.connect_generation += 1
+            generation = self.connect_generation
+            self.active_connect_generation = generation
             assert self.device is not None
-            self.device.Connect(reply_handler=self._connect_ok, error_handler=self._connect_error)
+            self.device.Connect(
+                reply_handler=lambda: self._connect_ok(generation),
+                error_handler=lambda error: self._connect_error(generation, error),
+                timeout=CONNECT_ATTEMPT_TIMEOUT_SEC + 5.0,
+            )
         except dbus.DBusException as exc:
+            self.active_connect_generation = None
             self.retry.complete_attempt(time.monotonic(), str(exc))
 
     def _input_ready(self) -> bool:
@@ -370,7 +424,11 @@ class ControllerLinkSupervisor:
             pad = json.loads((CACHE_DIR / "mango-tv-pad-status.json").read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return False
-        return pad.get("state") == "running" and bool(pad.get("device_path"))
+        try:
+            age = time.time() - float(pad.get("updated_at", 0))
+        except (TypeError, ValueError):
+            return False
+        return 0 <= age <= 5.0 and pad.get("state") == "running" and bool(pad.get("device_path"))
 
     def _repair_bluez(self) -> None:
         now = time.monotonic()
@@ -381,19 +439,26 @@ class ControllerLinkSupervisor:
         self.repair_count += 1
         self.retry.last_error = "bluez_repair_requested"
         try:
-            subprocess.run(
+            result = subprocess.run(
                 ["systemctl", "restart", "bluetooth.service"],
                 check=False,
                 timeout=20,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-        except OSError as exc:
+            if result.returncode != 0:
+                self.retry.last_error = f"bluez_repair_failed:exit_{result.returncode}"
+                return
+        except (OSError, subprocess.TimeoutExpired) as exc:
             self.retry.last_error = f"bluez_repair_failed:{type(exc).__name__}"
+            return
         self.device = None
         self.device_props = None
+        self.active_connect_generation = None
+        self.connect_cancel_pending = False
         self.retry.device_present = False
         self.retry.paired = None
+        self.retry.mark_disconnected(time.monotonic())
         self.retry.force_retry(time.monotonic())
         self.write_status(force=True)
 
@@ -424,6 +489,8 @@ class ControllerLinkSupervisor:
                 self.retry.device_present = False
                 self.retry.paired = None
         if connected and not self.retry.connected:
+            self.active_connect_generation = None
+            self.connect_cancel_pending = False
             self.retry.mark_connected(now)
         input_ready = self._input_ready()
         state = self.retry.couch_state(adapter_ready=adapter_ready, input_ready=input_ready)
@@ -437,6 +504,7 @@ class ControllerLinkSupervisor:
             "paired": self.retry.paired,
             "input_ready": input_ready,
             "attempt_in_flight": self.retry.attempt_in_flight,
+            "connect_cancel_pending": self.connect_cancel_pending,
             "retry_index": self.retry.retry_index,
             "peripheral_asleep": self.retry.peripheral_asleep,
             "wake_detected": self.retry.wake_detected,
@@ -474,8 +542,8 @@ class ControllerLinkSupervisor:
         else:
             self._connected_tick_idle = 0
         now = time.monotonic()
-        if self.retry.attempt_in_flight and now - self.retry.attempt_started_at >= CONNECT_ATTEMPT_TIMEOUT_SEC:
-            self.retry.complete_attempt(now, "connect_attempt_timeout")
+        if self.active_connect_generation is not None and now - self.retry.attempt_started_at >= CONNECT_ATTEMPT_TIMEOUT_SEC:
+            self._cancel_connect()
         try:
             adapter_ready = self._adapter_powered()
         except dbus.DBusException as exc:

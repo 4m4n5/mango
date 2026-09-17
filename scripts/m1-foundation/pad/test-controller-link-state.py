@@ -17,6 +17,28 @@ SPEC.loader.exec_module(STATE)
 
 
 class ControllerLinkStateTest(unittest.TestCase):
+    def test_force_retry_keeps_connect_ownership(self) -> None:
+        state = STATE.LinkRetryState()
+        state.begin_attempt(10.0)
+        state.force_retry(11.0)
+        self.assertTrue(state.attempt_in_flight)
+        self.assertEqual(state.attempt_started_at, 10.0)
+        self.assertFalse(state.due(11.0))
+
+    def test_ambiguous_socket_failure_keeps_discovery_available(self) -> None:
+        state = STATE.LinkRetryState()
+        for now in range(10):
+            state.begin_attempt(float(now))
+            state.complete_attempt(float(now), "org.bluez.Error.Failed: br-connection-create-socket")
+        self.assertTrue(state.scan_due(100.0))
+        self.assertFalse(state.peripheral_asleep)
+
+    def test_long_power_off_does_not_overflow_backoff(self) -> None:
+        state = STATE.LinkRetryState()
+        for now in range(2000):
+            state.mark_peripheral_asleep(float(now))
+        self.assertEqual(state.next_attempt_at, 2002.0)
+
     def test_disconnect_uses_fast_then_maintenance_backoff(self) -> None:
         state = STATE.LinkRetryState(disconnect_grace_sec=0.0)
         state.mark_disconnected(100.0)
