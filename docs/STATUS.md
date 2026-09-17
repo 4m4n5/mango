@@ -6,6 +6,44 @@ Historical.
 
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [TESTING.md](TESTING.md)
 
+## YouTube start and controller reconnect repair — 2026-09-17
+
+Recorded implementation/Pi playback evidence is bound to feature revision
+`0ba268f86f0887cc06fcdf42a6877d08f0461faf`. Documentation-only follow-ups do not
+change that implementation; deployment/gate output records the exact final HEAD.
+
+- **YouTube cause and repair:** decoded muted playback advanced about 0.9 seconds,
+  then a later check incorrectly required it remain within 0.75 seconds of the
+  original seek target. Handoff now retains each phase's proven paused position.
+  A second reproduced failure occurred when GPU reconfiguration internally sought
+  and left audio PTS at zero while paused. Bounded muted A/V advancement after
+  GPU activation now proves recovery before strict readiness and unmuted release.
+  Exact seek, decoded video, real audio output, synchronization, and deadline
+  guards remain; terminal evidence includes a sanitized handoff phase.
+- **Pi playback:** the previously failing music sample passed 135 seconds of
+  advancing 1080p playback at 23.976 fps, ALSA audio and near-zero A/V drift.
+  Fresh 1080p60 start and resume from 120 seconds each passed 20 seconds of
+  advancing A/V. Start totals were 13.58, 12.55 and 18.72 seconds respectively.
+  These are sampled-start/sustained checks, not all-video or frame-perfect proof:
+  the fresh software-VP9 60 fps sample added ten dropped frames; music and resume
+  added none after their initial samples. Physical picture/audio and opening
+  seconds remain **DEFERRED**.
+- **Controller:** timed-out Connect calls are cancelled before ownership is
+  released; generation fencing rejects late callbacks, forced retries preserve
+  singleflight, local discovery changes do not fabricate wake evidence, and
+  generic socket failures retain bounded discovery. Router readiness must be
+  fresh. Pi owner/bond/policy checks passed, and 40 seconds of observation found
+  fresh status and no discovery/Connect overlap. Paired/bonded/trusted state was
+  preserved. **Five physical normal-wake cycles and wake latency remain DEFERRED**;
+  `Connectable=false` alone was not a proven cause and was not changed.
+- **Local proof:** catalog 1,287/1,287; focused mpv policy 40/40; controller
+  state/supervisor/config 31/31; HUD, stream-picker and deploy-preflight gates passed.
+- **State preservation:** four databases were backed up and verified in the
+  separate `repairs-2026-09-17` backup directory. Companion files and addon export
+  hashes matched before/after deployment. No library, credential or bond reset.
+  Ordinary deploy backup retention rotated older routine snapshots; the separate
+  repair backup remains. Flirc planning/implementation remains paused.
+
 ## Relocation release — 2026-09-11
 
 Library/playability feature revision:
