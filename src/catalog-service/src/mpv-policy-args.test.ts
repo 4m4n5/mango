@@ -107,6 +107,7 @@ test('S4: YouTube proves seek and decoded A/V before hide and release', async ()
   const seekProof = handoff.indexOf('prove_youtube_seek_advancing', rewind);
   const preHideReady = handoff.indexOf('wait_mpv_split_audio_ready pre_hide_post_seek', seekProof);
   const hide = handoff.indexOf('mango-window.sh" hide', preHideReady);
+  const postDisplayProof = handoff.indexOf('prove_youtube_seek_advancing post_display', hide);
   const postDisplayReady = handoff.indexOf('wait_mpv_split_audio_ready post_display', hide);
   const raise = handoff.indexOf('raise_mpv_window', postDisplayReady);
   const release = handoff.indexOf('release_null_buffer_start', raise);
@@ -115,7 +116,8 @@ test('S4: YouTube proves seek and decoded A/V before hide and release', async ()
       && seekProof > rewind
       && preHideReady > seekProof
       && hide > preHideReady
-      && postDisplayReady > hide
+      && postDisplayProof > hide
+      && postDisplayReady > postDisplayProof
       && raise > postDisplayReady
       && release > raise,
     'handoff must seek/prove before hide, reprove after display, raise, then release',
@@ -138,6 +140,8 @@ test('S4: YouTube proves seek and decoded A/V before hide and release', async ()
   assert.ok(freeze > seekProof && freeze < preHideReady, 'freeze reference follows paused seek proof');
   assert.match(handoff, /wait_mpv_split_audio_ready pre_hide_post_seek "\$youtube_handoff_position"/);
   assert.match(handoff, /wait_mpv_split_audio_ready post_display "\$youtube_handoff_position"/);
+  const postDisplayFreeze = handoff.indexOf('youtube_handoff_position="$(mpv_property_optional playback-time)"', postDisplayProof);
+  assert.ok(postDisplayFreeze > postDisplayProof && postDisplayFreeze < postDisplayReady);
 });
 
 // Execute the production shell predicate with controlled mpv properties. These
@@ -214,6 +218,11 @@ test('S4: a freeze reference can only follow advancing audio and decoded video p
     { name: 'only video advances', video: '0.883', audio: '0', ok: false },
     { name: 'missing video clock', video: '', audio: '0.861', ok: false },
     { name: 'nonfinite audio clock', video: '0.883', audio: 'nan', ok: false },
+    { name: 'post-GPU audio reset recovers with both clocks advancing', video: '1.6', audio: '1.57', baseVideo: '0.792458', ok: true },
+    { name: 'post-GPU audio remains reset despite moving video', video: '1.6', audio: '0', baseVideo: '0.792458', ok: false },
+    { name: 'post-GPU video remains frozen despite recovered audio', video: '0.792458', audio: '1.57', baseVideo: '0.792458', ok: false },
+    { name: 'missing post-GPU baseline is not fabricated as zero', video: '1.6', audio: '1.57', baseVideo: '0.792458', baseAudio: '', ok: false },
+    { name: 'exhausted play deadline cannot unpause for another proof', video: '1.6', audio: '1.57', deadline: '0', ok: false },
   ]) {
     await t.test(row.name, async () => {
       const code = await new Promise<number>((resolvePromise) => {
@@ -222,21 +231,26 @@ ${proof}
 BUFFER_AO_MUTED=true
 SCRIPT_DIR=/unused
 PROOF_RUNNING=false
+DEADLINE_MS="$TEST_DEADLINE"
 is_youtube_stream() { return 0; }
 now_ms() { echo 0; }
-bash() { PROOF_RUNNING=true; }
+bash() { if [[ "$TEST_DEADLINE" == 0 ]]; then exit 77; fi; PROOF_RUNNING=true; }
 hold_null_buffer_at_handoff() { return 0; }
 sleep() { exit 1; }
 mpv_property_optional() {
   case "$1" in
-    playback-time) if $PROOF_RUNNING; then echo "$TEST_VIDEO"; else echo 0; fi;;
-    audio-pts) if $PROOF_RUNNING; then echo "$TEST_AUDIO"; else echo 0; fi;;
+    playback-time) if $PROOF_RUNNING; then echo "$TEST_VIDEO"; else echo "$TEST_BASE_VIDEO"; fi;;
+    audio-pts) if $PROOF_RUNNING; then echo "$TEST_AUDIO"; else echo "$TEST_BASE_AUDIO"; fi;;
     current-ao) echo alsa;; aid|vid) echo 1;; avsync) echo 0;;
     vo-configured|mute) echo true;; estimated-vf-fps) echo 60;;
   esac
 }
 prove_youtube_seek_advancing
-`], { env: { ...process.env, TEST_VIDEO: row.video, TEST_AUDIO: row.audio }, timeout: 5000 }, (error) => {
+`], { env: {
+            ...process.env, TEST_VIDEO: row.video, TEST_AUDIO: row.audio,
+            TEST_BASE_VIDEO: row.baseVideo ?? '0', TEST_BASE_AUDIO: row.baseAudio ?? '0',
+            TEST_DEADLINE: row.deadline ?? '',
+          }, timeout: 5000 }, (error) => {
           resolvePromise(error ? (typeof error.code === 'number' ? error.code : 1) : 0);
         });
       });

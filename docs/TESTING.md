@@ -45,7 +45,7 @@ uses `MANGO_YOUTUBE_PLAY=1`.
 | `scripts/m6-ship/gate-m6-youtube-smoke.sh` | Pi fast |
 | `scripts/m6-ship/gate-m6-reliability-proof.sh` | Pi fast |
 | `scripts/m6-ship/gate-m6-search-smoke.sh` | Pi nightly |
-| `scripts/m6-ship/gate-m6-controller-reconnect.sh` | Pi nightly; five wakes are couch |
+| `scripts/m6-ship/gate-m6-controller-reconnect.sh` | Controller state/supervisor/config regressions plus Pi ownership and bond checks; five fresh off-to-ready normal wakes are couch |
 | `scripts/live/gate-live-iptv.sh` | Opt-in |
 
 `scripts/gate-mango.sh` is the dispatcher. `gate-lite.sh` and

@@ -467,7 +467,7 @@ record = {
     "reason": reason[:64],
     "handoff_phase": phase if phase in {
         "hold", "rewind", "post_seek_advancing", "pre_hide_post_seek",
-        "display_enable", "post_display", "release",
+        "display_enable", "post_display_advancing", "post_display", "release",
     } else None,
     "youtube": youtube == "true",
     "live": live == "true",
@@ -1226,14 +1226,19 @@ PY
 prove_youtube_seek_advancing() {
   is_youtube_stream || return 0
   $BUFFER_AO_MUTED || return 1
+  local phase="${1:-post_seek}"
   local base_playback base_audio timeout_ms
   base_playback="$(mpv_property_optional playback-time)"
   base_audio="$(mpv_property_optional audio-pts)"
   timeout_ms="${MANGO_MPV_SEEK_PROOF_TIMEOUT_MS:-3000}"
   [[ "$timeout_ms" =~ ^[0-9]+$ ]] || timeout_ms=3000
-  bash "$SCRIPT_DIR/mpv-ipc.sh" set_property pause no >/dev/null 2>&1 || return 1
   local started playback audio_pts avsync vo fps current_ao aid vid muted
   started="$(now_ms)"
+  if [[ "${DEADLINE_MS:-}" =~ ^[0-9]+$ ]] && (( started + timeout_ms > DEADLINE_MS )); then
+    timeout_ms=$(( DEADLINE_MS - started ))
+  fi
+  (( timeout_ms > 0 )) || return 1
+  bash "$SCRIPT_DIR/mpv-ipc.sh" set_property pause no >/dev/null 2>&1 || return 1
   while (( $(now_ms) - started < timeout_ms )); do
     playback="$(mpv_property_optional playback-time)"
     audio_pts="$(mpv_property_optional audio-pts)"
@@ -1271,13 +1276,13 @@ PY
       if ! hold_null_buffer_at_handoff; then
         return 1
       fi
-      echo "handoff: post_seek_av_advancing playback=${playback} audio_pts=${audio_pts} avsync=${avsync}" >&2
+      echo "handoff: ${phase}_av_advancing playback=${playback} audio_pts=${audio_pts} avsync=${avsync}" >&2
       return 0
     fi
     sleep 0.05
   done
   bash "$SCRIPT_DIR/mpv-ipc.sh" set_property pause yes >/dev/null 2>&1 || true
-  echo "WARN: post-seek advancing A/V proof timed out" >&2
+  echo "WARN: ${phase} advancing A/V proof timed out" >&2
   return 1
 }
 
@@ -1521,13 +1526,24 @@ foreground_handoff() {
       echo "FAIL: mpv display enable failed" >&2
       return 1
     fi
-    HANDOFF_PHASE=post_display
     if is_youtube_stream; then
+      # Changing VO can make mpv internally seek/restart while paused. ALSA is
+      # still selected, but audio-pts may remain zero until playback resumes.
+      # Reprove real A/V movement while muted rather than waiting forever for a
+      # paused audio clock, then preserve the newly proved pause position.
+      HANDOFF_PHASE=post_display_advancing
+      if ! prove_youtube_seek_advancing post_display; then
+        echo "FAIL: mpv did not advance synchronized A/V after display enable" >&2
+        return 1
+      fi
+      youtube_handoff_position="$(mpv_property_optional playback-time)"
+      HANDOFF_PHASE=post_display
       if ! wait_mpv_split_audio_ready post_display "$youtube_handoff_position"; then
         echo "FAIL: mpv lost synchronized A/V after display enable" >&2
         return 1
       fi
     else
+      HANDOFF_PHASE=post_display
       # Other VOD still restores AO after the panel match, then rewinds while
       # paused before release.
       if ! rewind_null_buffer_to_intended_start; then
