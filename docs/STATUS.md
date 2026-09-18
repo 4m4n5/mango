@@ -6,6 +6,37 @@ Historical.
 
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [TESTING.md](TESTING.md)
 
+## Controller ordinary-wake follow-up — 2026-09-18
+
+The user reports that ordinary wake still fails after the September 17 repair;
+pairing-mode recovery remains necessary. That overrides any inference of
+physical success from the earlier automated checks.
+
+Live diagnosis found the bonded/trusted Micro advertises BlueZ
+`Input1.ReconnectMode=device`, while Mango repeatedly initiated host Connect
+and discovery. BlueZ's HID reconnect implementation only initiates automatic
+reconnection for `host`/`any`; it can reject incoming HID channels while an
+outgoing channel occupies the slot. The policy mismatch is confirmed; an actual
+channel collision during this user's wake attempt is not yet captured.
+
+Controller implementation/Pi evidence: `64e88ca45684223a5e056aa990a934383b55c4d5`.
+The correction follows the advertised mode, suppressing periodic host paging
+and discovery for `device`/`none`/unknown, refreshing metadata across BlueZ
+restarts, and exposing reconnect ownership in diagnostics. The Pi gate compares
+that state with the live HID contract. Bond, trust, and button mappings remain
+unchanged. Local and Pi controller suites passed **48/48**, and the updated
+live-mode/ownership/bond gate passed. Thirty one-second Pi observations retained
+one supervisor PID and fresh heartbeats with zero host attempts, discovery, or
+cancellation. BlueZ's prior repeated Host-is-down log stopped after activation.
+Unknown reconnect metadata and an indeterminate old host attempt report
+unhealthy rather than false readiness. Git deployment preserves operator-owned
+Companion state and addon configuration; no pairing or library reset occurred.
+
+**Physical normal-wake success and latency remain DEFERRED.** No ordinary wake
+was observed during this session's event capture. These checks prove removal of
+the wrong host behavior, not that no other controller/bond/radio issue remains.
+Five ordinary power-off/on cycles without pairing remain the release gate.
+
 ## YouTube start and controller reconnect repair — 2026-09-17
 
 Recorded implementation/Pi playback evidence is bound to feature revision
