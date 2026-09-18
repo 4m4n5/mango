@@ -76,6 +76,7 @@ if [[ -s "$STATUS_FILE" ]]; then
   python3 - "$STATUS_FILE" <<'PY' || exit 1
 import json
 import sys
+import dbus
 
 data = json.load(open(sys.argv[1], encoding="utf-8"))
 state = data.get("state")
@@ -84,12 +85,23 @@ allowed = {"ready", "connected_waiting_for_input", "connecting", "off", "needs_r
 print(f"controller status: state={state} age={age:.1f}s")
 if state not in allowed:
     raise SystemExit(f"unexpected controller state: {state}")
-if age > 10:
+if not 0 <= age <= 10:
     raise SystemExit(f"controller status stale: {age:.1f}s")
 if data.get("pairing_policy") != "explicit_recovery_only":
     raise SystemExit("normal-wake no-pairing policy is missing")
 if state == "needs_re-pair" and data.get("paired") is not False:
     raise SystemExit("needs_re-pair requires explicit Paired=false evidence")
+props = dbus.Interface(dbus.SystemBus().get_object('org.bluez', data['device_path']),
+                       'org.freedesktop.DBus.Properties')
+mode = str(props.Get('org.bluez.Input1', 'ReconnectMode'))
+if data.get('reconnect_mode') != mode:
+    raise SystemExit('supervisor reconnect mode differs from live HID contract')
+if mode not in {'device', 'host', 'any', 'none'}:
+    raise SystemExit(f'unknown HID reconnect contract: {mode}')
+if mode in {'device', 'none'} and any(data.get(key) for key in
+        ('attempt_in_flight', 'connect_cancel_pending', 'discovery_active')):
+    raise SystemExit('passive HID reconnect mode has host connection/discovery work')
+print(f"HID reconnect mode: {mode}; host activity respects advertised contract")
 PY
   pass "controller status is fresh and couch-safe"
 else

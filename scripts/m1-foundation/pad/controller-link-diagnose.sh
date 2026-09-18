@@ -13,6 +13,8 @@ echo
 echo "[bluez]"
 bluetoothctl show 2>/dev/null | grep -E 'Controller|Powered|Pairable|Discovering' || true
 bluetoothctl info "$BT_MAC" 2>/dev/null || true
+busctl get-property org.bluez "${MANGO_BT_ADAPTER_PATH:-/org/bluez/hci0}/dev_${BT_MAC//:/_}" \
+  org.bluez.Input1 ReconnectMode 2>/dev/null || true
 echo
 echo "[services]"
 systemctl is-active mango-controller-link.service 2>/dev/null || true

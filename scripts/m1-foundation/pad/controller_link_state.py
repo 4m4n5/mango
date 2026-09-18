@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Pure retry policy for the Mango Bluetooth link supervisor.
+"""Pure retry policy for host-owned HID reconnects.
 
-The 8BitDo Micro (Switch/Pro mode) normally reconnects by initiating to the
-last bonded host after ordinary power-on. Host-side Connect() storms while the
-peripheral radio is off (BlueZ "Host is down") race the HID stack when a second
-owner (BlueZ Policy auto-reconnect) is also paging — ordinary wake then needs
-pairing mode.
+The supervisor applies this paging policy only when Input1.ReconnectMode is
+host/any. Device-owned reconnects (including this Micro's advertised contract)
+remain passive; missing/unknown contracts never authorize host paging.
 
-Policy (sole Connect owner; BlueZ ReconnectAttempts=0):
-  - probe Connect on a short cadence while the bonded Micro looks off;
+Mango host/any retry policy (BlueZ Policy ReconnectAttempts=0 is separate from
+BlueZ's HID-profile reconnect behavior):
+  - probe Connect on a short cadence while the bonded peripheral looks off;
   - never overlap attempts; back off briefly on Host-is-down;
   - on advertising / RSSI wake evidence, Connect immediately;
   - never treat a powered-off Micro as a pairing failure.

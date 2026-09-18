@@ -4,9 +4,9 @@
 This service deliberately does not read evdev or route controller input. The
 separate mango-tv-pad router owns input only after BlueZ has created its node.
 
-Ownership rule: mango-controller-link is the sole Connect() caller. BlueZ Policy
-auto-reconnect must stay disabled (ReconnectAttempts=0) so host-side storms do
-not race Switch/Pro ordinary wake.
+Ownership follows Input1.ReconnectMode: device-initiated HID reconnects are
+observed without host paging or discovery. Mango calls Connect only for host/any
+mode; BlueZ Policy auto-reconnect remains disabled (ReconnectAttempts=0).
 """
 
 from __future__ import annotations
@@ -46,8 +46,9 @@ STATUS_PATH = CACHE_DIR / "mango-controller-link-status.json"
 STATUS_HEARTBEAT_SEC = 2.0
 AUTO_REPAIR_COOLDOWN_SEC = 15 * 60.0
 CONNECT_ATTEMPT_TIMEOUT_SEC = 8.0
-# Short inquiry bursts while awaiting the bonded Micro; Connect probes are the
-# primary ordinary-wake path and must not wait on a long dark gap.
+RECONNECT_MODE_REFRESH_SEC = 2.0
+# Short inquiry bursts are used only for host/any reconnect contracts. They are
+# not part of a device-initiated controller's ordinary-wake path.
 DEVICE_DISCOVERY_DURATION_SEC = 2
 PAIRING_POLICY = "explicit_recovery_only"
 
@@ -121,12 +122,8 @@ class ControllerLinkSupervisor:
         self.bus = dbus.SystemBus()
         self.device = None
         self.device_props = None
-        self.adapter = dbus.Interface(
-            self.bus.get_object("org.bluez", ADAPTER_PATH), "org.bluez.Adapter1"
-        )
-        self.adapter_props = dbus.Interface(
-            self.bus.get_object("org.bluez", ADAPTER_PATH), "org.freedesktop.DBus.Properties"
-        )
+        self.adapter_rebind_required = True
+        self._bind_adapter()
         self.last_status_at = 0.0
         self.last_repair_at = 0.0
         self.last_repair_wall_at = 0.0
@@ -140,6 +137,8 @@ class ControllerLinkSupervisor:
         self.connect_generation = 0
         self.active_connect_generation: int | None = None
         self.connect_cancel_pending = False
+        self.reconnect_mode = "unknown"
+        self.next_mode_refresh_at = 0.0
         self.bus.add_signal_receiver(
             self._properties_changed,
             dbus_interface="org.freedesktop.DBus.Properties",
@@ -158,6 +157,18 @@ class ControllerLinkSupervisor:
             signal_name="InterfacesAdded",
             path="/",
         )
+        self.bus.add_signal_receiver(
+            self._interfaces_removed,
+            dbus_interface="org.freedesktop.DBus.ObjectManager",
+            signal_name="InterfacesRemoved",
+            path="/",
+        )
+        self.bus.add_signal_receiver(
+            self._bluez_owner_changed,
+            dbus_interface="org.freedesktop.DBus",
+            signal_name="NameOwnerChanged",
+            arg0="org.bluez",
+        )
         self._enforce_adapter_policy()
         self._resolve_device()
         self._sync_initial_state()
@@ -173,7 +184,15 @@ class ControllerLinkSupervisor:
         return bool(self.device_props.Get("org.bluez.Device1", "Paired"))
 
     def _adapter_powered(self) -> bool:
+        if self.adapter_rebind_required:
+            self._bind_adapter()
         return bool(self.adapter_props.Get("org.bluez.Adapter1", "Powered"))
+
+    def _bind_adapter(self) -> None:
+        obj = self.bus.get_object("org.bluez", ADAPTER_PATH)
+        self.adapter = dbus.Interface(obj, "org.bluez.Adapter1")
+        self.adapter_props = dbus.Interface(obj, "org.freedesktop.DBus.Properties")
+        self.adapter_rebind_required = False
 
     def _enforce_adapter_policy(self) -> None:
         """Keep the adapter connectable for the bonded Micro without pairable spam."""
@@ -212,9 +231,54 @@ class ControllerLinkSupervisor:
         self.device = dbus.Interface(obj, "org.bluez.Device1")
         self.device_props = dbus.Interface(obj, "org.freedesktop.DBus.Properties")
 
+    def _host_reconnect_allowed(self) -> bool:
+        return self.retry.paired is True and self.reconnect_mode in {"host", "any"}
+
+    def _refresh_reconnect_mode(self) -> None:
+        """Read BlueZ's SDP-derived contract; unknown never means host paging."""
+        self.next_mode_refresh_at = time.monotonic() + RECONNECT_MODE_REFRESH_SEC
+        self.reconnect_mode = "unknown"
+        if self.device_props is None:
+            return
+        try:
+            value = str(self.device_props.Get("org.bluez.Input1", "ReconnectMode"))
+        except dbus.DBusException:
+            return
+        if value in {"device", "host", "any", "none"}:
+            self.reconnect_mode = value
+
+    def _interfaces_removed(self, path: str, interfaces: list[str]) -> None:
+        if str(path) != DEVICE_PATH:
+            return
+        if "org.bluez.Input1" in interfaces or "org.bluez.Device1" in interfaces:
+            self.reconnect_mode = "unknown"
+            self.next_mode_refresh_at = 0.0
+        if "org.bluez.Device1" in interfaces:
+            self.device = None
+            self.device_props = None
+            self.active_connect_generation = None
+            self.connect_cancel_pending = False
+            self.retry.mark_device_missing(time.monotonic())
+        self.write_status(force=True)
+
+    def _bluez_owner_changed(self, _name: str, _old: str, new: str) -> None:
+        self.adapter_rebind_required = True
+        self._interfaces_removed(DEVICE_PATH, ["org.bluez.Device1", "org.bluez.Input1"])
+        self.discovery_active = False
+        if new:
+            try:
+                self._bind_adapter()
+            except dbus.DBusException:
+                # Name acquisition may precede object registration. Retry the
+                # binding on the next adapter read instead of keeping an old
+                # daemon's proxy indefinitely.
+                return
+            self._resolve_device()
+
     def _resolve_device(self) -> bool:
         """Rebind the configured MAC after BlueZ recreates its Device1 object."""
         now = time.monotonic()
+        self.reconnect_mode = "unknown"
         try:
             self._bind_device()
             paired = self._device_paired()
@@ -228,10 +292,11 @@ class ControllerLinkSupervisor:
             self.retry.last_error = message
             return False
         self.retry.mark_device_resolved(now, paired=paired)
+        self._refresh_reconnect_mode()
         return True
 
     def _interfaces_added(self, path: str, interfaces: dict[str, Any]) -> None:
-        if str(path) != DEVICE_PATH or "org.bluez.Device1" not in interfaces:
+        if str(path) != DEVICE_PATH or not ({"org.bluez.Device1", "org.bluez.Input1"} & interfaces.keys()):
             return
         if self._resolve_device() and not self.retry.connected:
             self.retry.mark_wake_detected(time.monotonic())
@@ -244,7 +309,11 @@ class ControllerLinkSupervisor:
         _invalidated: list[str],
     ) -> None:
         now = time.monotonic()
-        if interface == "org.bluez.Device1":
+        if interface == "org.bluez.Input1":
+            if "ReconnectMode" in changed or "ReconnectMode" in _invalidated:
+                self._refresh_reconnect_mode()
+            self.write_status(force=True)
+        elif interface == "org.bluez.Device1":
             if "Paired" in changed:
                 self.retry.paired = bool(changed["Paired"])
             if "Connected" in changed:
@@ -288,7 +357,11 @@ class ControllerLinkSupervisor:
         if generation != self.active_connect_generation or self.connect_cancel_pending:
             return
         if "NoReply" in str(error):
-            self._cancel_connect()
+            if self._host_reconnect_allowed():
+                self._cancel_connect()
+            else:
+                self.retry.last_error = "awaiting_previous_host_connect"
+                self.write_status(force=True)
             return
         self.active_connect_generation = None
         message = str(error)
@@ -309,12 +382,14 @@ class ControllerLinkSupervisor:
         wake that has already connected while its signal is queued.
         """
         generation = self.active_connect_generation
-        if generation is None or self.connect_cancel_pending:
+        if generation is None or self.connect_cancel_pending or not self._host_reconnect_allowed():
             return
         try:
             if self._device_connected():
                 self.active_connect_generation = None
                 self.retry.mark_connected(time.monotonic())
+                return
+            if not self._host_reconnect_allowed():
                 return
             self.connect_cancel_pending = True
             self.device.Disconnect(
@@ -366,6 +441,8 @@ class ControllerLinkSupervisor:
     def _maybe_discover_known_device(self) -> None:
         """Brief inquiry for advertising evidence; never make the adapter pairable."""
         now = time.monotonic()
+        if not self._host_reconnect_allowed():
+            return
         if self.discovery_active:
             return
         if not self.retry.scan_due(now):
@@ -374,6 +451,8 @@ class ControllerLinkSupervisor:
         self.last_discovery_at = now
         self.last_discovery_wall_at = time.time()
         self._enforce_adapter_policy()
+        if not self._host_reconnect_allowed():
+            return
         try:
             self.adapter.StartDiscovery()
         except dbus.DBusException as exc:
@@ -384,10 +463,11 @@ class ControllerLinkSupervisor:
 
     def _try_connect(self) -> None:
         now = time.monotonic()
+        if not self._host_reconnect_allowed():
+            return
         if self.retry.needs_re_pair or self.active_connect_generation is not None:
             return
-        # Inquiry helps RSSI wake evidence; sole-owner Connect probes page the
-        # bonded Micro without waiting on a long discovery dark window.
+        # Inquiry is available only when the HID contract permits host paging.
         self._maybe_discover_known_device()
         if self.discovery_active:
             return
@@ -405,6 +485,9 @@ class ControllerLinkSupervisor:
                     self._maybe_discover_known_device()
                     return
             self._enforce_adapter_policy()
+            # Synchronous D-Bus reads/rebinds can deliver mode/link changes.
+            if not self._host_reconnect_allowed() or not self.retry.due(time.monotonic()):
+                return
             self.retry.begin_attempt(now)
             self.connect_generation += 1
             generation = self.connect_generation
@@ -454,6 +537,8 @@ class ControllerLinkSupervisor:
             return
         self.device = None
         self.device_props = None
+        self.reconnect_mode = "unknown"
+        self.next_mode_refresh_at = 0.0
         self.active_connect_generation = None
         self.connect_cancel_pending = False
         self.retry.device_present = False
@@ -467,7 +552,8 @@ class ControllerLinkSupervisor:
 
     def request_retry(self, _signum: int, _frame: object) -> None:
         self._resolve_device()
-        self.retry.force_retry(time.monotonic())
+        if self._host_reconnect_allowed():
+            self.retry.force_retry(time.monotonic())
         self.write_status(force=True)
 
     def write_status(self, *, force: bool = False) -> None:
@@ -492,12 +578,31 @@ class ControllerLinkSupervisor:
             self.active_connect_generation = None
             self.connect_cancel_pending = False
             self.retry.mark_connected(now)
+        elif not connected and self.retry.connected:
+            self.retry.mark_disconnected(now)
         input_ready = self._input_ready()
         state = self.retry.couch_state(adapter_ready=adapter_ready, input_ready=input_ready)
+        host_owned = self._host_reconnect_allowed()
+        outcome_unknown = self.active_connect_generation is not None and not host_owned and (
+            now - self.retry.attempt_started_at >= CONNECT_ATTEMPT_TIMEOUT_SEC
+            or self.retry.last_error == "awaiting_previous_host_connect"
+        )
+        passive_wait = not host_owned and not connected and self.active_connect_generation is None and not self.retry.needs_re_pair
+        if passive_wait and adapter_ready:
+            state = "off"
+        retry_phase = self.retry.retry_phase
+        if passive_wait:
+            retry_phase = "awaiting_peripheral" if self.reconnect_mode == "device" else "awaiting_reconnect_contract"
+        if outcome_unknown:
+            state = "connecting"
+            retry_phase = "awaiting_previous_host_connect"
         payload = {
-            "ok": adapter_ready and state != "needs_re-pair",
+            "ok": adapter_ready and state != "needs_re-pair" and self.reconnect_mode != "unknown" and not outcome_unknown,
             "state": state,
-            "retry_phase": self.retry.retry_phase,
+            "retry_phase": retry_phase,
+            "reconnect_mode": self.reconnect_mode,
+            "reconnect_owner": "host" if host_owned else self.reconnect_mode,
+            "connect_outcome_unknown": outcome_unknown,
             "connected": connected,
             "adapter_ready": adapter_ready,
             "device_present": self.retry.device_present,
@@ -508,8 +613,8 @@ class ControllerLinkSupervisor:
             "retry_index": self.retry.retry_index,
             "peripheral_asleep": self.retry.peripheral_asleep,
             "wake_detected": self.retry.wake_detected,
-            "next_attempt_at": time.time() + max(0.0, self.retry.next_attempt_at - now),
-            "last_error": self.retry.last_error,
+            "next_attempt_at": time.time() + max(0.0, self.retry.next_attempt_at - now) if host_owned else None,
+            "last_error": "awaiting_previous_host_connect" if outcome_unknown else ("reconnect_mode_unknown" if self.reconnect_mode == "unknown" else self.retry.last_error),
             "last_connected_at": self.last_connected_wall_at or None,
             "last_disconnect_at": self.last_disconnect_wall_at or None,
             "last_repair_at": self.last_repair_wall_at or None,
@@ -542,7 +647,13 @@ class ControllerLinkSupervisor:
         else:
             self._connected_tick_idle = 0
         now = time.monotonic()
-        if self.active_connect_generation is not None and now - self.retry.attempt_started_at >= CONNECT_ATTEMPT_TIMEOUT_SEC:
+        if now >= self.next_mode_refresh_at:
+            if self.device_props is None:
+                self._resolve_device()
+            self._refresh_reconnect_mode()
+        if not self._host_reconnect_allowed() and self.discovery_active:
+            self._stop_discovery()
+        if self._host_reconnect_allowed() and self.active_connect_generation is not None and now - self.retry.attempt_started_at >= CONNECT_ATTEMPT_TIMEOUT_SEC:
             self._cancel_connect()
         try:
             adapter_ready = self._adapter_powered()

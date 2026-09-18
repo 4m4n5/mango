@@ -201,9 +201,11 @@ If the Micro is powered off, Mango keeps the pad router waiting and the root
 `mango-controller-link` service owns Bluetooth reconnection. `pad-health:
 waiting for controller` is expected in that state; wake the controller normally
 (do not enter pairing mode) and it should grab the new `Pro Controller` event
-node without a stack restart. The wait state is indefinite; normal power-on uses
-an immediate retry burst followed by bounded asleep/maintenance probes. Exact
-probe cadence is implementation policy, not a viewer contract.
+node without a stack restart. Reconnection follows BlueZ's advertised
+`Input1.ReconnectMode`: `device` waits for the controller's incoming connection,
+without periodic host Connect or discovery; `host`/`any` allow bounded host
+retries. Unknown modes wait for authoritative metadata rather than guessing.
+The wait state is indefinite and never means pairing has been lost.
 
 Source and automated gates do not close physical Bluetooth behavior. The
 release gate remains five ordinary power-off/power-on reconnect cycles without
