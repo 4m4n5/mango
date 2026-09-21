@@ -28,3 +28,17 @@ titles:
         behavior_filename: The.Traitors.S02E04.1080p.AMZN.WEB-DL.Hindi.DDP5.1.ESub.x264-FuegoPaaji.mkv
       - episode_id: tt33347879:2:5
         behavior_filename: The.Traitors.S02E05.1080p.AMZN.WEB-DL.Hindi.DDP5.1.ESub.x264-FuegoPaaji.mkv
+      # Independently probed through the debrid playback endpoint: these exact
+      # sequential candidates contain Hindi E-AC-3 5.1 audio, English/Hindi
+      # subtitles where present, and 62–70 minute episode runtimes. Keep each
+      # filename exact: the provider also returns US/UK/AU/NZ editions.
+      - episode_id: tt33347879:2:6
+        behavior_filename: The.Traitors.S02E06.1080p.AMZN.WEB-DL.Hindi.DDP5.1.ESub.x264-FuegoPaaji.mkv
+      - episode_id: tt33347879:2:7
+        behavior_filename: The.Traitors.S02E07.4K-2160p.SDR.AMZN.WEB-DL.Hindi.DDP5.1.HEVC.x265-FuegoPaaji.Ms.mkv
+      - episode_id: tt33347879:2:8
+        behavior_filename: The.Traitors.S02E08.4K-2160p.SDR.AMZN.WEB-DL.Hindi.DDP5.1.HEVC.x265-FuegoPaaji.Ms.mkv
+      - episode_id: tt33347879:2:9
+        behavior_filename: The.Traitors.S02E09.4K-2160p.SDR.AMZN.WEB-DL.Hindi.DDP5.1.HEVC.x265-FuegoPaaji.mkv
+      - episode_id: tt33347879:2:10
+        behavior_filename: The.Traitors.S02E10.4K-2160p.SDR.AMZN.WEB-DL.Hindi.DDP5.1.HEVC.x265-FuegoPaaji.Ms.mkv
