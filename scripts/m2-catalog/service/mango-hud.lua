@@ -59,9 +59,11 @@ local C_ACCENT = "&H0020A0E8&" -- Mango #e8a020, state only
 local C_ERROR = "&H00656AEB&"
 local C_INK = "&H000E0C0B&"
 local C_BLACK = "&H00000000&"
-local A_CARD = "&H48&"
-local A_PILL = "&HDC&"
-local A_PILL_ON = "&H22&"
+-- Keep the glass dark enough that copy remains legible over bright video, while
+-- the chips are still distinguishable at rest and during an active A/V change.
+local A_CARD = "&H24&"
+local A_PILL = "&HC0&"
+local A_PILL_ON = "&H18&"
 local A_TRACK = "&HC0&"
 local A_TICK_OFF = "&HC8&"
 local A_FOCUS = "&HD4&"
@@ -161,8 +163,8 @@ end
 
 local function text_ev(an, x, y, size, colour, text, bold, extra)
   return string.format(
-    "{\\an%d\\pos(%d,%d)\\fnDejaVu Sans\\fs%d\\1c%s\\3c&H000000&\\3a&H58&\\bord1.2\\shad0%s%s\\q2}%s",
-    an, x, y, size, colour, bold and "\\b1" or "", extra or "", ass_escape(text)
+    "{\\an%d\\pos(%d,%d)\\fnDejaVu Sans\\fs%d\\1c%s\\b0\\bord0\\shad0%s\\q2}%s",
+    an, x, y, size, colour, extra or "", ass_escape(text)
   )
 end
 
