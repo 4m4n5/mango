@@ -124,6 +124,13 @@ CREATE INDEX IF NOT EXISTS idx_profile_watch_progress_updated
   ON profile_watch_progress(profile_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_profile_watch_progress_type
   ON profile_watch_progress(profile_id, type, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS profile_continue_abandonments (
+  profile_id TEXT NOT NULL,
+  progress_key TEXT NOT NULL,
+  abandoned_at INTEGER NOT NULL,
+  PRIMARY KEY(profile_id, progress_key)
+);
 `);
   const migrated = db.prepare('SELECT 1 FROM progress_migrations WHERE version = ?')
     .get(PROFILE_PROGRESS_SCHEMA_VERSION);
@@ -217,6 +224,12 @@ DELETE FROM profile_watch_progress WHERE profile_id = ? AND progress_key = ?
     }
     return { progress: null, library_watch_persisted: libraryWatchPersisted };
   }
+
+  // A new progress update is an explicit return to the title, restoring a
+  // title previously hidden with Abandon without discarding its history.
+  openDb().prepare(`
+DELETE FROM profile_continue_abandonments WHERE profile_id = ? AND progress_key = ?
+`).run(profileId, key);
 
   openDb().prepare(`
 INSERT INTO profile_watch_progress (
@@ -321,11 +334,19 @@ export function listContinueItems(
   const contentType = tab === 'series' ? 'series' : 'movie';
   const profileId = resolveProgressProfileId(options.profile_id);
   const rows = openDb().prepare(`
-SELECT profile_id, progress_key, type, id, play_id, title, poster,
-       position_sec, duration_sec, progress_pct, updated_at
+SELECT profile_watch_progress.profile_id, profile_watch_progress.progress_key,
+       profile_watch_progress.type, profile_watch_progress.id,
+       profile_watch_progress.play_id, profile_watch_progress.title,
+       profile_watch_progress.poster, profile_watch_progress.position_sec,
+       profile_watch_progress.duration_sec, profile_watch_progress.progress_pct,
+       profile_watch_progress.updated_at
 FROM profile_watch_progress
-WHERE profile_id = ?
-  AND type = ?
+LEFT JOIN profile_continue_abandonments AS abandonments
+  ON abandonments.profile_id = profile_watch_progress.profile_id
+  AND abandonments.progress_key = profile_watch_progress.progress_key
+WHERE profile_watch_progress.profile_id = ?
+  AND profile_watch_progress.type = ?
+  AND abandonments.progress_key IS NULL
   AND progress_pct < ?
   AND (position_sec >= ? OR progress_pct >= ?)
 ORDER BY updated_at DESC
@@ -355,6 +376,21 @@ LIMIT ?
       progress_pct: row.progress_pct,
     },
   }));
+}
+
+/** Hide a movie or whole series from Continue while retaining watch progress. */
+export function abandonContinueTitle(
+  type: string,
+  id: string,
+  options: { profile_id?: string | null } = {},
+): void {
+  const profileId = resolveProgressProfileId(options.profile_id);
+  const key = progressTitleKey(type, id);
+  openDb().prepare(`
+INSERT INTO profile_continue_abandonments (profile_id, progress_key, abandoned_at)
+VALUES (?, ?, ?)
+ON CONFLICT(profile_id, progress_key) DO UPDATE SET abandoned_at = excluded.abandoned_at
+`).run(profileId, key, Date.now());
 }
 
 export function deleteWatchProgress(

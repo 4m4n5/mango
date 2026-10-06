@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { CatalogCore, CatalogError, normalizeResourceId } from './core.js';
+import { CatalogCore, CatalogError, normalizeResourceId, vodUtilityProfileId } from './core.js';
 import { couchPlayFailureMessage, publicPlayFailureDetails } from './catalog-errors.js';
 import { publicYoutubePlayFailureDetails } from './youtube/playback.js';
 import { isMpvActive, playUrl } from './mpv.js';
@@ -51,7 +51,7 @@ import {
 import { assignVerifiedTitleToBestRail } from './playability/rail-pool-retheme.js';
 import { isFirstTimeVerifiedPromotion } from './play-verify-state.js';
 import { deriveLibraryVerifyState } from './voice/external.js';
-import { initProgressDb, getWatchProgressForTitle } from './progress/db.js';
+import { abandonContinueTitle, initProgressDb, getWatchProgressForTitle } from './progress/db.js';
 import {
   clearLibraryContext,
   clearLibraryFeedback,
@@ -3430,6 +3430,32 @@ async function main(): Promise<void> {
           200,
           await core.continueRailItems(tab, parseExpectedPersonalization(url.searchParams) ?? undefined),
         );
+        return;
+      }
+
+      if (req.method === 'DELETE' && parts.length === 2 && parts[0] === 'rails' && parts[1] === 'continue') {
+        const type = url.searchParams.get('type')?.trim() ?? '';
+        const id = url.searchParams.get('id')?.trim() ?? '';
+        if ((type !== 'movie' && type !== 'series') || !id) {
+          throw new CatalogError(400, 'DELETE /rails/continue requires a movie or series type and id');
+        }
+        const expectedPersonalization = parseExpectedPersonalization(url.searchParams);
+        const personalization = getPersonalizationState();
+        assertExpectedPersonalization(
+          expectedPersonalization,
+          personalization,
+          'before Continue title abandoned',
+        );
+        const profileId = vodUtilityProfileId(
+          type === 'series' ? 'series' : 'movies',
+          personalization.active_profile_id,
+        );
+        abandonContinueTitle(type, id, { profile_id: profileId });
+        sendJson(res, 200, {
+          ok: true,
+          profile_id: profileId,
+          personalization_updated_at: personalization.updated_at,
+        });
         return;
       }
 

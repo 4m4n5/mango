@@ -5,6 +5,7 @@ import {
   loadYoutubeDetailCards,
   loadNextPrompt,
   loadRailRelatedCards,
+  abandonContinueCard,
   playCard,
   notInterestedCard,
   isNotInterestedCard,
@@ -75,6 +76,7 @@ export interface DetailCallbacks {
   onClose: (origin: DetailOriginContext) => void;
   onStatus: LauncherStatusReporter;
   onSavedChanged?: (card: ContentCard) => void;
+  onAbandoned?: (card: ContentCard) => void;
   onPlayed?: (card: ContentCard, result: PlayResult) => void;
   isSaved?: (card: ContentCard) => boolean;
   onConfirmedUnavailable?: (card: ContentCard) => void;
@@ -111,6 +113,7 @@ export class DetailController {
   private browseTab: BrowseTab = "movies";
   private saved = false;
   private notInterested = false;
+  private abandonVisible = false;
   private relatedButtons: HTMLButtonElement[] = [];
   private homeVisibleCards: ContentCard[] = [];
   private relatedLoadToken = 0;
@@ -134,6 +137,7 @@ export class DetailController {
     private readonly saveButton: HTMLButtonElement,
     private readonly rateButton: HTMLButtonElement,
     private readonly notInterestedButton: HTMLButtonElement,
+    private readonly abandonButton: HTMLButtonElement,
     private readonly streamsWrap: HTMLElement,
     private readonly streamList: HTMLElement,
     private readonly episodesWrap: HTMLElement,
@@ -148,6 +152,7 @@ export class DetailController {
     this.playButton.addEventListener("click", () => void this.play());
     this.saveButton.addEventListener("click", () => void this.toggleSaved());
     this.notInterestedButton.addEventListener("click", () => void this.markNotInterested());
+    this.abandonButton.addEventListener("click", () => void this.abandon());
     this.ratingSheet.connectNotForMe(() => void this.markNotInterested());
   }
 
@@ -293,6 +298,9 @@ export class DetailController {
     this.origin = origin;
     this.saved = saved;
     this.notInterested = false;
+    this.abandonVisible = card.source === "continue-watching";
+    this.abandonButton.hidden = !this.abandonVisible;
+    this.abandonButton.disabled = !this.abandonVisible;
     this.setNotInterestedLabel("not for me");
     this.setNotInterestedDisabled(true);
     this.homeVisibleCards = homeVisible;
@@ -663,6 +671,7 @@ export class DetailController {
       this.playButton,
       this.saveButton,
       this.rateButton,
+      this.abandonButton,
     ].filter((control): control is HTMLButtonElement => !control.hidden);
   }
 
@@ -1391,6 +1400,32 @@ export class DetailController {
       );
     } finally {
       this.saveButton.disabled = !this.canSaveCard(this.card);
+    }
+  }
+
+  private async abandon(): Promise<void> {
+    const card = this.card;
+    const owner = this.personalizationOwner;
+    if (!card || !owner || !this.abandonVisible) {
+      return;
+    }
+    this.abandonButton.disabled = true;
+    try {
+      await abandonContinueCard(card, owner);
+      showToast("removed from Continue Watching.", { tone: "success" });
+      this.hide();
+      this.callbacks.onAbandoned?.(card);
+    } catch (error) {
+      showToast(
+        error instanceof CatalogOwnershipChangedError
+          ? "profile changed — reopen this title"
+          : "couldn't remove from Continue Watching",
+        { tone: error instanceof CatalogOwnershipChangedError ? "warning" : "error" },
+      );
+    } finally {
+      if (this.card === card) {
+        this.abandonButton.disabled = false;
+      }
     }
   }
 

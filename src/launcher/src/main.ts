@@ -103,6 +103,7 @@ const detailPlay = mustGet<HTMLButtonElement>("detail-play");
 const detailSave = mustGet<HTMLButtonElement>("detail-save");
 const detailRate = mustGet<HTMLButtonElement>("detail-rate");
 const detailNotInterested = mustGet<HTMLButtonElement>("detail-not-interested");
+const detailAbandon = mustGet<HTMLButtonElement>("detail-abandon");
 const detailStreams = mustGet<HTMLElement>("detail-streams");
 const detailStreamList = mustGet<HTMLElement>("detail-stream-list");
 const detailEpisodes = mustGet<HTMLElement>("detail-episodes");
@@ -274,6 +275,7 @@ const detail = new DetailController(
   detailSave,
   detailRate,
   detailNotInterested,
+  detailAbandon,
   detailStreams,
   detailStreamList,
   detailEpisodes,
@@ -287,6 +289,9 @@ const detail = new DetailController(
     onClose: restoreFromDetail,
     onStatus: setStatus,
     onSavedChanged: (card) => void reloadSavedAndCatalog(tabForCard(card, activeBrowseTab)),
+    onAbandoned: (card) => {
+      void refreshContinueRail(tabForCard(card, activeBrowseTab)).catch(() => void loadCatalog());
+    },
     isSaved: (card) => savedKeys.has(cardSavedKey(card)),
     onPlayed: (card, result) => {
       if (result.first_time_verified) {

@@ -19,6 +19,7 @@ import {
 } from '../library/db.js';
 import { resetJournalForTests } from '../companion/journal.js';
 import {
+  abandonContinueTitle,
   getWatchProgressForTitle,
   initProgressDb,
   listContinueItems,
@@ -229,6 +230,46 @@ test('listContinueItems returns multiple titles', async () => {
   delete process.env.MANGO_LIBRARY_DB_PATH;
   delete process.env.MANGO_USER_PINS_PATH;
   resetLibraryDbForTests();
+});
+
+test('abandon hides a title from Continue without deleting progress, and a later update restores it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-progress-abandon-'));
+  process.env.MANGO_PROGRESS_DB_PATH = join(dir, 'progress.db');
+  process.env.MANGO_LIBRARY_DB_PATH = join(dir, 'library.db');
+  process.env.MANGO_USER_PINS_PATH = join(dir, 'user-pins.json');
+  resetProgressDbForTests();
+  resetLibraryDbForTests();
+  try {
+    await initProgressDb();
+    upsertWatchProgress({
+      type: 'series',
+      id: 'tt1234567:1:2',
+      play_id: 'tt1234567:1:2',
+      title: 'Abandoned series',
+      position_sec: 600,
+      duration_sec: 3_000,
+    });
+
+    abandonContinueTitle('series', 'tt1234567');
+    assert.equal(listContinueItems('series').length, 0);
+    assert.equal(getWatchProgressForTitle('series', 'tt1234567')?.position_sec, 600);
+
+    upsertWatchProgress({
+      type: 'series',
+      id: 'tt1234567:1:3',
+      play_id: 'tt1234567:1:3',
+      position_sec: 900,
+      duration_sec: 3_000,
+    });
+    assert.equal(listContinueItems('series').map((item) => item.id).join(','), 'tt1234567');
+  } finally {
+    resetProgressDbForTests();
+    resetLibraryDbForTests();
+    delete process.env.MANGO_PROGRESS_DB_PATH;
+    delete process.env.MANGO_LIBRARY_DB_PATH;
+    delete process.env.MANGO_USER_PINS_PATH;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('Continue and exact resume are isolated per profile and a new profile starts clean', async () => {

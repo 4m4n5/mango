@@ -592,6 +592,24 @@ export async function loadContinueRail(
   };
 }
 
+export async function abandonContinueCard(
+  card: ContentCard,
+  expectedOwner: PersonalizationOwner,
+): Promise<void> {
+  if (card.type !== "movie" && card.type !== "series") {
+    throw new Error("only movies and series can be abandoned from Continue");
+  }
+  const params = personalizationExpectationParams(expectedOwner);
+  params.set("type", card.type);
+  params.set("id", card.id);
+  await fetchOwnedCatalogJson(
+    `/api/catalog/rails/continue?${params.toString()}`,
+    { method: "DELETE" },
+    5000,
+    expectedOwner,
+  );
+}
+
 export async function loadMeta(card: ContentCard): Promise<CatalogMeta> {
   if (card.source === "youtube" || card.type.startsWith("youtube_")) {
     const kind = card.kind || youtubeKindFromType(card.type);

@@ -2572,16 +2572,23 @@ export class CatalogCore {
       options.shuffleSeed ? VOD_CONTINUE_SHUFFLE_POOL : undefined,
       { profile_id: profileId },
     );
+    // Keep the two freshest playback updates anchored. Only the rest is dealt
+    // anew with each page-load shuffle, preserving immediate continuity.
+    const pinned = candidates.slice(0, 2);
+    const remainder = candidates.slice(2);
     const selected = options.shuffleSeed
-      ? dealVodUtilityRail(
-        candidates,
-        VOD_UTILITY_DISPLAY_LIMIT,
-        `${options.shuffleSeed}:continue`,
-        (candidate) => (
-          recencyWeight(candidate.activity_at, VOD_CONTINUE_RECENCY_HALF_LIFE_DAYS, started)
-          * vodUtilityProgressWeight(candidate.progress.progress_pct)
+      ? [
+        ...pinned,
+        ...dealVodUtilityRail(
+          remainder,
+          Math.max(0, VOD_UTILITY_DISPLAY_LIMIT - pinned.length),
+          `${options.shuffleSeed}:continue`,
+          (candidate) => (
+            recencyWeight(candidate.activity_at, VOD_CONTINUE_RECENCY_HALF_LIFE_DAYS, started)
+            * vodUtilityProgressWeight(candidate.progress.progress_pct)
+          ),
         ),
-      )
+      ]
       : candidates.slice(0, VOD_UTILITY_DISPLAY_LIMIT);
     const items = selected.map((candidate) => ({
       id: candidate.id,
