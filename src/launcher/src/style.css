@@ -2972,9 +2972,7 @@ h1 {
   width: 2.4rem;
   height: 2.55rem;
   overflow: hidden;
-  font-family: "Noto Color Emoji", "Apple Color Emoji", sans-serif;
-  font-size: 2.15rem;
-  line-height: 1;
+  color: currentColor;
 }
 
 .rating-mark-empty,
@@ -3003,9 +3001,20 @@ h1 {
   display: block;
   width: 2.4rem;
   height: 2.55rem;
-  line-height: 2.55rem;
-  text-align: center;
   pointer-events: none;
+}
+
+.rating-mark-glyph .mango-icon {
+  width: 100%;
+  height: 100%;
+}
+
+.rating-marks[data-axis="fire"] .rating-mark-fill {
+  color: #ff9b22;
+}
+
+.rating-marks[data-axis="water"] .rating-mark-fill {
+  color: #57b9ef;
 }
 
 .rating-marks--compact {

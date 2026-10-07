@@ -1,7 +1,7 @@
 import type { ContentCard } from "./types";
 import { recommendationAttributionPayload } from "./recommendation-attribution";
 import { showToast } from "./toast";
-import { setControlLabel } from "./icons";
+import { launcherIcon, setControlLabel } from "./icons";
 import {
   personalizationExpectationBody,
   personalizationExpectationParams,
@@ -86,9 +86,13 @@ function ratingLabel(value: number | null): string {
   return value === null ? "Not set" : `${value.toFixed(1)} out of 5`;
 }
 
+export function ratingMarkIconName(axis: Axis): "flame" | "waves" {
+  return axis === "fire" ? "flame" : "waves";
+}
+
 /**
- * Five familiar emoji marks, matching the household rating sheet: saturated
- * flame/wave fill, grayscale remainder, and a clipped foreground for half marks.
+ * Five shared Mango glyphs with a clipped foreground for half marks. This keeps
+ * the Fire/Water scale in the same visual canon as the detail action button.
  */
 export function renderRatingMarks(
   target: HTMLElement,
@@ -99,7 +103,7 @@ export function renderRatingMarks(
   target.replaceChildren();
   target.classList.toggle("rating-marks--compact", compact);
   target.dataset.axis = axis;
-  const symbol = axis === "fire" ? "🔥" : "🌊";
+  const iconName = ratingMarkIconName(axis);
   for (let index = 0; index < 5; index += 1) {
     const markValue = value === null ? 0 : Math.max(0, Math.min(1, value - index));
     const mark = document.createElement("span");
@@ -109,7 +113,7 @@ export function renderRatingMarks(
     empty.className = "rating-mark-empty";
     const emptyGlyph = document.createElement("span");
     emptyGlyph.className = "rating-mark-glyph";
-    emptyGlyph.textContent = symbol;
+    emptyGlyph.append(launcherIcon(iconName));
     empty.append(emptyGlyph);
     const fill = document.createElement("span");
     fill.className = "rating-mark-fill";
@@ -118,7 +122,7 @@ export function renderRatingMarks(
     fill.style.width = `${markValue * 100}%`;
     const fillGlyph = document.createElement("span");
     fillGlyph.className = "rating-mark-glyph";
-    fillGlyph.textContent = symbol;
+    fillGlyph.append(launcherIcon(iconName));
     fill.append(fillGlyph);
     mark.append(empty, fill);
     target.append(mark);

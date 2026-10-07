@@ -83,7 +83,7 @@
                   <span class="detail-button-label">not for me</span>
                 </button>
                 <button id="detail-abandon" class="detail-button" type="button" hidden>
-                  <span class="detail-button-icon" data-icon="ghost" aria-hidden="true"></span>
+                  <span class="detail-button-icon" data-icon="archive" aria-hidden="true"></span>
                   <span class="detail-button-label">abandon</span>
                 </button>
               </div>
@@ -145,6 +145,7 @@
           </p>
           <div class="rating-sheet-actions">
             <button id="rating-save" class="detail-button detail-button--primary" type="button" disabled>
+              <span class="detail-button-icon" data-icon="star" aria-hidden="true"></span>
               <span class="detail-button-label">save</span>
             </button>
             <button id="rating-not-interested" class="detail-button detail-button--quiet" type="button">
@@ -165,7 +166,10 @@
               <span class="detail-button-icon" data-icon="play" data-icon-outline="true" aria-hidden="true"></span>
               <span class="detail-button-label">play next</span>
             </button>
-            <button id="next-prompt-dismiss" class="detail-button" type="button">not now</button>
+            <button id="next-prompt-dismiss" class="detail-button" type="button">
+              <span class="detail-button-icon" data-icon="clock" aria-hidden="true"></span>
+              <span class="detail-button-label">not now</span>
+            </button>
           </div>
         </div>
       </section>

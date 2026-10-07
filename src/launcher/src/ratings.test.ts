@@ -4,6 +4,7 @@ import {
   initialRatingAxisValue,
   NEUTRAL_FIRE_WATER_RATING,
   nudgeHalfStep,
+  ratingMarkIconName,
 } from "./ratings";
 import { LAUNCHER_ICON_PATHS } from "./icons";
 
@@ -21,6 +22,13 @@ test("focused-axis Left/Right nudges 0.5 from neutral without an extra confirm",
   assert.equal(nudgeHalfStep(0, -1), 0);
   assert.equal(nudgeHalfStep(5, 1), 5);
   assert.equal(nudgeHalfStep(2.5, -1), 2);
+});
+
+test("Fire and Water rating marks use the shared Mango glyph family", () => {
+  assert.equal(ratingMarkIconName("fire"), "flame");
+  assert.equal(ratingMarkIconName("water"), "waves");
+  assert.ok(LAUNCHER_ICON_PATHS.flame.length > 0);
+  assert.ok(LAUNCHER_ICON_PATHS.waves.length > 0);
 });
 
 test("Detail play and Search play share the same triangle path", () => {

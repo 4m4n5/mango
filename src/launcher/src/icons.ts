@@ -15,7 +15,8 @@ export type LauncherIconName =
   | "star"
   | "flame"
   | "waves"
-  | "eye-off";
+  | "eye-off"
+  | "archive";
 
 export const LAUNCHER_ICON_PATHS: Record<LauncherIconName, string[]> = {
   search: ["M11 4a7 7 0 1 0 0 14a7 7 0 0 0 0-14", "M16 16l4 4"],
@@ -37,6 +38,11 @@ export const LAUNCHER_ICON_PATHS: Record<LauncherIconName, string[]> = {
     "M14.084 14.158a3 3 0 0 1-4.242-4.242",
     "M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143",
     "m2 2 20 20",
+  ],
+  archive: [
+    "M4 8h16v12H4z",
+    "M3 4h18v4H3z",
+    "M10 12h4",
   ],
 };
 
