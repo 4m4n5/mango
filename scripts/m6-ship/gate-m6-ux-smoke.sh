@@ -160,7 +160,8 @@ for toast_contract in ("ToastTone", "toastPolicy", 'role: tone === "error"', 'ar
     if toast_contract not in toast:
         raise SystemExit(f"toast.ts missing typed severity/live-region contract: {toast_contract}")
 for rating_contract in (
-    'axis === "fire" ? "🔥" : "🌊"',
+    'return axis === "fire" ? "flame" : "waves"',
+    "launcherIcon(iconName)",
     "index < 5",
     "markValue * 100",
     'value.toFixed(1)',
@@ -169,7 +170,7 @@ for rating_contract in (
     'this.focus === "fire" || this.focus === "water"',
 ):
     if rating_contract not in ratings:
-        raise SystemExit(f"ratings.ts missing household emoji rating contract: {rating_contract}")
+        raise SystemExit(f"ratings.ts missing canonical Mango glyph contract: {rating_contract}")
 if "this.adjusting" in ratings:
     raise SystemExit("ratings.ts still requires B to enter an adjust mode")
 if "from \"./icons\"" not in search or "launcherIcon" not in search:
